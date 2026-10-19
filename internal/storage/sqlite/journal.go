@@ -45,6 +45,25 @@ func (b *Backend) Append(ctx context.Context, commit storage.Commit) (domain.Eve
 		return 0, storage.ErrRunClosed
 	}
 
+	for _, message := range commit.Messages {
+		if message.RunID != commit.RunID || message.ID == "" || message.Role != domain.RoleUser {
+			return 0, storage.ErrCommitInvalid
+		}
+		var sessionID string
+		if err := tx.QueryRowContext(ctx, "SELECT session_id FROM runs WHERE id = ?", commit.RunID).Scan(&sessionID); err != nil {
+			return 0, err
+		}
+		if string(message.SessionID) != sessionID {
+			return 0, storage.ErrCommitInvalid
+		}
+		message.WorkSeq, err = currentMessageWorkSeq(ctx, tx, message.SessionID)
+		if err != nil {
+			return 0, err
+		}
+		if err := sqliteInsertAdmissionMessage(ctx, tx, message); err != nil {
+			return 0, err
+		}
+	}
 	var maxSeq sql.NullInt64
 	if err := tx.QueryRowContext(ctx,
 		`SELECT MAX(seq) FROM run_events WHERE run_id = ?`, commit.RunID).Scan(&maxSeq); err != nil {

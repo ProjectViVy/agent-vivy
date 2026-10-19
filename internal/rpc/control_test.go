@@ -800,19 +800,18 @@ func TestControlShellStartIsGovernedAndStrict(t *testing.T) {
 	}
 	historyJSON, _ := json.Marshal(history)
 	if !strings.Contains(string(historyJSON), `"tool_name":"bash"`) ||
-		!strings.Contains(string(historyJSON), "bash script [redacted") ||
-		strings.Contains(string(historyJSON), "printf rpc_shell_ok") {
-		t.Fatalf("sanitized shell history = %s", historyJSON)
+		!strings.Contains(string(historyJSON), "printf rpc_shell_ok") {
+		t.Fatalf("faithful shell history = %s", historyJSON)
 	}
 }
 
-func TestMessageProjectionNeverExposesOrdinaryBashArguments(t *testing.T) {
+func TestMessageProjectionPreservesAuthorizedBashPreview(t *testing.T) {
 	result := toMessageResult(domain.Message{
 		ToolName: tools.BashName, ToolCallID: "call_model_bash",
 		ToolArgs: json.RawMessage(`{"command":"echo raw-model-command"}`),
 	}, false)
-	if result.ToolName != tools.BashName || result.ToolPreview != "" {
-		t.Fatalf("ordinary bash projection leaked preview: %+v", result)
+	if result.ToolName != tools.BashName || result.ToolPreview != "echo raw-model-command" {
+		t.Fatalf("ordinary bash projection changed preview: %+v", result)
 	}
 }
 
@@ -1980,7 +1979,7 @@ func TestMCPSettingsCRUDAndProbe(t *testing.T) {
 	}
 	catalog.resourcesErr = nil
 	catalog.resourcesErr = errString("remote\x1b[31m\u009bfailure token sk-abcdefghijklmnop")
-	if _, rpcErr := callControl(t, handler, "settings/mcp/resources", map[string]any{"name": "docs"}); rpcErr == nil || strings.ContainsAny(rpcErr.Message, "\x1b\u009b") || strings.Contains(rpcErr.Message, "sk-abcdefghijklmnop") {
+	if _, rpcErr := callControl(t, handler, "settings/mcp/resources", map[string]any{"name": "docs"}); rpcErr == nil || strings.ContainsAny(rpcErr.Message, "\x1b\u009b") || !strings.Contains(rpcErr.Message, "sk-abcdefghijklmnop") {
 		t.Fatalf("unsafe resource error = %v", rpcErr)
 	}
 	catalog.resourcesErr = nil

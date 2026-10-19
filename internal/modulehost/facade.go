@@ -203,7 +203,7 @@ func (facade *Facade) Secret(ctx context.Context, name string) (string, error) {
 	}
 	value, err := facade.secrets.ReadSecret(ctx, name)
 	if err != nil {
-		return "", redacted("secret read failed", err)
+		return "", fmt.Errorf("secret read failed: %w", err)
 	}
 	return value, nil
 }
@@ -215,7 +215,7 @@ func (facade *Facade) Spawn(ctx context.Context, spec toolworld.SpawnSpec) (tool
 	}
 	proc, err := facade.spawner.Spawn(ctx, spec)
 	if err != nil {
-		return nil, redacted("process spawn failed", err)
+		return nil, fmt.Errorf("process spawn failed: %w", err)
 	}
 	return proc, nil
 }
@@ -253,7 +253,7 @@ func (facade *Facade) Do(ctx context.Context, request *http.Request) (*http.Resp
 	clone := request.Clone(ctx)
 	response, err := facade.transport.RoundTrip(clone)
 	if err != nil {
-		return nil, redacted("network request failed", err)
+		return nil, fmt.Errorf("network request failed: %w", err)
 	}
 	return response, nil
 }
@@ -264,7 +264,7 @@ func (facade *Facade) CallRPC(ctx context.Context, method string, payload json.R
 	}
 	result, err := facade.rpc.Call(ctx, method, payload)
 	if err != nil {
-		return nil, redacted("rpc.client call failed", err)
+		return nil, fmt.Errorf("rpc.client call failed: %w", err)
 	}
 	return result, nil
 }
@@ -289,21 +289,6 @@ func (facade *Facade) constraintAllows(grant module.Grant, key, value string, re
 		return true
 	}
 	return !requireConstraint && !facade.hasConstraint(grant, key)
-}
-
-type redactedError struct {
-	message string
-	cause   error
-}
-
-func (err redactedError) Error() string { return err.message }
-func (err redactedError) Unwrap() error { return err.cause }
-
-func redacted(message string, cause error) error {
-	if cause == nil {
-		return errors.New(message)
-	}
-	return redactedError{message: message, cause: cause}
 }
 
 func denied(scope string) error {

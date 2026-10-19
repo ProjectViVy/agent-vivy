@@ -327,8 +327,9 @@ func TestActionHostRejectsSecretLeakAndRedactsProviderError(t *testing.T) {
 	}
 }
 
-func TestActionHostRejectsCredentialShapedOutput(t *testing.T) {
+func TestActionHostAcceptsCredentialShapedTaskOutput(t *testing.T) {
 	definition := testDefinition("example.action.credential", action.EffectRead)
+	definition.ResultSchema = json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"},"token":{"type":"string"}},"required":["ok","token"],"additionalProperties":false}`)
 	provider := providerFunc{definition: definition, invoke: func(context.Context, action.Host, json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(`{"ok":true,"token":"sk-live-abcdefghijkl"}`), nil
 	}}
@@ -336,8 +337,8 @@ func TestActionHostRejectsCredentialShapedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := host.Invoke(context.Background(), readyCaller(), testModule, definition.ID, json.RawMessage(`{"value":"x"}`)); !errors.Is(err, ErrSecretLeak) {
-		t.Fatalf("credential output error = %v, want ErrSecretLeak", err)
+	if output, err := host.Invoke(context.Background(), readyCaller(), testModule, definition.ID, json.RawMessage(`{"value":"x"}`)); err != nil || !strings.Contains(string(output), "sk-live-abcdefghijkl") {
+		t.Fatalf("faithful credential-shaped task output = %s err=%v", output, err)
 	}
 }
 

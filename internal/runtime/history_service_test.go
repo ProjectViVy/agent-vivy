@@ -14,7 +14,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func TestHistoryProjectionRedactsBeforeMatching(t *testing.T) {
+func TestHistoryProjectionPreservesTextForMatching(t *testing.T) {
 	candidate := storage.HistoryCandidate{
 		Ref:    domain.SourceRef{SessionID: "B", MessageID: "msg-user", Kind: string(domain.SourceKindMessage), CreatedAt: 1},
 		Author: "user",
@@ -24,14 +24,14 @@ func TestHistoryProjectionRedactsBeforeMatching(t *testing.T) {
 	if !ok {
 		t.Fatal("message candidate was not projected")
 	}
-	if strings.Contains(item.Text, "sk-live-abcdefghijkl") || strings.Contains(item.Text, "alice@example.com") {
+	if item.Text != candidate.Text {
 		t.Fatalf("history projection leaked sensitive text: %q", item.Text)
 	}
-	if !item.Redacted {
-		t.Fatal("history projection did not mark redaction")
+	if item.Redacted {
+		t.Fatal("history projection unexpectedly marked redaction")
 	}
-	if strings.Contains(strings.ToLower(item.Text), "sk-live-abcdefghijkl") {
-		t.Fatal("secret-only query could match before redaction")
+	if !strings.Contains(strings.ToLower(item.Text), "sk-live-abcdefghijkl") {
+		t.Fatal("authorized literal query could not match")
 	}
 }
 
@@ -85,8 +85,8 @@ func TestHistoryToolEventProjectionUsesSafeFields(t *testing.T) {
 	if !ok || item.Ref.Kind != string(domain.SourceKindToolCall) {
 		t.Fatalf("tool event projection = %#v, ok=%v", item, ok)
 	}
-	if strings.Contains(item.Text, "sk-live-abcdefghijkl") || !item.Redacted {
-		t.Fatalf("tool arguments were not sanitized: %#v", item)
+	if !strings.Contains(item.Text, "sk-live-abcdefghijkl") || item.Redacted {
+		t.Fatalf("authorized tool arguments changed: %#v", item)
 	}
 }
 
@@ -213,11 +213,11 @@ func (f *historyFixture) ReadAsRun(t *testing.T, request domain.HistoryReadReque
 	return page
 }
 
-func TestHistoryFixtureSearchRedactsBeforeMatching(t *testing.T) {
+func TestHistoryFixtureSearchMatchesAuthorizedSyntheticText(t *testing.T) {
 	f := newHistoryFixture(t)
 	page := f.QueryAsRun(t, domain.HistorySearchRequest{Query: historySecretToken})
-	if len(page.Items) != 0 {
-		t.Fatalf("redaction happened after matching: %#v", page.Items)
+	if len(page.Items) != 1 || !strings.Contains(page.Items[0].Text, historySecretToken) {
+		t.Fatalf("authorized literal query lost data: %#v", page.Items)
 	}
 	page = f.QueryAsRun(t, domain.HistorySearchRequest{Query: "release notes"})
 	if len(page.Items) != 1 || page.Items[0].Ref.MessageID != "a-safe" {
@@ -273,8 +273,8 @@ func TestHistoryFixtureEventProjectionIsSanitized(t *testing.T) {
 		t.Fatalf("tool.requested projection = %#v", page.Items)
 	}
 	toolCall := page.Items[0]
-	if toolCall.Ref.Kind != string(domain.SourceKindToolCall) || !toolCall.Redacted || strings.Contains(toolCall.Text, historySecretToken) {
-		t.Fatalf("tool arguments were not sanitized: %#v", toolCall)
+	if toolCall.Ref.Kind != string(domain.SourceKindToolCall) || toolCall.Redacted || !strings.Contains(toolCall.Text, historySecretToken) {
+		t.Fatalf("authorized tool arguments changed: %#v", toolCall)
 	}
 	page = search("compaction summary")
 	if len(page.Items) != 1 || page.Items[0].Text != "compaction summary: 120 -> 30 tokens" {
@@ -288,8 +288,8 @@ func TestHistoryFixtureEventProjectionIsSanitized(t *testing.T) {
 		t.Fatalf("legacy compaction fabricated token counts: %#v", page.Items[0])
 	}
 	page = search(historySecretToken)
-	if len(page.Items) != 0 {
-		t.Fatalf("redacted tool arguments remained searchable: %#v", page.Items)
+	if len(page.Items) != 1 || !strings.Contains(page.Items[0].Text, historySecretToken) {
+		t.Fatalf("authorized arguments not searchable: %#v", page.Items)
 	}
 	page = search("tool_result")
 	for _, item := range page.Items {

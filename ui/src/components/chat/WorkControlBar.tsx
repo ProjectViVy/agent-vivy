@@ -4,8 +4,29 @@ import { useVivyStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { RecoverableFailure } from '@/components/feedback/RecoverableError';
+import { classifyFailureMessage } from '@/lib/failure';
 import { useTranslation } from '@/i18n';
 import { PlanReview } from './PlanReview';
+
+// 工作状态失败不是一次 Run 的失败：复用共享失败分类的说明与恢复动作，但不沿用
+// Run 的标题和「这不是后端连接问题」提示。
+function WorkControlFailure({ text, busy, onRetry, className = 'mx-auto max-w-3xl' }: {
+  text: string; busy: boolean; onRetry: () => void; className?: string;
+}) {
+  const { t } = useTranslation();
+  const failure = classifyFailureMessage(text);
+  return (
+    <RecoverableFailure
+      compact
+      className={className}
+      failure={{ ...failure, titleKey: 'errors.workControlTitle', hintKey: undefined }}
+      onRetry={onRetry}
+      retryBusy={busy}
+      retryLabel={t('workControl.refresh')}
+    />
+  );
+}
 
 export function WorkControlBar({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation();
@@ -14,6 +35,8 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
   const error = useVivyStore((state) => state.workError);
   const busy = useVivyStore((state) => state.workBusy);
   const loadWork = useVivyStore((state) => state.loadWork);
+  const messagesPhase = useVivyStore((state) => state.messagesPhase);
+  const messageCount = useVivyStore((state) => state.messages.length);
   const editGoal = useVivyStore((state) => state.editGoal);
   const pauseGoal = useVivyStore((state) => state.pauseGoal);
   const clearGoal = useVivyStore((state) => state.clearGoal);
@@ -40,7 +63,15 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
   const handlePlanDecision = async (submissionId: string, action: PlanAction, feedback?: string, objective?: string, maxRounds?: number) => {
     await decidePlan(action, feedback, objective, maxRounds, submissionId);
   };
-  if (phase === 'error' && !work) return <section aria-label={t('workControl.title')} className="flex items-center gap-2 border-b px-4 py-2 text-xs"><span role="alert" className="text-destructive">{t('workControl.error', { error: error ?? t('workControl.unavailable') })}</span><Button type="button" size="sm" variant="outline" onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></section>;
+  if (phase === 'error' && !work) {
+    // 会话本身加载失败时，消息区已经用同一条失败说明和重试覆盖了这次失败。
+    if (messagesPhase === 'error' && messageCount === 0) return null;
+    return (
+      <div className="shrink-0 px-3 pt-2 sm:px-4">
+        <WorkControlFailure text={error ?? t('workControl.unavailable')} busy={busy} onRetry={() => void loadWork(sessionId)} />
+      </div>
+    );
+  }
   if (!work || (!goal && !(plan?.active && plan.submission_id) && !error)) return null;
   return (
     <div className="shrink-0 px-3 pt-2 sm:px-4"><section aria-label={t('workControl.title')} data-work-dock className="mx-auto max-h-[40vh] max-w-3xl overflow-auto rounded-xl border bg-card/60 px-3 py-2">
@@ -75,7 +106,7 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
         </div>
       ) : null}
       {plan?.active ? <PlanReview key={plan.submission_id ?? 'no-submission'} plan={plan} busy={busy} hasGoal={Boolean(goal)} onDecide={handlePlanDecision} /> : null}
-      {error ? <div className="mx-auto mt-2 flex max-w-4xl items-center gap-2 text-xs text-destructive"><span role="alert">{t('workControl.error', { error })}</span><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></div> : null}
+      {error ? <WorkControlFailure className="mt-2" text={error} busy={busy} onRetry={() => void loadWork(sessionId)} /> : null}
     </section></div>
   );
 }

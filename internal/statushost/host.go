@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"agent-vivy/internal/tools"
 	statusport "agent-vivy/sdk/port/status"
 )
 
@@ -113,7 +112,7 @@ func (host *Host) Read(ctx context.Context, request statusport.Request) []Result
 
 func sanitizeSnapshot(namespace string, snapshot statusport.Snapshot, maxItems int) statusport.Snapshot {
 	if !snapshot.Available {
-		return statusport.Unavailable(tools.RedactSensitive(snapshot.UnavailableReason))
+		return statusport.Unavailable(snapshot.UnavailableReason)
 	}
 	items := snapshot.Items
 	if len(items) > maxItems {
@@ -122,20 +121,19 @@ func sanitizeSnapshot(namespace string, snapshot statusport.Snapshot, maxItems i
 	cleaned := make([]statusport.Item, 0, len(items))
 	for _, item := range items {
 		item.ID = namespace + "/" + strings.Trim(strings.TrimSpace(item.ID), "/")
-		item.State = tools.RedactSensitive(item.State)
-		item.Message = tools.RedactSensitive(item.Message)
+
 		if item.Fields != nil {
 			fields := make(map[string]string, len(item.Fields))
 			for key, value := range item.Fields {
-				fields[key] = tools.RedactSensitive(value)
+				fields[key] = value
 			}
 			item.Fields = fields
 		}
 		cleaned = append(cleaned, item)
 	}
 	return statusport.NewSnapshot(
-		tools.RedactSensitive(snapshot.Revision),
-		tools.RedactSensitive(snapshot.Cursor),
+		snapshot.Revision,
+		snapshot.Cursor,
 		cleaned,
 	)
 }

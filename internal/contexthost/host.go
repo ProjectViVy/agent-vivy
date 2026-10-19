@@ -13,7 +13,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/port/contextsource"
 )
 
@@ -75,7 +74,7 @@ type Request struct {
 	EnforceByteBudget bool
 	// CandidateBytes returns the bytes the caller will actually add to its
 	// model input for one candidate, including provenance framing. When it is
-	// nil, the redacted candidate body length is used.
+	// nil, the candidate body length is used.
 	CandidateBytes func(Candidate) int
 	PerSourceLimit int
 	Cursors        map[string]string
@@ -215,7 +214,7 @@ func (host *Host) Query(ctx context.Context, request Request) (Result, error) {
 }
 
 // QuerySources runs only the supplied ephemeral Sources through this Host's
-// authorization, validation, redaction, ranking, and budgets. Runtime uses
+// authorization, validation, ranking, and budgets. Runtime uses
 // it for per-turn first-party snapshots so they share the exact Host path
 // without re-querying configured remote Sources for every history row.
 func (host *Host) QuerySources(ctx context.Context, request Request, sources ...contextsource.Provider) (Result, error) {
@@ -652,13 +651,12 @@ func (host *Host) normalizeCandidate(sourceID string, raw contextsource.Candidat
 	if math.IsNaN(candidate.Confidence) || math.IsInf(candidate.Confidence, 0) || candidate.Confidence < 0 || candidate.Confidence > 1 {
 		return Candidate{}, false
 	}
-	candidate.Content = tools.RedactSensitive(candidate.Content)
 	if candidate.Metadata != nil {
-		redacted := make(map[string]string, len(candidate.Metadata))
+		metadata := make(map[string]string, len(candidate.Metadata))
 		for key, value := range candidate.Metadata {
-			redacted[key] = tools.RedactSensitive(value)
+			metadata[key] = value
 		}
-		candidate.Metadata = redacted
+		candidate.Metadata = metadata
 	}
 	if !validMetadata(candidate.Metadata) {
 		return Candidate{}, false

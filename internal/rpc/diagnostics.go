@@ -22,7 +22,7 @@ type DiagnosticsService interface {
 	AppendGUI(ctx context.Context, batch logging.GuiLogBatch) (logging.GuiLogAck, error)
 }
 
-// diagnosticsLogs serves diagnostics/logs: bounded, redacted reads over
+// diagnosticsLogs serves diagnostics/logs: bounded reads over
 // the owned runtime/gui log families. Query validation failures map to
 // InvalidParams; gap pages carry gap:true, never fabricated continuity.
 func (h *controlHandler) diagnosticsLogs(ctx context.Context, request Request) (any, *Error) {
@@ -73,7 +73,7 @@ type diagnosticsBundleParams struct {
 
 // diagnosticsBundle serves diagnostics/bundle: a bug-report markdown file
 // in the instance exports directory (VCP C2 /bug) holding the build id, the
-// session reference, and a bounded redacted runtime-log tail. The handler
+// session reference, and a bounded runtime-log tail. The handler
 // writes the file itself because the report's scope is a diagnostics
 // artifact, not a session transcript.
 func (h *controlHandler) diagnosticsBundle(ctx context.Context, request Request) (any, *Error) {

@@ -5,11 +5,12 @@ import (
 	"syscall"
 )
 
-// Windows FileInfo.Sys() carries no file index; creation time stands in:
-// a path that is rotated/replaced always gets a new creation timestamp.
-func fileIdentity(info os.FileInfo) uint64 {
-	if st, ok := info.Sys().(*syscall.Win32FileAttributeData); ok {
-		return uint64(st.CreationTime.Nanoseconds())
+// The file index is stable across appends and changes when the file is replaced.
+// FileInfo.Sys() exposes timestamps, so query the opened handle instead.
+func fileIdentity(_ os.FileInfo, f *os.File) (uint64, error) {
+	var info syscall.ByHandleFileInformation
+	if err := syscall.GetFileInformationByHandle(syscall.Handle(f.Fd()), &info); err != nil {
+		return 0, err
 	}
-	return 0
+	return uint64(info.FileIndexHigh)<<32 | uint64(info.FileIndexLow), nil
 }

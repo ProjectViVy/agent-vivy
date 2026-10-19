@@ -4,6 +4,6 @@ package logging
 
 import "os"
 
-func fileIdentity(info os.FileInfo) uint64 {
-	return 0
+func fileIdentity(_ os.FileInfo, _ *os.File) (uint64, error) {
+	return 0, nil
 }

@@ -13,7 +13,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/port/skillsource"
 )
 
@@ -252,10 +251,6 @@ func (host *Host) Get(ctx context.Context, request Request, id string) (Resolved
 	if strings.TrimSpace(skill.Content) == "" {
 		return ResolvedSkill{}, fmt.Errorf("%w: %s has empty content", ErrInvalidSkill, entry.summary.ID)
 	}
-	// Redaction is part of the model-facing projection. Enforce the byte
-	// budget after it, because replacement markers may be larger than the
-	// source token that triggered them.
-	skill.Content = tools.RedactSensitive(skill.Content)
 	if len(skill.Content) > host.maxSkillBytes {
 		return ResolvedSkill{}, fmt.Errorf("%w: %s", ErrSkillTooLarge, entry.summary.ID)
 	}
@@ -271,7 +266,7 @@ func (host *Host) Get(ctx context.Context, request Request, id string) (Resolved
 }
 
 // Always resolves and projects enabled always-skills through the Host. The
-// byte budgets include redaction and the exact section framing emitted to the
+// byte budgets include the exact section framing emitted to the
 // model, so the adapter cannot expand the final projection after the Host has
 // approved it.
 func (host *Host) Always(ctx context.Context, request Request) (string, error) {

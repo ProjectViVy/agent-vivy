@@ -170,7 +170,7 @@ func (t *mcpListToolsTool) InvokableRun(ctx context.Context, args json.RawMessag
 		Server string `json:"server"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("mcp_list_tools: invalid arguments: %w", err)
+		return "", &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	if t.ops == nil {
 		return "", fmt.Errorf("tools: MCP backend not wired")

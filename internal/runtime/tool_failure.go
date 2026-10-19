@@ -15,8 +15,7 @@ import (
 // toolFailure records one classified, model-correctable tool invocation
 // outcome (NUDGE-DESIGN §4/§5). Absence of a record means ordinary
 // success. Status is "recoverable" or "refused". Reason is a stable
-// vocabulary word. Diagnostic is redacted, bounded text — never raw
-// credentials. Effects is "not_executed", "none" or "unknown".
+// vocabulary word. Diagnostic is bounded tool-owned text. Effects is "not_executed", "none" or "unknown".
 type toolFailure struct {
 	Status     string
 	Reason     string
@@ -94,10 +93,10 @@ func classifyToolFailure(ctx context.Context, spec domain.ToolSpec, err error) (
 	return toolFailure{}, false
 }
 
-// boundToolFailureDiagnostic redacts secrets and clamps the diagnostic
+// boundToolFailureDiagnostic clamps the diagnostic
 // before it is retained or projected.
 func boundToolFailureDiagnostic(text string) string {
-	return truncateUTF8(tools.RedactSensitive(text), toolFailureDiagnosticMaxBytes)
+	return truncateUTF8(text, toolFailureDiagnosticMaxBytes)
 }
 
 // refusalFailure builds the §4 record for a per-call refusal: the

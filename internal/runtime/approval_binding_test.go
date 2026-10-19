@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -86,23 +85,21 @@ func TestNativeOrchestrationApprovalBindsRunNodeAndCheckpointTarget(t *testing.T
 	}
 }
 
-func TestRedactedApprovalArgumentsCopiesNestedValues(t *testing.T) {
+func TestApprovalProposalPreservesProviderData(t *testing.T) {
 	original := map[string]any{
 		"credential": "sk-live-middleware-secret",
 		"nested":     []any{map[string]any{"email": "alice@example.com"}, float64(2)},
 	}
-	got := redactedApprovalArguments(original)
-	encoded, err := json.Marshal(got)
+	encoded, err := json.Marshal(original)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "sk-live-middleware-secret") || strings.Contains(string(encoded), "alice@example.com") {
-		t.Fatalf("redacted arguments leaked sensitive data: %s", encoded)
+	proposal, err := bindToolApprovalProposal(encoded, "authorized-hash")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if reflect.DeepEqual(got, original) {
-		t.Fatal("redaction did not change sensitive values")
-	}
-	if original["credential"] != "sk-live-middleware-secret" {
-		t.Fatal("redaction mutated the authoritative arguments")
+	got, hash, err := unbindToolApprovalProposal(proposal)
+	if err != nil || hash != "authorized-hash" || string(got) != string(encoded) {
+		t.Fatalf("proposal changed provider data: %s hash=%s err=%v", got, hash, err)
 	}
 }

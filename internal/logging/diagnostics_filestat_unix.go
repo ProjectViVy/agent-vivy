@@ -7,9 +7,9 @@ import (
 	"syscall"
 )
 
-func fileIdentity(info os.FileInfo) uint64 {
+func fileIdentity(info os.FileInfo, _ *os.File) (uint64, error) {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		return st.Ino
+		return st.Ino, nil
 	}
-	return 0
+	return 0, nil
 }

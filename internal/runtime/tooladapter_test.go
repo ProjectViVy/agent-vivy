@@ -167,6 +167,62 @@ func TestToolAdapterInfoPreservesUnsupportedJSONSchemaKeywords(t *testing.T) {
 	}
 }
 
+// noArgumentTool is a tool whose spec declares neither a raw schema nor params.
+type noArgumentTool struct{}
+
+func (noArgumentTool) Spec() domain.ToolSpec {
+	return domain.ToolSpec{Name: "no_argument", Description: "Takes no arguments.", Readonly: true}
+}
+
+func (noArgumentTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	return "ok", nil
+}
+
+// A tool that takes no arguments must still declare the argument object.
+// Eino serializes a nil ParamsOneOf as `"parameters": null`, and a strict
+// OpenAI-compatible endpoint answers 422 for the whole request — one malformed
+// tool rejects every tool in the turn, which is how a run failed with no
+// visible cause.
+func TestToolAdapterDeclaresArgumentObjectForArgumentlessTool(t *testing.T) {
+	infos := []struct {
+		name string
+		tool tools.Tool
+	}{
+		{"no_argument", noArgumentTool{}},
+		{"task_list", tools.NewTaskList(nil)},
+		{"skills_list", tools.NewSkillsList(nil)},
+		{"enter_plan_mode", tools.NewEnterPlanMode()},
+		{"get_goal", tools.NewGetGoal()},
+	}
+	for _, entry := range infos {
+		info, err := newToolAdapter(entry.tool, 0, nil, nil, nil).Info(context.Background())
+		if err != nil {
+			t.Fatalf("%s: info: %v", entry.name, err)
+		}
+		if info.ParamsOneOf == nil {
+			t.Fatalf("%s: ParamsOneOf is nil, so the wire request carries null parameters", entry.name)
+		}
+		encoded, err := info.ParamsOneOf.ToJSONSchema()
+		if err != nil {
+			t.Fatalf("%s: ToJSONSchema: %v", entry.name, err)
+		}
+		raw, err := json.Marshal(encoded)
+		if err != nil {
+			t.Fatalf("%s: marshal: %v", entry.name, err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("%s: parameters %s is not a JSON object: %v", entry.name, raw, err)
+		}
+		if decoded["type"] != "object" {
+			t.Fatalf("%s: parameters type = %v, want object: %s", entry.name, decoded["type"], raw)
+		}
+		if closed, present := decoded["additionalProperties"]; !present || closed != false {
+			t.Fatalf("%s: an argumentless tool must advertise a closed object: %s", entry.name, raw)
+		}
+	}
+}
+
 // Plan mode refuses effectful calls to the model rather than failing the run:
 // exploring in plan mode is normal model behavior.
 func TestToolAdapterPlanModeRefusesEffectfulToolBeforeApproval(t *testing.T) {
@@ -240,25 +296,25 @@ func TestToolAdapterSandboxDenialRefusesInsteadOfFailing(t *testing.T) {
 	}
 }
 
-func TestToolAdapterRedactsAndMarksUntrustedResult(t *testing.T) {
+func TestToolAdapterPreservesAndMarksUntrustedResult(t *testing.T) {
 	adapter := newToolAdapter(secretResultTool{}, 0, nil, nil, nil)
 	got, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if !strings.HasPrefix(got, untrustedToolResultHeader) || strings.Contains(got, "sk-live") || strings.Contains(got, "alice@example.com") {
+	if !strings.HasPrefix(got, untrustedToolResultHeader) || !strings.Contains(got, "sk-live") || !strings.Contains(got, "alice@example.com") {
 		t.Fatalf("secured result = %q", got)
 	}
 }
 
-func TestToolAdapterRedactsProviderErrorAndPreservesCause(t *testing.T) {
+func TestToolAdapterPreservesProviderErrorAndCause(t *testing.T) {
 	adapter := newToolAdapter(secretErrorTool{}, 0, nil, nil, nil)
 	_, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err == nil {
 		t.Fatal("secret error tool returned nil error")
 	}
-	if strings.Contains(err.Error(), "sk-live-abcdefghijkl") || !strings.Contains(err.Error(), "REDACTED_SECRET") {
-		t.Fatalf("tool error leaked Secret material: %v", err)
+	if !strings.Contains(err.Error(), "sk-live-abcdefghijkl") || strings.Contains(err.Error(), "REDACTED_SECRET") {
+		t.Fatalf("tool error changed synthetic task text: %v", err)
 	}
 	if !errors.Is(err, errSecretToolFailure) {
 		t.Fatalf("tool error lost cause chain: %v", err)

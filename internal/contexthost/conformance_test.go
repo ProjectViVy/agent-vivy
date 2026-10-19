@@ -39,8 +39,8 @@ func TestContextSourceConformance(t *testing.T) {
 		if len(first.Candidates) != 2 || first.Candidates[0].ContentID != "high" {
 			t.Fatalf("Host projection = %#v, want ranked/deduplicated candidates", first)
 		}
-		if strings.Contains(first.Candidates[0].Content, "sk-test-") {
-			t.Fatalf("secret-like content crossed the Host boundary: %q", first.Candidates[0].Content)
+		if first.Candidates[0].Content != "token sk-test-12345678901234567890" {
+			t.Fatalf("authorized content changed: %q", first.Candidates[0].Content)
 		}
 		if first.Candidates[0].ProvenanceID == "" || first.Candidates[0].ProvenanceID != second.Candidates[0].ProvenanceID {
 			t.Fatalf("provenance is not deterministic: %#v / %#v", first.Candidates[0], second.Candidates[0])

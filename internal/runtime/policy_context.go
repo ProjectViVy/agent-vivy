@@ -18,7 +18,7 @@ type approvedToolArgumentsHashContextKey struct{}
 // directShellContextKey marks the runtime-owned direct shell lifecycle. It
 // is deliberately process-local context metadata: the marker tells the
 // command backend that this request must remain foreground-only. Journal and
-// message projections stay safe because their payloads are already redacted.
+// message projections remain subject to structural and output budgets.
 type directShellContextKey struct{}
 
 func withRunID(ctx context.Context, runID domain.RunID) context.Context {

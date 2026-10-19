@@ -342,7 +342,18 @@ func ClassifyShellScript(script string) (InvocationClass, []string, error) {
 				return false
 			}
 			for _, redir := range item.Redirs {
-				target := redirectTarget(redir)
+				target, isPath := redirectTarget(redir)
+				if !isPath {
+					// No filesystem target, but the word still expands at
+					// runtime: an unquoted heredoc body, a herestring, or a
+					// dynamic delimiter resolves parameters like any other
+					// shell argument.
+					if (shellWordHasExpansion(redir.Word) || shellWordHasExpansion(redir.Hdoc)) && class == InvocationSafe {
+						class = InvocationMutating
+						findings = append(findings, "mutating: dynamic shell expansion")
+					}
+					continue
+				}
 				if target == "" || isForbiddenHostPath(target) || containsParentTraversal(target) {
 					class = InvocationDenied
 					findings = append(findings, "deny-table: redirection outside the run workspace")
@@ -389,12 +400,18 @@ func ClassifyShellScript(script string) (InvocationClass, []string, error) {
 				return true
 			}
 			args := argsList(item.Args)
-			if denied, reason := matchDenyTable(name, args, script); denied {
+			// Output-only builtins consume data, not path or script operands.
+			// Redirections and nested commands are checked by the AST walk.
+			if (name == "echo" || name == "printf") && args[0] == name {
+				return true
+			}
+			command := script[item.Pos().Offset():item.End().Offset()]
+			if denied, reason := matchDenyTable(name, args, command); denied {
 				class = InvocationDenied
 				findings = append(findings, reason)
 				return false
 			}
-			if pipedShellPattern.MatchString(script) {
+			if pipedShellPattern.MatchString(command) {
 				class = InvocationDenied
 				findings = append(findings, "deny-table: remote script piped into a shell")
 				return false
@@ -499,15 +516,51 @@ func redirectWrites(redir *syntax.Redirect) bool {
 	}
 }
 
-func redirectTarget(redir *syntax.Redirect) string {
-	if redir.Word == nil || len(redir.Word.Parts) != 1 {
-		return ""
+// redirectTarget classifies a redirect word by operator. It returns
+// (path, true) when the word names a filesystem path the workspace boundary
+// must check, and ("", false) when the word cannot hold a path at all:
+// heredoc delimiters and bodies, herestring contents, and file-descriptor
+// duplication/close targets (>&N, <&N, >&-). A ("", true) result is a
+// dynamic or empty path expression that cannot be verified statically and
+// therefore fails closed.
+func redirectTarget(redir *syntax.Redirect) (string, bool) {
+	switch redir.Op {
+	case syntax.Hdoc, syntax.DashHdoc, syntax.WordHdoc:
+		return "", false
 	}
-	lit, ok := redir.Word.Parts[0].(*syntax.Lit)
+	if redir.Word == nil {
+		return "", true
+	}
+	value, ok := staticShellWord(redir.Word)
 	if !ok {
-		return ""
+		return "", true
 	}
-	return strings.TrimSpace(lit.Value)
+	value = strings.TrimSpace(value)
+	switch redir.Op {
+	case syntax.DplIn, syntax.DplOut:
+		if isFileDescriptorWord(value) {
+			return "", false
+		}
+	}
+	return value, true
+}
+
+// isFileDescriptorWord reports whether a >&word / <&word operand references
+// an open descriptor rather than a file: a decimal fd number or '-' to close.
+// A non-numeric word (>&file) is bash's legacy &> spelling and names a file.
+func isFileDescriptorWord(value string) bool {
+	if value == "-" {
+		return true
+	}
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func rawDeviceTarget(target string) (bool, string) {

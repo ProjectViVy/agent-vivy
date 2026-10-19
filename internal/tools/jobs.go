@@ -502,7 +502,7 @@ func (t *jobsTool) InvokableRun(ctx context.Context, args json.RawMessage) (stri
 		JobID string `json:"job_id"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("%s: invalid arguments: %w", t.name, err)
+		return "", &ArgError{Field: "args", Reason: fmt.Sprintf("invalid arguments: %v", err)}
 	}
 	id := strings.TrimSpace(input.JobID)
 	if id == "" {
@@ -514,7 +514,7 @@ func (t *jobsTool) InvokableRun(ctx context.Context, args json.RawMessage) (stri
 	if t.name == JobOutputName {
 		res, ok := t.ops.JobRead(id)
 		if !ok {
-			return "", fmt.Errorf("%s: unknown job %s", t.name, id)
+			return "", &ArgError{Field: "job_id", Reason: fmt.Sprintf("unknown job %s; list the run's jobs before reading one", id)}
 		}
 		return marshalToolResult(res)
 	}

@@ -1,0 +1,4152 @@
+{
+  "lane": "core-fixes",
+  "branch": "remake/core-fixes",
+  "state": "raw_donor_split_not_build_or_product_accepted",
+  "source_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "source_head": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "history_archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "dedicated_files": [
+    {
+      "path": "internal/actionhost/faithful_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "875965b4e002b9c92558be67d2bdcd5fa927ebce"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/actionhost/host_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0b554d4b0d3a404788340cdfb8e56f50bcb8306a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7c91464b22e0db1b30c6d2acae00957e2afea0ab"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/contexthost/conformance_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "226d80dbe13e2a4303ace7f04a1dbb0f474131cd"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c1db3cdd5dbb59ee82a42d047510a3a78d58ff1f"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/contexthost/host.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b12d565dc115fe0edddf7941a8f09991be50b85a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5a1cd9fe3642fa2c49a302ee9d34cd61049d823f"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/contexthost/host_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "209cc8303f1c9812e0ecc810a39a53a4599d1260"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "31d8c39438200e22a94da51fd84601544ec5f168"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/review.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "19f33cbec356df4099056696a3c55d3d83651133"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2920769100a760c872f6ebf55ff3ef4d0d274be5"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/turn_queue.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "da76bb6cbdd1abbac140ac87f2c17421e8a3a74e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d5e898ffddff47e995ad9fcc21a83e4c419fefd4"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/console_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "60494d2e8f05c0e2e600c791622a0aca71ae785e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "45f1868166cbc9ccb3a2273801dd1e9cdb818b61"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/diagnostics.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "002ec5f70345475f0e0930861a05c22388b4bd3a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0f167cabd4fd660a5c92baa93df1f79803503671"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/diagnostics_filestat_fallback.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5a17cd9e3265541c34c34c1a159878cb416c2397"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3b9309d4402877d579ff4bf5dc47805e897be0da"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/diagnostics_filestat_unix.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ad0fae510e1524bb3893882bc1cef79f59d5ad55"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9b78e8879e5efac0077054de6421b9902a862545"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/diagnostics_filestat_windows.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "33c48d3f1a1a2d954e69987aff5a451fb904473b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2097f81262b186b7c7f58910dca23ee0828ee497"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/diagnostics_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a7f925ce5e1afcf5d973f8a8e57c6cbd923838b9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "999eb83b532766658e60e03f79ca5fab110f9935"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/faithful_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c9ffa5243bfa5991bf5bdcb26ab38e2b6493263c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/logging.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "038db22605d54855f2dc88547366bafa23adc369"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c782a5406c4e3861edd75b7e1e3e3487d1328c7b"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/redact.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8681e57654dc6c43d20f94f004068755f00a7f1a"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/logging/redact_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "765c17de0ec853d14fa03a02ac12086ca389364f"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modulehost/facade.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "533b4f39cd744d1bfd4cd67e46e60ddabb7fec6b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "80e3ff4540fb06f056d36f08d3bf60d7974e99e3"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modulehost/facade_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "08716e6fca299d4c0cbf94c77f5a8b61c1b89432"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3a2f7296325e39125cfb131a70769d0cca2d84f2"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modulehost/faithful_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f786b7d0f45ece5b38a637bd1f81ceb099b7d73f"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/observerhost/scx_conformance_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2c225b33e9aacd05b614d2a66ee804b7c36697f6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "667e42c0f3f836285c083074665bf9bd133b59a0"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/observerhost/start_race_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a959fa3c02d10b63b4f473920314aaf278d94427"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/control_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c58f1b294ed870a27a21b8ba1417d37b2aba9b4a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "55062c88f67adaec35b406cac212bb6b551a8f52"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/diagnostics.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e5fefa834d7af05a7762564da5148d4e2cc679a9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7843a74c74d31e009782e6abae2d9a48ac1e517f"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/plan_goal_identity_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e89b485472c3ef1c50f626d17176f3f1dc381407"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2d94e51ff0f3e844f0c901fffee2cb4ec184284a"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/work_control.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ac66a592d543d8691bd47abc54d3f4bba746400c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "db4b5c852ed12891ac2de4a3cb966430c99b947c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/work_control_mutation_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2becb883cce9e2e5b89c492ce4638be04363b8ac"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8f978baeaa1e475e0c14044e391ef3f04390994b"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/work_subscription.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1c28c18dc288e99a30620235f6feeb727e4226e1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fc02680d58abccc93d14700cc3e93bcdc13c083a"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/action_tool.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "66747a14c1a6ec614e6debd54ca3b74904e86755"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8803bdf97446bc2d22b740df8611941ce5fb178d"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/approval_binding.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "39cbdcde4bdbf28e7e1f069a442c4fda300c8434"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0e1b540f8663f4805642636aa7f95f3ea392779c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/approval_binding_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b2b3a3bb5d04894c22343ca5dd2deda6d4390989"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "573975225a9d64f15a5b06b5235f4e28b3fecf87"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/faithful_data_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6a02153eb06017b44c292e0c2a5599fa2475c781"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/faithful_pipeline_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8b0500b0a969f4f379019486eb4f9b1aa9e47779"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/filesystem_backend.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3807a334fc4daaee1af47e92eb0dd8b4628efc2d"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3011e7f3a794636318867e8094263aa3c66abc8f"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/filesystem_backend_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bfb4190e57ac30d94cb57c31d333ef4761d4dba6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "39c926a718ef8cdd9a019f2db7c39d97700c464e"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/history_service_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e05374ff8c0a02ea5a7f4e1541319a654e1e26b3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eb2ec9666b198e13a22706483953304abd284537"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/loopdetect_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a5f0c2b47a478afb70204ff0d4080809c7668e0e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b1c46a4e90748c8639e406f25948c45f509fcbf2"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/patch_engine.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "03668c3841b7613331fd09b4f78957dd895e79e5"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "535a918ed6e3415c59faa92939116e3cfe8e4ddb"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/patch_engine_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6a62d53b102a26d275518a6adb483fde6baefbb6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e2370b4ef11af217dcba268697061956f82f997b"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/policy_context.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b9b1f65b5174f659850e39b7e9de990c3c5867b9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "36f9eb2a0af9d64dce8e724580165717012416a9"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/pretool_bridge.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e2bde630462e1054dbdfe95276fa9af49e34282c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "efeac459596ebedc41c20eed9021be5b1731ca22"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/sandbox_manager.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "95f0f975a666bbd30318843dac0c270e29d6fd98"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7d894cf532128a0c29c36b1ec013119a5dadc38f"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/search_backend.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "582a48166a0a7cb4ca4fc27b41903cd8895c721c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f3a7b3ba44e4b25ba83c2ba253838503c7e39906"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/shell_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "65a611c52e684ed93e0b0b956a077a9c5ba276a0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b18e74a1352548109f002d02822ac25495e27e50"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/skilladapter_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d9537b85ac1e827e66d117075ae2d041ee66fd07"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a8e501d5a319a20ddb0a7e2df95e10c14df80948"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tool_failure.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fff5da1dc2152102693ebf9c5e8f99321e0feed0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "951e1772a6dfde69e5440af5748bb1cfe24b0439"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tool_failure_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0575f6e19934c6986e8a9e09f9bbc8e8064ac991"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9e7e5b8ecfd25a1762d23b39fe587a87b52aace6"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tooladapter_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "987b3d7ee4d37a6f139f94f161b42163aa9922ea"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7ff03ed353aa842e4d38f1bb49a3a107145ba5e1"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/toolbroker.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cc01743b553695ed90b731824e4e32dbf2b79dff"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1b363c80d96328d398cd386c4b77957aae8e458b"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/skillhost/conformance_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2c94b0e11c56344dc88edd116707b5fd4c719fa2"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "90e09f856038f1bd0c663163dc86f1c3ef395bf8"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/skillhost/host.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "545b5ba9fe5d8f4bf87e44854135132fdd072faa"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eee9fe0fdff055ad36f29c2e78e8464f7c83758f"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/skillhost/host_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8898ebfb82e321cf49925adcb7e42a7a825afe5f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "71946d311a556c7a4d9a707aa742dac97ab51009"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/statushost/host.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0973deabb1ad82cf49b17324dc251c36f4a5122f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1790bc83695bb306966c1b1242db364152ce1347"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/conformance/history.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7b94b815fd74db726c81eff6cb8882db2601a6b2"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b7ecbef738c3ccf44308d212d78648ad74ebf2bb"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/journal.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b0a24e46104394dc6d90e73fadea415450d5d0e7"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "48559cf62a85abd835e85326159e5aa52a0503be"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/reviews.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8ac739e0ed25af3b92e8301c76ac0aacf4824dc1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "16b8ca02ba0dada3704dc4cd1c9b2858248195ee"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/reviews_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "85fb52ecac6e521530c28fc116a0dc4e7930455e"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/journal.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a72cb39d7cec7782f456ae48b516b889337ecfa3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b52de5600891a5090a72b292a08843be7d192713"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/path_identity_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "367d889c3668469288064ba504681e6e0ccfc03a"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/reviews.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "74aa74a11f8e89374aa80a6287653222d25aeafe"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3617f77ec98bc4d1484dc273f96b2c73000278e3"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/reviews_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "80bf641b987a4886ce398c90f518e289f3824fec"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bc7d54917dc97fbbe7940988bd739778d82a5b34"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/sqlite_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "108348895da584fb3f83dc20ec771bea95be4684"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6d4f071f0a1c65295ff4873ffe9ce73b02ab3731"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/workflow_steps.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c84aaa452f10ce14b87b41ee30edddec4c01e30b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1346f35252498f4dc561aece903e46fd47cc8d97"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/bash.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "30017631512e1226f76fbce3b2afe854b570c584"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "56a229d20b0e64b48013adbbd5efd75563246540"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/bash_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "83478da179598e5403af4da280b3ba9031b93c4c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f70b3377a66285f187e670c5ccf519e5e18b84f0"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/bashclass.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8792866e19367f0f4accfe4c1c4d2b9b79412287"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b1cc265516ccefe28e2c7da4701a4b631f05738d"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/bashclass_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1d10f0324a903e8d5f1bd8d1bbee3e3c0d995828"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "493b698ce54a2815e48446b739809a8dd4bdd183"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/command.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d59816e0370cf252f176ae448e265271654513f8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "44f4d82adb313482d0b90bc2fca5a705f1a1d46c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/decode_arguments_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "74612187b0b9d522eda81333739f3931685a2019"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/download.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "56975e680bdfbf126cccca85aadd22389b9ce591"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "943653068f20dc47c68b55626818679a938101f5"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/history.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "47d401a8f8fcd317ecd3192aecc05a91ed8b7879"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "276d5a4bc2b016d8fd60f322bab7db620d6fa5c5"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/http_request.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fd97794693139c9c7351711829de6fc6403d3e41"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6f024cc5538c085a092eaa24bd6e88da9bbe1ab4"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/jobs.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ba19ccad625a22071e130663c5edb7c5ee07b6e9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "727fc0d587ec4238d5aaa7849e68a1c0bd1450ba"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/mcp.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5047fcb842a65857e3b44a0539440087657781aa"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f722dae4a2fa9c29103f19805ba86dc45bf09e01"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/network_search.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cb9023a9e03d8a6e7065a4189a51d4dfc6bc6350"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "693543980551bc65563e3f3243cf3b1f8b072590"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/security.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d3541a6e1c0b5dec55d78312ed531f0259813cda"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/security_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "769a947bbe9d4b8b839b6e7312bc03a3075a53d3"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/sequential_thinking.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b893b3534b4d7a4bfbf28671e0c70b80a86e6b8e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b522d84c3bf4b39e114ffa2be4fab5e1f954d310"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/web_fetch.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d2ba423a98a9149fd19aa653ff693ccf0795afc6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "383deb75d0a17049dfe58eb1e6855d8085986e44"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/argument-guard/README.md",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5ef395ab735f0d72eb3238945d3b1b5d2a18b212"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/argument-guard/go.mod",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0a118ecfa9a5bcf2bbd130d55320f7d95d8cd86c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/argument-guard/provider.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b91cc80651c9a4c1783576b26ab852b044169845"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/argument-guard/provider_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e633ed3c02c8a790a2fa32150844399b65a437f6"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/loop-detection/README.md",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9728df0fc020116f2a068fb3d63f4f32cae0bb89"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/loop-detection/deferred.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7ae18b5fbc8eaac408003a5be8239e8d5f4073e7"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/loop-detection/deferred_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1c1e6dae7c2b54d9ab52151b986d2c03ce36a12e"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/loop-detection/go.mod",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f0a6b051c0e2fccf5c9584ea4ddf2c822306eb9b"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/redaction/README.md",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "21f23b91ebfb37d0077679c55197a74b39304c0c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/redaction/algorithm.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f64aa343821a30e9953bed24e68542f0920ddf3c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/redaction/algorithm_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "da953e71a04e69734e75205ac829f3b0f05c82e7"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/redaction/go.mod",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8bca223380f1efd2713ed55b2e61cffdcdfca048"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/redaction/provider.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ec555227972ca0df02df27ae59c892486cb4d9fd"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/redaction/provider_test.go",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a8fbb472cc5e02dffd9d961b3816fe608d07d560"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/queue-options.spec.ts",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b8ab355db8e8c9269e958784e512ae313051df1b"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/playwright.queue.config.ts",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "90e55d430eecc30266936d1f5444fc64ad9ded07"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.restore.test.tsx",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "302569a196b4f1dd8c061d7948a297abc00bec0c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatView.tsx",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e75fdbd87cbe2d8b111be53cd01d4f2e4349a278"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "701d2b059a0a08c9431b00c966701eea25f41105"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/WorkControlBar.test.tsx",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8f1d38a1dc4ac67b091e4002fcb695ff64ea9549"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7fd59104262eae9e274ab4227ed892ed13309114"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/WorkControlBar.tsx",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8db5b44ba5a29400ea12f1f0cd47634e5f9b8b69"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c62373afb9cb07d1e8eec16727f0ffd70a712ff9"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/lib/failure.ts",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ef285ac6acfff7340ad2815f1a5a9dc9d9cafb2d"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dd77e55189a66e5ba7da7094c9d213384973364b"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/lib/store.test.ts",
+      "owner": "core-fixes",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0fb1f4c338fbdaa1d35ee3aa89ea7214b47ee851"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "39e93c64c5669fb5d63b191697ff1b2f8d9df9be"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "shared_file_refs": [
+    {
+      "path": ".agents/skills/vivy-plugin/SKILL.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "76311522f61eb641ed4ad49d946e3917638680ad"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9a40c4f24a5941d45532f16e8427ffd2052b98e0"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "misc"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "AGENTS.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ccc3c57814ca1ee9eaabacd94c9862445228b98d"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a3d44bb498a3fe54dfc82b02a10c97d5393a717f"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/LOGGING.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "65a4e8092c5424aaf3244723f474bc4171d235b9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "25adba6096e10f391d1a87ff1ab05cc13d849a42"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/NUDGE-DESIGN.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "49a9a394137371d6737ec0a2cd55f317a2d09644"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "917c6c20371d5fd89d02c64a9b1cdbe3a43e143d"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-ASSEMBLY.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "951536710c5969ec91bbe586e16a2bb58294bc91"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fcb0bee6e4fd29598aa11d50e1c362940df44d2d"
+      },
+      "contributing_owners": [
+        "acp",
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-MODULE-STANDARD.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "08bc2e724cdb77d762b6f79146e7a607c43b5fc1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d7139f9a39429185de95727f9f0a07d772be8f4d"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-PLUGIN-SPEC.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bb649fd8c9581e70ba0a4a1c05deb9ff4f8c5403"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ef527ea5f3d93f1b5070a0883bf97f7000d217e7"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "misc"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-PORT-CATALOG.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "268e4a51dcdd7fdbafa3ff086a2bf94da75402f2"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "44bd5204a3256f844271e535770bc42617f0fe54"
+      },
+      "contributing_owners": [
+        "acp",
+        "core-fixes",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/actionhost/host.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6af3221be4537dd151dcbdd102b55e30f746f981"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d5f085e7abf55e872d7a6c5b72cf5f405662ac84"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/app.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "01272e1c7aa6c97acdd485f66eae5874e40681eb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6d688377d08de4928661ebf33d35511508e1e075"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "core-fixes",
+        "misc",
+        "notebook",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_governance_e2e_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "47ee1ee2241497554a146598d4aa8087cfd96dc6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9d73136e89ccb3fe2236393c1bb6ad934e08b39e"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_sources.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3531811719dbfd3b676458092a27eadac0f42a53"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d8f4f31b7e7f50e5845bf4d265b3c6d3e71788f4"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/default_generation_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "66c12a4ec7ab06f8ef7cb02d2f710a5385b76135"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "58ae11b2367211d9ec06b3446bd901d56da55cbb"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/history.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bd0330a58ce04e58521a91cb8b3ec734cf640141"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "08ba5c19a9bec10f3c250a5b848ba7497e3dcc2d"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/session.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "49390e3e52c3969237e6c0412672e26a81c4ad82"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cf5655d67607309a388bcba8d3d11f853055adbc"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/observerhost/host.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ff5ee31cf0244a620f9b1e6ee19a43459b8c090f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9117cc43f8a3b5bcc5b0d9992a20795f42df9b01"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/observerhost/host_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "18fcdcfe5f130ddac18a92cb416547f78eb539da"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7b83f8facd8647b7e1c023f22c3c98f38629aea5"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "baa9eee9e5498bb5ac2c457feae3cf099b1a8233"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2d5b9d9e8b3a415dbebfbe0d347520c78cb1b5a7"
+      },
+      "contributing_owners": [
+        "acp",
+        "cognition",
+        "core-fixes",
+        "provider",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/protocol.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "946591f3562aec3e67dc90b0f794c9f7ffb32d70"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5022e4988f7a119f3d0ed9ce26eaa2a7b186c156"
+      },
+      "contributing_owners": [
+        "acp",
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/protocol_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ccc27586ec0ddd7e3d2b0d8d911ba2add865525d"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7ae06121857fbedb558f049ad9fd49157fb1ea4b"
+      },
+      "contributing_owners": [
+        "acp",
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/command_backend_bash_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e6421f233c19655b161bf1a7937bf1745cc73dcf"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "10d196452e658ba6bf47f213f1e6920b5ef8977c"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/context_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ddd916abc15bdf5c0ace5b02cac44112920ace81"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dd08f483b5fa094398a8f2f0ec06f5cc5a441a01"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/enhanced_tooladapter.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f8b260349307b22a676a73333048a80eef723054"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "12a9ecead501e3a955354b44f7595c5b6f00a8a8"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/history_service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "56be0e938f415ebd8d3796ce38b9f1345244f003"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "169d00306da82d20107088c8b5b3876df9949e8c"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/loopguard.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "46c54e6047a155186629ecb33fea95d41044b29d"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mapper.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "353a7331147c4b8e2817e3e0a2f8851efef582e8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8916f60711a98269c805994a9335cf8d127ac344"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mcp_backend.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "95bcbd4b2b6a98ef21fa2bc63e20daa8e340ca93"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5a06b97d5b0e5c7c02c0995f31df6da76bdfe0eb"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mcp_backend_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c396489de84d8b9da8c44a05c4636b11fdb255c3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "120d9e6fc0e208d51f335c83de7d346b4698b80a"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/model_stream_observer.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "27fc68d0d23d4512615b5ffcc7adfb32b19f26b1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f4e749589c22e4ab10bb6fe6dba0eb4a1357c8a1"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/model_stream_observer_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "980a5a87598c844c89a9d2df8accba2c79e6625c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "61f0595332d322db853c47df4bf6a9f8d3a37b98"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/nudge_acceptance_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ceeef313be51abea72403d3a3be034f8b2c9745a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a78eb4649c339cdd7ff9664d02979b92012779cd"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/nudge_middleware.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6ad9f35467e8fc75166213b4b95beeda506e4583"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9abd8220c7fc67f00cab58d55d2f2c0baadbc495"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/nudge_middleware_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "813721ab06a05402aad03bad22b973a3ba10dae7"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5896f8ae082435ce4fcddced6e998a9043a16074"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/nudge_state.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cd6b50ac2ec418f24a08d64b90f37de769a49b04"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bbff76a2d36e717594f712931cd473d1934fe6c5"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/nudge_state_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dfa442456ce92bc4e294b7784d1dec652b26d6d6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "18e50b26fc15d1f2aa21eaf5e52285d2b8ab24a3"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/nudge_window.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "185775a41f8c5e41e2dc8f6765ac55fc79a98370"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/payloads.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f1dae367f3f9018901986b16d13de63fabb19857"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "38188a5e8ea466e7e9dbfc0b4f3c5b70abd1812e"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/queue.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8970e5d1ae075f40b7d7fdb3e62a6d1354e4c53a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "16d73c6ef4f5bddbd7c2ebdf8c10589d4a35cd9e"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/queue_durability_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "31da50917b3882e9e15548b332f763fdaebd2bca"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/queue_payload_boundary_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "617b875e40e428a8f3235e5cf478f4cb96066a61"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/queue_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "728ffdc0396329c7cb30ba863b2e8717a15c4df0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f2673f47a139f404f54c7452e44cc17bf603b14f"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/search_backend_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2912fd6213b696620906da4e2251d0e8a9ec1b50"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4f3285baeb6fbb229cc3c75b95b4feffd4092307"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e70e8ee56195a7d2835c81af90f78376f54e824a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "740d8876fa8480bee95043c0538551672922f1d3"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "notebook",
+        "persona",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/service_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2b74396ae6cea5a52469b9d9a13a57077b357e19"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c2564f2551d1619f582afb0dd281b2d62d5439ca"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/shell.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fda35349430c2d7f1e53ad6557abe842f3a79879"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "82204cbaa426cc53fa410ca26a06873b85e4f157"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tool_operation.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a0b4b58f1c971b10ff8d64f7535ccf903d44a396"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cc77500a1bbee715d64e745c9351f84829142aab"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tooladapter.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5dea024461e95f6ce00a86edfb747ecf47afdd77"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f9fc0d70f670f6660cd11d57d37d5681b5c8408c"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/admission_validation.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "37b0ccab9c11fe2d22c8a8f3eacde09fd309edbc"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ada6a10b1d8ae7cfa9ae94f2e48d76acfc70b0d"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/contracts.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2695127e92942c9b29b8101a8dd09781f5b8290e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c5eda0c0bbc7456ece03c5b93fbcb87d2d69e718"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "reports",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/history.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b1ed375aa8da76020455d0bc6cfc4994873c1dcd"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d9a39445dc6e059679bf8ae3874966bbab59d4bc"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/masks.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ab65147a73588be6debdba5a785d9f33ec14a7f5"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2a740c4c6ef74b2948a0bdf86447a522be8ee38a"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/conformance_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6479c5bc562cdde58d0aa4752730a7b976db2464"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f4f706dcb89676230c83eba3a0bd64b4a8a20fc6"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/run_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "78e815f160b4ab532bb11ddd594a09822bb5a4ca"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0f241d0de916812d08d516ad6a803fa1ef02cfc1"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/runs.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a618c3a868baff539cace7247083a2ea089256fb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8980a13fe43d90534dd6e4e957888ecff141c3a5"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/sessions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "655959709011a49bd4cf4be80ad0d504346c420b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d987fa24bfdafba53310ca4f26eaeb5aaf30e22f"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/run_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fbc3dc121c6ee816ace837cac92334c4172f0c04"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "be8ac35a7f5ebf42d6d6243de18cd8dff48ba8a2"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/runs.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b64075e5583813fb9fab881ce150196292bdebec"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "963dc5dc39a1e1c7e980aa04b1b4b6c2f8cbf793"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/sessions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "646aead8bec4c3bac0abe4f0c3004032f8b8f3da"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7ec9f52982de26104829fdc72b437bbc3228c87e"
+      },
+      "contributing_owners": [
+        "bml",
+        "core-fixes",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/sqlite.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d441e4c2eed0a215c7849ed5056e1cc54a25c675"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8d85aeb4c294c7006513b739e21c3812755ad0e3"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/work_control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f206b11d23566a24a29ce803680f20b0c1df6a3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d29374efe0de504840eb0c21c73e3c28a8392f95"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/argument-guard/vivy-module.yaml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3dd44efe79db03cf5d59ec4b85af8bfba75d4577"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/exp/redaction/vivy-module.yaml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4e7d3b0f98ccbe97048835b4886a955f087d7598"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "scripts/i18n-cross-face-contract.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "23260e04fcf2db830d56d45194bbd5ca2addd0f4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dd8273cd398d040bb311742aa59ca22234d2b0ee"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/facerun/facerun_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4688fcb7f553cc3dc77d64a0a52b16a440bf1382"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/generation/manifest.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "59ee7285077dd933666697b0cbc8c866d8bb4034"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "681e96b098f5d6eecf33599174f9374ecc2bdc55"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/assembly/conformance_results.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1d437edc4309748bc00528101fac391b94fe6668"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d73f8b58ec844959a812380c614b0887eeb51601"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "misc",
+        "notebook",
+        "provider",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/assembly/runtime_generate.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "22eace1d6924610dcfd885e899fc3f86235e39ea"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0850b662e66a74ca042ee0542e777fce34d365a3"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/assembly/runtime_generate_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a727c22b4238cd3ad249afd43fe52b5ccec592f3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "61769f6efbfbd96613fd78bb099568cbff5a67c6"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/frontend_v1_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3964af53f163365d33add31f2539dbd95c7c5850"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d298d7b7f93e04477a05beafdcef5dfbad90a104"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "misc",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/go_host.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b7d00cf083a23a4505d086ea9ab347854ec885a7"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "core-fixes",
+        "misc"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/go_host_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5ac8621df11bd4222337539f7d2f7e58a0b2ec1c"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "core-fixes",
+        "misc"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/face/face_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0ddf7ef307b5f72c1459e9275b9f49663b666718"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8acbe4e143213187719273feed2b7e6433ecbeac"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/face/rpc.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bd8e2efbe3f176985fe3688790d77e845bae45d0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ad060c5c549c9a50156b0ef690e2dd357676bd7d"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/i18n/catalog_en.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b4dde95daf10e32597875784835f073db858232e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "096c67b0e8997d2967dad915d3a40fe571a712ff"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/i18n/catalog_zh.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b1536fdff827ab8d398055718f1c22523259ed6b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b66826df37caf326380b3ad4d9c12d30f9b352bf"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/live/controller.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ab2eb4fefe3188c3ba8da9124901ff2b6e488293"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e588a1fba1e8c2ab096b33521ed39e1f0489d25c"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/live/controller_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4cf294a4be9cff8fd083935b7f42cd59dd12f656"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b2dd1a02d108514f19eafb30ba9bc8e4d9a66289"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/live/queue_restore.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "92de41700271a920302f3d620203d513de0e83b7"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/live/queue_restore_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "127d3e916da215e8e5b77a026e462b19325b79c9"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/live/rpc.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0f9eeead6fecda7753e5550da107c1364f25ffb6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5cded51c2c85cb4d154ec21a6d1cbdf4ccc60852"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/stream/events.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f16475a356981f2ae3095b4886a4a076a5c47f94"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4094e58b593f939e044b034a37ff8555ce20d4d0"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/stream/queue_restore_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "844f063c48b00b908b306ba3e317a5bb2eaf6d08"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/surface/surface.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2c99f6cc2a022a61401cd3151619da71572f70c9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e098f27f514b1a73f4352674fa2f9749c4cc4ad1"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/view/model.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2a77ac9ad680da944db60f553b422932ebe13061"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eb0e8906d7a3ff13aa0fbe9075d327e1410d0e53"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/view/queue_restore_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d1840603b51d7e4a7ddbfcd1ce4ddf56ba425dff"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/tui/view/render.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c0ab368a345da911b87d9c9efd7f82996309fd41"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "42ea99f40e60295a208631595af7b7a6f98563fb"
+      },
+      "contributing_owners": [
+        "core-fixes"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/ui/src/module.test.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "16a7b3ade844a8d98db1aa41a79c93a454b7a646"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "46720617ab379f194895bc7b638a48b0c3b81970"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/ui/src/module.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a0caa8d9c6b4dcd889449c32dd5324ad5c268763"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ad39e8bd15eb8b69efa71f7578a44c59e2d4564"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.commands.test.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "450b7086d276da8ac9a30decffd2e7fce992f81b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d62111519e646efcf39362655fa9192af463807e"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "provider"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.queue.test.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f8ff841f4959d54c37e7389ed5b16d04071ec1b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f6c6a17b0cc31432aeca492286b7930416ec7027"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "provider"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6c66152aa75a8318d9abf132549b11f393e567d0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "db1689cc77cbad8486dfc7dca7c4aa9c1e32ab77"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/en.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "703656b96b8581e1d86fa5ec67878f96ab82c2d4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e91e13d2238e96091e5c53919633ecf7edc99091"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/zh.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ed89a8370b5af2598a1c53e5334f01c742d78291"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ee00e1ecaadc3858d7f01a42c4078c2e617decc"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/lib/api.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "88d938f186802e787ae389b8f0c9c3b8647b6d88"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e9140e78474111a5ee748eac4290e23e92416441"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/lib/store.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a20e9d4ddbefe5ec0c6651f353e3eeb8f224bba6"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4acb4a174ae281f2120c1d70cfe5ec042151f146"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "provider"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "branch_only_commit_refs": [
+    {
+      "sha": "8c547568977a1b371bc29e8dead1cfbdef801dbf",
+      "subject": "docs: record issue 40 publication state",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "f78aeadb349cb754b3d98de4eeb28f000163ce71",
+      "subject": "refactor(runtime)!: move turn policy to EXP",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "57bbe2ce3385a7eaf74ebe480bd14babb678b437",
+      "subject": "fix(logging): bound diagnostic continuation and record envelopes",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "ffad9dec810f24555815059ac12e766fc84ebe94",
+      "subject": "docs: record issue32 P5.1 verification",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "900ca7db8906e8cb579817add21eabea89e379f5",
+      "subject": "fix(runtime): propagate mandatory model settlement failures",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "a700b5bfed2b115e0e1832cdc40e458c12a5bdf3",
+      "subject": "docs: record issue32 P5.2 verification",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "a0c2bbff87c894b318e6e6a2b0caf5a378b0c3d2",
+      "subject": "fix(host): inject the owned logger before composition",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "59043caa346a1c3a7d2e976510e699aa2ad5f647",
+      "subject": "docs: record issue32 P4.1a verification",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    },
+    {
+      "sha": "a5f1f90d83137f4d166fc12c9c4b54dc917243b7",
+      "subject": "fix(issue-58): keep model-visible tool mistakes out of the run-fatal path",
+      "disposition": "historical_alternate_delta_do_not_replay_over_newer_source"
+    }
+  ],
+  "target_core": null,
+  "blocked_on": [
+    "accepted #91 core B",
+    "actual API/data/pin/Recipe adaptation",
+    "focused and required final product acceptance"
+  ],
+  "source_reference_rule": "git show <donor_head>:<path>; use before parent for deleted files",
+  "experiment_ownership": "Nudge/warming/steering behavior belongs to existing #93 epics; raw baseline code here is not core/default re-intake authorization."
+}

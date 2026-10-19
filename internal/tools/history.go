@@ -55,7 +55,7 @@ func NewHistoryTrace(ops HistoryOperations) Tool  { return &historyTraceTool{ops
 func (t *historySearchTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
 		Name:        HistorySearchName,
-		Description: "Searches authorized session history with bounded literal matching and redacted snippets.",
+		Description: "Searches authorized session history with bounded literal matching and faithful snippets.",
 		Readonly:    true,
 		Keywords:    []string{"history", "search", "session", "inspect"},
 		Schema:      json.RawMessage(historySearchSchema),

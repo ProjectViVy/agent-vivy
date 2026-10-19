@@ -33,9 +33,6 @@ func (a *toolAdapter) applyGovernedMiddleware(
 		if err := tools.ValidateArgs(spec, request.Args); err != nil {
 			return err
 		}
-		if err := tools.ValidateArgsSafety(spec, request.Args); err != nil {
-			return err
-		}
 		next, err := a.policy.Evaluate(profile, spec, request.Args)
 		if err != nil {
 			return err
