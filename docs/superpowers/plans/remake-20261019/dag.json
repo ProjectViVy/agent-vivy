@@ -1,0 +1,156 @@
+{
+  "R00": {
+    "title": "Freeze donor/core observations",
+    "depends": [],
+    "status": "Done (planning evidence only)"
+  },
+  "R01": {
+    "title": "Review candidate owners and mixed hunks",
+    "depends": [
+      "R00"
+    ],
+    "status": "Ready for planning-only continuation"
+  },
+  "R02": {
+    "title": "Accept and inspect core B handoff",
+    "depends": [
+      "R00"
+    ],
+    "status": "Blocked: accepted #91 candidate"
+  },
+  "R03": {
+    "title": "Freeze actual shared and data contracts",
+    "depends": [
+      "R01",
+      "R02"
+    ],
+    "status": "Blocked: accepted mapping/core inputs"
+  },
+  "R04": {
+    "title": "Assemble and verify the first pilot",
+    "depends": [
+      "R10"
+    ],
+    "status": "Blocked: retained core-fix delta and prepared target"
+  },
+  "R10": {
+    "title": "Core correctness and durable interaction fixes",
+    "lane": "core-fixes",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R11": {
+    "title": "Provider routing and model capability fixes",
+    "lane": "provider",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R12": {
+    "title": "Optional durable notebook",
+    "lane": "notebook",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R13": {
+    "title": "Constrained reports and first-use entry",
+    "lane": "reports",
+    "depends": [
+      "R12"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R14": {
+    "title": "Native content package lifecycle",
+    "lane": "toolkits",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R15": {
+    "title": "Durable BML memory and native operations",
+    "lane": "bml",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R16": {
+    "title": "Subject continuity, exact evidence and governed Recap",
+    "lane": "recap",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R17": {
+    "title": "Cognitive capture, Mission and restart correctness",
+    "lane": "cognition",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R18": {
+    "title": "Reviewed local Skill evolution",
+    "lane": "skill-evolution",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R19": {
+    "title": "Laputa persona authority and onboarding",
+    "lane": "persona",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R20": {
+    "title": "Existing INOFY workflow correctness",
+    "lane": "workflow",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R21": {
+    "title": "Restricted ACP stdio Face",
+    "lane": "acp",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R22": {
+    "title": "Same-batch tool parallelism",
+    "lane": "tool-parallelism",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R23": {
+    "title": "Chat usability and quick approval",
+    "lane": "chat-ui",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  },
+  "R24": {
+    "title": "Miscellaneous maintenance and developer experience",
+    "lane": "misc",
+    "depends": [
+      "R03"
+    ],
+    "status": "Blocked: target-specific plan refinement and batch authorization"
+  }
+}

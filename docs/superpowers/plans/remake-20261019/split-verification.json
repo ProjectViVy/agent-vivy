@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "changed_paths": 1665,
+  "dedicated_source_deltas": 680,
+  "lanes": 16,
+  "hunks": 20234,
+  "hunk_locators": 11185,
+  "hunk_gitlink_pointers": 9,
+  "frozen_heads": 19,
+  "reconstructed_tree": "44247fde7e5d0f2ac95b73190b9cf3af56b56f25",
+  "scope": "source separation only; no product acceptance",
+  "errors": [],
+  "error_count": 0
+}

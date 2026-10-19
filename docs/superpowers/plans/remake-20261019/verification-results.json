@@ -1,0 +1,67 @@
+[
+  {
+    "command": [
+      "python",
+      "tools/verify_package.py"
+    ],
+    "exit_code": 0,
+    "result": {
+      "status": "PASS",
+      "commits": 394,
+      "main": 314,
+      "branch_only": 80,
+      "merge": 51,
+      "nodes": 20,
+      "waves": [
+        [
+          "R00"
+        ],
+        [
+          "R01",
+          "R02"
+        ],
+        [
+          "R03"
+        ],
+        [
+          "R10",
+          "R11",
+          "R12",
+          "R14",
+          "R15",
+          "R16",
+          "R17",
+          "R18",
+          "R19",
+          "R20",
+          "R21",
+          "R22",
+          "R23",
+          "R24"
+        ],
+        [
+          "R04",
+          "R13"
+        ]
+      ],
+      "lane_cards": 15,
+      "local_links": 53,
+      "scope": "planning package only"
+    }
+  },
+  {
+    "command": [
+      "python",
+      "tools/verify_git_objects.py",
+      "--git-dir",
+      "/workspace/scratch/dc599c5c1990/vivy-audit.git"
+    ],
+    "exit_code": 0,
+    "result": {
+      "status": "PASS",
+      "frozen_heads": 19,
+      "window_commits": 394,
+      "scope": "Git source coverage only"
+    }
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "sha": "1df9ae5f893a1c2fee3b565f775a034bab0af4e7",
+    "committer_date": "2026-10-07T18:35:05+08:00",
+    "subject": "Merge pull request #37 from ProjectViVy/devin/1791350615-fix-code-face-steer",
+    "status": "dependency_candidate_outside_window"
+  },
+  {
+    "sha": "7533daa49792b7c42374b4d26f575ad3b993fd3d",
+    "committer_date": "2026-10-07T14:33:03+08:00",
+    "subject": "Merge pull request #38 from ProjectViVy/devin/1791350750-fix-pg-fork-marker-fk",
+    "status": "dependency_candidate_outside_window"
+  },
+  {
+    "sha": "b47cb06c21325849fbe0345269c5c5fe3bd3af23",
+    "committer_date": "2026-10-07T06:16:47Z",
+    "subject": "test(conformance): re-pin internal source digest for fork-anchor fixture",
+    "status": "dependency_candidate_outside_window"
+  },
+  {
+    "sha": "c227609ab08474a5eabe40d7f1c240b36dc6dfd5",
+    "committer_date": "2026-10-07T05:26:37Z",
+    "subject": "fix(conformance): create fork child session before its back-anchor",
+    "status": "dependency_candidate_outside_window"
+  },
+  {
+    "sha": "3ba40320ed0a06a87505dd5248f2bddeb1e33110",
+    "committer_date": "2026-10-07T05:25:10Z",
+    "subject": "fix(codeface): keep code face on queued-turn idle fallback",
+    "status": "dependency_candidate_outside_window"
+  },
+  {
+    "sha": "eaf9ad76568c2810ca5b5d2213b4aff04b4a1a21",
+    "committer_date": "2026-10-07T12:45:47+08:00",
+    "subject": "Merge pull request #36 from ProjectViVy/fix/ci-dev-smoke-taskkill-exitcode",
+    "status": "dependency_candidate_outside_window"
+  },
+  {
+    "sha": "3d4d20f7a1d71ec678da494708d1c0392f7b4205",
+    "committer_date": "2026-10-07T04:28:48Z",
+    "subject": "fix(ci): stop taskkill teardown exit code from failing green dev smoke",
+    "status": "dependency_candidate_outside_window"
+  }
+]

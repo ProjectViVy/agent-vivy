@@ -1,0 +1,329 @@
+[
+  {
+    "path": "go.mod",
+    "owner": "shared",
+    "state": "alternate_lineage_reference",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "685e9855116f7c417417e426d137c89cbe0aaff8"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "685e9855116f7c417417e426d137c89cbe0aaff8"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "065f7eff752ed22c51b5118d4c3c6e59565329d0"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "go.sum",
+    "owner": "shared",
+    "state": "alternate_lineage_reference",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8015db0345abaadf835e8a8594fb5e2a8499e2e8"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8015db0345abaadf835e8a8594fb5e2a8499e2e8"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ec0527263cd3b087455e8e2bcb5bbb45e4c2eaed"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/engine.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0d79cef05c2ebbd7533e79cf584fca4bd977909c"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0d79cef05c2ebbd7533e79cf584fca4bd977909c"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0693c9ab640bc1bb489fbf799481304313a8be36"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/nudge_acceptance_test.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d738c13ecf0b8f8ce078b8431b5b2c693a4ae2b7"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ceeef313be51abea72403d3a3be034f8b2c9745a"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6d829729e5aa9f35da774b023307af4c3b26e7b4"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/parallel_tools_test.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "add",
+    "base_entry": null,
+    "extraction_base_entry": null,
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ee4d52a407d93a9f017cc52ea9bb8b279a721534"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/plan_goal_probe_test.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f2b21a69b948095cf91c2cdb1b8279e42eb6ac2"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7f2b21a69b948095cf91c2cdb1b8279e42eb6ac2"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7b63ea783c505565c98e119f916b6bc951a0288a"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/plan_review.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "65908eee3a4676d0b653d5ff2ad41e648e1a13fb"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "65908eee3a4676d0b653d5ff2ad41e648e1a13fb"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "05b3c5e30fa29006fca3ad6be61f2b961443873d"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/service.go",
+    "owner": "shared",
+    "state": "alternate_lineage_reference",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "411b7fd4bc5a55389bcd82ff31c8ed0c1ca91f3e"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e70e8ee56195a7d2835c81af90f78376f54e824a"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4947f7325d669b180bd39db72e9c57435f016583"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/tool_batch_order.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "add",
+    "base_entry": null,
+    "extraction_base_entry": null,
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "041baff2e08fc65843e4705ad45f3d643a60ae90"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/tool_batch_order_test.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "add",
+    "base_entry": null,
+    "extraction_base_entry": null,
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d65c2f17a94187af89ce07888722c5933144ab5d"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/tooladapter.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ac4ceb23bf173ed4429c97c53dc7748256ca7f53"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5dea024461e95f6ce00a86edfb747ecf47afdd77"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2773aad9fa1e50731dd732187597454915af1774"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "internal/runtime/work_control_tools.go",
+    "owner": "tool-parallelism",
+    "state": "dedicated_donor_file",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "485baff833bdb189f24dbf3736004169516a1257"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "485baff833bdb189f24dbf3736004169516a1257"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a0f17f0d4acd4c71680bdaeb604a57751da67e0f"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  },
+  {
+    "path": "sdk/internal/assembly/conformance_results.json",
+    "owner": "shared",
+    "state": "alternate_lineage_reference",
+    "operation": "modify",
+    "base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5944685c31e1423e5bd9f8860126488764078e28"
+    },
+    "extraction_base_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1d437edc4309748bc00528101fac391b94fe6668"
+    },
+    "branch_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+    "donor_entry": {
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f3ebd5d6bd28c9494a1f6d280dd407a841fb36f6"
+    },
+    "donor_base": "3c90c586fcc18936152beb1c67ea3ad3709a149c",
+    "donor_head": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "contributing_owners": [
+      "tool-parallelism"
+    ]
+  }
+]

@@ -1,0 +1,97 @@
+{
+  "repository": "ProjectViVy/agent-vivy",
+  "window_start": "2026-10-08T00:00:00+08:00",
+  "window_end": "2026-10-19T23:42:20+08:00",
+  "date_rule": "committer timestamp, inclusive; author dates retained; current reachable branch heads only",
+  "main": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "original_baseline": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "active_core": "c091ccf4351600737550b07611753dfaec846eef",
+  "core_design": "3fe696685bf14367ffd83945fe4221597552d83c",
+  "heads": {
+    "A2A": "412fdff9c184ada428554dcfaad618b214d5c835",
+    "ACP": "21c5b8bb49edd1502a033b0ca557737e102b9551",
+    "archive/tauri-cabi": "fc559e6b03ce4e65c0099b9745855dccc4fb067e",
+    "code-ssh": "0cf252a1c883b829714577d916a6ce944a670f56",
+    "codex/agent-loop-deletion": "b7ebffccb3d02995582a8eaf8d36064ae782a2f6",
+    "docs/diva-pen-research-migration": "1fefacae48c6a046796157e8dd9c9a12fb4db953",
+    "docs/provider-agentic-plan": "04c3d35e03468b6ad93e1ee5a6f46a9df3ed42c7",
+    "feat/agent-loop-deletion": "3fe696685bf14367ffd83945fe4221597552d83c",
+    "feat/issue-40-faithful-data": "f78aeadb349cb754b3d98de4eeb28f000163ce71",
+    "feat/issue-58-context-memory": "536809c9be2048f34b168ba681a3ea31bd169dc6",
+    "feat/issue-58-implementation": "66fabfd27bd83d8de201268ccadc6a0d298d7d6a",
+    "feat/issue-91-base": "c091ccf4351600737550b07611753dfaec846eef",
+    "feat/issue32-remediation": "6045c0a69a74c04a1a6221d93c0d7bb32ae7a6e1",
+    "feat/parallel-tool-dispatch": "2a9ea09bc8c6216d00cfd55a168e59b441faa443",
+    "integration/pr-closeout-20261018": "776ecd54bcef636eaf271432cde46e4d7b1836e0",
+    "main": "9cd2801f8090723a652d3e835f72d83715b82121",
+    "plan/issue81-bml-closeout": "080186ae099ca96f8863c0bd8b35d6fb7bfa228f",
+    "plan/issue81-integration-closeout": "7815cd60326d120ec560b3217eedd974709b5ff8",
+    "plan/issue81-product-gaps": "a3b85c66ab718240d0209a6bd4a5c1661f891696"
+  },
+  "counts": {
+    "total": 394,
+    "main": 314,
+    "branch_only": 80,
+    "nonmerge": 343,
+    "merge": 51
+  },
+  "candidate_owner_counts": {
+    "core-fixes": 29,
+    "integration": 51,
+    "tool-parallelism": 2,
+    "notebook": 10,
+    "misc": 35,
+    "cognition": 61,
+    "workflow": 16,
+    "reports": 5,
+    "persona": 3,
+    "provider": 27,
+    "warming": 4,
+    "toolkits": 22,
+    "recap": 76,
+    "skill-evolution": 3,
+    "bml": 14,
+    "chat-ui": 3,
+    "acp": 4,
+    "#91": 29
+  },
+  "same_patch_groups": [
+    [
+      "08e31d86d3cb50d98c82ac4ab42bea06b127768d",
+      "fa55d7638fbd35535efefd74058e608330fdf555"
+    ],
+    [
+      "04c3d35e03468b6ad93e1ee5a6f46a9df3ed42c7",
+      "694b387bff554db96812572b0ac2aebfaa72c779"
+    ],
+    [
+      "2fd9994fa09cb757242768c02c1d58463ccbbd47",
+      "ba9642bd0cae7005359da94ebbe994969d224fe5"
+    ],
+    [
+      "aa7bb07d96f8cfa5e4384de3d9111ffe0df60cb1",
+      "b2518132cdbdeba37e6826d2c1e168d4d1f8d298"
+    ],
+    [
+      "edb955e166383c5d41a7e4c1b59d333149b04b38",
+      "9a4c31188dae65c28d22a90c7cd117708447481b"
+    ],
+    [
+      "a0b0c6cbeb75985b13173ba73eea8a841a306c60",
+      "5e2cb148ea67708bf9b6497256a1408c9234b905"
+    ],
+    [
+      "b66186a5b85e825c06554bf57c285d60cf477626",
+      "8b681b40d777267d71b6c3f1d8d1f8aa616db887"
+    ],
+    [
+      "96311d16b231c64993670e3bc5860cc17d3910cf",
+      "3b448eba0b1a7ffc8d92155a4f3f764c59995005"
+    ],
+    [
+      "b7ebffccb3d02995582a8eaf8d36064ae782a2f6",
+      "e06c656cedba7c7a47c7070906ff3f0fd5898542"
+    ]
+  ],
+  "classification": "provisional routing; no hunk acceptance implied"
+}
