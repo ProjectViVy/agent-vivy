@@ -41,3 +41,28 @@ the Story package and the epic packages; the branch is updated accordingly.
    product choice to revisit later, not an omission; the epic records it as a
    decision and the default artifact's none-case evidence must show no nudge
    import, constructor or `tool.nudge` producer.
+7. **The current planning head is `d47a343` and this round implements Phase A
+   only.** The phase split in
+   [the handoff supplement](../../plans/2026-10-19-stable-loop-reintake-handoff.md)
+   governs delivery: Phase A is the #91 base cut (D00–D14), Phase B is the three
+   EXP epics, Phase C is reviewed re-intake under #83 with #81 as backlog. The
+   three EXP epics are tracked in one issue, #93; Phase A acceptance neither
+   requires their packages nor claims final C11 physical omission.
+8. **Execution validation contract for the base cut.** Story iteration runs
+   focused checks only: L0 documentation scope uses `git diff --check` plus a
+   relative-link scan; L1 package scope uses `just fmt-check` and direct
+   `go vet`/`go test -timeout 35m` on the affected packages; L2 shared-contract
+   scope (shared runtime, generated Assembly, storage/migrations, plugins or
+   faces) uses the full module test suite plus `just vet`, and `just plugin-ci`
+   when plugin or face modules change. `ensure-laputa`, `bootstrap-test`,
+   `ui-ci`, `headless-compile` and `test-postgres` are skipped during
+   iteration. The final base candidate still runs the repository `just ci`
+   once. Postgres, real-provider, BML and real-path acceptance move to the
+   PR/upstream stage; a missing environment stays pending and is never recorded
+   as a passed gate. The independent non-author audits are not reduced.
+9. **Implementation branch and commit identity.** Implementation is cut from
+   `feat/agent-loop-deletion` at `d47a343`; commit attribution stays with the
+   human owner, `mastwet`, and no AI tool appears as author, committer,
+   co-author, PR author or contributor.
+10. **One unified epic issue.** #93 covers nudge, warming and steering
+    extraction together; per-epic issues are not created.
