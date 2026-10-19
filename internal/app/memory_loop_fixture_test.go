@@ -781,8 +781,17 @@ func memoryLoopConfigAtRoot(t *testing.T, root string) string {
 	cfg.Storage.DataDir = root
 	cfg.Storage.SQLite.Path = filepath.Join(root, "vivy-test.db")
 	cfg.Runtime.WorkspaceRoot = filepath.Join(root, "workspace")
+	cfg.Runtime.SkillsRoot = filepath.Join(root, "skills")
 	cfg.Server.Addr = "127.0.0.1:0"
 	if err := os.MkdirAll(cfg.Runtime.WorkspaceRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	skillDir := filepath.Join(cfg.Runtime.SkillsRoot, "memory-loop-fixture")
+	if err := os.MkdirAll(skillDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	skillDoc := "---\nname: memory-loop-fixture\ndescription: Isolated Skill for MemoryLoop tests\n---\n\nUse this fixture Skill only when the test model selects it.\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillDoc), 0600); err != nil {
 		t.Fatal(err)
 	}
 	models, err := filepath.Abs(filepath.Join("..", "..", "..", "laputa", "mentle", "models"))

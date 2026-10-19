@@ -383,6 +383,12 @@ func (s Store) messages(ctx context.Context, tx *sql.Tx, in storage.SubjectInter
 			rows.Close()
 			return nil, err
 		}
+		// SQL stores nil and empty tool arguments as the same zero-length blob.
+		// Normalize driver-specific empty-slice results so the canonical digest
+		// does not differ between PostgreSQL and SQLite.
+		if len(m.ToolArgs) == 0 {
+			m.ToolArgs = nil
+		}
 		out = append(out, m)
 	}
 	err = rows.Err()
