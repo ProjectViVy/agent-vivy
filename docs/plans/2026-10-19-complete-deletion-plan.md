@@ -4,6 +4,13 @@ Date: 2026-10-19
 
 Tracking: [GitHub issue #91](https://github.com/ProjectViVy/agent-vivy/issues/91). Working branch: `codex/agent-loop-deletion`.
 
+Executable planning package: [issue-91/index.md](../superpowers/plans/issue-91/index.md).
+This document remains the shared scope/design authority. Section 10 specifies
+the proposed replacement contracts; the index owns Story status, dependencies,
+decision gates and acceptance evidence. Planning is authorized; implementation
+and unresolved product/data changes await review. The issue's embedded snapshot
+is historical and does not override this linked package.
+
 Status: Pre-deletion inventory and proposed execution plan. No runtime deletion, regeneration, database migration, or behavior test has been performed by this delivery.
 
 ## 1. Decision and completion standard
@@ -201,3 +208,135 @@ A deletion deliverable is closed only when its implemented candidate, retained b
 Plan verification: assembly and storage auditors independently reviewed the integrated draft; their scope corrections are incorporated. Documentation diff checks passed. Product CI was not run because this delivery changes research/planning text only; this is not a waiver for implementation.
 
 Current status: five read-only domain inventories integrated; broad tracked-tree search completed; exact per-cut decisions, implementation, regeneration, behavior verification, real-token E2E and post-deletion residue review are **pending**. No runtime fix, performance gain or incident root cause is claimed.
+
+## 10. Executable-plan design amendment
+
+Planning baseline: branch `9c5da97e3292591fa960b8cd14d921c17fea5812`;
+freshly fetched main `e96092966cfbfa443648374948e7e7e16dd01683` on 2026-10-19.
+There is no product-code delta from the original audit. Two read-only planning
+reviews rechecked runtime/approval and assembly/persistence. They did not run
+product tests or inspect production data.
+
+Choose direct comparison of already-owned values, existing semantic revisions
+and ordinary opaque identifiers. Retain the existing Eino runner and private
+durable operation row. The alternative of moving hash checks into plugins,
+adding token/state registries, or inventing a new receipt/evidence layer retains
+or increases the rejected coordination cost. Raw private input can cost more
+storage than a digest; that cost is justified only where the input is necessary
+for approval, retry conflict detection or a retained snapshot. Do not replace
+every diagnostic hash with another stored copy. No speedup is claimed.
+
+### 10.1 Shared contracts proposed for review
+
+| Contract | Concrete proposed target | Owner / implementation Story |
+| --- | --- | --- |
+| C1: stream completion | Emit `model.completed` payload v3 with exactly `{ "byte_len": N }`, where N is the UTF-8 byte count of the ordered text deltas for that model step. No full-text duplicate or digest. An emitted empty final completion has N=0. Preserve the current `tool.requested` phase boundary for tool-call responses: do not add a `model.completed` for a tool-only/preamble tool-call step. Keep live/replay budget charging and final-message persistence unchanged; a completion is not a Run terminal. New code accepts v3 on the live wire. Historical journal projection ignores digest metadata without validating it. At RPC `replayEvents`/`streamRun`, normalize supported historical v2 completion metadata to v3 before sending it to strict Face consumers, preserving sequence/count and never rewriting the Journal. G2 must enumerate any older historical shapes and their supported read path; no second live v2 protocol is admitted. | Runtime mapper, Face consumers; D02 |
+| C2: tool operation | Add private `RequestArguments []byte` to `domain.ToolOperation`; retain `MiddlewareInputArguments`, `EffectiveArguments`, RunID/OperationID/ToolName, claim owner/state and durable outcome. `Lookup` compares original request bytes, not effective bytes. Persist first, then return a completed outcome to Eino. Remove RequestDigest/ArgumentsDigest and digest event fields. Different raw requests under the same operation ID are a conflict; do not introduce JSON normalization into this retry identity. Add durable OutcomeStatus/OutcomeReason/OutcomeEffects fields in this same row (success/recoverable/refused/fatal; existing reason vocabulary; not_executed/none/unknown). Result/Failure retain their text roles. Completion stores all fields atomically and replay uses those typed values without string-prefix guessing. A converted row lacking recoverable original input keeps RequestArguments=NULL and its original state/outcome; Lookup/Execute returns explicit ErrToolOperationBindingUnavailable before claim or replay. New admissions require nonempty valid JSON within the existing 1 MiB argument bound; do not invent a recovery-required operation state. | Existing operation store; D03 |
+| C3: approved invocation | Replace the private approval envelope with `vivy.tool-approval-proposal/v2`, carrying canonical intended arguments and provider data. Use the existing JSON canonicalization semantics, preserve numeric literals, bind existing Run/call/tool/target/checkpoint identifiers, and compare the resumed intended invocation exactly. Reuse the operation row where applicable; non-row orchestration/Work approvals retain their existing private owner. Canonical arguments never enter public event/Review DTOs merely to replace a hash. | Existing approval/operation owners; D03 |
+| C4: source and Generation | Source selection retains Module ID, native ref, trust, explicit root and typed binding; remove all Vivy-computed source/lock hashes and `source-hash` CLI. Allocate one opaque Generation ID at `pack`; pass that same ID to Go/UI generation, manifest and Inspect. Authoring generation uses an explicit stable profile ID; pack always overrides it. Regeneration with identical explicit inputs is idempotent. No content-equality or authenticity claim attaches to the ID. | SDK catalog/compiler; D06 |
+| C5: bundle identity and consent | Acquisition allocates an opaque ArtifactID; published identity is existing `(InstallID, ReleaseSequence)`. Keep existing catalog Epoch/ConfigRevision CAS. Resource paths and declarations belong to the immutable published release; remove content-addressed object names and deduplication. Recommended consent policy: bind exact selected declaration and configuration to release identity; a changed release/config requires new consent. Existing consent reuse/revocation behavior must be reviewed before adopting this policy. | Bundle manager; D07, decision G3 |
+| C6: admitted inputs and checkpoints | One immutable Run-owned prompt/tool/policy snapshot contains actual admitted values. Use existing RunPromptSnapshot RunID/SchemaVersion/ComposerVersion/GenerationID, not an invented admission revision. New checkpoint outer format v2 contains format version, Eino engine version, RunID, snapshot schema/composer/Generation identity and created time, followed by opaque payload. No checksum or prompt digest. Engine mismatch, foreign Run or missing admitted snapshot fails closed. Blob generation/pointer atomicity remains. | Admission and checkpoint stores; D08 |
+| C7: history and selections | Cursor v2 is bounded, stateless and entirely untrusted: phase/after/cut positions plus normalized request/scope values, not authority claims. Every page derives permitted sessions from server context, compares normalized request values, checks positions against an authorized cut, and reapplies current visibility/truncation. Remove HMAC, random key/fallback, ScopeHash, FilterHash and SelectionDigest. Reference attachment binds selected source positions plus the bounded selected text shown in preview; re-read authorized values and compare exact selection before committing the destination copy. No token-to-state cache. Review restart/snapshot semantics under G4 before implementation. | Existing History/Reference services; D09 |
+| C8: edits and downloads | File proposals/revisions bind exact expected bytes (including missing-versus-empty) through existing private payloads. Compare the reopened authorized file against those bytes before mutation; retain safe-open and race checks. Downloads use ItemID + existing TransferID and one immutable bounded scratch snapshot. Compare against the presentation-time captured bytes before opening a transfer; every chunk reads the same snapshot. Private presentation bytes are committed atomically with the presentation receipt under the existing ContinuityStore; retain them until the source session is deleted or its presentation is hidden by truncation, then prune in that existing lifecycle. Active transfer scratch retains the existing 60-second idle TTL; presentation bytes do not inherit that TTL. Missing/expired private presentation bytes yield explicit unavailable/re-present, never current-file acceptance. Reuse storage/transfer ownership; do not claim mtime/size prove content equality. Persisting bounded presentation bytes is a deliberate storage change reviewed under G4. | File/Deliverable services; D09 |
+| C9: feature CAS and retries | Staged Skill mutations use existing BeforePayload and exact current bytes; direct SetSkillEnabled stays a control-plane toggle and receives authorized expected SKILL.md bytes/existence instead of baseHash, with a read-before-submit UI flow and conflict refresh; managed memory/notebook/mask/toolkit values use existing owner revisions and exact admitted declarations. Workflow/Work/report operations retain request IDs and normalized intended inputs in their existing private receipts. Equal ID with unequal input is a conflict. Remove digest metadata, not idempotence or scope isolation. Remove Vivy calls that compute INOFY digests; external opaque values are never revalidated as Vivy evidence. If a pinned upstream API requires a digest authority that cannot be adapted, D11 is blocked for an upstream contract change. | Feature owners; D07/D10/D11 |
+| C10: BML | Proposed schema v2/artifact `2.0.0`: strip digest fields from record JSON, preserve existing opaque record/workspace IDs and all links/scopes/revisions/tombstones; new IDs are ordinary opaque IDs, never content/path derived. Existing store revisions own CAS. Imports use migration ID + original source identity and exact normalized input for conflicts. Delete unused memory_apply_journal. Workspace association comes from persisted ownership, not path hashing; handle relocation/collision explicitly. | Independent BML module; D12 |
+
+The exact values above are a proposed design, not an assertion that their
+producers exist. D00 records approval or edits to these contracts before any
+dependent Story becomes Ready. Tests named in Story plans are proposed unless
+explicitly identified as existing.
+
+### 10.2 Finite data transition
+
+G2 must approve supported source formats and delivery boundaries before durable
+cuts execute. The proposed least-regressive route is:
+
+1. Quiesce one organism and back up its database and owned artifact directories;
+   do not migrate a live Run or operate on tenant data during development.
+2. A separately delivered, finite upgrade tool uses the **old release** to
+   normalize currently supported legacy SQL shapes to baseline 043. Existing
+   legacy PostgreSQL markers 13-23 and released-017 repair fixtures remain
+   required in that tool; do not silently remove their support. The old release
+   may validate its old formats, but the final runtime ships no old hash reader.
+3. At that boundary convert exact baseline SQL/JSON/object formats on copies.
+   The proposed source set is SQL 043 with baseline metadata, BML schema 1 /
+   artifact 1.0.0, and the baseline checkpoint/approval envelope. Newly added
+   migration IDs are allocated serially above 043 after rechecking the head.
+4. Convert old pending approvals only when exact reviewed intent is recoverable
+   without inference; otherwise mark expired/reapproval-required. Preserve
+   admitted/claimed/completed operation rows. An unresolved claimed effect
+   remains unknown and is never automatically invoked again. Old paused Eino
+   checkpoints are not promised convertible: recommendation is explicit
+   recovery-required/reapproval with the durable effect fence intact, subject
+   to owner approval. Never claim this is seamless resume compatibility.
+5. Stage copied bundle artifacts under new opaque IDs, prepare the complete
+   legacy-reference map and commit DB reference changes last. Retain the backup
+   until reopen/recovery/rollback checks pass. Handle copy failure, crash and
+   disk-full without deleting the previous store.
+6. Target runtime opens only the contracted final data formats; no dual
+   checkpoint/approval/record parser or digest-directory fallback. Its migration
+   metadata is version/name/applied_at, without checksum. Change metadata
+   bootstrap and runner together: old `ensureMetadata` requires name/checksum
+   as a pair before numbered migrations run. Merely dropping the column in a
+   later migration fails on reopen.
+7. Released SQL files are immutable historical transition definitions. They may
+   contain old column names; final schemas and active Go readers may not.
+   If the owner requires old SQL text absent too, approve a new schema baseline
+   and archive the old migration delivery separately; never rewrite releases.
+   Retire the conversion helper from the final candidate/release tree after
+   delivering the finite upgrade artifact. Record both exact artifact commits.
+8. Data rollback uses the matching backup and old executable while quiescent;
+   an old binary must not open a converted store. Preserve post-cutover data
+   separately rather than silently overwriting it with the pre-upgrade backup.
+
+No installed-version census, downgrade test or old checkpoint conversion proof
+exists in this planning delivery. These facts prevent a Ready claim for durable
+cuts until G2 is settled; they do not justify resetting user state.
+
+### 10.3 Proposed core contraction and preserved boundaries
+
+G1 recommends complete retirement of nudge/reminder coaching, proactive warming,
+same-Run steering, and mount/activation lifetime mirrors; use a fixed admitted
+tool surface for basic Runs, retain next-turn follow-up and approval/question
+resume, and evaluate existing native ToolSearch only as an explicit larger
+Recipe variant. This is an explicit proposed product reduction, not authority
+to delete it now. Companion, workflow, Work, memory and notebook capabilities
+remain retained unless separately authorized.
+
+For D04, retain synchronous acknowledgment of admission, permission/approval,
+effect claim/outcome, final message and terminal state. Move recoverable tool
+failure classification to the existing tool result boundary. Remove event-
+consumer/nudge acknowledgment as permission for the next model request.
+Derived transcript/status views may lag committed execution and rebuild through
+existing Journal replay; a failed optional sink must not own the runner.
+Never make hard budgets, required audit/accounting facts or durable effect
+completion best effort. This durability/visibility revision needs G1 approval.
+
+Actual tool lifecycle originates at the existing invocation owner. A refused
+call has no fictitious executed-start timestamp. Do not add an event scheduler,
+unbounded fanout, or second transcript service to achieve this contraction.
+
+### 10.4 Eino capability check and external boundary
+
+Repository pin: `github.com/cloudwego/eino v0.9.13`. Fresh primary-source reads:
+[adk/runner.go](https://github.com/cloudwego/eino/blob/v0.9.13/adk/runner.go),
+[adk/chatmodel.go](https://github.com/cloudwego/eino/blob/v0.9.13/adk/chatmodel.go),
+[compose/tool_node.go](https://github.com/cloudwego/eino/blob/v0.9.13/compose/tool_node.go).
+`NewChatModelAgent`, `NewRunner`, `Runner.Run`, `ResumeWithParams`, native
+checkpoint interfaces and `ToolsNodeConfig` already supply loop/tool/resume
+composition. Existing `engine.go` sets `MaxIterations`. Their availability does
+not prove Vivy durability; D03/D04 retain the existing effect fence. No new
+runner or scheduler is proposed. Eino imports stay in runtime/provider only.
+
+G5 proposes retaining native Go/pnpm dependency integrity, TLS/authentication
+and bundler-managed resource naming. Vivy-owned source/evidence/asset business
+checks, custom cursor MAC and explicit digest calls into INOFY are in scope for
+deletion. A native Git commit ref may select source without being recomputed
+as a Vivy product hash. The optional final-distributable informational hash is
+omitted by default; adding one later is unnecessary to satisfy #91.
+
+Host-side `internal/studiocore` hash gates are included. The external Studio
+submodule and pinned Laputa/INOFY APIs must be inspected at D00/D11 for actual
+consumer obligations; this repository's plan cannot assert those repositories
+have been changed or accepted. Escalate a required external contract change;
+do not retain a local no-op verifier or silently fork the dependency.
