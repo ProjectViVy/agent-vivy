@@ -2,6 +2,8 @@
 
 Date: 2026-10-19
 
+Tracking: [GitHub issue #91](https://github.com/ProjectViVy/agent-vivy/issues/91). Working branch: `codex/agent-loop-deletion`.
+
 Status: Pre-deletion inventory and proposed execution plan. No runtime deletion, regeneration, database migration, or behavior test has been performed by this delivery.
 
 ## 1. Decision and completion standard
@@ -16,7 +18,7 @@ One small final-artifact label is permitted: compute it after packaging, outside
 
 ## 2. Audit baseline and coverage
 
-The inspected implementation is `origin/main@e96092966cfbfa443648374948e7e7e16dd01683`, containing 3,751 tracked paths. The working checkout's product code is older (`b4db00bd` plus documentation changes). Implementation must start on an explicitly selected current integration base and recheck intervening changes; do not apply this map blindly to the older checkout.
+The inspected implementation is `origin/main@e96092966cfbfa443648374948e7e7e16dd01683`, containing 3,751 tracked paths. During the audit the checkout was based on older product code (`b4db00bd` plus documentation changes), so remote files were read directly. On 2026-10-19, branch `codex/agent-loop-deletion` was created and the documentation commits were rebased onto the freshly pulled `origin/main` at the same audited `e9609296` baseline. Recheck any subsequent upstream changes before implementation.
 
 Five read-only subagent lanes reviewed runtime ownership; SDK/assembly/plugin generation; storage/recovery; UI/RPC/configuration; and CI/tests/current instructions. The lead reconciled their findings and checked cross-lane boundaries. No production Journal was accessed.
 
