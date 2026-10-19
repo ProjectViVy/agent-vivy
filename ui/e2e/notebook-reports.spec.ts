@@ -10,37 +10,11 @@ import { nbConfigPath, notebookBins } from '../playwright.notebook.config';
  * the UI must show honest fallback provenance, never a fabricated model run.
  */
 
-async function invokeModule(page: Page, moduleId: string, actionId: string, input: unknown): Promise<Record<string, unknown>> {
-  return page.evaluate(async ([m, a, i]) => {
-    const boot = await fetch('/rpc/bootstrap', { cache: 'no-store' });
-    if (!boot.ok) throw new Error(`bootstrap ${boot.status}`);
-    const info = await boot.json();
-    const url = new URL(info.websocket_path, location.origin);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    url.searchParams.set('token', info.token);
-    const socket = new WebSocket(url.toString());
-    return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('rpc timeout')), 20_000);
-      socket.onopen = () =>
-        socket.send(JSON.stringify({ jsonrpc: '2.0', id: 'init', method: 'initialize', params: { protocol_version: info.protocol_version } }));
-      socket.onmessage = (event) => {
-        const data = JSON.parse(String(event.data));
-        if (data.id === 'init') {
-          socket.send(JSON.stringify({ jsonrpc: '2.0', id: 'nb1', method: 'module.action.invoke', params: { module_id: m, action_id: a, input: i } }));
-        } else if (data.id === 'nb1') {
-          clearTimeout(timer);
-          socket.close();
-          if (data.error) reject(new Error(JSON.stringify(data.error)));
-          else resolve(data.result ?? {});
-        }
-      };
-      socket.onerror = () => reject(new Error('ws error'));
-    });
-  }, [moduleId, actionId, input] as const);
-}
-
 async function openNotebook(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  await page.addInitScript(() => {
+    localStorage.setItem('vivy.ui.welcome.completed', '1');
+    localStorage.setItem('vivy.persona.onboarding.dismissed', '1');
+  });
   await page.goto('/notebook');
   await expect(page.getByTestId('notebook-page')).toBeVisible();
 }
@@ -68,25 +42,31 @@ test.describe('notebook reports (R2)', () => {
     await stopBackend(backend);
   });
 
-  test('generate daily report, verify provenance, edit, comment and regenerate', async ({ page }) => {
+  test('generate the first daily report from the empty section, verify provenance, edit, comment and regenerate', async ({ page }) => {
     await openNotebook(page);
     await selectDailySection(page);
 
-    // Fresh empty section: the controls render on entry detail only. Generate
-    // through the action to land the first entry, then drive the panel.
-    const admission = await invokeModule(page, 'vivy/reports', 'vivy.reports.generate', {
-      period: 'daily', window: 'completed', operation_key: 'e2e-gen-1',
-    });
-    expect((admission.result as Record<string, unknown>)?.run_id).toBeTruthy();
+    // First use: no entry exists, so generation and settings live in the
+    // unselected detail instead of requiring a seeded report through RPC.
+    await expect(page.getByTestId('notebook-entries-empty')).toBeVisible();
+    await expect(page.getByTestId('notebook-editor')).toHaveCount(0);
+    await expect(page.getByTestId('notebook-empty-reports')).toBeVisible();
+    await expect(page.getByTestId('notebook-reports')).toBeVisible();
+    await expect(page.getByTestId('report-settings-open')).toBeVisible();
 
-    // The published entry appears in the daily section and carries the
-    // report badge; the provenance strip names series + window.
-    await page.reload();
-    await expect(page.getByTestId('notebook-page')).toBeVisible();
-    await selectDailySection(page);
-    const row = page.getByTestId('notebook-entry');
-    await expect(row).toHaveCount(1, { timeout: 30_000 });
-    await row.click();
+    // Settings are discoverable and writable before any report exists.
+    await page.getByTestId('report-settings-open').click();
+    await expect(page.getByTestId('report-settings-form')).toBeVisible();
+    const enabled = page.getByTestId('settings-enabled');
+    if (await enabled.isChecked()) await enabled.uncheck();
+    await page.getByTestId('settings-save').click();
+    await expect(page.getByTestId('report-settings-form')).toHaveCount(0);
+
+    // Generate without a target: the backend publishes into the configured
+    // daily section and the view selects that authoritative entry.
+    await page.getByTestId('report-generate').click();
+    await expect(page.getByTestId('notebook-entry')).toHaveCount(1, { timeout: 90_000 });
+    await expect(page.getByTestId('notebook-editor')).toBeVisible({ timeout: 90_000 });
     await expect(page.getByTestId('report-provenance')).toContainText('report.daily', { timeout: 30_000 });
 
     // The generated revision is labeled generated, not human.

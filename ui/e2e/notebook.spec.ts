@@ -45,7 +45,10 @@ async function invokeModule(page: Page, actionId: string, input: unknown): Promi
 }
 
 async function openNotebook(page: Page): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
+  await page.addInitScript(() => {
+    localStorage.setItem('vivy.ui.welcome.completed', '1');
+    localStorage.setItem('vivy.persona.onboarding.dismissed', '1');
+  });
   await page.goto('/notebook');
   await expect(page.getByTestId('notebook-page')).toBeVisible();
 }
@@ -78,15 +81,17 @@ test.describe('notebook durable editor (N3)', () => {
     await stopBackend(backend);
   });
 
-  test('seeded role sections render; no report-generation controls surface', async ({ page }) => {
+  test('seeded role sections render; report generation surfaces before selecting an entry', async ({ page }) => {
     await openNotebook(page);
     const select = page.getByTestId('notebook-section-select');
     await expect(select.locator('option[value="section-notes"]')).toHaveCount(1);
     await expect(select.locator('option[value="section-daily"]')).toHaveCount(1);
     await expect(select.locator('option[value="section-weekly"]')).toHaveCount(1);
     await expect(select.locator('option[value="section-monthly"]')).toHaveCount(1);
-    // Reports ship in R1/R2; the editor must not expose generate/run controls.
-    await expect(page.getByText(/生成报告|新建报告|Generate report|Run report/i)).toHaveCount(0);
+    // R1: the unselected detail offers generation; no entry editor is open.
+    await expect(page.getByTestId('notebook-empty-reports')).toBeVisible();
+    await expect(page.getByTestId('report-generate')).toBeVisible();
+    await expect(page.getByTestId('notebook-editor')).toHaveCount(0);
   });
 
   test('create section + document, save, comment, revisions, move, delete/restore, export', async ({ page }) => {

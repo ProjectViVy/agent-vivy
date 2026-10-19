@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
+import { resolveGateEndpoints } from './e2e/e2e-ports.mjs';
 
-// Notebook N3 task 3: real disposable backend + Vite :3015 split pair.
+// Notebook N3 task 3: real disposable backend + Vite split pair (default 8797/3015).
 // The backend is spawned per-test inside the spec (restart persistence needs a
 // real process restart, which webServer cannot express); Playwright owns only
 // the Vite dev server. Packed binaries carry the sealed generation identity
@@ -14,20 +15,27 @@ const repoRoot = path.resolve(here, '..');
 const workdir = path.join(here, '.e2e-notebook');
 const nbConfig = path.join(workdir, 'config.yaml');
 const packRoot = path.join(repoRoot, '.workspace', 'notebook-e2e');
-export const BACKEND = '127.0.0.1:8797';
-const UI = '127.0.0.1:3015';
+const endpoints = resolveGateEndpoints({
+  backendVariable: 'VIVY_NB_E2E_BACKEND_PORT',
+  backendDefault: 8797,
+  uiVariable: 'VIVY_NB_E2E_UI_PORT',
+  uiDefault: 3015,
+});
+export const BACKEND = endpoints.backend;
+const UI = endpoints.ui;
+const binaryName = process.platform === 'win32' ? 'vivy.exe' : 'vivy';
 const goExe = process.env.GO_EXE || 'go';
 
 export const nbWorkdir = workdir;
 export const nbConfigPath = nbConfig;
 export const notebookBins = {
-  selected: path.join(packRoot, 'default', 'vivy'),
-  omitted: path.join(packRoot, 'no-notebook', 'vivy'),
-  noReports: path.join(packRoot, 'no-reports', 'vivy'),
+  selected: path.join(packRoot, 'default', binaryName),
+  omitted: path.join(packRoot, 'no-notebook', binaryName),
+  noReports: path.join(packRoot, 'no-reports', binaryName),
 };
 
 function packOnce(recipe: string, output: string): void {
-  const binary = path.join(output, 'vivy');
+  const binary = path.join(output, binaryName);
   if (fs.existsSync(binary) && !process.env.VIVY_NB_E2E_REPACK) return;
   execSync(`${JSON.stringify(goExe)} run ./sdk pack --recipe ${JSON.stringify(recipe)} --output ${JSON.stringify(output)}`, {
     cwd: repoRoot,
@@ -92,7 +100,11 @@ export default defineConfig({
       command: 'pnpm dev',
       cwd: here,
       url: `http://${UI}`,
-      env: { ...process.env, VIVY_BACKEND_ADDR: `http://${BACKEND}` },
+      env: {
+        ...process.env,
+        VIVY_UI_PORT: String(endpoints.uiPort),
+        VIVY_BACKEND_ADDR: `http://${BACKEND}`,
+      },
       reuseExistingServer: false,
       timeout: 120_000,
     },
