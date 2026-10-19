@@ -66,3 +66,12 @@ the Story package and the epic packages; the branch is updated accordingly.
    co-author, PR author or contributor.
 10. **One unified epic issue.** #93 covers nudge, warming and steering
     extraction together; per-epic issues are not created.
+11. **Infrastructure alignment with main is approved for this round.** E1
+    (Eino `v0.9.13` -> `v0.9.21` with the pending-run restart policy) and E2
+    (the vendored Claude stream-race patch) land as a Phase-A preamble before
+    D04/D05. They are dependency/recovery alignment, not capability increments,
+    so they do not wait for the re-intake batches. E1 re-cites the plan's Eino
+    references at v0.9.21 in the same change. The optional provider bug-fix set
+    (E3) stays a separate triage: self-contained fixes only, never commits that
+    cite post-baseline runtime code. Assessment:
+    [provider/Eino alignment](../../research/2026-10-19-provider-eino-alignment-backport.md).

@@ -103,13 +103,13 @@ dependency boundary moves once, not twice.
   stays fail-closed. Existing baseline-A stores fail their paused run closed
   once and continue.
 
-## 6. Open owner questions
+## 6. Owner decision (2026-10-19)
 
-1. Land E1 and E2 in this round as the Phase-A preamble track, or defer to the
-   re-intake batches? Recommendation: land now - they are not capability
-   increments and they remove a known race.
-2. Take the optional E3 set? Recommendation: take `1bdfdca4` and `8a37e059`
-   (self-contained), review `f5322c92`/`773dc741` against baseline-A selection
-   and output-cap contracts before deciding.
-3. Re-cite the plan at `eino v0.9.21` as part of E1? Recommendation: yes, in the
-   same change, so no commit ships with two Eino versions in the repository.
+The owner approved the infrastructure alignment for this round: E1 and E2 land
+as a Phase-A preamble before D04/D05, and E1 re-cites the plan's Eino
+references at v0.9.21 in the same change. They are dependency/recovery
+alignment, not capability increments, so they do not wait for the re-intake
+batches. E3 remains a separate triage: take self-contained fixes only, never
+commits that cite post-baseline runtime code. Recorded in
+[owner decisions](../logs/2026-10-19-baseline-a-epic-split/owner-decisions.md)
+item 11.
