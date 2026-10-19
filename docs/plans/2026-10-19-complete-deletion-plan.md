@@ -2,7 +2,7 @@
 
 Date: 2026-10-19
 
-Tracking: [GitHub issue #91](https://github.com/ProjectViVy/agent-vivy/issues/91). Working branch: `codex/agent-loop-deletion`.
+Tracking: [GitHub issue #91](https://github.com/ProjectViVy/agent-vivy/issues/91). Plan branch: `feat/agent-loop-deletion` (baseline A); original plan branch: `codex/agent-loop-deletion`.
 
 Executable planning package: [issue-91/index.md](../superpowers/plans/issue-91/index.md).
 This document remains the shared scope/design authority. Sections 10–11 specify
@@ -13,6 +13,8 @@ delivery and verification prerequisites remain in the index. The issue's embedde
 is historical and does not override this linked package.
 
 Owner scope update (2026-10-19): **retain nudge/coaching, proactive warming and same-Run steering as species-selected experimental packages**. Their whole-feature-retirement alternatives below are superseded; D04/D05 in the linked package preserve actual features while removing custom hashes/redundant coordination. Tool-visibility/durability choices remain separate. No runtime deletion has occurred.
+
+Baseline A and delivery split (2026-10-19): the implementation baseline is `202aac38` (2026-10-07), the last stable pi-parity closeout that passed benchmark runs. The 168 commits and 30 first-parent merges added after it are unverified increments; they are not assumed present and are to be re-reviewed and re-introduced in gated batches. This plan and the linked package were authored at `e9609296` (2026-10-18) and replayed onto baseline A; 10-18-only file references are re-anchored in the [baseline-A audit](../research/2026-10-19-baseline-a-reanchor.md). Issue #91's base cut lands hash deletion, the core contraction and the inert loop-exp seam; the three retained packages are delivered as the independent [E-NUDGE](../superpowers/plans/epic-nudge/index.md), [E-WARMING](../superpowers/plans/epic-warming/index.md) and [E-STEERING](../superpowers/plans/epic-steering/index.md) epics. Until each epic lands, the corresponding behavior stays in one core implementation; C11 physical omission is claimed only by the epics, never by #91.
 
 Status: Pre-deletion inventory and proposed execution plan. No runtime deletion, regeneration, database migration, or behavior test has been performed by this delivery.
 
@@ -236,12 +238,12 @@ every diagnostic hash with another stored copy. No speedup is claimed.
 | C1: stream completion | Emit `model.completed` payload v3 with exactly `{ "byte_len": N }`, where N is the UTF-8 byte count of the ordered text deltas for that model step. No full-text duplicate or digest. An emitted empty final completion has N=0. Preserve the current `tool.requested` phase boundary for tool-call responses: do not add a `model.completed` for a tool-only/preamble tool-call step. Keep live/replay budget charging and final-message persistence unchanged; a completion is not a Run terminal. New code accepts v3 on the live wire. Historical journal projection ignores digest metadata without validating it. At RPC `replayEvents`/`streamRun`, normalize supported historical v2 completion metadata to v3 before sending it to strict Face consumers, preserving sequence/count and never rewriting the Journal. G2 must enumerate any older historical shapes and their supported read path; no second live v2 protocol is admitted. | Runtime mapper, Face consumers; D02 |
 | C2: tool operation | Add private `RequestArguments []byte` to `domain.ToolOperation`; retain `MiddlewareInputArguments`, `EffectiveArguments`, RunID/OperationID/ToolName, claim owner/state and durable outcome. `Lookup` compares original request bytes, not effective bytes. Persist first, then return a completed outcome to Eino. Remove RequestDigest/ArgumentsDigest and digest event fields. Different raw requests under the same operation ID are a conflict; do not introduce JSON normalization into this retry identity. Add durable OutcomeStatus/OutcomeReason/OutcomeEffects fields in this same row (success/recoverable/refused/fatal; existing reason vocabulary; not_executed/none/unknown). Result/Failure retain their text roles. Completion stores all fields atomically and replay uses those typed values without string-prefix guessing. A converted row lacking recoverable original input keeps RequestArguments=NULL and its original state and Result/Failure; new typed outcome fields remain NULL only on unbound legacy rows, and are required on new completed bound rows. Lookup/Execute returns explicit ErrToolOperationBindingUnavailable before claim or replay. New admissions require nonempty valid JSON within the existing 1 MiB argument bound; do not invent a recovery-required operation state. | Existing operation store; D03 |
 | C3: approved invocation | Replace the private approval envelope with `vivy.tool-approval-proposal/v2`, carrying canonical intended arguments and provider data. Use the existing JSON canonicalization semantics, preserve numeric literals, bind existing Run/call/tool/target/checkpoint identifiers, and compare the resumed intended invocation exactly. Reuse the operation row where applicable; non-row orchestration/Work approvals retain their existing private owner. Canonical arguments never enter public event/Review DTOs merely to replace a hash. | Existing approval/operation owners; D03 |
-| C4: source and Generation | Source selection retains Module ID, native ref, trust, explicit root and typed binding; remove all Vivy-computed source/lock hashes and `source-hash` CLI. Allocate one opaque Generation ID at `pack`; pass that same ID to Go/UI generation, manifest and Inspect. Authoring generation uses an explicit stable profile ID; pack always overrides it. Regeneration with identical explicit inputs is idempotent. No content-equality or authenticity claim attaches to the ID. | SDK catalog/compiler; D06 |
-| C5: bundle identity and consent | Acquisition allocates an opaque ArtifactID; published identity is existing `(InstallID, ReleaseSequence)`. Keep existing catalog Epoch/ConfigRevision CAS. Resource paths and declarations belong to the immutable published release; remove content-addressed object names and deduplication. Bind exact selected declaration and configuration to release identity; a changed release/config requires new consent. Converted executable consents are unarmed; §11.7 defines scoped revocation and history retention. | Bundle manager; D07, decision G3 |
+| C4: source and Generation | Source selection retains Module ID, native ref, trust, explicit root and typed binding; remove all Vivy-computed source/lock hashes and `source-hash` CLI. Allocate one opaque Generation ID at `pack`; pass that same ID to Go/UI generation, manifest and Inspect. Authoring generation uses an explicit stable profile ID; pack always overrides it. Regeneration with identical explicit inputs is idempotent. No content-equality or authenticity claim attaches to the ID. | SDK catalog/compiler; D06. Baseline A: `GenerationID` is currently hash-derived, so the opaque pack ID is a design change rather than a rename. |
+| C5: bundle identity and consent | Acquisition allocates an opaque ArtifactID; published identity is existing `(InstallID, ReleaseSequence)`. Keep existing catalog Epoch/ConfigRevision CAS. Resource paths and declarations belong to the immutable published release; remove content-addressed object names and deduplication. Bind exact selected declaration and configuration to release identity; a changed release/config requires new consent. Converted executable consents are unarmed; §11.7 defines scoped revocation and history retention. | Bundle manager; D07, decision G3. Baseline A: no bundle/toolkit subsystem exists (no `internal/bundles`, `bundlecontract`, `bundlesql` or toolkit packages); this row has no implementation to cut and D07 is withdrawable pending owner confirmation. |
 | C6: admitted inputs and checkpoints | One immutable Run-owned prompt/tool/policy snapshot contains actual admitted values. Use existing RunPromptSnapshot RunID/SchemaVersion/ComposerVersion/GenerationID, not an invented admission revision. New checkpoint outer format v2 contains format version, Eino engine version, RunID, snapshot schema/composer/Generation identity and created time, followed by opaque payload. No checksum or prompt digest. Engine mismatch, foreign Run or missing admitted snapshot fails closed. Blob generation/pointer atomicity remains. | Admission and checkpoint stores; D08 |
 | C7: history and selections | Cursor v2 is bounded, stateless and entirely untrusted: phase/after/cut positions plus normalized request/scope values, not authority claims. Every page derives permitted sessions from server context, compares normalized request values, checks positions against an authorized cut, and reapplies current visibility/truncation. Remove HMAC, random key/fallback, ScopeHash, FilterHash and SelectionDigest. Reference attachment binds selected source positions plus the bounded selected text shown in preview; re-read authorized values and compare exact selection before committing the destination copy. No token-to-state cache. Section 11.6 fixes cursor trust and restart/snapshot semantics. | Existing History/Reference services; D09 |
 | C8: edits and downloads | File proposals/revisions bind exact expected bytes (including missing-versus-empty) through existing private payloads. Compare the reopened authorized file against those bytes before mutation; retain safe-open and race checks. Downloads use ItemID + existing TransferID and one immutable bounded scratch snapshot. Compare against the presentation-time captured bytes before opening a transfer; every chunk reads the same snapshot. Private presentation bytes are committed atomically with the presentation receipt under the existing ContinuityStore; retain them until the source session is deleted or its presentation is hidden by truncation, then prune in that existing lifecycle. Active transfer scratch retains the existing 60-second idle TTL; presentation bytes do not inherit that TTL. Missing/expired private presentation bytes yield explicit unavailable/re-present, never current-file acceptance. Reuse storage/transfer ownership; do not claim mtime/size prove content equality. Persisting bounded presentation bytes is the deliberate storage choice in §11.6. | File/Deliverable services; D09 |
-| C9: feature CAS and retries | Staged Skill mutations use existing BeforePayload and exact current bytes; direct SetSkillEnabled stays a control-plane toggle and receives authorized expected SKILL.md bytes/existence instead of baseHash, with a read-before-submit UI flow and conflict refresh; managed memory/notebook/mask/toolkit values use existing owner revisions and exact admitted declarations. Workflow/Work/report operations retain request IDs and normalized intended inputs in their existing private receipts. Equal ID with unequal input is a conflict. Remove digest metadata, not idempotence or scope isolation. Remove Vivy calls that compute INOFY digests; external opaque values are never revalidated as Vivy evidence. If a pinned upstream API requires a digest authority that cannot be adapted, D11 is blocked for an upstream contract change. | Feature owners; D07/D10/D11 |
+| C9: feature CAS and retries | Staged Skill mutations use existing BeforePayload and exact current bytes; direct SetSkillEnabled stays a control-plane toggle and receives authorized expected SKILL.md bytes/existence instead of baseHash, with a read-before-submit UI flow and conflict refresh; managed memory/notebook/mask/toolkit values use existing owner revisions and exact admitted declarations. Workflow/Work/report operations retain request IDs and normalized intended inputs in their existing private receipts. Equal ID with unequal input is a conflict. Remove digest metadata, not idempotence or scope isolation. Remove Vivy calls that compute INOFY digests; external opaque values are never revalidated as Vivy evidence. If a pinned upstream API requires a digest authority that cannot be adapted, D11 is blocked for an upstream contract change. | Feature owners; D07/D10/D11. Baseline A: the report family and toolkit contracts are absent; `notebook` maps to the notes domain/tools/storage. Re-scope D11 accordingly. |
 | C10: BML | Proposed schema v2/artifact `2.0.0`: strip digest fields from record JSON, preserve existing opaque record/workspace IDs and all links/scopes/revisions/tombstones; new IDs are ordinary opaque IDs, never content/path derived. Existing store revisions own CAS. Imports use migration ID + original source identity and exact raw source input plus normalized records for conflicts. Delete unused memory_apply_journal. Workspace association comes from persisted ownership, not path hashing; handle relocation/collision explicitly. | Independent BML module; D12 |
 
 The exact values above are target contracts, not an assertion that their
@@ -276,12 +278,21 @@ small selected Host/Eino adapter remains in runtime/provider. Experimental code
 must not import quarantined Eino or access raw Journal/Policy/storage/credentials.
 Custom hashes are deleted throughout, including these experimental packages.
 
+Baseline A findings: the three features exist only as unconditional core code
+(`engine.go` around line 376, `service.go` around lines 2948/4643, `queue.go`);
+nudge has no config/UI, warming is config-only with off/streaming/idle (idle
+uses a timer), steering has RPC/UI but no located custom hash binding. The
+loop-detection hard stop fused with the nudge window in
+`internal/runtime/loopguard.go` remains core continuation authority; the epics
+extract coaching/behavior, not the run-fatal stop. C11 is the target contract
+delivered by the epics, not by #91.
+
 Verified seam gap: sdk/port/observer is bounded post-commit observation and
 sdk/port/pretool only constrains pre-tool execution. Neither supplies these
 three policy boundaries. Sections 11.1–11.5 resolve the gap with three closed
 T1-only factory Ports, pure SDK contracts and selected runtime adapters. No
 Observer privilege escalation, untyped registry or raw Service/Runner exposure
-is permitted. D04/D05 consume that settled design and accepted predecessors.
+is permitted. D04/D05 consume that settled design and accepted predecessors. The package implementations are delivered by the independent E-NUDGE, E-WARMING and E-STEERING epics; #91 lands only the seam and the hash/handoff cuts.
 
 Proposed explicit test Recipes live at recipes/exp-nudge.vivy.yml,
 recipes/exp-warming.vivy.yml, recipes/exp-steering.vivy.yml and
@@ -299,14 +310,16 @@ The conversion route is:
 1. Quiesce one organism and back up its database and owned artifact directories;
    do not migrate a live Run or operate on tenant data during development.
 2. A separately delivered, finite upgrade tool uses the **old release** to
-   normalize currently supported legacy SQL shapes to baseline 043. Existing
+   normalize currently supported legacy SQL shapes to baseline 035. Existing
    legacy PostgreSQL markers 13-23 and released-017 repair fixtures remain
    required in that tool; do not silently remove their support. The old release
    may validate its old formats, but the final runtime ships no old hash reader.
 3. At that boundary convert exact baseline SQL/JSON/object formats on copies.
-   The proposed source set is SQL 043 with baseline metadata, BML schema 1 /
+   The proposed source set is SQL 035 with baseline metadata, BML schema 1 /
    artifact 1.0.0, and the baseline checkpoint/approval envelope. Newly added
-   migration IDs are allocated serially above 043 after rechecking the head.
+   migration IDs are allocated serially above 035 after rechecking the head
+   (baseline A's migration head; the 10-18 tree reached 043, which is not
+   present here).
 4. Expire baseline pending/approved-unconsumed v1 approvals with explicit
    reapproval-required recovery; do not infer intent from old evidence. Preserve
    admitted/claimed/completed operation rows. An unresolved claimed effect
@@ -355,7 +368,11 @@ checkpoint/resume contract. Keep existing tool visibility/discovery semantics; r
 authority only. Section 11.4 fixes derived projection ownership; a fixed tool
 surface is not introduced.
 Companion, workflow, Work, memory and notebook capabilities also remain retained
-unless separately authorized.
+unless separately authorized. Delivery split (2026-10-19): the package
+implementation, parity, settings/UI/events/recovery, evidence and final deletion
+of the core bodies are delivered by the independent epics E-NUDGE, E-WARMING and
+E-STEERING; #91 keeps the single core implementation until each epic cuts over,
+and no dual path is permitted at any point.
 
 For D04, retain synchronous acknowledgment of admission, permission/approval,
 effect claim/outcome, final message and terminal state. Move recoverable tool
@@ -749,7 +766,7 @@ Direct skill-toggle signature remains the distinct C9 control-plane API.
 ### 11.7 Final schemas and finite supported source formats
 
 `T` denotes the final numbered application migration after all #91 owner
-migrations above 043 are allocated serially. It is a build-time constant in the
+migrations above 035 are allocated serially (baseline A head). It is a build-time constant in the
 delivered candidate, **not a runtime-configurable version**. D12 owns metadata;
 D03/D07–D11 own their columns/JSON converters. Final metadata is exactly
 version/name/applied_at without checksum. Final target reopen validates known
@@ -758,10 +775,10 @@ contiguous names/versions and actual required shape before any mutation.
 | Source detected read-only | Finite upgrade route | Final runtime behavior |
 | --- | --- | --- |
 | Truly pristine DB: no metadata or application tables | Not an upgrade; initialize historical DDL + target migrations + final metadata in one owned transaction | Open only after complete commit; rollback on failure |
-| Canonical SQLite/Postgres migration prefixes 001..N, 1 <= N <= 043, old complete metadata | Old-release normalizer to exact 043, then copy conversion to T | upgrade_required, before CREATE/backfill/write |
-| SQLite legacy version/applied_at metadata | Existing old normalization/shape checks, then 043 -> T | upgrade_required |
-| PostgreSQL compressed legacy markers max 13..23, no name/checksum | Existing legacyPostgresState recognition and accumulated bootstrap, including historical truncation repair at 020, then 043 -> T | upgrade_required |
-| Released-017 drift fixtures at heads 016/017/023/035 | Frozen old-release repair path, then 043 -> T | upgrade_required |
+| Canonical SQLite/Postgres migration prefixes 001..N, 1 <= N <= 035, old complete metadata | Old-release normalizer to exact 035, then copy conversion to T | upgrade_required, before CREATE/backfill/write |
+| SQLite legacy version/applied_at metadata | Existing old normalization/shape checks, then 035 -> T | upgrade_required |
+| PostgreSQL compressed legacy markers max 13..23, no name/checksum | Existing legacyPostgresState recognition and accumulated bootstrap, including historical truncation repair at 020, then 035 -> T | upgrade_required |
+| Released-017 drift fixtures at heads 016/017/023/035 | Frozen old-release repair path, then 035 -> T | upgrade_required |
 | BML schema1 / artifact1.0.0 | Separate converter to schema2/artifact2.0.0 | upgrade_required |
 | Complete target T (or a later known compatible target prefix) / BML2/artifact2.0.0 | Normal later target migrations only | Open/reopen; no old hash reader |
 | Partial metadata, unexplained application tables without metadata, unknown/future versions, unsupported drift or incomplete conversion | unsupported_source_format; leave source untouched | Refuse before write |
@@ -819,7 +836,7 @@ Additional target ownership decisions:
   declaration/config. Preserve publication/rollback history and unknown effects.
   Old operation receipts missing normalized input remain NULL/unreusable.
 - Studio-owned lifecycle ledger is a separate SQLite store, not application SQL
-  043. Its generations table currently requires artifact_sha256. D06 supplies a
+  035. Its generations table currently requires artifact_sha256. D06 supplies a
   separate ledger format guard/conversion fragment: rebuild generations without
   that column, retain IDs/source refs/recipes/phases/parent links and all
   eval/release/install/event history. Existing file: SourceRef points to the
