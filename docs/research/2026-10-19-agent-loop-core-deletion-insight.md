@@ -183,23 +183,57 @@ Sources: [critical section](https://github.com/ProjectViVy/agent-vivy/blob/e9609
 
 Sources: [Run context](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/service.go#L1561), [budgets](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/budget.go#L23), [stream pump](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/model_stream_observer.go#L219).
 
-## 6. Hashes: a real hot-path example, not a universal diagnosis
+## 6. Proposed direction: final-artifact identity only
 
-The application installs an AuditHook by default. Each event reaching it gets a payload SHA-256 before the digest is passed to the debug sink. Computation happens before the logging layer decides whether to emit the message. This is auxiliary work on synchronous publication.
+Discussion update: the owner requests that Vivy retain only a final species-artifact hash, serving as an informational release label with no authority over business behavior. Per-plugin hashes and other Vivy-owned hash machinery should be retired. This replaces the earlier recommendation to retain some hash implementations indefinitely. It does not remove the execution guarantees those implementations currently support.
 
-No measurement establishes that hashing caused the incident. The stronger removal argument is that this optional diagnostic correlation need not belong to the execution guarantee. Its cost includes the surrounding hook/logging path, not merely a hash operation.
+### 6.1 Proposed rule and scope
 
-| Family | Purpose and cadence | Judgment |
+After the final distributable is complete, compute one digest for that final artifact. Publish it in a sidecar release record outside the hashed bytes. Do not create another per-file or per-plugin digest manifest, and do not make the running product recompute it.
+
+The runtime must not require this label to start, admit a Run, expose a tool, invoke a model, continue after a tool, approve an operation or restore state. Missing or unreadable release-label metadata means unavailable metadata, not a failed business operation. A manually requested comparison may report a mismatch without granting it runtime execution authority.
+
+A digest identifies bytes; it does not establish functional correctness or prove that tests passed. Any release qualification statement must describe the actual validation separately. The same label cannot serve as a hidden policy, compatibility, provenance or admission token.
+
+For Vivy-owned product metadata, the retirement scope includes `hash`, `digest`, `fingerprint`, `checksum` and content-addressed identities used under different names. Do not preserve the design by changing an algorithm or renaming a field. Use existing semantic IDs, immutable admitted inputs and revisions where they already suffice. Delete evidence with no remaining consumer.
+
+**Scope recommendation requiring an explicit boundary:** this product-level policy should not instruct developers to disable TLS, authentication/signature mechanisms or the dependency manager's native integrity checks. Existing custom cryptographic mechanisms must be identified individually. If one is also to be removed, retire its capability or select a simpler secure contract; do not merely omit signature validation. The owner's request establishes the artifact-only direction, while this distinction remains a recommendation in the draft, not an agreed exemption or an implemented rule.
+
+### 6.2 Concrete disposition
+
+| Family | Target | Required decision or replacement |
 | --- | --- | --- |
-| Audit payload SHA-256 | Per event reaching the default hook; diagnostic correlation | Strong deletion candidate with the auxiliary audit path; preserve canonical Journal and necessary secret-safe logging |
-| Nudge FNV signature | Advisory repetition window | Delete with reminders; the signature function is much smaller than the surrounding protocol |
-| Cache-prefix SHA-256 | Optional warming evidence | Delete with warming |
-| Operation request/effective-argument digests | Bind recovery to the exact invocation | Retain until an equally explicit existing representation replaces the guarantee |
-| Approval arguments and file preconditions | Prevent execution of changed operations/targets | Retain at the authorization/effect boundary |
-| Checkpoint checksum/version/prompt identity | Validate actual recovery input | Retain at recovery; review compatibility requirements separately |
-| Source-tree digest | Assembly/publication identity | Not a per-turn source scan; optimize development duplication separately |
+| Final distributable | One informational digest outside the artifact | Choose the actual delivery unit; no recursive/self-referential manifest or runtime gate |
+| Per-plugin/source-tree/Assembly evidence hashes | Remove Vivy-owned digest fields, rehashing and hash-gated conformance/admission | Keep explicit source/version selection and native dependency resolution; revise current plugin/source-pin contracts |
+| Event audit, nudge signatures and warming prefixes | Delete with the auxiliary mechanisms | Keep useful error logs and the real execution/accounting facts |
+| Prompt, mask, persona, policy and toolset digests | Remove as business authority | Use admitted immutable data and existing semantic revisions where required; avoid duplicate identity stores |
+| Operation request/effective-argument digests | Remove hash representation | Preserve call identity, exact effective inputs, claim/completion ownership and no-blind-replay behavior |
+| Approval arguments and file preconditions | Remove hash representation | Bind approval to stored intended inputs; compare the actual target state through a suitable existing version or expected-content boundary |
+| Checkpoint checksums/content identity | Remove Vivy's extra checksum layer under the new direction | Retain supported format/version and correct Run/approval binding; decide compatibility and loss of independent corruption detection explicitly |
+| Migration checksums | Remove runtime hash comparison only through an explicit migration-contract change | Keep ordered transactional migrations and release immutability checks; version-only startup will no longer detect edited SQL under the same ID |
+| Signed history cursor (HMAC) | Separate security decision | Existing `history_service.go` authenticates cursor payloads; deleting its MAC check changes the client-input trust contract |
+| Toolchain/dependency/transport cryptography | Recommended outside this product-metadata policy | Do not fork or disable dependency-manager/TLS security to satisfy a lexical ban on hash functions |
 
-Sources: [default audit hook](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/app/app.go#L805), [audit computation](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/audit.go#L35), [nudge window](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/nudge_window.go), [source catalog](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/sdk/internal/assembly/source.go#L72).
+Removing hashes from business logic does not require removing business consistency. For example, `sameRuntimeToolOperationBinding` already compares IDs, tool name and stored middleware/effective argument bytes in addition to digests. This is evidence for reviewing redundant representations, not proof that both digests can be deleted without tracing every reader and replay path.
+
+A timestamp or file size alone is not a substitute for approved-content equality. A randomly generated revision is not useful unless an authoritative existing owner controls all relevant changes. Prefer the smallest correct existing representation; reject replacements that add more synchronization or storage than the removed hash mechanism.
+
+### 6.3 Actual hot-path hashing versus presumed cost
+
+The application installs an AuditHook by default. Each event reaching it gets a payload SHA-256 before the digest is passed to the debug sink. Computation happens before the logging layer decides whether to emit the message. This is confirmed auxiliary work on synchronous publication, including when debug output is disabled.
+
+No measurement establishes that this hashing caused the reported incident. Nudge's FNV signature is a small part of a much larger coordination protocol. Source-tree hashing is an assembly/publication activity, not a demonstrated per-turn repository scan. The new direction is an architectural simplification decision, not a claim that every hash is a measured bottleneck.
+
+### 6.4 Transition and acceptance
+
+1. Inventory producers, consumers, failure gates and persisted fields for each hash family. The searches in this review are not yet an exhaustive retirement inventory.
+2. Remove auxiliary families with their unused evidence/state first. Do not replace every deleted digest with a new certificate, receipt or revision subsystem.
+3. For effect, approval and recovery paths, replace the representation and update all consumers together while preserving the agreed execution guarantee.
+4. Revise plugin schemas, source/evidence rules and migration/checkpoint compatibility explicitly. Keep old data readable where promised; do not rewrite released SQL migrations or silently delete historical records.
+5. Produce the optional final-artifact label after packaging. Verify that absence, invalid formatting or a different label cannot change business behavior.
+6. Re-run the causal tool/continuation and no-duplicate-effect cases after the conversion. Test original guarantees, not the mere absence of `sha256` imports.
+
+Sources: [default audit installation](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/app/app.go#L805), [audit computation](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/audit.go#L35), [source catalog](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/sdk/internal/assembly/source.go#L72), [operation binding](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/tool_operation.go#L299), [approval envelope](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/approval_binding.go), [signed cursor](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/runtime/history_service.go#L663), [migration validation](https://github.com/ProjectViVy/agent-vivy/blob/e96092966cfbfa443648374948e7e7e16dd01683/internal/storage/migrations/runner.go#L420).
 
 ## 7. Why minimal and plugin rules alone will not fix this
 

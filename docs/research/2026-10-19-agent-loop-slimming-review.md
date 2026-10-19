@@ -160,9 +160,11 @@ Source: [cache warmer](https://github.com/ProjectViVy/agent-vivy/blob/e96092966c
 
 ## 5. Validation and state disposition
 
+Direction update: the owner requests only a final-artifact informational hash, with no business gating. The [core insight section 6](2026-10-19-agent-loop-core-deletion-insight.md#6-proposed-direction-final-artifact-identity-only) now owns the detailed retirement policy and scope questions. Retaining an execution guarantee below does not require retaining its current hash representation.
+
 | Mechanism | Disposition | Boundary or qualification |
 | --- | --- | --- |
-| Source-tree and Module digests | Keep at assembly/publication; reduce redundant development work | No evidence of full source-tree scanning on every model turn |
+| Source-tree and Module digests | Retire Vivy-owned hashes; retain only the final-artifact informational label | Explicit source/version selection remains; current hash-based contracts require revision |
 | Module/Port compatibility | Validate at assembly | Preserve external source pins and trust boundaries |
 | Immutable configuration and schema validity | Validate at construction | Actual model arguments still require invocation-time checks |
 | Overlapping prompt/persona/mask/rules identities | Consolidate with the capabilities they describe | Delete redundant copies before deleting checks that protect them |
@@ -172,7 +174,7 @@ Source: [cache warmer](https://github.com/ProjectViVy/agent-vivy/blob/e96092966c
 | Approval parameter/target binding | Retain | Execution must match the approved operation |
 | Effectful operation receipts | Retain | Unknown outcomes cannot be blindly retried |
 | Read-only operation bookkeeping | Review separately | Re-executed reads may differ; replay equivalence cannot be assumed |
-| Checkpoint integrity/version checks | Retain at recovery | Ordinary turns should not acquire unnecessary recovery obligations |
+| Checkpoint recovery checks | Retain required format/version and binding guarantees; retire the extra hash layer under the new direction | Compatibility and reduced corruption detection must be explicit |
 | Authorization, argument/path validation, cancellation and hard limits | Retain and centralize | These protect concrete execution boundaries |
 | Transient token/diagnostic persistence | Remove from execution control | Requires an explicit display/replay contract revision |
 
