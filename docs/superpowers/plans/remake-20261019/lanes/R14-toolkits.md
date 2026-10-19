@@ -15,6 +15,16 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#20](https://github.com/ProjectViVy/agent-vivy/issues/20) remains an open, unscheduled suite content-pack proposal. Manifest, identity/namespacing, provenance, activation and component ownership decisions remain open.
+- [#67](https://github.com/ProjectViVy/agent-vivy/issues/67) separately tracks curated ZCode content for a proposed external vivy-bundles repo. Preserve exact source/license provenance; content ports are not compiled VIVY Modules and publication has not started.
+- [#61](https://github.com/ProjectViVy/agent-vivy/issues/61) is an unscheduled optional document Toolkit. Document parsing/workflows must stay outside internal; prefer existing Toolkit/MCP paths; do not install dependencies, run scripts or connect MCP implicitly.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) stages selected batches. Do not conflate native Toolkit lifecycle with these separate content proposals.
+
+remake/toolkits is raw donor source; no proposal is thereby selected or shipped.
+
+
 ## Verified donor entry points
 
 - `internal/bundlecontract/manifest.go` — main donor.
