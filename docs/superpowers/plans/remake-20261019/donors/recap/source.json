@@ -1,0 +1,4268 @@
+{
+  "lane": "recap",
+  "branch": "remake/recap",
+  "state": "raw_donor_split_not_build_or_product_accepted",
+  "source_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "source_head": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "history_archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "dedicated_files": [
+    {
+      "path": "internal/app/assembly_observers_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e48e6d07063b84edd6471f71681517f88256ba6b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "af04ea026c69678a1eefe2c95cc44e8d13575b44"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/codeface_modes_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a17db3427c223d223500ee3e75fcc54b5d506325"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e71aaa520deacb0a415f254253e1e44ca85ddac2"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/issue58_composition_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cca21fa811e5366b1bc9c6b6db6bd91ccb02d59d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/issue58_context_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8b31f22581d6e7fabfadbfc20078aaf356ccd018"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/issue58_ingest_provenance_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8f7bcc1543494018c935b51b64b10e69a5b1bbeb"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/issue58_recap_management_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "41e920227f584953bf1cb81035121475bcf003e6"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/issue58_recap_native_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "19f18bc591163fb57cf741c219764706f4d8a301"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/issue58_recap_split_fixture_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2860f90e31191cacfc509c0beed7c2754c58a55c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/realsmoke_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6660f02786dc76bf70d3a1cc1074e6371283d0dd"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1307b85bcd8238b9ffc32ba926721e346a71182d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/subject_admission_path_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5a5200526499f77a54209f49af9fd0ca7017e61d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/subject_admission_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "364f81323d3c6290babac9240dc17c83d7986278"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/subject_binding.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "92190bf768474246856604903dd13d2b25ba1343"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/subject_binding_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e10b70a70ddf0fc8dc6880867277063e01e07645"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/subject_observers.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "720d56f784fdfa0933224068471184f705add203"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/cognitivecontract/main_conversation.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b683ede0d914e76202e0ede1fe867130cdb6d075"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/cognitivecontract/recap.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c4ecf112945a803cd7b3f912753265d2bce51aa2"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/subject_history.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "91a9378e7eda9067be9664143a2e67f837df2825"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/memory/tools_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b957cc6d6a7881fea0b6407d3cde43fbf3de2569"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2852d32a968ded647d797436878e7693901bfb19"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/deliverables_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "99df6ae7e6ad1e65c7fd7519dcc3e7328d41f959"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fc6260010922526fed5d37813e924fa0edbe63d8"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/subject_binding_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f66c88bee14a4315427734b4bc05a6ee9c753e7e"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/authorized_tool_search.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "82be99138c8d1ff2cde525f01103296ef396ea9c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/compaction_middleware.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "77abb73af87ec0c2ce4bb75c20722cbb60b6f67c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bb7853d740e74f288d5a171e65696d4135b2dccc"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/context.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cf8318ec6dc96c2c715d65b7920bae25c2a19dae"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "169ef0c0f7b97302bf2baa33a791327a47f3f8b6"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/engine.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0d79cef05c2ebbd7533e79cf584fca4bd977909c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "af0f41dc2db9f1ea414621703d061edfb5fdde1d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/input_provenance.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ebf867b82f18fe7d19f0a197b0513605dfa1bc12"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/issue58_provenance_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "93cb75ad670a11d67539d699a78c77f470d1efc6"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/message_projector_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "581d03883f2c954210bea5984c2aabb790883d2a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d40acc63e3613af911f945265b3a2ee04b4a80b4"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/overflow.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "47ad99de31ca39ee57b4162c6b74d440179ee634"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7ffb6f183e7919cc90c9440b873d26ea858949f0"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/plan_goal_probe_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7f2b21a69b948095cf91c2cdb1b8279e42eb6ac2"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8d0c8066d77ee39083dd272b6ace66543a9ebccb"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_admission_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a211a4fa6f4172b4acdb000dd445050c7ca5815a"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_available_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fa0b7b7bc9fe7779155bcadfd851a8a433954e1d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_capacity.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ed108211558b35fe6236d292a65fd227fd3b2ac9"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_compaction.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "79c3bacc7a752fddf8edcdb619c7da63d42d5fff"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_compaction_cuts_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "afbb4106973cffbaf14d77b3c4d559079bb11d2b"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_compaction_lifecycle.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "21e31d3cde46df7f7aaad57bed0a22eb32d57278"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_compaction_lifecycle_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3811c6bda1d76de5d2f54ec24884b6f0da42d66e"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_compaction_pending.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6fe2bd1df0dc86d721f7b361e8c080c4421ee327"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_compaction_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8fdcb8ac757d16f7441d97c9488d249513b53c65"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_context.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3a6cfe480c388fdf227d75f9c62daa38f1dc37b0"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_context_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8e1a015e3e738eb3f6a9aa5c124015b18ec4623c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_correction_subset_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "76ae822443bf9ee42f0440bf417ba9e3470c2abb"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_isolation_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4da1029e29cd4b539786e27178c010f60e81d620"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_loaded.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b49236601cdea31ba99e31778334ad90f585fd26"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_loaded_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f0a040fdb2443c0d913dbf8e92f116d3f028828"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_management.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "329ac6adc6aa9da0ebfdf808e1783a37343eb2c2"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_management_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "903a2d16b44366795b30086811db91a0977577ca"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_projection.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "faed1b6a5bcd4efbaa1077a45fc60547c8a49e4c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_projection_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "762099e77d3a28f1bfbdada32206c9e2ec2262fb"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_receipt.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1181c17c47e417e6072976d2384c74b744cf3199"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_receipt_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9834664328f57d9c98728453b164255ed1352fb8"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_recoverable_tool_error_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8144c13184cd1de32d6699f6f1760574a60c5000"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_refusal_replay_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a9033cb9201c17f4b55dddba5e59b05704ea999a"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_resume_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eca9f158568338aee6f9ea6fe2b2ec9e4c4d80f1"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_sources.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "10ed59c1010efdbac34e0d1f068d5ecc916e4901"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_sources_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ba861163f8fa3f5f101b25a45cbf412a55c3539f"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/recap_wire_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e077529a5d4cd5cb5e37b8ca6f2e7130ba24fd58"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/rewind_service.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4ce45a6b1fa90cef502c113a88dc0321dee160cf"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f037a7b97cdb363e425e9dc885d08b5f8c79b7b0"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_binding.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ab22b7096fa35b13bfe204dc79626267c1d9ace1"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_context.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "944c0c7ac0e48159d1b8a33580ed03a4d764d544"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_context_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bc3407afff784ad385c6a090258ca3c556faca25"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_evidence_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6b2180333b19eeb6eebe11de73fdf9a5b855daa2"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_history.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f23af4495eeae986f80c542d7b96ef05ce6a9752"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_history_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f9d68dc6dc49132eb95680f5c1fe4643ff1bf074"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_projection.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f2bba23fb292f6ba16c2d4c1a7b85db420d743fd"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_projection_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5b50f57dfc7bc1d6a4d5248ed02983ed4365c2e0"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_question_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "891ff8b9336075158e7cbcd426e6738e8dbd932f"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/subject_tool_evidence.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0572cd7c0d506b61f935fc9f5f26d9c675021652"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/conformance/input_provenance.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "41d8bbebf6f15b83a80a30f86412bd1e242a617c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/conformance/subject_context.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "43d0031e529447e875f6dae791ef29f35fc02864"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/conformance/subject_history.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "25ba6cd98c6e75abacda485a64724154b4a2f9fa"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/conformance/subject_retention.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5b205f2cb33c64149550486c9ab575ccf3b54b0c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/input_provenance.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "183241aa2d532877ddbb293f7f32e0b27f359b0b"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/input_provenance_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d35ae83be6a452de7faa58d4baf6beec19741643"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/postgres/044_subject_history.sql",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b290c662abd15e7e5ab5af1816ad61f404b4d7e2"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/postgres/045_subject_shell_evidence.sql",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0dacafccc5328a82098f3f7ed5496b7866278e38"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/postgres/046_subject_interaction_disposition.sql",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "82854a5145e2411990382075e46da10708ea5a1a"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/sqlite/044_subject_history.sql",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "31a4a2f073569025b8da3b3b9898ecc420da6ea0"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/sqlite/045_subject_shell_evidence.sql",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "33b510c1d955ebea1a9628539cd640eb9449ef9c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/sqlite/046_subject_interaction_disposition.sql",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "82854a5145e2411990382075e46da10708ea5a1a"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/subject_history_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cb5adeefb61de84d3dc51b5410d1934e3e0621bc"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/history_mutations.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cc73cd79252d75b6f6368583dc1f25ad7d4ccefe"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "36696a27f8f809677365010b1354197be0788a13"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/subject_history.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3b124af53b13a71731fc9b667c85049e482455aa"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/subject_history_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c99183e22573ba8b322f2b1204054a34d81daf38"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/history_mutations.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "09a71a22757654c56c74a3e314a7ebc8d46b4220"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "da3d179a54c97e7b6ebe5d83c423791b60b4f370"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/snapshot.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1910d40c71e18d9d0ba3402032b808f77dc63fbb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bd7fa81b06b4b3907cb14d3383d0662e789fcc62"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/subject_contention.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "72936e455f5e08ff4a85fcef38cd5ea649d92a84"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/subject_contention_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ace88069c0ca0372f90c7ee0b8552d1995c503bb"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/subject_evidence_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1b78d93d744006bcad89289ec2fef7cc8c059162"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/subject_history.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dabe941ec5c71665348b66ca8dfaafcb1735a70e"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/subject_history_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c5c094219b6f4f776978f858fda66ecc76d10a89"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/subject_history.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8202febc4d7cfd2db9ef01119421e0447066ab3d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/subject_history_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b7cee00b53cff0b5d6f247cb767d27bc57aa1351"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/subjectsql/evidence.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cab2a38db6b283a455f418417ead036ef1cf6632"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/subjectsql/subject_context.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3cf987b4cc27dd3046d5085f532ede8c7bb524a8"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/subjectsql/subjectsql.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4ae6a15f240474ab02f4e147b606a4036fcd2ac6"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/tool_evidence.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cd94511a8c8446fc9808ea53de02d6a1b95e4f9c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/tool_evidence_outcome_test.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "786cb0bed979b1e1091231778ad9a41edf49c7c6"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/tool_operations.go",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d8c77809a42aa8278acad99d0e1684331f35bf82"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7835060078135eaa4cf679739b936a5a28dac28d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-memory/i18n/catalog.json",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "699a70f0571785f537f410e859abda585b3df597"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "975a0505d736c3ff74653d331ec9b4cc733b2b4b"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-memory/ui/vivy-memory/src/page.test.tsx",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5cdd91c0d8b825ea2f3a648993a7f8a10bc37606"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-memory/ui/vivy-memory/src/page.tsx",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "16f6d99572822f8d6a8826f93c4cbaba5967574c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f647bc8b52e18396836800fe150f4681a21a7a18"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-memory/ui/vivy-memory/src/recap-client.test.ts",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e48211a5e6bf54c4238d762998dbd945c04f1db5"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-memory/ui/vivy-memory/src/recap-client.ts",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8b35310b7b309c7fd18424ca1a53b516f3c0aeb6"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-memory/ui/vivy-memory/src/recap.test.tsx",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ff675e2dbaff729fa36d43beca86b888f066cd3f"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-memory/ui/vivy-memory/src/recap.tsx",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2815191342a6a925fa7afa1c75972d94d168dca7"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/issue58-global-teardown.ts",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4aee9db01ccbd01a7c3bdf0fea61398e5f36d302"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/issue58-recap.spec.ts",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8d33e28172b8d3c73a95d001d49c428aa6698c2d"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/e2e/masks.spec.ts",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c456e012f359c668bb6dc3f04f68788532ecce86"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a807a8d689b7483462ab10460b89be54550c129a"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/playwright.issue58.config.ts",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3770506335953e69d3845c2583dd0cb79c5ad609"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ConversationModePlaceholder.tsx",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "delete",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "660185ad21322d4638bacfd7d2936cd35599674b"
+      },
+      "donor_entry": null,
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/settings/CompactionSettingsCard.test.tsx",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "634a360429a84c8604e0ac8458faaca608a74d2a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6908535cc49427d5b3da6e6d196d9e4735d0c512"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/settings/CompactionSettingsCard.tsx",
+      "owner": "recap",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e0feeb1cdfd976430ccd494fd60ff1106a0bdd3c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d38b12361e8b23dd7b6de9978ed984a40b1567ed"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "shared_file_refs": [
+    {
+      "path": ".agents/skills/vivy-eino/SKILL.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ebc3177ceb11a2132cdc9942d7b1fee6c80a487"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7e4323050239e3956459fecbfa61c2641912c035"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a285a9a68e92c31474881b04486998985d152c08"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0e2653a1eb75e18298d143ed11c4fcfb037c072e"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "AGENTS.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ccc3c57814ca1ee9eaabacd94c9862445228b98d"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a3d44bb498a3fe54dfc82b02a10c97d5393a717f"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "README.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2c648a22325f6dabcabf19bdbbfe2b4eb54dd96a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cb4bacc4ad4e3d0354f8527af8620c9558dbe666"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "bml/README.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c9be37f5fd90efc7c2bd0c1775bbb765502c1099"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ac11f69096701dea4b3ecab60fc2ce2290bd750e"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/SCX-ARCHITECTURE-DESIGN.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "47804a2c9a4d48ff5bedae59083757d2a99a06c1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "93decf2f3de3e5474f60eca731802c0d2c8b88d2"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/SCX-PLUGIN-INTEGRATION.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5cc2aa9b20e55e53f5cdf371f68f8ab4fd8d5fb7"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "41698da0de7050c6fe541b6ac5b9b6101781f1bd"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-MEMORY-HOST-CONTRACTS.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ccb35ddf1f107844e01a8fd4776aa21e274b85a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2a836a282f23849f8df4b2b616c7d93db1b77e48"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-MEMORY-PROFILE.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "de0b0e27c9c29fa9f5b8906b138b646182708f41"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bfe1eae976b1647d0d86e6a2111455655f9a0fc1"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-UNIFIED-CONTEXT-MEMORY.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9ed6fa74437a76877a7f2d26f47a35c68bb1c719"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "go.mod",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "685e9855116f7c417417e426d137c89cbe0aaff8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f98172be7ba57f3d5a9a12c2985aa84cb4e15f8"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "misc",
+        "provider",
+        "recap",
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "go.sum",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8015db0345abaadf835e8a8594fb5e2a8499e2e8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d951b3656ff601cec55d6c931da0600360197d3a"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "provider",
+        "recap",
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/app.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "01272e1c7aa6c97acdd485f66eae5874e40681eb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6d688377d08de4928661ebf33d35511508e1e075"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "core-fixes",
+        "misc",
+        "notebook",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_cognitive.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8136a6e2c14bc4a4b684523759ba8188b2bdbc7c"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4299a650717399d5bb6eb8c5f3cd1208df4bda77"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_memory.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0688876412638d9d8db9a46d704fb47dcce12bca"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_observers.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "45286413468b8dc5c5f9dda949d58c6cd0b5cd57"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fc5b31c066d942d927f32dda24c4ba2427dd9b1e"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/assembly_tools.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7af55310b374c6d83316115d8db606e9a8df8f8e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7fac7129332236ddc0876af7b47af0a7f0704ab0"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/cognitive_origin_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c2a1da07f057b548750971d76ee7df3f3961eca9"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e9009bc900f512c8022b9550d0a46c80f21a343e"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/default_persona_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4f0526529f0f9d4ecbfcb85f1d7fa0b60d7ced10"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "57a8070c55da4790564b68e8756d7b94a91bc3d5"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/issue58_memory_ownership_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6b5c99c60e0c45206fe9833f3f9585527129bbb1"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/memory_loop_fixture_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3323c43d244aa09f61cddcce9618a87db17103ce"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/subject_memory_tools.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "02e7b9318d00108050bd479eaf5c718b2a8b9058"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/codeface/launch_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "372f75635397d7287b66faeaaf69bf7fed56c1c4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b7ddff021a64a6d34a47d098cad79aa90af68abf"
+      },
+      "contributing_owners": [
+        "acp",
+        "cognition",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/cognitivecontract/ports.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b4d86779e3dd2ed7b08ec5865410e435f42fcd76"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ef7e18eb95927c4b35a1267554e83d36a9cd0594"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/config/config.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8d01d7fbba86c7dcae115a6770fcc3d2713f2982"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b5350e4fdf4ec40b511937f5ec2d41eaebe85791"
+      },
+      "contributing_owners": [
+        "acp",
+        "recap",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/history.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bd0330a58ce04e58521a91cb8b3ec734cf640141"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "08ba5c19a9bec10f3c250a5b848ba7497e3dcc2d"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/model_output_limit.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3d64ce6178487c7c9d33cc88db7f45f6d1ac5fcf"
+      },
+      "contributing_owners": [
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/domain/session.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "49390e3e52c3969237e6c0412672e26a81c4ad82"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cf5655d67607309a388bcba8d3d11f853055adbc"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/generated/assembly/zz_default.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a8e3e6490e6a7cdf4ea283803983aacd3cc7b149"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5fcf0853c34e01f4f44fdc5041ecb44391df2d35"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/defaults/catalog.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5de9119427176f9a14dfbd309925ac30b4c42985"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b635cf9d14c1a0d4176b15331ffb34eb40081aca"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/actions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "00feebd1dfb0686f9e71360ac8ba2bc855daccf3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fbd524006ba29ed7f829c1161581eb037148ac7c"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/actions_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "29851f1e73cd39fbee661a3d945b5bc513313bfc"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8825ead4e916250b103a83219ec9f028e82dd98e"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/catalog/metadata.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4bfecfe2c8e5103293b7d2d5b419079846651d19"
+      },
+      "contributing_owners": [
+        "misc",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/dispatch.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ef32b2aa1ffd0298839df4a1ec6d6a3d82c0df91"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fba91442e566e7433acde3a307dc1927b261a673"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/factory.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "432fe1419baaa98c21ceecab9410d64d066c0564"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5e745539c520f930ad528aa8649a0d66e87a743b"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "98774a45cbb3954d165daeafac730aa8d168c4f4"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap_actions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b6ad9847043fe20226a9b52ec9fceea6db73a3a3"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap_actions_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4723bf558e367bdbb34c8b7456f913b973918511"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap_json.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "079c93fe84d3bc3de5b37658ebf2922f5cd826f6"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap_sources.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8786fb94119eb124cad2a94e32d94d0d4d853a0b"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e81043d819c3e2189181d31d613ac3aee43cabda"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap_tools.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4439855483716ea54be2554c138d7b5f5309a802"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/recap_tools_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e03848491d3cee0873a9e1f26c061720e42e21b9"
+      },
+      "contributing_owners": [
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/memory/ownership_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "64571c953134c4a7be8e890a2a16797532b72159"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/memory/service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1888d01c49492190cade5e0a1e90c1938dd25c53"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6100bf860a79b4d44cd1992e2a95febe52772741"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/memory/tools.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "00a6f24429ad77061ab9dd137fcab37b1f290701"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7e0e7af741185567c5d17f759e24da254ef85327"
+      },
+      "contributing_owners": [
+        "bml",
+        "misc",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/provider/output_limit_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d5a213172cfa02e6763cbe1b9152bb98274694f7"
+      },
+      "contributing_owners": [
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/provider/resolving.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d1b00b3a77fae78ad2a55a5b0e11c177f8d3f866"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ad783acb1085daf45503420f6982e2ecf83ec765"
+      },
+      "contributing_owners": [
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/rpc/control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "baa9eee9e5498bb5ac2c457feae3cf099b1a8233"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2d5b9d9e8b3a415dbebfbe0d347520c78cb1b5a7"
+      },
+      "contributing_owners": [
+        "acp",
+        "cognition",
+        "core-fixes",
+        "provider",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/bundle_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f9d169c8256a16bcfb0fbe9698ae09973ebf39cf"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/compaction_service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bc906f0977045091a0a425ded8e6b56b57eec623"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7f9461a528c37e832ab5c69300ce199cd47fa59b"
+      },
+      "contributing_owners": [
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/enhanced_tooladapter.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f8b260349307b22a676a73333048a80eef723054"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "12a9ecead501e3a955354b44f7595c5b6f00a8a8"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/history_service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "56be0e938f415ebd8d3796ce38b9f1345244f003"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "169d00306da82d20107088c8b5b3876df9949e8c"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/mapper.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "353a7331147c4b8e2817e3e0a2f8851efef582e8"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8916f60711a98269c805994a9335cf8d127ac344"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/message_projector.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "32a0b8811700ccbdf77ffa73cd52990324509094"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f4f8cff6d25ec799f19b50d56c6eb7520127f334"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/model_stream_observer.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "27fc68d0d23d4512615b5ffcc7adfb32b19f26b1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f4e749589c22e4ab10bb6fe6dba0eb4a1357c8a1"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/notebook_provenance_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f19d4db55b607ee1fb430caf557832dc2920e7a3"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/payload_schema_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6574164164c8142810edb67127746c34be138022"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f751bf3cc4f50ca4d9cb992a2c8f78a5602dd90d"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/payloads.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f1dae367f3f9018901986b16d13de63fabb19857"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "38188a5e8ea466e7e9dbfc0b4f3c5b70abd1812e"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e70e8ee56195a7d2835c81af90f78376f54e824a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "740d8876fa8480bee95043c0538551672922f1d3"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "notebook",
+        "persona",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/service_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2b74396ae6cea5a52469b9d9a13a57077b357e19"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c2564f2551d1619f582afb0dd281b2d62d5439ca"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/shell.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fda35349430c2d7f1e53ad6557abe842f3a79879"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "82204cbaa426cc53fa410ca26a06873b85e4f157"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tool_operation.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a0b4b58f1c971b10ff8d64f7535ccf903d44a396"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "cc77500a1bbee715d64e745c9351f84829142aab"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/tooladapter.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5dea024461e95f6ce00a86edfb747ecf47afdd77"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f9fc0d70f670f6660cd11d57d37d5681b5c8408c"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/admission_validation.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "37b0ccab9c11fe2d22c8a8f3eacde09fd309edbc"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ada6a10b1d8ae7cfa9ae94f2e48d76acfc70b0d"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/continuity.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "02dcf9a39d1bfe800f4b5f55acd85ec5d7445705"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "39d747152b0ebf781511e1469d01b45549707d85"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/history.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b1ed375aa8da76020455d0bc6cfc4994873c1dcd"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d9a39445dc6e059679bf8ae3874966bbab59d4bc"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/masks.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ab65147a73588be6debdba5a785d9f33ec14a7f5"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2a740c4c6ef74b2948a0bdf86447a522be8ee38a"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/manifest_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a5d3960830bd60740e1db8c633ffff0640cfbb8f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6ed29b6b33a44b357c88ccfbf0bcc71993fe3c6e"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/migrations/runner_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "09d0aa223124499847afafa89f35ef7f9e577ab0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2fe2ad24b4d46c9ecc24a1af42648f8a7359a90d"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/continuity.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2160006acfea6a9c5d659d28acd2ae70047ee45a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d7c914da1bf530531b006f4476f5a41cdae68f33"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/run_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "78e815f160b4ab532bb11ddd594a09822bb5a4ca"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0f241d0de916812d08d516ad6a803fa1ef02cfc1"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/runs.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a618c3a868baff539cace7247083a2ea089256fb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8980a13fe43d90534dd6e4e957888ecff141c3a5"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/sessions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "655959709011a49bd4cf4be80ad0d504346c420b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d987fa24bfdafba53310ca4f26eaeb5aaf30e22f"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/tool_operations.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "73fccb230102dee0a5b2fba657ab37e54cead19a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f1a58120408bc06a16244d29a0c1d84c00302757"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/postgres/work_control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c0dd69d6d2c8e963d33bbcb246bd7b564434d788"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a8aef9cca0577d870ba56c614fbe6804b8156316"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/continuity.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9f82ed51be5f62fb70d892a1ef37778cbfd585fd"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "75c46e89303db647d7b2d2e66758a713da83fa64"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/run_admission.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fbc3dc121c6ee816ace837cac92334c4172f0c04"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "be8ac35a7f5ebf42d6d6243de18cd8dff48ba8a2"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/runs.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b64075e5583813fb9fab881ce150196292bdebec"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "963dc5dc39a1e1c7e980aa04b1b4b6c2f8cbf793"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/sessions.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "646aead8bec4c3bac0abe4f0c3004032f8b8f3da"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7ec9f52982de26104829fdc72b437bbc3228c87e"
+      },
+      "contributing_owners": [
+        "bml",
+        "core-fixes",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/sqlite.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d441e4c2eed0a215c7849ed5056e1cc54a25c675"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8d85aeb4c294c7006513b739e21c3812755ad0e3"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/tool_operations.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c7500433a5b36d4d36eee0c5547a066667de8b19"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1bdeae1afa4553f347ac8843352abe8ef85ea592"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/sqlite/work_control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3960856edeb4f43951d6c462b35c886ea9a5acc0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c7f6b2855d7d30cba276088f5bcfff4a352ad0e8"
+      },
+      "contributing_owners": [
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/storage/work_control.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5f206b11d23566a24a29ce803680f20b0c1df6a3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d29374efe0de504840eb0c21c73e3c28a8392f95"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/tools/tools.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "19daf528f8505377708bc22bcb42b43dfa3d9de4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d87878317a0ada273ad829e8bd6d668fb15f06c8"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "justfile",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "af72667d5c8f416d74550ee92aebcc9273d83f99"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0887c0e3d84057d25b0ece9838a3b7a88e682434"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "recap",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "laputa-source.lock.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "697aa5efab941cc53a26c09eecdd4b1b7f78d38e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "02b15ab55d55be423e0df7f1062584b1426431b0"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "misc",
+        "recap",
+        "skill-evolution"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "recipes/default.vivy.yml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "55993b8d11656ac263dfd7882cd5f05e41325cc2"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ffc14f8ca5a1653a1979d58eef6578375371d3d4"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "recipes/diva.vivy.yml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a4d3f6c14963f98d273a8fccb0f3d03381fbe9be"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5afac93b935dde84967cc89e909dbf3728213b67"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "schemas/events/payloads/model.request.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6a804528dadaa46c5d363c4b3912c54d2e79d4df"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ac75c8582ad5b68e02469cd58ea8613efbd71269"
+      },
+      "contributing_owners": [
+        "recap",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "schemas/events/payloads/tool.requested.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "681d09a92faaec035f34161a0ca0541147149876"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e7ef1937ef8ab4e94e536cbee7821b0b527d39da"
+      },
+      "contributing_owners": [
+        "bml",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "scripts/i18n-cross-face-contract.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "23260e04fcf2db830d56d45194bbd5ca2addd0f4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dd8273cd398d040bb311742aa59ca22234d2b0ee"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/assembly/runtime_generate.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "22eace1d6924610dcfd885e899fc3f86235e39ea"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0850b662e66a74ca042ee0542e777fce34d365a3"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "notebook",
+        "recap",
+        "reports"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/internal/testdata/default-generation.expected.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "894f94b808991c669c162be23fb4344b8c556aea"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c8ea2f8e2c9448c48427d6beb5eb170c825c74d9"
+      },
+      "contributing_owners": [
+        "notebook",
+        "recap",
+        "reports",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.compact.test.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ae656b6c21a044b2ff7ad8c4f6162d1440be4b6b"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3971166b80f39c31a53a517307e2dc3bbdccfb0f"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/chat/ChatInput.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6c66152aa75a8318d9abf132549b11f393e567d0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "db1689cc77cbad8486dfc7dca7c4aa9c1e32ab77"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/generated/assembly.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f5446ec19ee0a1872c4bc2980161e97ff6d4145"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "74d7cdd3c27391fc623ada577e3600771ae86f2e"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap",
+        "reports",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/en.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "703656b96b8581e1d86fa5ec67878f96ab82c2d4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e91e13d2238e96091e5c53919633ecf7edc99091"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/zh.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ed89a8370b5af2598a1c53e5334f01c742d78291"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ee00e1ecaadc3858d7f01a42c4078c2e617decc"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/lib/api.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "88d938f186802e787ae389b8f0c9c3b8647b6d88"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e9140e78474111a5ee748eac4290e23e92416441"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/routes/_layout.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dbac8a240ab098cdeb1e96cf66a26937af530c41"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5000269cd967d8d18683994ae4a3cac69c62509a"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/vitest.config.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "815921f511ae779121a949bfa5821b3898bbb53a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "334bb2b33d88e61dcb2b74a0cbdf9ea4622e8298"
+      },
+      "contributing_owners": [
+        "notebook",
+        "persona",
+        "recap",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "branch_only_commit_refs": [],
+  "target_core": null,
+  "blocked_on": [
+    "accepted #91 core B",
+    "actual API/data/pin/Recipe adaptation",
+    "focused and required final product acceptance"
+  ],
+  "source_reference_rule": "git show <donor_head>:<path>; use before parent for deleted files"
+}

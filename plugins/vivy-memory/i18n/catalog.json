@@ -274,6 +274,446 @@
         "en": "MEMRULES.md",
         "zh": "MEMRULES.md"
       }
+    },
+    "plugin.vivy/memory.recap.active": {
+      "description": "Recap management: active",
+      "placeholders": [],
+      "messages": {
+        "en": "Active Recap",
+        "zh": "当前回顾"
+      }
+    },
+    "plugin.vivy/memory.recap.history": {
+      "description": "Recap management: history",
+      "placeholders": [],
+      "messages": {
+        "en": "History",
+        "zh": "历史版本"
+      }
+    },
+    "plugin.vivy/memory.recap.longTerm": {
+      "description": "Recap management: longTerm",
+      "placeholders": [],
+      "messages": {
+        "en": "Long-term records",
+        "zh": "长期记忆条目"
+      }
+    },
+    "plugin.vivy/memory.recap.tabs": {
+      "description": "Recap management: tabs",
+      "placeholders": [],
+      "messages": {
+        "en": "Memory views",
+        "zh": "记忆视图"
+      }
+    },
+    "plugin.vivy/memory.recap.revision": {
+      "description": "Recap management: revision",
+      "placeholders": [],
+      "messages": {
+        "en": "Revision",
+        "zh": "修订版本"
+      }
+    },
+    "plugin.vivy/memory.recap.coverage": {
+      "description": "Recap management: coverage",
+      "placeholders": [],
+      "messages": {
+        "en": "Covered through interaction",
+        "zh": "已覆盖至交互"
+      }
+    },
+    "plugin.vivy/memory.recap.nextRun": {
+      "description": "Recap management: nextRun",
+      "placeholders": [],
+      "messages": {
+        "en": "Applies next run",
+        "zh": "下次运行生效"
+      }
+    },
+    "plugin.vivy/memory.recap.nextSafeBoundary": {
+      "description": "Recap management: nextSafeBoundary",
+      "placeholders": [],
+      "messages": {
+        "en": "Cleared. Subsequent model calls pause at a safe boundary.",
+        "zh": "已清空，后续模型调用将在安全边界暂停。"
+      }
+    },
+    "plugin.vivy/memory.recap.loadedUnavailable": {
+      "description": "Recap management: loadedUnavailable",
+      "placeholders": [],
+      "messages": {
+        "en": "Loaded revision is unavailable",
+        "zh": "已加载版本暂不可用"
+      }
+    },
+    "plugin.vivy/memory.recap.consolidationUnavailable": {
+      "description": "Recap management: consolidationUnavailable",
+      "placeholders": [],
+      "messages": {
+        "en": "Consolidation status is unavailable",
+        "zh": "整理状态暂不可用"
+      }
+    },
+    "plugin.vivy/memory.recap.loading": {
+      "description": "Recap management: loading",
+      "placeholders": [],
+      "messages": {
+        "en": "Loading…",
+        "zh": "加载中…"
+      }
+    },
+    "plugin.vivy/memory.recap.refresh": {
+      "description": "Recap management: refresh",
+      "placeholders": [],
+      "messages": {
+        "en": "Refresh",
+        "zh": "刷新"
+      }
+    },
+    "plugin.vivy/memory.recap.unsaved": {
+      "description": "Recap management: unsaved",
+      "placeholders": [],
+      "messages": {
+        "en": "Unsaved draft",
+        "zh": "未保存草稿"
+      }
+    },
+    "plugin.vivy/memory.recap.edit": {
+      "description": "Recap management: edit",
+      "placeholders": [],
+      "messages": {
+        "en": "Edit",
+        "zh": "编辑"
+      }
+    },
+    "plugin.vivy/memory.recap.draft": {
+      "description": "Recap management: draft",
+      "placeholders": [],
+      "messages": {
+        "en": "Your draft",
+        "zh": "你的草稿"
+      }
+    },
+    "plugin.vivy/memory.recap.save": {
+      "description": "Recap management: save",
+      "placeholders": [],
+      "messages": {
+        "en": "Save",
+        "zh": "保存"
+      }
+    },
+    "plugin.vivy/memory.recap.cancel": {
+      "description": "Recap management: cancel",
+      "placeholders": [],
+      "messages": {
+        "en": "Cancel editing",
+        "zh": "取消编辑"
+      }
+    },
+    "plugin.vivy/memory.recap.remoteChanged": {
+      "description": "Recap management: remoteChanged",
+      "placeholders": [],
+      "messages": {
+        "en": "The saved revision changed. Your draft keeps its original base.",
+        "zh": "保存版本已变化，草稿仍保留原始基准版本。"
+      }
+    },
+    "plugin.vivy/memory.recap.clear": {
+      "description": "Recap management: clear",
+      "placeholders": [],
+      "messages": {
+        "en": "Clear active Recap",
+        "zh": "清空当前回顾"
+      }
+    },
+    "plugin.vivy/memory.recap.clearExplanation": {
+      "description": "Recap management: clearExplanation",
+      "placeholders": [],
+      "messages": {
+        "en": "Clears active Recap. History and original sources remain. Active calls finish; subsequent calls pause at a safe boundary.",
+        "zh": "仅清空当前回顾，历史版本和原始来源仍保留。正在执行的调用会完成，后续调用将在安全边界暂停。"
+      }
+    },
+    "plugin.vivy/memory.recap.historyExplanation": {
+      "description": "Recap management: historyExplanation",
+      "placeholders": [],
+      "messages": {
+        "en": "Every version retains its complete text. Restoring creates a new revision with current coverage.",
+        "zh": "每个版本保留完整文本。恢复会基于当前覆盖进度创建新版本。"
+      }
+    },
+    "plugin.vivy/memory.recap.restore": {
+      "description": "Recap management: restore",
+      "placeholders": [],
+      "messages": {
+        "en": "Restore this revision",
+        "zh": "恢复此版本"
+      }
+    },
+    "plugin.vivy/memory.recap.restoreExplanation": {
+      "description": "Recap management: restoreExplanation",
+      "placeholders": [],
+      "messages": {
+        "en": "Creates a new revision from this exact text. Current source coverage stays unchanged; source corrections are checked on the next run.",
+        "zh": "用此版本的完整文本创建新版本，当前来源覆盖进度不变，下次运行会重新检查来源修正。"
+      }
+    },
+    "plugin.vivy/memory.recap.sources": {
+      "description": "Recap management: sources",
+      "placeholders": [],
+      "messages": {
+        "en": "View covered sources",
+        "zh": "查看已覆盖来源"
+      }
+    },
+    "plugin.vivy/memory.recap.sourceDenied": {
+      "description": "Recap management: sourceDenied",
+      "placeholders": [],
+      "messages": {
+        "en": "Source access denied",
+        "zh": "无权访问来源"
+      }
+    },
+    "plugin.vivy/memory.recap.sourceUnavailable": {
+      "description": "Recap management: sourceUnavailable",
+      "placeholders": [],
+      "messages": {
+        "en": "Exact sources are unavailable",
+        "zh": "精确来源暂不可用"
+      }
+    },
+    "plugin.vivy/memory.recap.persona": {
+      "description": "Recap management: persona",
+      "placeholders": [],
+      "messages": {
+        "en": "Must not forget? Review Persona",
+        "zh": "必须牢记？前往人格审核"
+      }
+    },
+    "plugin.vivy/memory.recap.conflict": {
+      "description": "Recap management: conflict",
+      "placeholders": [],
+      "messages": {
+        "en": "The saved Recap changed",
+        "zh": "保存的回顾已变化"
+      }
+    },
+    "plugin.vivy/memory.recap.latest": {
+      "description": "Recap management: latest",
+      "placeholders": [],
+      "messages": {
+        "en": "Current saved text",
+        "zh": "当前保存文本"
+      }
+    },
+    "plugin.vivy/memory.recap.noDraft": {
+      "description": "Recap management: noDraft",
+      "placeholders": [],
+      "messages": {
+        "en": "No text draft for this operation.",
+        "zh": "此操作没有文本草稿。"
+      }
+    },
+    "plugin.vivy/memory.recap.copyDraft": {
+      "description": "Recap management: copyDraft",
+      "placeholders": [],
+      "messages": {
+        "en": "Copy draft",
+        "zh": "复制草稿"
+      }
+    },
+    "plugin.vivy/memory.recap.copied": {
+      "description": "Recap management: copied",
+      "placeholders": [],
+      "messages": {
+        "en": "Draft copied",
+        "zh": "草稿已复制"
+      }
+    },
+    "plugin.vivy/memory.recap.reload": {
+      "description": "Recap management: reload",
+      "placeholders": [],
+      "messages": {
+        "en": "Reload saved text",
+        "zh": "重新加载保存文本"
+      }
+    },
+    "plugin.vivy/memory.recap.editLatest": {
+      "description": "Recap management: editLatest",
+      "placeholders": [],
+      "messages": {
+        "en": "Edit against latest",
+        "zh": "以最新版本为基准编辑"
+      }
+    },
+    "plugin.vivy/memory.recap.reloadExplanation": {
+      "description": "Recap management: reloadExplanation",
+      "placeholders": [],
+      "messages": {
+        "en": "Discards this unsaved draft and reloads the current authorized saved text. Copy the draft first if you need it.",
+        "zh": "丢弃此未保存草稿并重新读取当前有权访问的保存文本。如需保留，请先复制草稿。"
+      }
+    },
+    "plugin.vivy/memory.recap.draftRetained": {
+      "description": "Recap management: draftRetained",
+      "placeholders": [],
+      "messages": {
+        "en": "Your unsaved text draft remains available after this operation.",
+        "zh": "此操作后，你的未保存草稿仍会保留。"
+      }
+    },
+    "plugin.vivy/memory.recap.dismiss": {
+      "description": "Recap management: dismiss",
+      "placeholders": [],
+      "messages": {
+        "en": "Cancel",
+        "zh": "取消"
+      }
+    },
+    "plugin.vivy/memory.recap.confirmClear": {
+      "description": "Recap management: confirmClear",
+      "placeholders": [],
+      "messages": {
+        "en": "Confirm clear",
+        "zh": "确认清空"
+      }
+    },
+    "plugin.vivy/memory.recap.confirmRestore": {
+      "description": "Recap management: confirmRestore",
+      "placeholders": [],
+      "messages": {
+        "en": "Create restored revision",
+        "zh": "创建恢复版本"
+      }
+    },
+    "plugin.vivy/memory.recap.confirmReload": {
+      "description": "Recap management: confirmReload",
+      "placeholders": [],
+      "messages": {
+        "en": "Discard draft and reload",
+        "zh": "丢弃草稿并重新加载"
+      }
+    },
+    "plugin.vivy/memory.recap.more": {
+      "description": "Recap management: more",
+      "placeholders": [],
+      "messages": {
+        "en": "More versions",
+        "zh": "更多版本"
+      }
+    },
+    "plugin.vivy/memory.recap.unavailableSession": {
+      "description": "Recap management: unavailableSession",
+      "placeholders": [],
+      "messages": {
+        "en": "Recap is unavailable without an authorized conversation.",
+        "zh": "尚无有权访问回顾的对话。"
+      }
+    },
+    "plugin.vivy/memory.recap.cause.reconcile": {
+      "description": "Recap management: cause.reconcile",
+      "placeholders": [],
+      "messages": {
+        "en": "Source correction",
+        "zh": "来源修正"
+      }
+    },
+    "plugin.vivy/memory.recap.cause.summary": {
+      "description": "Recap management: cause.summary",
+      "placeholders": [],
+      "messages": {
+        "en": "AI consolidation",
+        "zh": "AI 整理"
+      }
+    },
+    "plugin.vivy/memory.recap.cause.edit": {
+      "description": "Recap management: cause.edit",
+      "placeholders": [],
+      "messages": {
+        "en": "Human or agent edit",
+        "zh": "人工或代理编辑"
+      }
+    },
+    "plugin.vivy/memory.recap.cause.clear": {
+      "description": "Recap management: cause.clear",
+      "placeholders": [],
+      "messages": {
+        "en": "Cleared",
+        "zh": "已清空"
+      }
+    },
+    "plugin.vivy/memory.recap.cause.restore": {
+      "description": "Recap management: cause.restore",
+      "placeholders": [],
+      "messages": {
+        "en": "Restored as new revision",
+        "zh": "已恢复为新版本"
+      }
+    },
+    "plugin.vivy/memory.recap.cause.uninitialized": {
+      "description": "Recap management: cause.uninitialized",
+      "placeholders": [],
+      "messages": {
+        "en": "Not initialized",
+        "zh": "尚未初始化"
+      }
+    },
+    "plugin.vivy/memory.recap.draftUnavailable": {
+      "description": "Retained unsaved draft on owner outage",
+      "placeholders": [],
+      "messages": {
+        "en": "Your unsaved draft is preserved. Refresh to reconnect before saving.",
+        "zh": "未保存草稿已保留，请先刷新以恢复连接，再保存。"
+      }
+    },
+    "plugin.vivy/memory.recap.conflictClear": {
+      "description": "Conflict intent: conflictClear",
+      "placeholders": [],
+      "messages": {
+        "en": "Clear was requested against this saved revision. Review the latest text before trying again.",
+        "zh": "清空请求基于此保存版本，请先核对最新文本，再重新操作。"
+      }
+    },
+    "plugin.vivy/memory.recap.conflictRestore": {
+      "description": "Conflict intent: conflictRestore",
+      "placeholders": [],
+      "messages": {
+        "en": "Restore was requested against this saved revision and selected historical version. Review the latest text before trying again.",
+        "zh": "恢复请求基于此保存版本与所选历史版本，请先核对最新文本，再重新操作。"
+      }
+    },
+    "plugin.vivy/memory.recap.loadedRevision": {
+      "description": "Revision admitted to the current conversation model request",
+      "placeholders": [],
+      "messages": {
+        "en": "Loaded revision",
+        "zh": "实际加载版本"
+      }
+    },
+    "plugin.vivy/memory.recap.reason.generic": {
+      "description": "Recap error: generic unavailable reason",
+      "placeholders": [],
+      "messages": {
+        "en": "Recap is unavailable right now.",
+        "zh": "Recap 暂时不可用。"
+      }
+    },
+    "plugin.vivy/memory.recap.reason.recap_scope_denied": {
+      "description": "Recap error: scope denied reason",
+      "placeholders": [],
+      "messages": {
+        "en": "Recap is not available for this session.",
+        "zh": "此会话无法使用 Recap。"
+      }
+    },
+    "plugin.vivy/memory.recap.reason.recap_commit_unknown": {
+      "description": "Recap error: commit outcome unknown reason",
+      "placeholders": [],
+      "messages": {
+        "en": "The save may not have completed. Reload before trying again.",
+        "zh": "保存结果未知，请重新加载后再试。"
+      }
     }
   }
 }

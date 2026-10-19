@@ -13,6 +13,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/conformance"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
 )
@@ -173,6 +175,18 @@ func TestPlanGoalProbeReportFencesLaterToolInSameBatch(t *testing.T) {
 }
 
 func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
+	testPlanGoalProbeSubmission(t, false)
+}
+func TestIssue58RetainedPlanReviewRestartAndDecisionReplay(t *testing.T) {
+	for _, action := range []domain.PlanDecisionAction{domain.PlanDecisionRevise, domain.PlanDecisionExecuteOnce} {
+		t.Run(string(action), func(t *testing.T) { testPlanGoalProbeSubmission(t, true, action) })
+	}
+}
+func testPlanGoalProbeSubmission(t *testing.T, retained bool, actions ...domain.PlanDecisionAction) {
+	action := domain.PlanDecisionRevise
+	if len(actions) > 0 {
+		action = actions[0]
+	}
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plan-submit-fence-probe.db"))
 	if err != nil {
@@ -220,6 +234,13 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
 	})
+	var subject *storage.SubjectSourceBinding
+	if retained {
+		conformance.Issue58Identity(t, backend)
+		source := conformance.Issue58Source(sessionID, false)
+		subject = &source
+		svc.deps.SubjectSources = func(context.Context, domain.SessionID) (*storage.SubjectSourceBinding, error) { return subject, nil }
+	}
 	runID, err := svc.Run(ctx, sessionID, "Prepare and review a plan.")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -270,12 +291,15 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 		SessionID: sessionID, ExpectedVersion: state.Version,
 		RequestID: "decide-plan-once", RequestHash: "decide-plan-once",
 		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: state.Plan.SubmissionID,
-		PlanAction: domain.PlanDecisionRevise, PlanFeedback: "clarify the rollback step",
+		PlanAction: action, PlanFeedback: "clarify the rollback step",
 	}
 	restarted := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
 	})
+	if retained {
+		restarted.deps.SubjectSources = svc.deps.SubjectSources
+	}
 	if err := restarted.RecoverBackground(ctx); err != nil {
 		t.Fatalf("recover Plan review after restart: %v", err)
 	}
@@ -283,7 +307,7 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decide Plan: %v", err)
 	}
-	if committed.Replayed || committed.State.Plan.DecisionAction != domain.PlanDecisionRevise {
+	if committed.Replayed || committed.State.Plan.DecisionAction != action {
 		t.Fatalf("first Plan decision = %+v, want a newly committed revision request", committed)
 	}
 	replayed, err := restarted.DecidePlan(ctx, decision)
@@ -319,6 +343,61 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 	if calls := effect.calls.Load(); calls != 0 {
 		t.Fatalf("unreviewed sibling executed %d times across Plan resume", calls)
 	}
+	if retained {
+		if !restarted.WaitIdle(ctx) {
+			t.Fatal("retained Plan resume did not settle")
+		}
+		op, err := backend.GetToolOperation(ctx, runID, "submit-plan")
+		if err != nil || op.State != domain.ToolOperationCompleted {
+			t.Fatalf("retained Plan receipt stranded: %+v %v", op, err)
+		}
+		ref, err := storage.DecodeToolEvidenceReference(op)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, found, err := backend.Blobs().Get(ctx, ref.ID)
+		if err != nil || !found {
+			t.Fatalf("candidate artifact missing: %v", err)
+		}
+		evidence, err := storage.VerifyToolEvidence(ref, raw)
+		if err != nil || !strings.Contains(evidence.Result, state.Plan.SubmissionID) {
+			t.Fatalf("candidate original missing: %s %v", evidence.Result, err)
+		}
+		rows, interaction, err := backend.ReadSubjectRunEvidence(ctx, subject.SubjectHistoryBinding, runID)
+		if err != nil || len(rows) == 0 {
+			t.Fatalf("Plan exact evidence missing: %v", err)
+		}
+		originalArgs, found, err := backend.Blobs().Get(ctx, storage.ToolEvidenceArgumentsID(op))
+		if err != nil || !found || !strings.Contains(string(originalArgs), "1. inspect") {
+			t.Fatalf("candidate original args lost: %v", err)
+		}
+		events, _, err := backend.ReplayWork(ctx, sessionID, domain.WorkState{SessionID: sessionID}, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		submissions, decisions := 0, 0
+		for _, event := range events {
+			if event.Kind == domain.WorkEventPlanSubmitted {
+				submissions++
+			}
+			if event.Kind == domain.WorkEventPlanDecided {
+				decisions++
+			}
+		}
+		if submissions != 1 || decisions != 1 {
+			t.Fatalf("Plan replay duplicated Work mutations: submit=%d decide=%d", submissions, decisions)
+		}
+		work, err := backend.ReadWork(ctx, sessionID)
+		if err != nil || work.Plan.Feedback != decision.PlanFeedback || work.Plan.DecisionAction != decision.PlanAction {
+			t.Fatalf("human decision lost: %+v %v", work.Plan, err)
+		}
+		high, err := backend.CaptureSubjectHistory(ctx, subject.SubjectHistoryBinding)
+		if err != nil || high != 1 {
+			t.Fatalf("Plan completion not sealed once: %d %v", high, err)
+		}
+		t.Logf("manifest retained Plan %s %s candidate %s", interaction.ID, interaction.SourceDigest, ref.SHA256)
+	}
+
 }
 
 func waitForProbeGoalRun(t *testing.T, backend *sqlite.Backend, sessionID domain.SessionID) domain.RunID {
