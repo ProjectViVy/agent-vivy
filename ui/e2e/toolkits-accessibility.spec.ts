@@ -118,3 +118,22 @@ test('reads a populated Toolkit on mobile and keeps long content inside its keyb
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
+
+
+test('keeps the Toolkit page inside tablet and desktop viewports', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vivy.ui.welcome.completed', '1');
+    localStorage.setItem('vivy.persona.onboarding.dismissed', '1');
+  });
+  for (const viewport of [{ width: 768, height: 900 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/toolkits');
+    await expect(page.getByTestId('toolkit-page')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Toolkits', exact: true })).toBeVisible();
+    const dimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+    }));
+    expect(dimensions.document, `horizontal overflow at ${viewport.width}px`).toBeLessThanOrEqual(dimensions.viewport);
+  }
+});

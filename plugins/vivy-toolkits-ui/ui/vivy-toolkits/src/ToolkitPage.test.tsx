@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolkitPage } from './ToolkitPage';
-import type { ToolkitClient, ToolkitInstallation, ToolkitPageResult } from './toolkit-client';
+import type { ToolkitClient, ToolkitInspection, ToolkitInstallation, ToolkitPageResult } from './toolkit-client';
 
 const catalog = { epoch: 1, config_revision: 0, effective_digest: 'a'.repeat(64), generation_id: 'test-gen' };
 const item: ToolkitInstallation = { install_id: '10000000-0000-4000-8000-000000000001', bundle_id: 'bmad/experts', state: 'enabled', source: { kind: 'git', origin: 'https://example.invalid/bmad' }, release_digest: 'b'.repeat(64), revision: 1, tombstone: false };
@@ -93,6 +93,37 @@ describe('ToolkitPage', () => {
     await act(async () => { slow.resolve({ id: 'op-bindings', state: 'committed', revision: 2, kind: 'bindings' }); await Promise.resolve(); await Promise.resolve(); });
     expect(container.querySelector<HTMLButtonElement>('[data-action="consent-grant"]')?.disabled).toBe(false);
   });
+  it('discards a stale installation detail response after another selection', async () => {
+    const alpha = { ...item, install_id: '30000000-0000-4000-8000-000000000001', bundle_id: 'alpha/toolkit' };
+    const beta = { ...item, install_id: '40000000-0000-4000-8000-000000000002', bundle_id: 'beta/toolkit' };
+    const alphaDetail = deferred<ToolkitInspection>();
+    const betaDetail = deferred<ToolkitInspection>();
+    const client = {
+      list: vi.fn().mockResolvedValue({ ...page(alpha), items: [alpha, beta] }),
+      inspect: vi.fn((installId: string) => installId === alpha.install_id ? alphaDetail.promise : betaDetail.promise),
+    } as unknown as ToolkitClient;
+    await act(async () => root.render(<ToolkitPage client={client} />));
+    const buttons = container.querySelectorAll<HTMLButtonElement>('ul button');
+    expect(buttons).toHaveLength(2);
+    await act(async () => { buttons[0].click(); await Promise.resolve(); });
+    await act(async () => { buttons[1].click(); await Promise.resolve(); });
+    await act(async () => { betaDetail.resolve(inspection(beta, 'Beta Detail')); await Promise.resolve(); });
+    expect(container.textContent).toContain('Beta Detail');
+    await act(async () => { alphaDetail.resolve(inspection(alpha, 'Alpha Detail')); await Promise.resolve(); });
+    expect(container.textContent).toContain('Beta Detail');
+    expect(container.textContent).not.toContain('Alpha Detail');
+  });
+
 });
 
 function deferred<T>() { let resolve!: (value:T)=>void; const promise=new Promise<T>((done)=>{resolve=done;}); return {promise,resolve}; }
+
+function inspection(bundle: ToolkitInstallation, name: string): ToolkitInspection {
+  return {
+    installation: bundle,
+    release: { install_id: bundle.install_id, bundle_id: bundle.bundle_id, release_digest: bundle.release_digest, release_sequence: 1 },
+    releases: [],
+    manifest: { id: bundle.bundle_id, version: '1', name, resources: [], components: { skills: [], masks: [], rules: [], hooks: [], mcp: [] } },
+    consents: [], executables: [], bindings: [],
+  };
+}
