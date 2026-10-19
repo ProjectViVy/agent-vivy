@@ -86,11 +86,17 @@ path or two writers in one generated file.
 | each | `recipes/exp-warming.vivy.yml` (created by W00) | `vivy/exp-warming` selected, plugin import + `warmingrt.Factory(expwarming.New)`, `HasWarmingFactory() == true` | eligible settled main/child call warms once; off makes zero calls | selected-generation fixture test; runtime real-path test in W02 |
 | all | `recipes/exp-loop-features.vivy.yml` (integration-owned; W00 contributes only `- vivy/exp-warming`) | all three EXP modules selected, one binding each | each package's behavior independent; warming does not read nudge/steering state | combined-generation test when the combined Recipe exists; W00 reports the exact single line it owns |
 
-Whether the shipped default species Recipes (`default`, `diva`, `vivy-code`, …)
-select `vivy/exp-warming` to preserve today's warming behavior or leave it
-unselected is an owner decision (Q0), not an assumption of this package. The
-`none` evidence always uses `recipes/minimal.vivy.yml`; the default-family
-generated artifact is checked against the owner's choice once recorded.
+**Owner decision (2026-10-19): warming becomes opt-in; the shipped default-family
+Recipes do not select `vivy/exp-warming`.** `default`, `headless`, `diva`,
+`vivy-code`, `scx` and the lite/masks Recipes stay unchanged and generate no
+warming behavior; only the explicit `recipes/exp-warming.vivy.yml` (and the
+combined `recipes/exp-loop-features.vivy.yml` when the integration owner adds
+it) select the package. The `none` evidence therefore covers both
+`recipes/minimal.vivy.yml` and the committed default artifact, and W00/W02 must
+show the default species making no warm request and emitting no `cache.warmed`
+event. This is a recorded, owner-approved product behavior change from
+Baseline A (where warming was installed unconditionally), not an accident of
+omission.
 
 ## Epic decisions (Baseline A remaps)
 
@@ -241,13 +247,15 @@ and cancellation surfaces already relied on; it contains no warming API.
 
 ## Open questions (owner decisions; none block planning)
 
-- **Q0 — default-family selection.** Do the shipped species Recipes (`default`,
-  `diva`, `vivy-code`, `headless`, …) keep warming by selecting
-  `vivy/exp-warming`, or does warming become opt-in with only the explicit
-  `exp-warming`/`exp-loop-features` Recipes selecting it? Preserving today's
-  behavior argues for selection in the shipped families; C11's experimental
-  framing argues for opt-in. W00 records the owner's answer as the exact Recipe
-  lines and generates the corresponding artifacts; it does not decide it.
+- **Q0 — default-family selection: RESOLVED (owner, 2026-10-19).** Warming is
+  opt-in. The shipped default-family Recipes (`default`, `diva`, `vivy-code`,
+  `headless`, `scx`) and the lite/masks Recipes do **not** select
+  `vivy/exp-warming`; only `recipes/exp-warming.vivy.yml` and the combined
+  `recipes/exp-loop-features.vivy.yml` select it. The default species keeps no
+  warming behavior (no constructor, no settlement trigger, no maintenance call,
+  no `cache.warmed` event), a recorded owner-approved change from Baseline A.
+  W00 applies this as "no Recipe lines added"; the none-case evidence must
+  include the committed default artifact.
 - **Q1 — maintenance budget/observation.** Do you want §11.5's
   `maintenance` model-call source with ledger admission and
   `model.request`/`model.usage`/`model.call.finished` rows? It changes billed

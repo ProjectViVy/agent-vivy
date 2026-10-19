@@ -31,9 +31,9 @@ other experiments (warming, steering) or any data/schema decision.
 After this epic:
 
 1. `vivy/exp-nudge` exists as a build-owned T1 Module at `plugins/exp/nudge/`, providing
-   the closed Port `core/nudge-factory@v1`. It owns the ten-entry exact-tuple coaching window,
-   thresholds 3/5, fixed templates and the 1024-byte reminder bound; the count-6 loop hard
-   stop stays core-owned in `internal/runtime/loopguard.go`.
+   the closed Port `core/nudge-factory@v1`. It owns the ten-entry exact-tuple window,
+   thresholds 3/5, the count-6 loop hard stop, fixed templates and the 1024-byte reminder
+   bound; the stop crosses the seam as `NudgeDecision.Stop`.
 2. Selected generations get real coaching through one typed factory slot and one small
    Eino adapter (`internal/runtime/extensions/nudge/`). Unselected generations contain no
    nudge import, constructor, window, middleware, state read, event producer or control.
@@ -157,8 +157,9 @@ iteration and recovery.
 5. Effect ownership, approval binding, budgets, final message and terminal state stay
    synchronous and are not affected by nudge presence. A refused pre-claim call has a
    typed `not_executed` outcome and no invented execution start.
-6. `errLoopDetected` keeps its existing terminal classification
-   (`run.failed{cause_category:loop_detected}`) and stays the only hard-stop owner.
+6. The stop remains single-homed through one terminal mapping: the package's `Stop`
+   decision maps once to `errLoopDetected` and `run.failed{cause_category:loop_detected}`;
+   no second iteration guard and no core window remain.
 
 ## Acceptance matrix
 
@@ -176,18 +177,17 @@ iteration and recovery.
 
 1. Recipe selection policy above (default family selects the package) needs owner
    confirmation; it changes whether the shipped species keeps coaching by default.
-2. **Loop hard stop ownership — Lead default recorded: core-owned.** D04 and the plan keep
-   `errLoopDetected` and the exact-tuple hard stop in `internal/runtime/loopguard.go` as core
-   continuation authority; unselected species keep per-tuple detection and the existing
-   `run.failed{cause_category:loop_detected}` terminal. This package therefore extracts
-   coaching only: N00 does not add a `Stop` channel, and N01/N02 do not move the terminal.
-   The alternative (package-owned `NudgeDecision.Stop`, with unselected species relying only
-   on `MaxToolTurns`/Eino `MaxIterations`) remains a possible owner decision, but it requires
-   an explicit plan/D04 amendment first and is not the default. Per-tuple loop detection is
-   therefore not experimental under the recorded default.
-   If the owner later chooses package ownership, the core window becomes a fallback guard only
-   for unselected builds and the stop mapping moves with the package; that is a separate
-   scoped change, never a silent switch in N00–N03.
+2. **Loop hard stop ownership — owner decided 2026-10-19: package-owned.** The count-6
+   stop and the ten-step window move together into `vivy/exp-nudge`; N00 adds the `Stop`
+   decision to the pure contract, N01 returns it, N02 maps it once to the existing
+   `run.failed{cause_category:loop_detected}` terminal, and N03 deletes the core
+   `internal/runtime/loopguard.go` body. An unselected species then has no per-tuple loop
+   detection and relies on the existing `MaxToolTurns`/Eino `MaxIterations` cap. This is an
+   explicit owner-approved product consequence of making the loop experiment
+   species-selected, and the acceptance evidence must show the selected build stopping at
+   six identical calls and the unselected build running to its turn cap without a nudge
+   package. No second core-owned window is added at any point; the swap from D04's interim
+   core guard to N03's package guard is one change with no dual owner.
 3. Cross-epic edits to `internal/runtime/service.go`, `queue.go` and
    `internal/app/app.go` overlap E-WARMING/E-STEERING and the core-continuation lane. One
    integrating owner per file; this package assumes the Lead serializes them.

@@ -32,6 +32,13 @@ implementation, no migration, no generated artifact, no product CI, no
 real-token or real-path behavior, and no performance claim. The re-anchor audit
 is a path-level comparison against this tree, not a behavior audit.
 
+## Owner decisions recorded after the first push
+
+See [owner-decisions.md](owner-decisions.md): the loop hard stop moves with
+E-NUDGE, warming becomes opt-in (not selected by the default-family Recipes),
+D07 is retained as the re-intake checkpoint for bundle/toolkit, and the
+post-baseline re-intake remains a later gated track.
+
 ## Explicitly not done
 
 - Re-introduction of the discarded 2026-10-08..10-18 work. That is a separate

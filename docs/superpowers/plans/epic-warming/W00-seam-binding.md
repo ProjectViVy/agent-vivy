@@ -24,6 +24,7 @@
 - Only `internal/runtime/` and `internal/provider/` import `github.com/cloudwego/eino*`; the generated Assembly is the only hand-off between selected code and the kernel.
 - Do not hand-edit generated Assembly files; regenerate from the build-owned catalog and Recipe.
 - Unselected Recipes (including `minimal` and the committed default) contain no plugin import, constructor, capability projection, settings read, RPC registration or UI control.
+- Owner decision (2026-10-19): warming is **opt-in**. Do not add `vivy/exp-warming` to `default`, `headless`, `diva`, `vivy-code`, `scx`, `lite` or `masks-*`; only `recipes/exp-warming.vivy.yml` and the combined `recipes/exp-loop-features.vivy.yml` select it. The committed default artifact must stay byte-identical and the default species must emit no `cache.warmed` event.
 - No Vivy-owned hash, no disabled path, no alias/no-op verifier, no placeholder provider that satisfies generation while doing nothing.
 - No production Journal access, no database reset, no commit/push by the implementing agent.
 - The single core warming implementation keeps running; W00 does not change `internal/runtime/cachewarmer.go` behavior.

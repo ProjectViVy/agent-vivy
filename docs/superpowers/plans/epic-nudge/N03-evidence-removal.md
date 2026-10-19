@@ -4,7 +4,7 @@
 
 **Goal:** Delete the superseded core nudge/loop-window implementation, move and carve its tests, and produce the evidence that selection is physical omission, coaching is still real, durability/recovery are preserved and no residue remains.
 
-**Architecture:** After N02, the package and adapter own all coaching behavior. This Story removes the frozen core coaching bodies, the consumer-owned handoff remnants and the unconditional engine registration, leaving one selected path and one unselected absence. The core count-6 loop hard stop in `internal/runtime/loopguard.go` is not a coaching feature and stays core-owned (D04 replaces only its FNV representation with exact tuples); N03 verifies it, it does not delete it. Tests are re-homed rather than weakened; production integration tests stay with the runtime. Documentation records the new ownership. No behavior change is allowed in this Story except deletion of now-unreachable code.
+**Architecture:** After N02, the package and adapter own all coaching behavior and the count-6 stop. This Story removes the frozen core coaching bodies, the loop-window/loop-detected implementation that moved into the package, the consumer-owned handoff remnants and the unconditional engine registration, leaving one selected path and one unselected absence. The stop crosses the seam as `NudgeDecision.Stop` and is mapped once to the existing terminal; no core window remains. Tests are re-homed rather than weakened; production integration tests stay with the runtime. Documentation records the new ownership. No behavior change is allowed in this Story except deletion of now-unreachable code.
 
 **Tech Stack:** Go 1.26.4; pinned Eino v0.9.13 inside runtime/provider only; existing SQLite/Postgres and event schemas; Recipe/generated-Assembly tooling; PowerShell `just` CI in the repository-supported environment.
 
@@ -30,7 +30,7 @@
 
 - Deletion completeness: every symbol in the N02 inventory is gone, with no replacement copy left in core; `git grep` dispositions cover FNV, `loopWindow`, `nudgeState`, `nudgeBatch`, `nudgeNotice`, `renderNudge`, `takeCompletion`, `storeCompletion`, `restoreResumeNudgeBatch`, `nudgeEmitter`, `newNudgeMiddleware`, `withNudgeState`, `setNudgeState`.
 - Correction is not gated on nudge: `classifyToolFailure`/soft conversion at the tool boundary behaves identically in selected and unselected builds.
-- The hard stop is still single-homed in core: `errLoopDetected` maps once to the existing `run.failed{cause_category:loop_detected}` terminal; the package has no `Stop` and no second iteration guard was invented.
+- The hard stop is single-homed in the package: `Stop` maps once to `errLoopDetected` and `run.failed{cause_category:loop_detected}`; no second core window or iteration guard remains.
 - Tests re-homed without weakening: moved window/template/notice cases keep their assertion values; production acceptance tests remain in `internal/runtime` and run against the selected generation.
 - Physical omission is demonstrated, not asserted: inspect generated imports, `HasNudgeFactory`, `generation.Manifest.Modules`, dependency lists and artifact symbols for none/each/all variants.
 - Regeneration is idempotent and generated files are not hand-edited.
@@ -40,7 +40,7 @@
 
 | Delete / move | Baseline A path |
 | --- | --- |
-| Core hard stop (retained) | `internal/runtime/loopguard.go` keeps the exact-tuple window and `errLoopDetected`; D04 changes the representation only. N03 verifies no FNV remains and does not delete the file. |
+| Window + FNV + terminal sentinel | `internal/runtime/loopguard.go` (whole file after D04/N01 replacement; no copy may remain in core) |
 | Coaching state | `internal/runtime/nudge_state.go` (393 lines: state, batch, notice, completed call, marks, window, Take/Seal/Register/Complete/SatisfyDurable/Abort, context key) |
 | Boundary middleware | `internal/runtime/nudge_middleware.go` (`newNudgeMiddleware`, wrapped model, `trailingToolCallIDs`, `nudgeReminderMaxBytes`, emitter type/context) |
 | Templates | `internal/runtime/prompt.go:100–118` (`nudgeFailureTemplate`, `nudgeRefusalTemplate`, `renderNudge`) |
@@ -54,8 +54,8 @@
 
 ## Files and ownership
 
-- Delete: `internal/runtime/nudge_state.go`, `internal/runtime/nudge_middleware.go`, `internal/runtime/nudge_contract_test.go` (after moving assertions), plus the specific hunks/symbols listed above in `service.go`, `mapper.go`, `queue.go`, `engine.go`, `prompt.go`, `tooladapter.go`, `tool_failure.go`. Do not delete `internal/runtime/loopguard.go`: its exact-tuple hard stop stays core-owned.
-- Move: coaching window/threshold/tie-break tests to `plugins/exp/nudge/`; state/boundary tests to `internal/runtime/extensions/nudge/` and `internal/runtime/`; the core loop-stop tests stay in `internal/runtime/`.
+- Delete: `internal/runtime/nudge_state.go`, `internal/runtime/nudge_middleware.go`, `internal/runtime/loopguard.go`, `internal/runtime/nudge_contract_test.go` (after moving assertions), plus the specific hunks/symbols listed above in `service.go`, `mapper.go`, `queue.go`, `engine.go`, `prompt.go`, `tooladapter.go`, `tool_failure.go`.
+- Move: window/threshold/stop tests to `plugins/exp/nudge/`; state/boundary tests to `internal/runtime/extensions/nudge/` and `internal/runtime/`.
 - Modify: `docs/architecture/NUDGE-DESIGN.md`; `docs/plans/nudge/README.md`; `internal/runtime/nudge_acceptance_test.go` (selected-path harness binding); `internal/runtime/extensions/nudge/` test files; `internal/generated/assembly/zz_default.go` only via regeneration.
 - Create: `docs/logs/2026-10-19-epic-nudge/` with `summary.md`, `verification.md`, `acceptance.md`, optional `rollback.md` (repository rule for a deliverable change).
 - Do not touch: issue-91 docs, other epics, `docs/research/2026-10-19-baseline-a-reanchor.md`, `data/`, schemas, migration files.
@@ -65,8 +65,8 @@
 - [ ] 1. Freeze the baseline evidence before deleting: capture selected and unselected build behavior (event payloads, reminder text, counts 3/5, hard stop, resume/steering outcomes) from N02's tests, and write the symbol inventory with owners (deleted / moved / retained-with-justification).
 - [ ] 2. Delete the core coaching bodies and handoff remnants as one coherent change: state, middleware, window, templates, emitter, resume-batch restore, mapper parking, unconditional registration. Compile must fail only for missing references you are removing; do not leave `//nolint` or unused-but-exported shims.
 - [ ] 3. Keep correction independent of selection: ensure the tool boundary still classifies allowlisted invocation failures, returns the bounded diagnostic as a model-visible result, records the typed durable outcome and maps refusals with `not_executed`; test selected and unselected builds with the same assertions.
-- [ ] 4. Verify the hard stop once: core `errLoopDetected` -> existing loop-detected sentinel -> `run.failed{cause_category:loop_detected}`; no package `Stop`; guarantee no duplicate guard (Eino `MaxIterations` remains the separate turn cap). Test the sixth identical call in the selected build and the continued-run behavior in the unselected build (the core guard fires in both).
-- [ ] 5. Re-home tests without weakening: move coaching window/threshold/tie-break cases to the package; move boundary/retry/ordering/context-budget/tag tests to the adapter; keep production acceptance and the core loop-stop cases under `internal/runtime` using the real Service/Journal/tools and the selected Recipe. Delete the obsolete test-local mirror.
+- [ ] 4. Map the hard stop once: package `Stop` -> existing loop-detected sentinel -> `run.failed{cause_category:loop_detected}`; guarantee no duplicate guard (Eino `MaxIterations` remains the separate turn cap). Test the sixth identical call in the selected build and the continued-run behavior in the unselected build (no package guard, turn cap only).
+- [ ] 5. Re-home tests without weakening: move window/threshold/tie-break/stop cases to the package; move boundary/retry/ordering/context-budget/tag tests to the adapter; keep production acceptance under `internal/runtime` using the real Service/Journal/tools and the selected Recipe. Delete the obsolete test-local mirror.
 - [ ] 6. Update documentation: `NUDGE-DESIGN.md` records package ownership, selection (`vivy/exp-nudge`, T1, `core/nudge-factory@v1`), no FNV, no consumer-owned handoff, the Eino `WrapModel` boundary and the deletion of the core body; `docs/plans/nudge/README.md` labels ND-0..ND-4 historical and points at this epic. No new normative claim about behavior that was not verified.
 - [ ] 7. Build the selection matrix and inspect artifacts:
   - none: `recipes/minimal.vivy.yml` (and `lite`, `masks-*`) — generated Assembly has no nudge import/field; `HasNudgeFactory()==false`; `Manifest.Modules` lacks `vivy/exp-nudge`; no `tool.nudge` producer; historical event rendering still works.

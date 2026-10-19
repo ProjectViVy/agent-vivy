@@ -35,7 +35,7 @@
 - The seam adds no capability source of truth: selection is `generation.Manifest.Modules` and the generated field, not a runtime switch, config key or UI list.
 - No nudge setting/action/control is introduced; the absence contract stays verifiable.
 - No reliance on D04-unknowable internals: the contract is restated here, so this plan is implementable from its own text.
-- Hard-stop ownership: core-owned per D04 and [index.md](index.md) open item 2. Do not add a `Stop` channel or move the count-6 terminal; the package contract carries coaching decisions only. Never add a second core-owned coaching window and never drop the core stop silently.
+- Hard-stop ownership: package-owned per the owner decision (2026-10-19) and [index.md](index.md) open item 2. Add the `Stop` channel to the pure decision, keep the single terminal mapping, and never add a second core-owned window.
 
 ## Baseline A mapping (202aac38, 2026-10-07)
 
@@ -58,7 +58,7 @@ D04 owns the generic inert seam. This Story verifies it and adds only the nudge-
 selection binding. Classify every path before editing; never ship a second variant.
 
 - Verify (D04-owned; edit only if the accepted output is missing the element):
-  - `sdk/port/loopexp/nudge.go` — pure contract (final nudge-specific form; no `Stop` channel under the core-owned decision; keep the constants below).
+  - `sdk/port/loopexp/nudge.go` — pure contract (final nudge-specific form; extend only for the `Stop` channel and the constants below).
   - `sdk/port/loopexp/nudge_test.go` — pure contract tests (bounds, canonical-string equality, decision semantics).
   - `internal/runtime/extensions.go` — typed slot types (`NudgeFactory`, `NudgeExtension`, `NudgeLegHost`, opaque observed-input handle) and nil-safe no-extension behavior.
   - `internal/moduleport/ports.go` + `internal/moduleport/ports_test.go` — `closed("core/nudge-factory@v1", "vivy/exp-nudge", CardinalityAtMostOne, RequirementConditional)` and the T1/owner/cardinality tests.
@@ -77,11 +77,11 @@ selection binding. Classify every path before editing; never ship a second varia
 - [ ] 2. Finalize the pure SDK contract in `sdk/port/loopexp/nudge.go` (no `agent-vivy/internal`, no Eino):
   - `type ToolSample struct { CallID, ToolName, Arguments, Result, Error, Status, Reason, Effects string }` — bounded producer-owned values; `Arguments` is the canonical key-sorted JSON captured at request time; empty `Status` means success.
   - `type NudgeNotice struct { CallID, ToolName, Status, Reason string; Count int; TemplateVersion, Text string }`.
-  - `type NudgeDecision struct { Notice *NudgeNotice }` — no `Stop` field: D04 and this package record core-owned hard stop (see [index.md](index.md) open item 2); the core guard keeps the count-6 terminal.
+  - `type NudgeDecision struct { Notice *NudgeNotice; Stop bool }` — `Stop` preserves the loop hard stop when the package owns the window (record this refinement of §11.3; see [index.md](index.md) open item 2).
   - `type NudgeDetector interface { Evaluate(orderedFresh []ToolSample) NudgeDecision }` — one call per settled batch; must be pure, deterministic, allocation-bounded, and must not retain `ToolSample` beyond the window.
   - `type NudgeFactory func() NudgeDetector`.
   - Constants for `TemplateVersionNudgeV1 = "nudge-v1"`, the ten-entry window, thresholds 3/5 and the 1024-byte reminder ceiling so the adapter and package cannot drift.
-  - Tests: canonical-string equality is byte equality (no hashing); success advances the window without a notice; no `Stop` channel exists; zero/one sample behavior; no growth beyond ten references.
+  - Tests: canonical-string equality is byte equality (no hashing); success advances the window without a notice; `Stop` only past count 5; zero/one sample behavior; no growth beyond ten references.
 - [ ] 3. Add the closed catalog definition and owner gate: `core/nudge-factory@v1`, `CardinalityAtMostOne`, `RequirementConditional`, owner `vivy/exp-nudge`. Tests: `Catalog().Lookup` returns it; a T1 module with another ID is rejected; a T2 module with the right ID is rejected; two providers are rejected.
 - [ ] 4. Extend the generator: `GoBinding.NudgeFactory`; emit `Rt.NudgeFactory` only when a selected module provides the Port (add `agent-vivy/internal/runtime` and the adapter import to the generated import block only in that case); validate `NudgeFactory` binding requires the Port, a Port provider requires the binding, the value matches `goIdentifierPattern`, and duplicates fail. Tests with `testdata/nudgefixture` for: selected emits field/import/accessors; omitted emits neither and `HasNudgeFactory()==false`, `NudgeFactoryValue()==nil`.
 - [ ] 5. Add the app-side typed unwrap in `internal/app/assembly_loop_extensions.go` and validation in `internal/app/assembly_validate.go`: the Assembly must expose the factory exactly when `Manifest.Modules` contains `vivy/exp-nudge`; an emitted factory without the module, or the module without an emitted factory, is a startup error naming both facts. No EXP import.

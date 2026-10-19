@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Preserve the user's execution choice; use one active write lane and fresh independent reviewers for final acceptance.
 
-**Goal:** Create the species-selected experimental Module `vivy/exp-nudge` at `plugins/exp/nudge/` with the real, pure coaching policy — ten-entry exact-tuple window, thresholds 3/5, fixed templates, 1024-byte reminder (the core hard stop stays core-owned) — and select it through `recipes/exp-nudge.vivy.yml`.
+**Goal:** Create the species-selected experimental Module `vivy/exp-nudge` at `plugins/exp/nudge/` with the real, pure coaching policy — ten-entry exact-tuple window, thresholds 3/5, count-6 hard stop, fixed templates, 1024-byte reminder — and select it through `recipes/exp-nudge.vivy.yml`.
 
 **Architecture:** A repository Module in the root Go module (no separate `go.mod`, like `plugins/hello-fs`) that imports only `agent-vivy/sdk/module` and `agent-vivy/sdk/port/loopexp`. It provides `core/nudge-factory@v1` as a build-owned T1 source and returns a pure `NudgeDetector`; it has no Eino, Journal, storage, policy, model, credential, network or `agent-vivy/internal/*` access, and performs no I/O. The behavior is moved from the D04-simplified core policy — not re-invented — so templates, ordering, and terminal semantics stay identical.
 
@@ -21,7 +21,7 @@
 - English docs and identifiers; no placeholder text, no stub provider, no "TODO policy".
 - Package purity: no `github.com/cloudwego/eino*`, no `agent-vivy/internal/*`, no `os`/`net` I/O, no logging, no mutable global state.
 - One coaching policy: the package replaces the core body in N03; do not leave two implementations.
-- Preserve exact behavior: window length and tuple fields, thresholds, tie-break, template text, template version, 1024-byte and context-budget rules; the hard stop remains in core.
+- Preserve exact behavior: window length and tuple fields, thresholds, tie-break, template text, template version, 1024-byte and context-budget rules, and the count-6 stop condition that crosses the seam as `Stop`.
 - Do not change `tool.nudge` schema, event vocabulary, daemon behavior or any storage.
 - No hash: no FNV, SHA or any digest in the policy or descriptor identity beyond the existing generation/source mechanism.
 - No new dependency; no Recipe other than the package's own selection file plus the explicit selections recorded in [index.md](index.md).
@@ -31,7 +31,7 @@
 - Tuple identity is the exact canonical `(toolName, arguments, result, error)` quartet; no concatenation ambiguity, no hashing, no normalization at evaluate time.
 - Window memory is bounded to ten references; successful calls advance an empty tuple and never produce a notice; failures without a typed status never produce a notice.
 - Notice selection: only counts 3 and 5; highest eligible count wins; tie breaks to the earliest request position; status selects the refusal vs corrective template; rendered length is checked against 1024 bytes.
-- No `Stop` field: the package returns coaching notices only; the core `errLoopDetected` guard fires once at count 6.
+- `Stop` is returned exactly when the identical tuple count exceeds five, so the existing `loop_detected` terminal still fires once.
 - The module descriptor claims only the closed Port, no grants, `scope: generation`; it cannot affect selection, capability or trust.
 - Tests moved from core stay behaviorally identical (no relaxed assertions to make extraction pass).
 
@@ -53,7 +53,7 @@
   - `plugins/exp/nudge/vivy-module.yaml` — `apiVersion: vivy.module/v1`; `module: {id: vivy/exp-nudge, version: 0.1.0}`; `source: {ref: repo:plugins/exp/nudge}` (plus `sha256` only until D06 removes it; after D06 the ref alone is authoritative); `provides: [{port: core/nudge-factory@v1, id: vivy.nudge-factory}]`; `requires: []`; `requestedGrants: []`; `lifecycle: {scope: generation}`.
   - `plugins/exp/nudge/descriptor.go` — matching `module.Descriptor` (same fields as the YAML, `Source.Ref` identical).
   - `plugins/exp/nudge/module.go` — `New() module.Module`; `Construct` returns the module instance; `module.Instance` Start/Ready/Stop/Close are real no-ops for a pure policy (documented, not a provider placeholder).
-  - `plugins/exp/nudge/policy.go` — `Factory() loopexp.NudgeFactory`; detector with the ten-entry exact-tuple window (`[10]sample`/slice of references), `Evaluate`, candidate selection; imports only `sdk/module` and `sdk/port/loopexp` (plus stdlib `strings`/`strconv` if unavoidable).
+  - `plugins/exp/nudge/policy.go` — `Factory() loopexp.NudgeFactory`; detector with the ten-entry exact-tuple window (`[10]sample`/slice of references), `Evaluate`, candidate selection, `Stop`; imports only `sdk/module` and `sdk/port/loopexp` (plus stdlib `strings`/`strconv` if unavoidable).
   - `plugins/exp/nudge/templates.go` — the two fixed templates and `render`; the rendered text and `TemplateVersionNudgeV1` come from the SDK contract constants.
   - `plugins/exp/nudge/policy_test.go`, `templates_test.go`, `descriptor_test.go` — moved/adapted behavior tests.
   - `recipes/exp-nudge.vivy.yml` — `apiVersion: vivy.generation/v1`, `profile: exp-nudge`, `modules:` at minimum `vivy/loop`, `vivy/model`, `vivy/tool-host`, `vivy/storage`, `vivy/checkpoint`, `vivy/credential`, `vivy/sandbox`, `vivy/exp-nudge` (mirrors `minimal.vivy.yml` plus the experiment, so the selected build is a real runnable species form).
@@ -72,7 +72,7 @@
   - Append one sample identity per call; the window keeps the last ten identities; count exact matches by field-by-field equality of `ToolName`, `Arguments`, `Result`, `Error` (no string concatenation, no hash, no trimming).
   - A successful sample (empty `Status`) advances an empty identity and produces no notice.
   - Count == 3 or 5 with a non-empty typed `Status` yields a notice for that call, using the highest eligible count and earliest request position as tie-break; the notice carries `CallID`, `ToolName`, `Status`, `Reason`, `Count`, `TemplateVersionNudgeV1`, and the rendered `Text`.
-  - The detector never returns the loop-detected terminal; the core guard remains the single stop owner.
+  - `Stop = true` exactly when the matching count exceeds five; no notice is needed for the stop itself.
   - No retention of `ToolSample` beyond the window (store copied identity strings only).
 - [ ] 4. Implement templates exactly as baseline (`nudgeFailureTemplate`/`nudgeRefusalTemplate` text, `%d` count substitution, refusal selection by `Status=="refused"`), expose the 1024-byte ceiling check result honestly (the adapter enforces the ceiling; the package tests that the rendered text is far below it and that the contract constant matches).
 - [ ] 5. Prove purity and ownership with tests/CI assertions: `go list -deps ./plugins/exp/nudge` shows no Eino; `TestPluginWindowCannotImportInternal`/`TestEinoImportsQuarantined` still pass; no `hash/` import; no `os`, `net`, `plugin`, `reflect`-based registry.
@@ -104,7 +104,7 @@ Produced for N02: `expnudge.New` (Module) and `expnudge.Factory` (`loopexp.Nudge
 
 ## Acceptance, rollback and handoff
 
-Acceptance: `vivy/exp-nudge` is a pure, dependency-clean Module owning the real coaching policy; the selected Recipe compiles; unselected official Recipes remain unchanged; the policy behavior is byte-identical to the D04-simplified core behavior for window, thresholds, templates and `nudge-v1`; the core hard stop is unchanged.
+Acceptance: `vivy/exp-nudge` is a pure, dependency-clean Module owning the real coaching policy; the selected Recipe compiles; unselected official Recipes remain unchanged; the policy behavior is byte-identical to the D04-simplified core behavior for window, thresholds, templates, `nudge-v1` and the count-6 stop.
 
 Rollback: delete `plugins/exp/nudge/`, `recipes/exp-nudge.vivy.yml` and the T1/catalog entries; core policy is untouched in this Story, so behavior remains exactly as before. No data or schema impact.
 
