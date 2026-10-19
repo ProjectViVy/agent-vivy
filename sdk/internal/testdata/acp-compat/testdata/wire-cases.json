@@ -1,0 +1,17 @@
+{
+  "initialize": {"protocolVersion": 1, "clientCapabilities": {"elicitation": {"form": {}}}, "clientInfo": {"name": "acp-compat-probe", "version": "0.0.0"}},
+  "sessionNew": {"cwd": "/workspace/acp-probe", "mcpServers": []},
+  "sessionPrompt": {"sessionId": "probe-session-1", "prompt": [{"type": "text", "text": "hello agent"}]},
+  "permissionOptions": [
+    {"kind": "allow_once", "name": "Allow once", "optionId": "allow-once"},
+    {"kind": "reject_once", "name": "Reject once", "optionId": "reject-once"}
+  ],
+  "permissionReply": {"outcome": {"outcome": "selected", "optionId": "allow-once"}},
+  "elicitationReplies": {
+    "accept": {"action": "accept", "content": {"answer": "yes, proceed"}},
+    "decline": {"action": "decline"},
+    "cancel": {"action": "cancel"},
+    "unknownAction": {"action": "approve_all", "content": {"answer": "yes"}},
+    "missingAction": {"content": {"answer": "yes"}}
+  }
+}

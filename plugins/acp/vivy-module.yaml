@@ -1,0 +1,7 @@
+apiVersion: vivy.module/v1
+module: {id: projectvivy/acp, version: 0.1.0}
+source: {ref: repo:plugins/acp, sha256: "b92be2a2fad8a8c39db81449f642f21afcf141db2e66c089e4d14480835b2e91"}
+provides: [{port: std/face@v1, id: projectvivy.acp}]
+requires: [{port: core/face-host@v1, provider: vivy/face-host}]
+requestedGrants: [rpc.client]
+lifecycle: {scope: generation}

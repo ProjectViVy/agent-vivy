@@ -293,20 +293,8 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, err
 	}
 	defer os.RemoveAll(overlayDir)
-	replacement := filepath.Join(overlayDir, "zz_default.go")
-	if err := os.WriteFile(replacement, runtimeSource, 0o600); err != nil {
-		return Artifact{}, err
-	}
-	original, err := filepath.Abs(filepath.Join(repoRoot, "internal/generated/assembly/zz_default.go"))
+	overlayFile, err := stagePackOverlay(repoRoot, overlayDir, &recipe, plan, runtimeSource)
 	if err != nil {
-		return Artifact{}, err
-	}
-	overlayRaw, err := json.Marshal(map[string]any{"Replace": map[string]string{original: replacement}})
-	if err != nil {
-		return Artifact{}, err
-	}
-	overlayFile := filepath.Join(overlayDir, "overlay.json")
-	if err := os.WriteFile(overlayFile, overlayRaw, 0o600); err != nil {
 		return Artifact{}, err
 	}
 	modfile, err := prepareBuildModfile(repoRoot, overlayDir, buildSources)
@@ -1379,6 +1367,84 @@ func capabilityStatesForPlan(plan assemblyv1.AssemblyPlan) map[string]assemblyv1
 	return states
 }
 
+// selectedACPFaceModule is the restricted pilot Face module (T2) whose
+// exclusive recipe selection switches the packed cmd/vivy into stdio
+// protocol mode: the overlay swaps the TUI command file for a stub so
+// `vivy tui`/`vivy run` never link (ACP-STDIO-FACE §288, Candidate A).
+const selectedACPFaceModule = "projectvivy/acp"
+
+// selectedFaceClaimsProtocolMode reports whether the compiled plan selected
+// the ACP face: the recipe exclusively binds std/face@v1 to the pilot module
+// AND a resolved module provides it (AssemblyPlan has no Face field).
+func selectedFaceClaimsProtocolMode(recipe *assemblyv1.Recipe, plan assemblyv1.AssemblyPlan) bool {
+	if recipe.Exclusive["std/face@v1"] != selectedACPFaceModule {
+		return false
+	}
+	for _, resolved := range plan.Modules {
+		if resolved.Descriptor.Module.ID == selectedACPFaceModule {
+			return true
+		}
+	}
+	return false
+}
+
+// acpSelectedTUIStub is the pack-only replacement for cmd/vivy/tui.go in an
+// ACP-selected artifact: the command exists so the binary answers `vivy tui`
+// with an explicit unavailable error, and no TUI dependency is linked.
+const acpSelectedTUIStub = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+// runTUI is unreachable: an ACP-selected generation routes every invocation
+// through faceprocess.Main, which rejects the default command surface before
+// protocol startup. This stub keeps the build target complete without linking
+// codeface, the internal TUI organ, or the bubbletea dependency closure.
+func runTUI(args []string) int {
+	_ = args
+	fmt.Fprintln(os.Stderr, "vivy tui is unavailable in this generation: the selected face serves the ACP stdio protocol")
+	return 2
+}
+`
+
+// stagePackOverlay writes overlay.json plus its replacement files for one
+// compiled plan: the generated RuntimeAssembly always, and the pack-only TUI
+// stub when the recipe selects the ACP face. Caller owns the directory.
+func stagePackOverlay(repoRoot, overlayDir string, recipe *assemblyv1.Recipe, plan assemblyv1.AssemblyPlan, runtimeSource []byte) (string, error) {
+	replaces := map[string]string{}
+	replacement := filepath.Join(overlayDir, "zz_default.go")
+	if err := os.WriteFile(replacement, runtimeSource, 0o600); err != nil {
+		return "", err
+	}
+	original, err := filepath.Abs(filepath.Join(repoRoot, "internal/generated/assembly/zz_default.go"))
+	if err != nil {
+		return "", err
+	}
+	replaces[original] = replacement
+	if selectedFaceClaimsProtocolMode(recipe, plan) {
+		stub := filepath.Join(overlayDir, "tui.go")
+		if err := os.WriteFile(stub, []byte(acpSelectedTUIStub), 0o600); err != nil {
+			return "", err
+		}
+		tuiOriginal, err := filepath.Abs(filepath.Join(repoRoot, "cmd", "vivy", "tui.go"))
+		if err != nil {
+			return "", err
+		}
+		replaces[tuiOriginal] = stub
+	}
+	overlayRaw, err := json.Marshal(map[string]any{"Replace": replaces})
+	if err != nil {
+		return "", err
+	}
+	overlayFile := filepath.Join(overlayDir, "overlay.json")
+	if err := os.WriteFile(overlayFile, overlayRaw, 0o600); err != nil {
+		return "", err
+	}
+	return overlayFile, nil
+}
+
 func prepareBuildModfile(repoRoot, temporaryRoot string, sources []string) (string, error) {
 	modfile := filepath.Join(temporaryRoot, "vivy-pack.mod")
 	rootMod, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
@@ -1424,12 +1490,113 @@ func prepareBuildModfile(repoRoot, temporaryRoot string, sources []string) (stri
 				return "", fmt.Errorf("sdk: bind source module %s: %w: %s", modulePath, editErr, strings.TrimSpace(string(output)))
 			}
 		}
+		// The external module owns its third-party pins: its go.mod replace
+		// directives (for example an SDK fork) and extra requirements must
+		// reach the build modfile, because a dependency module's own
+		// replacement is ignored by the Go toolchain.
+		if err := mergeSourceModulePins(repoRoot, rootModule, modfile, absolute, modulePath); err != nil {
+			return "", err
+		}
 	}
 	return modfile, nil
 }
 
+// mergeSourceModulePins copies an external source module's require and replace
+// directives into the temporary build modfile. Only version replacements are
+// portable, the root module is never redirected, and a conflicting root
+// replacement fails closed instead of being silently shadowed.
+func mergeSourceModulePins(repoRoot, rootModule, modfile, sourceDir, sourceModule string) error {
+	type moduleRef struct {
+		Path    string
+		Version string
+	}
+	type replaceDirective struct {
+		Old moduleRef
+		New moduleRef
+	}
+	type editFile struct {
+		Module  struct{ Path string }
+		Require []moduleRef
+		Replace []replaceDirective
+	}
+	read := func(path string) (editFile, error) {
+		cmd := exec.Command("go", "mod", "edit", "-json", "-modfile="+path)
+		cmd.Dir = repoRoot
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return editFile{}, fmt.Errorf("sdk: read %s: %w: %s", path, err, strings.TrimSpace(string(out)))
+		}
+		var file editFile
+		if err := json.Unmarshal(out, &file); err != nil {
+			return editFile{}, fmt.Errorf("sdk: decode %s: %w", path, err)
+		}
+		return file, nil
+	}
+	source, err := read(filepath.Join(sourceDir, "go.mod"))
+	if err != nil {
+		return err
+	}
+	current, err := read(modfile)
+	if err != nil {
+		return err
+	}
+	replaced := make(map[string]string, len(current.Replace))
+	for _, r := range current.Replace {
+		replaced[r.Old.Path] = r.New.Path + "@" + r.New.Version
+	}
+	required := make(map[string]bool, len(current.Require))
+	for _, r := range current.Require {
+		required[r.Path] = true
+	}
+	edit := func(arg string) error {
+		cmd := exec.Command("go", "mod", "edit", "-modfile="+modfile, arg)
+		cmd.Dir = repoRoot
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("sdk: apply source module pin %q: %w: %s", arg, err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}
+	for _, r := range source.Replace {
+		if r.Old.Path == rootModule || r.Old.Path == sourceModule {
+			continue
+		}
+		if r.New.Version == "" {
+			return fmt.Errorf("sdk: source module %s declares a directory replacement for %s; pack supports version replacements only", sourceModule, r.Old.Path)
+		}
+		target := r.New.Path + "@" + r.New.Version
+		if existing, ok := replaced[r.Old.Path]; ok {
+			if existing != target {
+				return fmt.Errorf("sdk: source module %s replaces %s with %s, but the root build already replaces it with %s", sourceModule, r.Old.Path, target, existing)
+			}
+			continue
+		}
+		old := r.Old.Path
+		if r.Old.Version != "" {
+			old += "@" + r.Old.Version
+		}
+		if err := edit("-replace=" + old + "=" + target); err != nil {
+			return err
+		}
+		replaced[r.Old.Path] = target
+	}
+	for _, r := range source.Require {
+		if r.Path == rootModule || r.Path == sourceModule || required[r.Path] {
+			continue
+		}
+		if err := edit("-require=" + r.Path + "@" + r.Version); err != nil {
+			return err
+		}
+		required[r.Path] = true
+	}
+	return nil
+}
+
 func resolveDependencyLocks(repoRoot, modfile string) (map[string]string, error) {
-	download := exec.Command("go", "mod", "download", "-modfile="+modfile)
+	// `all` covers modules imported only by external source modules (for
+	// example an SDK fork named in plugins/acp/go.mod), which a plain
+	// `go mod download` would skip because the root package graph does not
+	// import them.
+	download := exec.Command("go", "mod", "download", "-modfile="+modfile, "all")
 	download.Dir = repoRoot
 	if output, err := download.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("sdk: resolve dependency sums: %w: %s", err, strings.TrimSpace(string(output)))
