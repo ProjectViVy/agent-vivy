@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- Keep this branch to general maintenance, dev environment, CI/fixtures, Studio gitlink/branding and truly cross-cutting docs. Route identifiable feature changes to their owning line; no unreviewed mixed dump.
+- [#14](https://github.com/ProjectViVy/agent-vivy/issues/14) retains older-image offload and SSH gaps; [#15](https://github.com/ProjectViVy/agent-vivy/issues/15) defines SSH as a Code Bundle extension outside Minimal Face. [#2](https://github.com/ProjectViVy/agent-vivy/issues/2) keeps A2A separate; [#3](https://github.com/ProjectViVy/agent-vivy/issues/3) leaves image generation to PENS. Do not implement/close these through miscellaneous cleanup.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates selected re-intake. #91 owns core deletions; keep retired Embedded/C-ABI/hash removal covered/retired.
+
+remake/misc is raw donor source; include only truly general changes without a tighter feature owner.
+
+
 ## Verified donor entry points
 
 - `justfile` — main donor.
