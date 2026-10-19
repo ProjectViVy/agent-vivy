@@ -15,6 +15,15 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#5](https://github.com/ProjectViVy/agent-vivy/issues/5) remains open and unscheduled. Preserve daily/weekly/monthly report-only scope, provenance and workspace boundaries; manual and scheduled runs share one bounded operation. Do not mutate memory/persona, propose evolution or invoke arbitrary tools; generated activity is excluded from source collection by default. Model failures need truthful deterministic fallback.
+- [#6](https://github.com/ProjectViVy/agent-vivy/issues/6) AutoDream is separate and candidate-only; do not make it a report dependency or let reflection apply memory, Skill, ACTMEM or persona mutations.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates later intake. Use a second scheduler, queue or runner only if an accepted concrete contract requires it; current plan excludes them.
+
+remake/reports is raw donor source; it does not schedule #5.
+
+
 ## Verified donor entry points
 
 - `internal/reportcontract/ports.go` — main donor.
