@@ -15,6 +15,16 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#57](https://github.com/ProjectViVy/agent-vivy/issues/57) establishes one persistent subject/avatar above sessions and no Coding/Life toggle. Navigation must not cancel work or change authority.
+- [#66](https://github.com/ProjectViVy/agent-vivy/issues/66) supplies editable drafts only. Use existing Service/Run, child-task, approval and permission owners; no new planner, memory store or orchestration path.
+- [#58](https://github.com/ProjectViVy/agent-vivy/issues/58) owns Recap/context policy and management UI; keep it in the Recap line. Controls must reflect backend availability truthfully.
+- [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) coordinates later UI work against accepted #91 RPC/DTO contracts.
+
+remake/chat-ui is raw donor source, not stable-target acceptance.
+
+
 ## Verified donor entry points
 
 - `ui/src/components/chat/ChatInput.tsx` — main donor.
