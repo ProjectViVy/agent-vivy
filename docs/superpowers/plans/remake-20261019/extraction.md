@@ -15,3 +15,9 @@ All new branches use remake/. main and the active #91/#93 refs are not changed. 
 Inventories: [file ownership](file-ownership.json.gz), [hunk map](hunk-map.json.gz), [branch-only history](branch-only.json.gz), [parallel lineage](parallel-file-ownership.json), and [source branch table](source-branch-table.md). Compressed JSON is ordinary gzip, not runtime product metadata.
 
 Source-level dispositions do not certify semantic independence. In particular, nudge-related changes stay shared for #93; core-fixes does not own their default activation.
+
+## Published source receipt
+
+The 16 feature/history donor branches and remake/integration are published; remake/archive-20261019 preserves the 19 source heads. Exact branch/source trees are in [source-branches.json](source-branches.json). All 16 source worktrees were created and clean. Dependency bootstrap is intentionally pending target adaptation. [Remote source verification](remote-source-verification.json) repeats the tree reconstruction and object checks against the actual published commits. [Commit identities](commit-identities.json) verify the responsible human author/committer.
+
+Independent review: all 16 actual candidate trees, 680 dedicated source deltas, 604 shared references, 20234 hunks/11185 locators and 19 archived heads were checked without modifying files. No blocking source-separation finding remains. Runtime/compilation/functional acceptance remains pending accepted #91 B.

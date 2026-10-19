@@ -1,5 +1,7 @@
 # Planning verification receipt
 
+Historical planning-only receipt (2026-10-19). The subsequent authorized source split and publication are recorded in [extraction](extraction.md) and [remote verification](remote-source-verification.json).
+
 This delivery performs read-only source inspection and creates planning files only.
 
 Observed: source main 9cd2801f; design 3fe69668; active core c091ccf4; 19 frozen branch heads. Explicit committer-time scan yields 394 commits (314 main, 80 branch-only), 343 changes and 51 merges. There are seven older prerequisite candidates after original A and nine identical stable-patch groups. All SHA/date/owner/path rows are retained; hunk review remains pending R01.

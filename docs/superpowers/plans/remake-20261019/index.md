@@ -4,7 +4,7 @@ Date: 2026-10-19. This is the sole status/dependency index of this package. [Des
 
 ## Execution update: donor branches
 
-[Donor extraction receipt](extraction.md) records the authorized source separation and publication. The 15 planned lines plus a warming-history line are donor branches, not build/product-accepted features. Dedicated files are split; mixed files stay explicit shared references. Target-specific hunk/API adaptation remains blocked by accepted core B.
+[Published source branches](source-branch-table.md) · [Exact commit receipt](source-branches.json) · [Donor extraction receipt](extraction.md) records the authorized source separation and publication. The 15 planned lines plus a warming-history line are donor branches, not build/product-accepted features. Dedicated files are split; mixed files stay explicit shared references. Target-specific hunk/API adaptation remains blocked by accepted core B.
 
 ## Current facts and readiness
 

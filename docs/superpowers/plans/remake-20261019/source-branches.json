@@ -1,0 +1,76 @@
+{
+  "base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "integration": {
+    "sha": "3a54b37ca331e7156163ab84544de9217ecc6c95",
+    "tree": "44bc3c4ef202e2b57f1454fcb635f541c4631130"
+  },
+  "lanes": {
+    "core-fixes": {
+      "sha": "c1f2aaca3bfc21ad469c835f373ae5598b1cedac",
+      "tree": "e05e1909fbaf6320a6080be4ec3bdc725074085e"
+    },
+    "provider": {
+      "sha": "41f06ec73e909a7e3c22a5c4323520a97589f020",
+      "tree": "06a04b02eb344c9b850632c256761a934e3a160e"
+    },
+    "notebook": {
+      "sha": "13999aad52a79130f728ceae8b3b896f7ffbcd73",
+      "tree": "d7e325aeba9a287ff2e1c38e05b36cee53f6a443"
+    },
+    "reports": {
+      "sha": "d706960470a9e6501ae377a79ea064691561620a",
+      "tree": "62d1535cf0be7a9383c2bf721b580150252d4859"
+    },
+    "toolkits": {
+      "sha": "7ae9cd997f521613ba69c258048ce978c6b19b15",
+      "tree": "94bd65bc174c54bc523c9fb55b247c1ddd631358"
+    },
+    "bml": {
+      "sha": "36b742e6a7aa12f14d0e165ba8fe04b03ac4ffe8",
+      "tree": "6fbea4b37b09498ce45b4fb4222461911f5f65b6"
+    },
+    "recap": {
+      "sha": "cd2904eb58ee144fff09cf677a8bc7e7c3b90ba6",
+      "tree": "57142d32558badffb6034c5bc25868cd14c569e1"
+    },
+    "cognition": {
+      "sha": "2ebda69c7080e78aa99a221be0c4a0650fc0dade",
+      "tree": "7644639976840720de63423222b3068c2b69253c"
+    },
+    "skill-evolution": {
+      "sha": "830a04f136b2f17f729532853d903ce220e5bcbd",
+      "tree": "4b402983232cc3308a70af52f3373b8d16b9cedc"
+    },
+    "persona": {
+      "sha": "f1d5197988d9d64db91dc82627e75f04e59b4210",
+      "tree": "a33c3d9cdc43d46c0022a8b9676fd752048fbacc"
+    },
+    "workflow": {
+      "sha": "cb3926c006c7f7d9e22c361f895c6e7107a60fda",
+      "tree": "15d683e138451fe733dddf5d00815ec70792a342"
+    },
+    "acp": {
+      "sha": "0aa1755d594d6f6513b37b1469dd0e2a920cd887",
+      "tree": "eeab4a2d6b80272644a7f50b215e3a3937603331"
+    },
+    "tool-parallelism": {
+      "sha": "93899e9ecb14538fffe3a39ca331e3c3e1c4d1b2",
+      "tree": "2b19e612d1870095d6c7c5f72871621c7e2309f2"
+    },
+    "chat-ui": {
+      "sha": "32b6b21423b733e16c3dc196022a27599e7c6305",
+      "tree": "66a1c3dc2853ba53b640d3a3e97ef82f5b3887a1"
+    },
+    "misc": {
+      "sha": "9a50445b0602054f6d3aa8dcaf7e83a54fd9cd61",
+      "tree": "58d4d9d536f6c47d497e1874d8c837df2736a7cd"
+    },
+    "warming": {
+      "sha": "3a2ec26286d172d792369345a8fe73cd6a8faede",
+      "tree": "d190d048cca1e7fa2cae9fe378172f3ef243c342"
+    }
+  },
+  "status": "published_raw_donor_sources_not_product_accepted",
+  "worktrees_expected": 16
+}

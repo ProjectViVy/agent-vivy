@@ -1,0 +1,146 @@
+[
+  {
+    "branch": "remake/integration",
+    "sha": "3a54b37ca331e7156163ab84544de9217ecc6c95",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/core-fixes",
+    "sha": "c1f2aaca3bfc21ad469c835f373ae5598b1cedac",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/provider",
+    "sha": "41f06ec73e909a7e3c22a5c4323520a97589f020",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/notebook",
+    "sha": "13999aad52a79130f728ceae8b3b896f7ffbcd73",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/reports",
+    "sha": "d706960470a9e6501ae377a79ea064691561620a",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/toolkits",
+    "sha": "7ae9cd997f521613ba69c258048ce978c6b19b15",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/bml",
+    "sha": "36b742e6a7aa12f14d0e165ba8fe04b03ac4ffe8",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/recap",
+    "sha": "cd2904eb58ee144fff09cf677a8bc7e7c3b90ba6",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/cognition",
+    "sha": "2ebda69c7080e78aa99a221be0c4a0650fc0dade",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/skill-evolution",
+    "sha": "830a04f136b2f17f729532853d903ce220e5bcbd",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/persona",
+    "sha": "f1d5197988d9d64db91dc82627e75f04e59b4210",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/workflow",
+    "sha": "cb3926c006c7f7d9e22c361f895c6e7107a60fda",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/acp",
+    "sha": "0aa1755d594d6f6513b37b1469dd0e2a920cd887",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/tool-parallelism",
+    "sha": "93899e9ecb14538fffe3a39ca331e3c3e1c4d1b2",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/chat-ui",
+    "sha": "32b6b21423b733e16c3dc196022a27599e7c6305",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/misc",
+    "sha": "9a50445b0602054f6d3aa8dcaf7e83a54fd9cd61",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/warming",
+    "sha": "3a2ec26286d172d792369345a8fe73cd6a8faede",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  },
+  {
+    "branch": "remake/archive",
+    "sha": "495caf6eba2063a71f16e7a8066c9935ff241839",
+    "author": "\u5927\u6e7f",
+    "author_email": "57738020+mastwet@users.noreply.github.com",
+    "committer": "\u5927\u6e7f",
+    "committer_email": "57738020+mastwet@users.noreply.github.com"
+  }
+]
