@@ -45,7 +45,7 @@ func TestToolSearchActivatesDeferredTool(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "test", "test-model", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Sessions: backend, Sink: newTestSink(), Truncations: backend,
+		Journal: backend, Runs: backend, Messages: backend, Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
 	t.Cleanup(func() {
 		svc.CancelAll()

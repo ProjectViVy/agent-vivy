@@ -182,7 +182,7 @@ func TestServiceRecoverRestoresSkillMountedTools(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Questions: backend,
+		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 
@@ -220,7 +220,7 @@ func TestServiceRecoverRestoresSkillMountedTools(t *testing.T) {
 		t.Fatalf("new restarted engine: %v", err)
 	}
 	restarted := NewService(eng2, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Questions: backend,
+		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
 	if err := restarted.Recover(ctx); err != nil {

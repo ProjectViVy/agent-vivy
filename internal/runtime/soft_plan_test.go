@@ -60,7 +60,7 @@ func TestPlanGuidanceUsesEmbeddedMarkdownSource(t *testing.T) {
 	if guidance != planGuidanceText {
 		t.Fatalf("runtime guidance differs from embedded plan.md: %q != %q", planGuidanceText, guidance)
 	}
-	if !strings.Contains(composeRunPreamble(time.Unix(0, 0), "", true, domain.FaceWeb, domain.CollaborationModePlan), guidance) {
+	if !strings.Contains(composeRunPreamble(time.Unix(0, 0), true, domain.FaceWeb, domain.CollaborationModePlan), guidance) {
 		t.Fatal("per-run composition omitted embedded Plan guidance")
 	}
 	messages := reconcilePlanGuidance(nil, true)

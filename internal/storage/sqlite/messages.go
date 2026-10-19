@@ -33,11 +33,11 @@ func (b *Backend) AppendMessage(ctx context.Context, m domain.Message) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, content_origin, exclude_automatic_ingest, position)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
 		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs),
-		m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position); err != nil {
+		m.Source, m.Channel, m.ChatID, m.ChannelMessageID, m.ContentOrigin, m.ExcludeAutomaticIngest, position); err != nil {
 		return fmt.Errorf("storage: append message %s: %w", m.ID, err)
 	}
 	for position, attachment := range m.Attachments {
@@ -109,10 +109,10 @@ func (b *Backend) AppendMessageIfAbsent(ctx context.Context, m domain.Message) (
 		return false, err
 	}
 	result, err := tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, position)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO messages (id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, content_origin, exclude_automatic_ingest, position)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.SessionID, m.RunID, string(m.Role), m.CreatedAt, int64(m.WorkSeq), m.Content,
-		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, position)
+		m.ToolCallID, m.ToolName, toolArgsBlob(m.ToolArgs), m.Source, m.Channel, m.ChatID, m.ChannelMessageID, m.ContentOrigin, m.ExcludeAutomaticIngest, position)
 	if err != nil {
 		return false, fmt.Errorf("storage: append projected message %s: %w", m.ID, err)
 	}
@@ -197,9 +197,10 @@ func (b *Backend) projectedMessageByID(ctx context.Context, id string) (domain.M
 	var m domain.Message
 	var sid, rid, role string
 	var args []byte
+	var excluded int64
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id FROM messages WHERE id = ?`, id).
-		Scan(&m.ID, &sid, &rid, &role, &m.CreatedAt, &m.WorkSeq, &m.Content, &m.ToolCallID, &m.ToolName, &args, &m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID)
+		`SELECT id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, content_origin, exclude_automatic_ingest FROM messages WHERE id = ?`, id).
+		Scan(&m.ID, &sid, &rid, &role, &m.CreatedAt, &m.WorkSeq, &m.Content, &m.ToolCallID, &m.ToolName, &args, &m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID, &m.ContentOrigin, &excluded)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return m, storage.ErrNotFound
@@ -207,6 +208,7 @@ func (b *Backend) projectedMessageByID(ctx context.Context, id string) (domain.M
 		return m, fmt.Errorf("storage: read projected message %s: %w", id, err)
 	}
 	m.SessionID, m.RunID, m.Role, m.ToolArgs = domain.SessionID(sid), domain.RunID(rid), domain.Role(role), args
+	m.ExcludeAutomaticIngest = excluded != 0
 	return m, nil
 }
 
@@ -215,7 +217,7 @@ func (b *Backend) projectedMessageByID(ctx context.Context, id string) (domain.M
 // concern). Image attachments load with their message rows.
 func (b *Backend) ListMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id
+		`SELECT id, session_id, run_id, role, created_at, work_seq, content, tool_call_id, tool_name, tool_args, source, channel, chat_id, channel_message_id, content_origin, exclude_automatic_ingest
 		 FROM messages WHERE session_id = ? ORDER BY created_at, id`, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list messages %s: %w", sessionID, err)
@@ -228,14 +230,16 @@ func (b *Backend) ListMessages(ctx context.Context, sessionID domain.SessionID) 
 		var m domain.Message
 		var id, sid, rid, role string
 		var args []byte
+		var excluded int64
 		if err := rows.Scan(&id, &sid, &rid, &role, &m.CreatedAt, &m.WorkSeq, &m.Content, &m.ToolCallID, &m.ToolName, &args,
-			&m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID); err != nil {
+			&m.Source, &m.Channel, &m.ChatID, &m.ChannelMessageID, &m.ContentOrigin, &excluded); err != nil {
 			return nil, fmt.Errorf("storage: scan message: %w", err)
 		}
 		m.ID = id
 		m.SessionID = domain.SessionID(sid)
 		m.RunID = domain.RunID(rid)
 		m.Role = domain.Role(role)
+		m.ExcludeAutomaticIngest = excluded != 0
 		if len(args) > 0 {
 			m.ToolArgs = args
 		}

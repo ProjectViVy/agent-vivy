@@ -180,7 +180,6 @@ func (f *continuityLoopFixture) newService(t *testing.T, rec *loopRecordingModel
 		Journal:            f.backend,
 		Runs:               f.backend,
 		Messages:           f.backend,
-		Notes:              f.backend,
 		Approvals:          f.backend,
 		Questions:          f.backend,
 		ApprovalExpiration: 5 * time.Minute,

@@ -13,7 +13,7 @@ import (
 // an approximate ratio or a provider-specific tokenizer.
 type ContextBreakdown struct {
 	// SystemPrompt is the byte size of the system instruction, including
-	// any notebook digest injected by the preamble composer.
+	// the per-run preamble produced by the preamble composer.
 	SystemPrompt int
 	// HistoryMessages is the byte size of all retained user/assistant/tool
 	// messages from prior turns.

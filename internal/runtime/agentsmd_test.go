@@ -228,7 +228,7 @@ func newAgentsMDService(t *testing.T, toolNames []string, script ...*schema.Mess
 	}
 	sink := newTestSink()
 	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
-		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
+		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		Questions:          backend,
 		ApprovalExpiration: 5 * time.Minute,
 		Workspaces:         &seedingWorkspaces{inner: manager, content: agentsMDTestMarker},

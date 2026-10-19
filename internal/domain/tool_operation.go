@@ -37,4 +37,14 @@ type ToolOperation struct {
 	Failure                  string
 	CreatedAt                int64
 	UpdatedAt                int64
+	// ContentOrigin marks which trusted subsystem produced the result.
+	// "notebook" is stamped only by the runtime for notebook-owned tools.
+	ContentOrigin string
+	// ExcludeAutomaticIngest bars the result and its derivatives from
+	// automatic BML/cognitive ingestion and compaction summaries.
+	ExcludeAutomaticIngest bool
 }
+
+// ContentOriginNotebook is the only provenance value the runtime stamps for
+// notebook-owned tool operations.
+const ContentOriginNotebook = "notebook"
