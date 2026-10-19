@@ -6,11 +6,11 @@ Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Branch: `co
 
 ## Authority and baseline
 
-- Shared design: [complete deletion plan](../../../plans/2026-10-19-complete-deletion-plan.md), especially §10 C1–C10. Reuse this authority; do not create a competing spec.
+- Shared design: [complete deletion plan](../../../plans/2026-10-19-complete-deletion-plan.md), especially §§10–11 C1–C11 and detailed architecture. Reuse this authority; do not create a competing spec.
 - Source evidence: [core deletion insight](../../../research/2026-10-19-agent-loop-core-deletion-insight.md) and [slimming review](../../../research/2026-10-19-agent-loop-slimming-review.md). These are source findings and proposals, not product acceptance.
 - Planning branch read at `9c5da97e3292591fa960b8cd14d921c17fea5812`; fresh main read at `e96092966cfbfa443648374948e7e7e16dd01683`. Product-code delta between original audit and fetched main: none. Planning commit records its own revision in Git, not a self-referential hash field.
-- Root/UI AGENTS and relevant plugin/kernel/Eino skills were read. Two independent read-only domain reviews checked runtime/approval and assembly/persistence. No production state was accessed; external Studio/Laputa/INOFY contract closure is not yet proven.
-- Planning docs/commit messages are English. Current user asked for a plan package, so implementation is not started. D01/D02/D06 have concrete draft cuts but stay Planned until review/authorization. Other Stories identify explicit blockers rather than pretending readiness.
+- Root/UI AGENTS and relevant plugin/kernel/Eino skills were read. Two independent read-only domain reviews checked runtime/approval and assembly/persistence. No production state was accessed; external Studio/Laputa/INOFY sources were inspected at exact pins (§11.10); coordinated hash-free dependency delivery remains pending.
+- Planning docs/commit messages are English. Current user asked for a plan package, so implementation is not started. All Stories have concrete contracts. Architecture choices are recorded; upstream delivery, accepted implementation predecessors and product evidence remain separate prerequisites.
 
 ## Owner-confirmed scope update (2026-10-19)
 
@@ -33,17 +33,17 @@ Scope-correction evidence: [retained-feature verification](../../../logs/2026-10
 | R7 | Usable minimal, tiny real-token chat Face and complete runnable minimal-plus-feature examples after core contraction. | D13–D14 |
 | R8 | Independent behavior and residue reviewers, human real-token E2E and required exact-candidate CI before closure. | D14 |
 
-## Review decisions before implementation
+## Architecture decisions and delivery prerequisites
 
-Hash retirement and retention of nudge/warming/steering are confirmed. Remaining recommendations are proposals for review. D00 records only unresolved decisions; it must not ask again whether those three capabilities should remain.
+Hash retirement, the three retained EXP capabilities and all other agreed cuts remain settled. Section 11 now fixes the technical contracts below; none is a repeated product-scope question. Missing delivery/test evidence is explicit and is not supplied by architecture text.
 
 | Gate | Recommendation and exact decision | Blocks |
 | --- | --- | --- |
-| G1 Product and durability | Confirmed: nudge, warming and same-Run steering are retained only through explicitly selected experimental Modules/Recipes; remove unconditional core wiring. All other cuts and their existing gates follow the prior plan. C11 requires a typed selectable host seam: current observer/pre-tool Ports are insufficient; D00 must settle that concrete technical contract before D04/D05 become Ready. | D04–D05: typed seam, accepted predecessors and existing data/durability gates; no renewed feature-retention question |
-| G2 Supported data and finite upgrade | Separately delivered old-release normalization -> exact baseline SQL 043/BML v1 -> final hash-free target, with backup and helper removed from final runtime. Preserve all currently supported legacy shapes through the finite artifact. Expire unbindable approvals; old paused checkpoint recovery is explicit, not seamless; retain unknown/completed effect fences. Approve source matrix, release boundary and immutable historical SQL disposition. | All durable cuts |
-| G3 Release consent | Use opaque acquired artifact plus existing install/release sequence and catalog revisions. Exact declaration/config consent; new release/config requires reapproval unless explicitly preserving a proven reusable consent. Review revocation semantics. | D07 and admitted bundle consumers |
-| G4 Exact content and cursor trust | Use bounded actual before/selection/presentation bytes in existing owners, one immutable transfer snapshot; stateless untrusted cursor with server reauthorization and allowed cut validation. Accept loss of signed cursor-issuance authenticity; preserve scope, selection and honest snapshot behavior. Approve storage/cleanup semantics. | D09 |
-| G5 External/native boundary | Keep Go/pnpm/TLS/authentication and native bundler internals; remove every Vivy-owned evidence check and explicit INOFY digest authority. Omit optional final label by default. Verify actual pinned external APIs and Studio consumers; coordinated change if required. | D06, D10–D12, global residue closure |
+| G1 Product and durability | Settled: three closed T1-only factories, pure SDK policies and selected runtime adapters (§11.1–11.5). Direct producer outcome -> native ToolMessage -> WrapModel; required effect/schedule/final/terminal/accounting commits stay mandatory. Keep current discovery semantics; remove proven duplicate authority only. | D04/D05 accepted implementation predecessors; no missing Host design or renewed scope question |
+| G2 Supported data and finite upgrade | Settled matrix and target schema (§11.7–11.9): supported old normalizer -> 043 -> copied target T, BML2, explicit NULL/unbindable-input refusal and old-pause terminal mapping, separate Studio ledger. D14 assembles finite artifact. | Disposable fixture proof, all converter fragments and upgrade artifact delivery before final release |
+| G3 Release consent | Opaque ArtifactID + existing release sequence/config revision; exact scoped consent. Converted executable consents unarmed; new release/config needs consent. Preserve history/unknown effects (§11.7). | D07 implementation and conversion proof |
+| G4 Exact content and cursor trust | Bounded before/selection/presentation bytes in existing owners; ContinuityStore atomic presentation receipt, session/truncation pruning, separate transfer TTL. Stateless untrusted cursor reauthorized per page (§11.6). | D09 implementation/privacy/concurrency proof |
+| G5 External/native boundary | Native dependency/TLS/Git/bundler boundary stays. Exact pins show required coordinated INOFY and Laputa API changes; Studio workbench reads removed Generation fields (§11.10). No opaque-hash exception. | New accepted upstream versions/pins: D10 Laputa, D11 INOFY, D06/D07 affected Studio consumer closure |
 
 No rewrite of AGENTS, current product requirements or mandatory gates is performed by this planning delivery. Hash-related contradictory clauses are changed with the authorized implementation cut. Workflow/gate reductions need their own explicit authorization; they cannot be inferred from a request for speed.
 
@@ -62,29 +62,29 @@ No rewrite of AGENTS, current product requirements or mandatory gates is perform
 
 ## Story index (sole status/dependency record)
 
-Planned = concrete plan exists, awaiting review/authorization or accepted prerequisites. Blocked = exact decision/data/dependency missing. Ready requires settled shared decisions, accepted immediate outputs and implementation authorization. Review/Done require observed evidence; no Story is Done in this delivery.
+Planned = concrete plan exists, awaiting implementation handoff or accepted prerequisites. Blocked = exact decision/data/dependency missing. Ready requires settled shared decisions, accepted immediate outputs and implementation authorization. Review/Done require observed evidence; no Story is Done in this delivery.
 
 | Story | Epic / requirement | Outcome | Immediate predecessors | Plan | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| D00 | E0 / R1–R8 | Freeze scope and finite upgrade contracts | — | [D00](D00.md) | Blocked | G1–G5 owner review; external consumer/source-format facts |
+| D00 | E0 / R1–R8 | Freeze scope and finite upgrade contracts | — | [D00](D00.md) | Planned | §11 architecture/source inspection recorded; implementation handoff and future product evidence pending |
 | D01 | E1 / R1,R5 | Delete digest audit and unused experimental hash code | D00 | [D01](D01.md) | Planned | Design review and implementation authorization |
-| D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Planned | C1 review and implementation authorization |
-| D03 | E2 / R1,R2,R3,R4 | Bind tool operations and approval to exact private inputs | D00 | [D03](D03.md) | Blocked | G2 supported pending-state policy; C2/C3 review |
-| D04 | E3 / R1,R2,R3,R5,R6 | Extract species-selected experimental nudge and simplify continuation | D02, D03, D06 | [D04](D04.md) | Blocked | EXP scope confirmed; typed selectable seam and accepted D02/D03/D06; existing durability gates |
-| D05 | E3 / R1,R2,R3,R5,R6 | Extract species-selected experimental warming and steering | D04 | [D05](D05.md) | Blocked | EXP scope confirmed; typed selectable seam, D04 and existing G2 queued-state contracts |
-| D06 | E4 / R1,R5,R6 | Delete source, Assembly and UI evidence generation end to end | D00 | [D06](D06.md) | Planned | C4 and G5 approval; external source selection preserved |
-| D07 | E4 / R1,R3,R4,R5 | Replace bundle and toolkit content addressing with owned releases | D03, D06 | [D07](D07.md) | Blocked | G2 artifact upgrade boundary; G3 consent/revocation policy |
-| D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03, D07 | [D08](D08.md) | Blocked | G2 checkpoint policy and admitted-format transition |
-| D09 | E2 / R1,R3,R4,R5 | Remove file, history, reference and deliverable hash authority | D03 | [D09](D09.md) | Blocked | G2 historical receipts; G4 cursor/snapshot contract |
-| D10 | E5 / R1,R3,R4,R5 | Preserve skill, memory and cognitive revision CAS without hashes | D08, D12 | [D10](D10.md) | Blocked | G2/G5 memory dependency support; C9/C10 review |
-| D11 | E5 / R1,R3,R4,R5 | Remove Work, workflow, notebook and report business digests | D03, D08 | [D11](D11.md) | Blocked | G2 paused work formats; G5 pinned INOFY API disposition |
-| D12 | E2 / R1,R3,R4,R5 | Remove migration checksums and convert the independent BML format | D00 | [D12](D12.md) | Blocked | G2 finite converter/source matrix; C10 and G5 review |
+| D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Planned | §11.6 completion/historical path fixed; implementation authorization |
+| D03 | E2 / R1,R2,R3,R4 | Bind tool operations and approval to exact private inputs | D00 | [D03](D03.md) | Planned | §11.7 legacy binding/pending mapping fixed; accepted D00 and implementation handoff |
+| D04 | E3 / R1,R2,R3,R5,R6 | Extract species-selected experimental nudge and simplify continuation | D02, D03, D06 | [D04](D04.md) | Blocked | §11.1–11.4 seam settled; accepted D02/D03/D06 implementation outputs |
+| D05 | E3 / R1,R2,R3,R5,R6 | Extract species-selected experimental warming and steering | D04 | [D05](D05.md) | Blocked | §11.3/§11.5 lifecycle settled; accepted D04 implementation output |
+| D06 | E4 / R1,R5,R6 | Delete source, Assembly and UI evidence generation end to end | D00 | [D06](D06.md) | Blocked | C4/§11.2 fixed; coordinated Studio workbench consumer/pin for removed Generation fields |
+| D07 | E4 / R1,R3,R4,R5 | Replace bundle and toolkit content addressing with owned releases | D03, D06 | [D07](D07.md) | Blocked | §11.7/§11.9 fixed; accepted D03/D06 implementation outputs |
+| D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03, D07 | [D08](D08.md) | Blocked | §11.7 checkpoint/Run transition fixed; accepted D03/D07 outputs |
+| D09 | E2 / R1,R3,R4,R5 | Remove file, history, reference and deliverable hash authority | D03 | [D09](D09.md) | Blocked | §11.6 storage/cursor contract fixed; accepted D03 output |
+| D10 | E5 / R1,R3,R4,R5 | Preserve skill, memory and cognitive revision CAS without hashes | D08, D12 | [D10](D10.md) | Blocked | Coordinated hash-free Laputa version/pin plus accepted D08/D12 |
+| D11 | E5 / R1,R3,R4,R5 | Remove Work, workflow, notebook and report business digests | D03, D08 | [D11](D11.md) | Blocked | Coordinated hash-free INOFY version/pin plus accepted D03/D08 |
+| D12 | E2 / R1,R3,R4,R5 | Remove migration checksums and convert the independent BML format | D00 | [D12](D12.md) | Planned | §11.7–11.9 format/metadata/BML design fixed; accepted D00 and implementation handoff |
 | D13 | E6 / R2,R6,R7 | Ship usable minimal, a tiny real-token Face and runnable examples | D05, D06, D08 | [D13](D13.md) | Blocked | Core contraction accepted; repository gate changes require explicit approval |
 | D14 | E7 / R1–R8 | Accept one final candidate through independent behavior and residue audits | D01, D09, D10, D11, D13 | [D14](D14.md) | Blocked | All predecessors accepted; real-token environment; fresh independent auditors |
 
 ## Immediate dependency contracts
 
-D00 supplies accepted C1–C10/G1–G5, not code. D02 supplies the aligned live/replay completion contract. D03 supplies exact invocation/approval ownership. D04 supplies direct durable outcome-to-Eino continuation and explicit EXP nudge selection. D05 supplies optional EXP warming/steering; both follow C11 selected/unselected behavior. Other scope follows the existing plan. D06 supplies simplified source/generation producers. D07 supplies immutable release/consent references. D08 supplies admitted values/checkpoint binding. D12 supplies BML v2 and final metadata ownership. D09/D10/D11 supply accepted feature behavior and migration evidence. D13 supplies runnable minimal/Face/examples. D14 consumes all integrated outcomes, not author completion claims.
+D00 supplies C1–C11/§11/G1–G5, not code; required upstream version/pin deliveries are external prerequisites in §11.10. D02 supplies the aligned live/replay completion contract. D03 supplies exact invocation/approval ownership. D04 supplies direct durable outcome-to-Eino continuation and explicit EXP nudge selection. D05 supplies optional EXP warming/steering; both follow C11 selected/unselected behavior. Other scope follows the existing plan. D06 supplies simplified source/generation producers. D07 supplies immutable release/consent references. D08 supplies admitted values/checkpoint binding. D12 supplies BML v2 and final metadata ownership. D09/D10/D11 supply accepted feature behavior and migration evidence. D13 supplies runnable minimal/Face/examples. D14 consumes all integrated outcomes, not author completion claims.
 
 Edges are prerequisite inputs, not a priority ranking. Wave two starts after the common D00 scope freeze. D12 is an independent format/metadata cut after that freeze; feature-specific SQL is owned by its individual Story, not a late central column-drop task.
 
@@ -125,6 +125,10 @@ Waves describe dependencies, not permission for simultaneous edits. No elapsed-t
 | Retained optional features | Real reviewed skill/memory, release consent/rollback and Work/workflow/notebook/report behavior under simplified contracts | D07, D10–D11 |
 | Usable minimal | Complete runnable minimal + feature examples, physical omission, production tiny Face with human real tokens | D13–D14 |
 | Final closure | Two fresh non-author subagents accept behavior and residue at exact final candidate; just ci + real Postgres + BML + affected real-path checks | D14 |
+
+## Detailed architecture update
+
+The [shared design §11](../../../plans/2026-10-19-complete-deletion-plan.md#11-detailed-target-architecture) records module/import direction, exact factories/Hosts, normal/retry/cancel/resume lifecycle, target schemas, finite source matrix, copied-target cutover and pinned external API changes. [Architecture verification](../../../logs/2026-10-19-issue-91-detailed-architecture/verification.md) records this doc-only update. No upstream source/pin, runtime, schema or generated product file changed.
 
 ## Planning verification and change handling
 
