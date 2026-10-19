@@ -11,7 +11,7 @@ decision gates and acceptance evidence. Planning is authorized; implementation
 and unresolved product/data changes await review. The issue's embedded snapshot
 is historical and does not override this linked package.
 
-Owner scope update (2026-10-19): **retain nudge/coaching, proactive warming and same-Run steering**. Their whole-feature-retirement alternatives below are superseded; D04/D05 in the linked package preserve actual features while removing custom hashes/redundant coordination. Tool-visibility/durability choices remain separate. No runtime deletion has occurred.
+Owner scope update (2026-10-19): **retain nudge/coaching, proactive warming and same-Run steering as species-selected experimental packages**. Their whole-feature-retirement alternatives below are superseded; D04/D05 in the linked package preserve actual features while removing custom hashes/redundant coordination. Tool-visibility/durability choices remain separate. No runtime deletion has occurred.
 
 Status: Pre-deletion inventory and proposed execution plan. No runtime deletion, regeneration, database migration, or behavior test has been performed by this delivery.
 
@@ -248,6 +248,51 @@ producers exist. D00 records approval or edits to these contracts before any
 dependent Story becomes Ready. Tests named in Story plans are proposed unless
 explicitly identified as existing.
 
+### 10.1a C11: Explicit species-selected experimental packages
+
+This owner-approved amendment affects only nudge, warming and steering. The
+other cuts and existing technical/data/security gates continue as planned.
+
+| Proposed Module | Proposed source path | Selected behavior |
+| --- | --- | --- |
+| vivy/exp-nudge | `plugins/exp/nudge/` | Real threshold/window/template coaching and scheduling event |
+| vivy/exp-warming | `plugins/exp/warming/` | Actual eligible, budgeted, accounted maintenance request |
+| vivy/exp-steering | `plugins/exp/steering/` | Active instruction changes with the same RunID and durable queue semantics |
+
+Use explicit Recipe source selection and generated Assembly. All unselected
+Recipes, including minimal, omit package implementation, constructors, feature
+state reads, registration, provider work, RPC/control actions and UI controls.
+Shared historical event readers can still display old records without activating
+these features. A request for an uncompiled capability reports NOT_COMPILED;
+never silently accepts a live setting/action and does nothing. For selected
+packages, existing config determines runtime behavior (e.g. warming off versus
+streaming). No runtime directory scanning or unconditional engine imports.
+
+The generic core retains tool feedback, authorization, exact approval binding,
+durable effect outcomes, mandatory paid-call accounting, cancellation and native
+Eino checkpoint/resume. Package-owned algorithms/policy/UI move out; only the
+small selected Host/Eino adapter remains in runtime/provider. Experimental code
+must not import quarantined Eino or access raw Journal/Policy/storage/credentials.
+Custom hashes are deleted throughout, including these experimental packages.
+
+Verified seam gap: sdk/port/observer provides post-commit observation without
+mutation/model authority; sdk/port/pretool only constrains pre-tool execution.
+Neither is a ready-made post-tool reminder, paid-model maintenance or native
+same-Run steering strategy Port. D00 must specify the smallest typed Host-owned
+contribution(s), source/trust class, exact DTO/signatures, failure/lifecycle and
+generated bindings before D04/D05 are Ready. Reuse an existing seam only when
+it actually meets these responsibilities; do not misuse observer as a runner,
+add an untyped plugin registry, expose Service, or invent a second scheduler.
+This is a concrete implementation blocker, not an unresolved product choice.
+
+Proposed explicit test Recipes live at recipes/exp-nudge.vivy.yml,
+recipes/exp-warming.vivy.yml, recipes/exp-steering.vivy.yml and
+recipes/exp-loop-features.vivy.yml. Verify none/each/all selection, real behavior
+and physical omission with the simplified SDK generation from D06. D13 documents
+runnable examples and D14 independently accepts that matrix. An existing paused
+steer opened by a species lacking the package is explicitly unavailable/recovery-
+required under G2; it must not instantiate a hidden legacy steering path.
+
 ### 10.2 Finite data transition
 
 G2 must approve supported source formats and delivery boundaries before durable
@@ -298,7 +343,7 @@ cuts until G2 is settled; they do not justify resetting user state.
 ### 10.3 Proposed core contraction and preserved boundaries
 
 The owner explicitly retains nudge/reminder coaching, proactive warming and
-same-Run steering (2026-10-19). D04 keeps the real reminder/window/templates/event
+same-Run steering as species-selected experimental packages (2026-10-19). D04 keeps the real reminder/window/templates/event
 and removes custom signatures plus redundant consumer-owned result handoff.
 D05 keeps real optional warming and same-Run steering, with their settings,
 controls, queue modes, recovery and accounting. Replacing these with ordinary
