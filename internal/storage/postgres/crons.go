@@ -33,7 +33,7 @@ func (b *Backend) CreateCronJob(ctx context.Context, job domain.CronJob) error {
 func (b *Backend) GetCronJob(ctx context.Context, id string) (domain.CronJob, error) {
 	row := b.db.QueryRowContext(ctx, `
 		SELECT id, name, enabled, schedule_json, payload_json, session_id,
-			next_run_at_ms, last_run_at_ms, last_status, last_error, delete_after_run, created_at_ms, updated_at_ms
+			next_run_at_ms, last_run_at_ms, last_status, last_error, delete_after_run, created_at_ms, updated_at_ms, revision
 		FROM cron_jobs WHERE id = $1`, id)
 	return scanCronJob(row)
 }
@@ -41,7 +41,7 @@ func (b *Backend) GetCronJob(ctx context.Context, id string) (domain.CronJob, er
 func (b *Backend) ListCronJobs(ctx context.Context) ([]domain.CronJob, error) {
 	rows, err := b.db.QueryContext(ctx, `
 		SELECT id, name, enabled, schedule_json, payload_json, session_id,
-			next_run_at_ms, last_run_at_ms, last_status, last_error, delete_after_run, created_at_ms, updated_at_ms
+			next_run_at_ms, last_run_at_ms, last_status, last_error, delete_after_run, created_at_ms, updated_at_ms, revision
 		FROM cron_jobs ORDER BY created_at_ms, id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list cron jobs: %w", err)
@@ -83,6 +83,36 @@ func (b *Backend) UpdateCronJob(ctx context.Context, job domain.CronJob) error {
 	return nil
 }
 
+func (b *Backend) UpdateCronJobCAS(ctx context.Context, job domain.CronJob, expected int64) (domain.CronJob, error) {
+	schedule, payload, err := cronJSON(job)
+	if err != nil {
+		return domain.CronJob{}, err
+	}
+	res, err := b.db.ExecContext(ctx, `
+		UPDATE cron_jobs SET name = ?, enabled = ?, schedule_json = ?, payload_json = ?, session_id = ?,
+			next_run_at_ms = ?, last_run_at_ms = ?, last_status = ?, last_error = ?, delete_after_run = ?,
+			updated_at_ms = ?, revision = revision + 1
+		WHERE id = ? AND revision = ?`,
+		job.Name, job.Enabled, schedule, payload, string(job.SessionID),
+		job.State.NextRunAtMs, job.State.LastRunAtMs, job.State.LastStatus, job.State.LastError,
+		job.DeleteAfterRun, job.UpdatedAt, job.ID, expected)
+	if err != nil {
+		return domain.CronJob{}, fmt.Errorf("storage: update cron job %s CAS: %w", job.ID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return domain.CronJob{}, err
+	}
+	if n == 0 {
+		if _, getErr := b.GetCronJob(ctx, job.ID); getErr != nil {
+			return domain.CronJob{}, getErr
+		}
+		return domain.CronJob{}, storage.ErrRevisionConflict
+	}
+	job.Revision = expected + 1
+	return job, nil
+}
+
 func (b *Backend) DeleteCronJob(ctx context.Context, id string) error {
 	res, err := b.db.ExecContext(ctx, `DELETE FROM cron_jobs WHERE id = $1`, id)
 	if err != nil {
@@ -106,7 +136,7 @@ func scanCronJob(row cronRowScanner) (domain.CronJob, error) {
 	var schedule, payload []byte
 	err := row.Scan(&job.ID, &job.Name, &job.Enabled, &schedule, &payload, &sid,
 		&job.State.NextRunAtMs, &job.State.LastRunAtMs, &lastStatus, &lastError,
-		&job.DeleteAfterRun, &job.CreatedAt, &job.UpdatedAt)
+		&job.DeleteAfterRun, &job.CreatedAt, &job.UpdatedAt, &job.Revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.CronJob{}, storage.ErrNotFound
 	}

@@ -82,6 +82,14 @@ func (s *RunStatus) TransitionTo(next RunStatus) error {
 	return nil
 }
 
+// RunPurpose distinguishes trusted non-interactive roots admitted outside
+// the chat lane. Empty means the normal interactive lane.
+type RunPurpose string
+
+const (
+	RunPurposeReport RunPurpose = "report"
+)
+
 // Run is one agent execution against a session.
 type Run struct {
 	ID        RunID
@@ -93,6 +101,7 @@ type Run struct {
 	ParentID  RunID
 	RootID    RunID
 	Depth     int
+	Purpose   RunPurpose
 }
 
 // EffectiveChildMode returns the persisted D14 mode for a child Run. Old
