@@ -8,7 +8,7 @@
       "source_donor_commit": "c1f2aaca3bfc21ad469c835f373ae5598b1cedac",
       "source_donor_tree": "e05e1909fbaf6320a6080be4ec3bdc725074085e",
       "plan_sync_commit": "38fbba6be26eefa8a16a024ec7c98544c49af393",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R10-core-fixes.md",
       "commit_message": "docs(remake): sync issue requirements for core-fixes"
     },
     "provider": {
@@ -16,7 +16,7 @@
       "source_donor_commit": "41f06ec73e909a7e3c22a5c4323520a97589f020",
       "source_donor_tree": "06a04b02eb344c9b850632c256761a934e3a160e",
       "plan_sync_commit": "e9bdf7bfc9cb348761fa2fe3adda804d344f74cf",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R11-provider.md",
       "commit_message": "docs(remake): sync issue requirements for provider"
     },
     "notebook": {
@@ -24,7 +24,7 @@
       "source_donor_commit": "13999aad52a79130f728ceae8b3b896f7ffbcd73",
       "source_donor_tree": "d7e325aeba9a287ff2e1c38e05b36cee53f6a443",
       "plan_sync_commit": "aca41d2df5082cfb49738cdc0f962fa7f6d088da",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R12-notebook.md",
       "commit_message": "docs(remake): sync issue requirements for notebook"
     },
     "reports": {
@@ -32,7 +32,7 @@
       "source_donor_commit": "d706960470a9e6501ae377a79ea064691561620a",
       "source_donor_tree": "62d1535cf0be7a9383c2bf721b580150252d4859",
       "plan_sync_commit": "07b48072cf0ce06568624ea6b40415a6165e9ca8",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R13-reports.md",
       "commit_message": "docs(remake): sync issue requirements for reports"
     },
     "toolkits": {
@@ -40,7 +40,7 @@
       "source_donor_commit": "7ae9cd997f521613ba69c258048ce978c6b19b15",
       "source_donor_tree": "94bd65bc174c54bc523c9fb55b247c1ddd631358",
       "plan_sync_commit": "b198a829851728a8f190f19b451bd8ba411bcb0d",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R14-toolkits.md",
       "commit_message": "docs(remake): sync issue requirements for toolkits"
     },
     "bml": {
@@ -48,7 +48,7 @@
       "source_donor_commit": "36b742e6a7aa12f14d0e165ba8fe04b03ac4ffe8",
       "source_donor_tree": "6fbea4b37b09498ce45b4fb4222461911f5f65b6",
       "plan_sync_commit": "f4de3886765ba2d70279443bf94e85179f330046",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R15-bml.md",
       "commit_message": "docs(remake): sync issue requirements for bml"
     },
     "recap": {
@@ -56,7 +56,7 @@
       "source_donor_commit": "cd2904eb58ee144fff09cf677a8bc7e7c3b90ba6",
       "source_donor_tree": "57142d32558badffb6034c5bc25868cd14c569e1",
       "plan_sync_commit": "1bbcdd8b32b3963fb41f0ba91efe16ed77e1a7f8",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R16-recap.md",
       "commit_message": "docs(remake): sync issue requirements for recap"
     },
     "cognition": {
@@ -64,7 +64,7 @@
       "source_donor_commit": "2ebda69c7080e78aa99a221be0c4a0650fc0dade",
       "source_donor_tree": "7644639976840720de63423222b3068c2b69253c",
       "plan_sync_commit": "a867656604efb86b07d223bac779b8238de4c222",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R17-cognition.md",
       "commit_message": "docs(remake): sync issue requirements for cognition"
     },
     "skill-evolution": {
@@ -72,7 +72,7 @@
       "source_donor_commit": "830a04f136b2f17f729532853d903ce220e5bcbd",
       "source_donor_tree": "4b402983232cc3308a70af52f3373b8d16b9cedc",
       "plan_sync_commit": "979a10c1e08423792ecc226c93ad04b1ba8b8600",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R18-skill-evolution.md",
       "commit_message": "docs(remake): sync issue requirements for skill-evolution"
     },
     "persona": {
@@ -80,7 +80,7 @@
       "source_donor_commit": "f1d5197988d9d64db91dc82627e75f04e59b4210",
       "source_donor_tree": "a33c3d9cdc43d46c0022a8b9676fd752048fbacc",
       "plan_sync_commit": "533afedc6ffdab311689c268fda92ef0ba48db2a",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R19-persona.md",
       "commit_message": "docs(remake): sync issue requirements for persona"
     },
     "workflow": {
@@ -88,7 +88,7 @@
       "source_donor_commit": "cb3926c006c7f7d9e22c361f895c6e7107a60fda",
       "source_donor_tree": "15d683e138451fe733dddf5d00815ec70792a342",
       "plan_sync_commit": "ba8353dc8164ebc6a454955a89dca421afafc053",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R20-workflow.md",
       "commit_message": "docs(remake): sync issue requirements for workflow"
     },
     "acp": {
@@ -96,7 +96,7 @@
       "source_donor_commit": "0aa1755d594d6f6513b37b1469dd0e2a920cd887",
       "source_donor_tree": "eeab4a2d6b80272644a7f50b215e3a3937603331",
       "plan_sync_commit": "4f9ad7c192fa5b9f1b1b15d013bc5cf2dda17cb1",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R21-acp.md",
       "commit_message": "docs(remake): sync issue requirements for acp"
     },
     "tool-parallelism": {
@@ -104,7 +104,7 @@
       "source_donor_commit": "93899e9ecb14538fffe3a39ca331e3c3e1c4d1b2",
       "source_donor_tree": "2b19e612d1870095d6c7c5f72871621c7e2309f2",
       "plan_sync_commit": "69a641ce0fceebe5d19c68e4c68ed39f1cff93f4",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R22-tool-parallelism.md",
       "commit_message": "docs(remake): sync issue requirements for tool-parallelism"
     },
     "chat-ui": {
@@ -112,7 +112,7 @@
       "source_donor_commit": "32b6b21423b733e16c3dc196022a27599e7c6305",
       "source_donor_tree": "66a1c3dc2853ba53b640d3a3e97ef82f5b3887a1",
       "plan_sync_commit": "478ead4d525ec3e587d67a9513bfc3fefe16f7ce",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R23-chat-ui.md",
       "commit_message": "docs(remake): sync issue requirements for chat-ui"
     },
     "misc": {
@@ -120,7 +120,7 @@
       "source_donor_commit": "9a50445b0602054f6d3aa8dcaf7e83a54fd9cd61",
       "source_donor_tree": "58d4d9d536f6c47d497e1874d8c837df2736a7cd",
       "plan_sync_commit": "f72d7cfc9562071166bbf0be3e6b90cba7ec7871",
-      "plan_path": "o",
+      "plan_path": "docs/superpowers/plans/remake-20261019/lanes/R24-misc.md",
       "commit_message": "docs(remake): sync issue requirements for misc"
     },
     "warming": {
