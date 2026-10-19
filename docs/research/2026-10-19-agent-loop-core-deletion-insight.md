@@ -26,7 +26,7 @@ A smaller module list, fewer lines, or green unit tests alone would not establis
 
 ## 2. Evidence standard and scope
 
-Source baseline: `origin/main@e96092966cfbfa443648374948e7e7e16dd01683`. Local product source remains based on the older `b4db00bd`; remote files were inspected with `git show` and `git grep`. All implementation line references below refer to the audited remote commit, not a later upstream revision.
+Source baseline: `origin/main@e96092966cfbfa443648374948e7e7e16dd01683`. During the audit, local product source was based on the older `b4db00bd`; remote files were inspected with `git show` and `git grep`. All implementation line references below refer to the audited remote commit, not a later upstream revision.
 
 The review follows normal execution, refusal, recoverable failure, approval recovery, model streaming, publication and cancellation. It also examines the requirements that introduced the dependencies. It is not an audit of every plugin, provider or UI component.
 
