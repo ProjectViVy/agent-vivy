@@ -15,6 +15,16 @@
 Consumes: accepted core SHA B, exact dependency pins, approved retained-hunk map, R03's applicable schema/revision/approval/Assembly contracts and any explicitly selected feature predecessor.
 Produces: one feature delta, explicit selected/omitted behavior if optional, source-first generated projections, exact-candidate evidence and an integration receipt. Public target signatures are intentionally not invented before R02; freeze them in the lane's refined implementation plan before coding.
 
+## Governing issue requirements (synchronized 2026-10-20)
+
+- [#32](https://github.com/ProjectViVy/agent-vivy/issues/32) closed as superseded, not fixed. [#83](https://github.com/ProjectViVy/agent-vivy/issues/83) retains C1-C7 for cognition/Recap/core intake: preserve admitted input, Mission/run authority, CAS, restart identity, scope isolation and truthful recovery.
+- [#72](https://github.com/ProjectViVy/agent-vivy/issues/72) sets DIVA local Skill as the default evolution receiver; EvoMap remains unfinished/default-off. Missing receivers cannot be advertised or return false success; reject stale revisions and avoid blind replay.
+- [#7](https://github.com/ProjectViVy/agent-vivy/issues/7) strategy composition remains separate/unscheduled. [#6](https://github.com/ProjectViVy/agent-vivy/issues/6) AutoDream is candidate-only; reflection itself cannot mutate memory, Skill, ACTMEM or persona.
+- Keep nudge/warming/steering in [#93](https://github.com/ProjectViVy/agent-vivy/issues/93).
+
+remake/cognition is raw donor source; select only gaps after #91 target contracts are accepted.
+
+
 ## Verified donor entry points
 
 - `internal/runtime/cognitive_service.go` — main donor.
