@@ -1,0 +1,917 @@
+{
+  "lane": "persona",
+  "branch": "remake/persona",
+  "state": "raw_donor_split_not_build_or_product_accepted",
+  "source_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+  "source_head": "9cd2801f8090723a652d3e835f72d83715b82121",
+  "history_archive": "495caf6eba2063a71f16e7a8066c9935ff241839",
+  "dedicated_files": [
+    {
+      "path": "internal/app/headless_mask_arming_test.go",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9827b52dfe96d6482e9b18971b064904565f92f3"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4f21c5e8fc45a125049e9e983ad7e58489ffb8e2"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/prompts/persona-uninitialized.md",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "215c99494964d6e2f6cf43d0b59182a237589e25"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/README.md",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "0a4aca32e05156c1e14ca0853040e9afe952d0df"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1bc544711de59a2648bac44e32bb56cf4f5d5b52"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/i18n/catalog.json",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d798991cedc1d5b6797b1071b88bc08e757a025e"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "25aad08d4c42a5dee1bcabbae7c436bb8c1cab62"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/dismissal.ts",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ab252aa39e7d42be25c40f3c7549fb386fb87696"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/face-state.ts",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dd4b864e342269c892b1749bfccb97d85aec332c"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/gate.test.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "687bb7203a670c41ef3402378be27b5837be271d"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/gate.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "054d49c47a321034f519e02a0c75e0f21d4db995"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/index.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dfddc7d1c12f38f113dfd99e760f4745c0c10695"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "26558d3429e3b9e1407a2a5fe0c44df857670f6f"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/kinds.ts",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "f43e50c5e65126e32b7d554fedf46e69ed6a26c8"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/onboarding.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6d67d7e31bf7fa9e9aaa9996c1d8eafdec097e64"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/view.test.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d7963366f0f754aa5c9b0714866a70a9ef32e1c4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8852d3b598dd43b8754f902c239ce5495f78e38a"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/ui/vivy-persona/src/view.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e6084f3747731f2abe65df2bc2ab39501f3b72b1"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8e0b0e2446758ac154e872ba9525b28947096968"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/layout/CompanionAvatar.test.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "c19f5cc7b6513faca10e23466f0588d0af24dc60"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/layout/CompanionAvatar.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "7fcbbe7d2f4536cc08330972b2d1469fc53e2483"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/components/layout/WelcomeWizard.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "bc1bbace68b991f56a2a0796cd0cab9e9b5b55d5"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "56ee0dbb1c2f0e86ea7d69478fe85c2aafe97b68"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/hooks/use-companion-avatar.test.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8953453a0ca30ac8574184aa6c9246fae2c5f2ee"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/hooks/use-companion-avatar.ts",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "95100a35982d5d303d0bb5405c0c7baad7ca5940"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/plugins/presentation-host.test.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "35ae46ea3510ed89ae6c8384f25c2cbb450ce933"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b4066e1d80c7e4a5d39a6ebc5b87e93b11931d26"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/plugins/presentation-host.tsx",
+      "owner": "persona",
+      "state": "dedicated_donor_file",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6600c27262353babf904b4c69474e26b08b3db3f"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "54a08ae20d4b233058342e51968c30e6269ef99f"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "shared_file_refs": [
+    {
+      "path": "docs/architecture/VIVY-MEMORY-HOST-CONTRACTS.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ccb35ddf1f107844e01a8fd4776aa21e274b85a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "2a836a282f23849f8df4b2b616c7d93db1b77e48"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "docs/architecture/VIVY-PORT-CATALOG.md",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "268e4a51dcdd7fdbafa3ff086a2bf94da75402f2"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "44bd5204a3256f844271e535770bc42617f0fe54"
+      },
+      "contributing_owners": [
+        "acp",
+        "core-fixes",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/gatewayless_lifetime_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "949f0ae8706fd59cd9b7c7400e0fc835eed75783"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "be439aa45ca124064439e5800bd39f5a51216878"
+      },
+      "contributing_owners": [
+        "misc",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/memory_loop_fixture_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3323c43d244aa09f61cddcce9618a87db17103ce"
+      },
+      "contributing_owners": [
+        "cognition",
+        "misc",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/memory_loop_model_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "d509b9c9ce969c0081ece3fdb867411dfb70ffe1"
+      },
+      "contributing_owners": [
+        "cognition",
+        "persona",
+        "provider"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/app/memory_loop_persona_denial_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "add",
+      "base_entry": null,
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "4323535ab6029627f9d665db975352da44c8eb1f"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/cognitivecontract/ports.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "b4d86779e3dd2ed7b08ec5865410e435f42fcd76"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ef7e18eb95927c4b35a1267554e83d36a9cd0594"
+      },
+      "contributing_owners": [
+        "bml",
+        "cognition",
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/actions_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "29851f1e73cd39fbee661a3d945b5bc513313bfc"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "8825ead4e916250b103a83219ec9f028e82dd98e"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/modules/diva-cognitive/dispatch.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ef32b2aa1ffd0298839df4a1ec6d6a3d82c0df91"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "fba91442e566e7433acde3a307dc1927b261a673"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/cognitive_primary_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "aa8e994761799263e37deb4043dc494c2c7ef898"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9f247eeedf396756fa862e15e5e05b505e1e6eef"
+      },
+      "contributing_owners": [
+        "cognition",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/prompt_state.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "52526967473e2abfcc2d5b0193d275bc098e3960"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f88929f989a9c2ff3b0656f0245411fb28dc347"
+      },
+      "contributing_owners": [
+        "persona",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/prompt_state_test.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "9f16ebe1f69177abad8c1f86fb59949c1f495cc0"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "52e03af5eaba57837ccee18ddd4054c5323a0f84"
+      },
+      "contributing_owners": [
+        "persona",
+        "toolkits"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "internal/runtime/service.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e70e8ee56195a7d2835c81af90f78376f54e824a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "740d8876fa8480bee95043c0538551672922f1d3"
+      },
+      "contributing_owners": [
+        "cognition",
+        "core-fixes",
+        "notebook",
+        "persona",
+        "provider",
+        "recap",
+        "reports",
+        "skill-evolution",
+        "toolkits",
+        "warming"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/module.go",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "75faf5faa6eb2ef8022ece8d5ca8a4c82ccc27bb"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "eccfadd2b4913056126c6a33d110db4c50b775b2"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "plugins/vivy-persona/vivy-module.yaml",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1956fddc0eff488e5ec8c99b03a50bda2dd0c791"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "6a705deb19b33e135f2ddacc92bb614f912b2b1e"
+      },
+      "contributing_owners": [
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "scripts/i18n-cross-face-contract.json",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "23260e04fcf2db830d56d45194bbd5ca2addd0f4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dd8273cd398d040bb311742aa59ca22234d2b0ee"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/ui/src/module.test.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "16a7b3ade844a8d98db1aa41a79c93a454b7a646"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "46720617ab379f194895bc7b638a48b0c3b81970"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "sdk/ui/src/module.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "a0caa8d9c6b4dcd889449c32dd5324ad5c268763"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ad39e8bd15eb8b69efa71f7578a44c59e2d4564"
+      },
+      "contributing_owners": [
+        "core-fixes",
+        "persona"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/generated/assembly.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "1f5446ec19ee0a1872c4bc2980161e97ff6d4145"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "74d7cdd3c27391fc623ada577e3600771ae86f2e"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap",
+        "reports",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/en.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "703656b96b8581e1d86fa5ec67878f96ab82c2d4"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "e91e13d2238e96091e5c53919633ecf7edc99091"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/i18n/zh.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "ed89a8370b5af2598a1c53e5334f01c742d78291"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "3ee00e1ecaadc3858d7f01a42c4078c2e617decc"
+      },
+      "contributing_owners": [
+        "chat-ui",
+        "core-fixes",
+        "persona",
+        "provider",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/src/routes/_layout.tsx",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "dbac8a240ab098cdeb1e96cf66a26937af530c41"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "5000269cd967d8d18683994ae4a3cac69c62509a"
+      },
+      "contributing_owners": [
+        "persona",
+        "recap"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    },
+    {
+      "path": "ui/vitest.config.ts",
+      "owner": "shared",
+      "state": "shared_integration_required",
+      "operation": "modify",
+      "base_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "815921f511ae779121a949bfa5821b3898bbb53a"
+      },
+      "donor_entry": {
+        "mode": "100644",
+        "type": "blob",
+        "sha": "334bb2b33d88e61dcb2b74a0cbdf9ea4622e8298"
+      },
+      "contributing_owners": [
+        "notebook",
+        "persona",
+        "recap",
+        "toolkits",
+        "workflow"
+      ],
+      "donor_base": "202aac3885cb1479998127f0fb9004bea54aca57",
+      "donor_head": "9cd2801f8090723a652d3e835f72d83715b82121"
+    }
+  ],
+  "branch_only_commit_refs": [],
+  "target_core": null,
+  "blocked_on": [
+    "accepted #91 core B",
+    "actual API/data/pin/Recipe adaptation",
+    "focused and required final product acceptance"
+  ],
+  "source_reference_rule": "git show <donor_head>:<path>; use before parent for deleted files"
+}
