@@ -118,6 +118,13 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   const quickReview = useMemo(() => pickPendingReview(reviews, activeSessionId), [reviews, activeSessionId]);
   const currentDraft = useRef({ value, pending, sessionId: activeSessionId });
   currentDraft.current = { value, pending, sessionId: activeSessionId };
+  // 新审批到达时自动弹出；用户手动关闭后同一批待处理项不再强行弹回。
+  const previousPendingCount = useRef(0);
+  useEffect(() => {
+    if (pendingReviewCount === 0) setReviewQuickOpen(false);
+    else if (pendingReviewCount > previousPendingCount.current) setReviewQuickOpen(true);
+    previousPendingCount.current = pendingReviewCount;
+  }, [pendingReviewCount]);
   const sessions = useVivyStore((state) => state.sessions);
   const sessionBusyId = useVivyStore((state) => state.sessionBusyId);
   const setSessionPermission = useVivyStore((state) => state.setSessionPermission);
@@ -475,7 +482,12 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
         error={reviewsError}
         offset={reviewQuickOffset}
         onOffsetChange={setReviewQuickOffset}
-        onRespond={(action) => { if (quickReview) return respondReview(quickReview.id, { action }); }}
+        onRespond={async (action) => {
+          if (!quickReview) return;
+          await respondReview(quickReview.id, { action });
+          // 决策成功后收起卡片；失败时 store 保留 reviewsError，卡片继续显示错误。
+          setReviewQuickOpen(false);
+        }}
         onOpenCenter={() => openReviewCenter(true)}
         onClose={() => setReviewQuickOpen(false)}
       />
