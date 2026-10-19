@@ -46,6 +46,25 @@
     entry: deepseek
     derived_at: "2026-09-18"
     note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; Vivy-normalized default (deepseek-flash at https://api.deepseek.com) and DeepSeek's Anthropic-compatible endpoint declared.
+- name: minimax
+  display_name: MiniMax
+  env_key: MINIMAX_API_KEY
+  endpoints:
+    - adapter: openai-completions
+      base_url: https://api.minimaxi.com/v1
+      default_model: MiniMax-M2.1
+      models:
+        - id: MiniMax-M2.1
+        - id: abab6.5-chat
+        - id: abab6.5s-chat
+        - id: abab5.5-chat
+        - id: MiniMax-M2.5
+        - id: MiniMax-M2
+  provenance:
+    source: agent-diva/agent-diva-providers/src/providers.yaml
+    entry: minimax
+    derived_at: "2026-09-18"
+    note: Re-derived into the Vivy schema; dropped fields and rules are in README.md; the vendor prefix was stripped from default_model.
 - name: sensenova
   display_name: SenseNova
   env_key: SENSENOVA_API_KEY

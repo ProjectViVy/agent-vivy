@@ -3,15 +3,16 @@
 Date: 2026-10-20
 
 Owner decision: the embedded provider catalog carried too many vendors. Keep
-only `deepseek` and `sensenova`; every other vendor, endpoint and model leaves
-the shipped data.
+only `deepseek`, `minimax` and `sensenova`; every other vendor, endpoint and
+model leaves the shipped data. Owner follow-up on 2026-10-20: MiniMax stays
+after the first cut removed it.
 
 ## What changed
 
 - `internal/provider/data/vendors.yaml`: 46 vendors / 48 endpoints / 175 models
-  become 2 vendors / 3 endpoints / 14 models. `deepseek` keeps its
+  become 3 vendors / 4 endpoints / 20 models. `deepseek` keeps its
   `openai-completions` default endpoint and its `anthropic-messages` variant;
-  `sensenova` keeps its `openai-completions` endpoint.
+  `minimax` and `sensenova` keep their `openai-completions` endpoints.
 - The startup gate now accepts a sealed `DEFERRED-INDEFINITE` adapter with no
   endpoint in the data (`reconcile.go`). The comment already described that
   intent; the code enforced the opposite. A sealed supported adapter without an

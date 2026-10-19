@@ -11,7 +11,7 @@ artifact).
 ## Checks
 
 - `go test -count=1 ./internal/provider/ ./internal/modelhost/` - PASS.
-  Embedded-catalog counts now assert 2 vendors / 3 endpoints / 14 models;
+  Embedded-catalog counts now assert 3 vendors / 4 endpoints / 20 models;
   metadata anchors assert the DeepSeek and SenseNova rows; the reconcile tests
   cover "deferred adapter without endpoint passes" and "supported adapter
   without endpoint fails".
@@ -19,7 +19,7 @@ artifact).
   Provider Profiles, both `SUPPORTED`; the embedded-data coverage test still
   maps every endpoint to a Profile.
 - `go test -count=1 ./internal/rpc/ -run 'TestProvidersCatalogServesEmbeddedData'`
-  - PASS. The catalog RPC payload carries 2 vendors / 3 endpoints and no
+  - PASS. The catalog RPC payload carries 3 vendors / 4 endpoints and no
   deferred endpoint row.
 - `go test -count=1 ./internal/app/` - 66s, two failures:
   `TestAppShutdownBounded` and

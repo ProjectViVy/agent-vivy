@@ -294,8 +294,8 @@ func TestLoadEmbeddedProvidesTheSealedProviderCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadEmbedded: %v", err)
 	}
-	if len(vendors) != 2 {
-		t.Fatalf("vendors = %d, want 2 (deepseek, sensenova)", len(vendors))
+	if len(vendors) != 3 {
+		t.Fatalf("vendors = %d, want 3 (deepseek, minimax, sensenova)", len(vendors))
 	}
 	endpoints, models := 0, 0
 	seen := map[string]bool{}
@@ -309,8 +309,8 @@ func TestLoadEmbeddedProvidesTheSealedProviderCatalog(t *testing.T) {
 			models += len(endpoint.Models)
 		}
 	}
-	if endpoints != 3 || models != 14 {
-		t.Fatalf("endpoints = %d, models = %d; want 3 and 14", endpoints, models)
+	if endpoints != 4 || models != 20 {
+		t.Fatalf("endpoints = %d, models = %d; want 4 and 20", endpoints, models)
 	}
 	for _, dropped := range []string{"custom", "cherryin", "openai", "anthropic", "zhipu"} {
 		if seen[dropped] {

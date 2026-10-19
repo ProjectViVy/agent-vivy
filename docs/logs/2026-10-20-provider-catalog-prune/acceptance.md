@@ -4,9 +4,9 @@ Date: 2026-10-20
 
 A human can confirm the prune in the running product:
 
-1. **Provider list.** Open Settings → Providers. The catalog shows exactly two
-   vendors: DeepSeek and SenseNova. Every former vendor (OpenAI, Anthropic,
-   Zhipu, Moonshot, MiniMax, ...) is gone, together with its endpoints and
+1. **Provider list.** Open Settings → Providers. The catalog shows exactly three
+   vendors: DeepSeek, MiniMax and SenseNova. Every former vendor (OpenAI,
+   Anthropic, Zhipu, Moonshot, ...) is gone, together with its endpoints and
    models.
 2. **Default selection.** A fresh config still resolves to `deepseek` /
    `deepseek-flash` (the shipped default), and DeepSeek's
