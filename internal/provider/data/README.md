@@ -22,11 +22,11 @@ Four layers, only the first of which is code (D4):
 | **Endpoint** | Which adapter, which address, which models? | `vendors.yaml`, 1..N per vendor |
 | **Model** | Which model id, how big, how expensive? | `vendors.yaml`, N per endpoint |
 
-Three adapters exist and no more: `openai-completions`, `openai-responses`
-(**deferred, not implemented**), `anthropic-messages`. Data may name one of
-these; it can never introduce an adapter, a transport, or executable
-behaviour. A deferred family may declare no endpoint at all: the capability
-stays visible while no vendor offers it.
+Two adapters exist and no more: `openai-completions`, `anthropic-messages`.
+Both are executable in this build; the provider agentic migration retired
+`openai-responses`, so it is no longer sealed and data may not name it. Data
+may name one of the two adapters, and it can never introduce an adapter, a
+transport, or executable behaviour.
 
 ## Editing rules
 

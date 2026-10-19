@@ -25,13 +25,13 @@ import (
 )
 
 type heldRPCPlanModel struct {
-	inner         model.ToolCallingChatModel
+	inner         model.AgenticModel
 	calls         atomic.Int32
 	resumeEntered chan struct{}
 	release       chan struct{}
 }
 
-func (m *heldRPCPlanModel) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *heldRPCPlanModel) Stream(ctx context.Context, messages []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	if m.calls.Add(1) == 2 {
 		close(m.resumeEntered)
 		select {
@@ -43,17 +43,8 @@ func (m *heldRPCPlanModel) Stream(ctx context.Context, messages []*schema.Messag
 	return m.inner.Stream(ctx, messages, opts...)
 }
 
-func (m *heldRPCPlanModel) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *heldRPCPlanModel) Generate(ctx context.Context, messages []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	return m.inner.Generate(ctx, messages, opts...)
-}
-
-func (m *heldRPCPlanModel) WithTools(infos []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	inner, err := m.inner.WithTools(infos)
-	if err != nil {
-		return nil, err
-	}
-	m.inner = inner
-	return m, nil
 }
 
 type goalWakeReadProbe struct {
@@ -105,9 +96,9 @@ func TestStartGoalDecisionRPCWakesExactlyOneRound(t *testing.T) {
 		t.Fatal(err)
 	}
 	chat := &heldRPCPlanModel{inner: runtime.NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{ID: "submit", Function: schema.FunctionCall{Name: tools.SubmitPlanName, Arguments: `{"markdown":"1. inspect\n2. implement"}`}}}),
-		schema.AssistantMessage("Proceed with the plan.", nil),
-		schema.AssistantMessage("Goal round complete.", nil),
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("submit", tools.SubmitPlanName, `{"markdown":"1. inspect\n2. implement"}`)),
+		runtime.ScriptedText("Proceed with the plan."),
+		runtime.ScriptedText("Goal round complete."),
 	), resumeEntered: make(chan struct{}), release: make(chan struct{})}
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(chat.release) }) }

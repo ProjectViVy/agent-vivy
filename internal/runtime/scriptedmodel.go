@@ -11,22 +11,45 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-// ScriptedModel replays a fixed script of assistant messages, one per
+// ScriptedModel replays a fixed script of agentic assistant messages, one per
 // Generate/Stream call. It is exported so packages outside runtime (the
-// integration tests, which must not import eino themselves,
-// D-007) can drive interrupt/resume flows deterministically. Test-only:
-// production paths never use it.
+// integration tests, which must not import eino themselves, D-007) can drive
+// interrupt/resume flows deterministically. Test-only: production paths never
+// use it.
 type ScriptedModel struct {
 	mu     sync.Mutex
 	calls  int
-	script []*schema.Message
+	script []*schema.AgenticMessage
 }
 
-var _ model.ToolCallingChatModel = (*ScriptedModel)(nil)
+var _ model.AgenticModel = (*ScriptedModel)(nil)
 
 // NewScriptedModel replays script in order; exhausting it fails the run.
-func NewScriptedModel(script ...*schema.Message) *ScriptedModel {
+func NewScriptedModel(script ...*schema.AgenticMessage) *ScriptedModel {
 	return &ScriptedModel{script: script}
+}
+
+// ScriptedText builds the scripted agentic message for a plain assistant
+// answer. Exported for out-of-package integration tests.
+func ScriptedText(text string) *schema.AgenticMessage {
+	return agenticAssistantTextMessage(text)
+}
+
+// ScriptedCall builds one scripted function tool call.
+func ScriptedCall(callID, name, args string) *schema.FunctionToolCall {
+	return &schema.FunctionToolCall{CallID: callID, Name: name, Arguments: args}
+}
+
+// ScriptedToolCalls builds the scripted agentic message that requests calls.
+func ScriptedToolCalls(calls ...*schema.FunctionToolCall) *schema.AgenticMessage {
+	return agenticAssistantToolCallMessage(calls)
+}
+
+// AgenticMessageText exposes the block text projection to out-of-package test
+// suites, which must not import eino themselves (D-007). Product code uses the
+// package-internal projection directly.
+func AgenticMessageText(msg *schema.AgenticMessage) string {
+	return agenticMessageText(msg)
 }
 
 // ApprovalFlowCallID is the tool call id the approval flow script uses;
@@ -41,11 +64,12 @@ const QuestionFlowCallID = "call-question-1"
 // tool call, and the resumed turn closes with a plain assistant reply.
 func NewApprovalFlowModel() *ScriptedModel {
 	return NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       ApprovalFlowCallID,
-			Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
+		agenticAssistantToolCallMessage([]*schema.FunctionToolCall{{
+			CallID:    ApprovalFlowCallID,
+			Name:      tools.WriteNoteName,
+			Arguments: `{"content":"buy milk"}`,
 		}}),
-		schema.AssistantMessage("Done: the note has been handled.", nil),
+		agenticAssistantTextMessage("Done: the note has been handled."),
 	)
 }
 
@@ -53,16 +77,17 @@ func NewApprovalFlowModel() *ScriptedModel {
 // deterministic assistant reply after resume.
 func NewQuestionFlowModel() *ScriptedModel {
 	return NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       QuestionFlowCallID,
-			Function: schema.FunctionCall{Name: tools.AskUserName, Arguments: `{"question":"Which color should I use?"}`},
+		agenticAssistantToolCallMessage([]*schema.FunctionToolCall{{
+			CallID:    QuestionFlowCallID,
+			Name:      tools.AskUserName,
+			Arguments: `{"question":"Which color should I use?"}`,
 		}}),
-		schema.AssistantMessage("Thanks, I will use your choice.", nil),
+		agenticAssistantTextMessage("Thanks, I will use your choice."),
 	)
 }
 
 // Generate returns the next scripted message.
-func (m *ScriptedModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (m *ScriptedModel) Generate(_ context.Context, _ []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	i := m.calls
@@ -75,21 +100,15 @@ func (m *ScriptedModel) Generate(_ context.Context, _ []*schema.Message, _ ...mo
 
 // Stream delivers the next scripted message as a single chunk so tool
 // calls stay whole (streaming engines accumulate them from chunks).
-func (m *ScriptedModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *ScriptedModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	msg, err := m.Generate(ctx, input, opts...)
 	if err != nil {
 		return nil, err
 	}
-	r, w := schema.Pipe[*schema.Message](1)
+	r, w := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
 		defer w.Close()
 		w.Send(msg, nil)
 	}()
 	return r, nil
-}
-
-// WithTools returns the model unchanged: the script decides when tool
-// calls happen.
-func (m *ScriptedModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }

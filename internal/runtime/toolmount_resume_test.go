@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -74,19 +72,10 @@ func TestServiceResumeRestoresSkillMountedTools(t *testing.T) {
 	}
 
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-skill-view-1",
-			Function: schema.FunctionCall{Name: tools.SkillViewName, Arguments: `{"name":"writer"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       QuestionFlowCallID,
-			Function: schema.FunctionCall{Name: tools.AskUserName, Arguments: `{"question":"Which color should I use?"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-echo-resumed-1",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"post-resume echo"}`},
-		}}),
-		schema.AssistantMessage("Mounted tool ran after resume.", nil),
+		testToolCalls(testCall("call-skill-view-1", tools.SkillViewName, `{"name":"writer"}`)),
+		testToolCalls(testCall(QuestionFlowCallID, tools.AskUserName, `{"question":"Which color should I use?"}`)),
+		testToolCalls(testCall("call-echo-resumed-1", tools.EchoInfoName, `{"text":"post-resume echo"}`)),
+		testAssistant("Mounted tool ran after resume."),
 	)
 
 	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
@@ -161,14 +150,8 @@ func TestServiceRecoverRestoresSkillMountedTools(t *testing.T) {
 		t.Fatalf("resolve toolset: %v", err)
 	}
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-skill-view-3",
-			Function: schema.FunctionCall{Name: tools.SkillViewName, Arguments: `{"name":"writer"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       QuestionFlowCallID,
-			Function: schema.FunctionCall{Name: tools.AskUserName, Arguments: `{"question":"Which color should I use?"}`},
-		}}),
+		testToolCalls(testCall("call-skill-view-3", tools.SkillViewName, `{"name":"writer"}`)),
+		testToolCalls(testCall(QuestionFlowCallID, tools.AskUserName, `{"question":"Which color should I use?"}`)),
 	)
 	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
 	if err != nil {
@@ -197,11 +180,8 @@ func TestServiceRecoverRestoresSkillMountedTools(t *testing.T) {
 	// durable state, echo_info still hidden so only the recovered mount
 	// can admit its call.
 	resumedModel := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-echo-after-restart",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"post-restart echo"}`},
-		}}),
-		schema.AssistantMessage("Mounted tool ran after restart.", nil),
+		testToolCalls(testCall("call-echo-after-restart", tools.EchoInfoName, `{"text":"post-restart echo"}`)),
+		testAssistant("Mounted tool ran after restart."),
 	)
 	ts2, err := tools.BuiltinWithCapabilities(backend, nil, mountSkillOps{}).
 		Resolve([]string{tools.SkillViewName, tools.AskUserName})
@@ -273,11 +253,8 @@ func TestServiceJournalRecordsSkillToolMounts(t *testing.T) {
 		t.Fatalf("resolve toolset: %v", err)
 	}
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-skill-view-2",
-			Function: schema.FunctionCall{Name: tools.SkillViewName, Arguments: `{"name":"writer"}`},
-		}}),
-		schema.AssistantMessage("Skill reviewed.", nil),
+		testToolCalls(testCall("call-skill-view-2", tools.SkillViewName, `{"name":"writer"}`)),
+		testAssistant("Skill reviewed."),
 	)
 	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
 	if err != nil {

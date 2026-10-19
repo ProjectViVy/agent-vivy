@@ -16,20 +16,20 @@ type titleFakeModel struct {
 	calls    int
 }
 
-func (m *titleFakeModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (m *titleFakeModel) Generate(_ context.Context, _ []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	m.calls++
 	if m.err != nil {
 		return nil, m.err
 	}
-	return &schema.Message{Role: schema.Assistant, Content: m.response}, nil
+	return testAssistant(m.response), nil
 }
 
-func (m *titleFakeModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *titleFakeModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	msg, err := m.Generate(ctx, input, opts...)
 	if err != nil {
 		return nil, err
 	}
-	r, w := schema.Pipe[*schema.Message](1)
+	r, w := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
 		defer w.Close()
 		w.Send(msg, nil)
@@ -37,7 +37,7 @@ func (m *titleFakeModel) Stream(ctx context.Context, input []*schema.Message, op
 	return r, nil
 }
 
-func (m *titleFakeModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
+func (m *titleFakeModel) WithTools(tools []*schema.ToolInfo) (model.AgenticModel, error) {
 	return m, nil
 }
 
@@ -109,17 +109,17 @@ func (s fixedSpecSource) Live() LiveSpec { return s.live }
 func TestTitleCandidatesOrder(t *testing.T) {
 	main := &titleFakeModel{}
 	onlyMain := TitleCandidates(nil, nil, fixedSpecSource{}, main, "ignored-without-catalog")
-	if len(onlyMain) != 1 || onlyMain[0] != model.ToolCallingChatModel(main) {
+	if len(onlyMain) != 1 || onlyMain[0] != model.AgenticModel(main) {
 		t.Fatalf("only-main chain = %d candidates", len(onlyMain))
 	}
 	withSmall := TitleCandidates(routedHost(t), NewCatalog(), fixedSpecSource{}, main, " gpt-4o-mini ")
 	if len(withSmall) != 2 {
 		t.Fatalf("small chain = %d candidates, want small then main", len(withSmall))
 	}
-	if withSmall[1] != model.ToolCallingChatModel(main) {
+	if withSmall[1] != model.AgenticModel(main) {
 		t.Fatal("main model must be the chain tail")
 	}
-	if withSmall[0] == model.ToolCallingChatModel(main) {
+	if withSmall[0] == model.AgenticModel(main) {
 		t.Fatal("small model must be a distinct resolving instance")
 	}
 }

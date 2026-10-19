@@ -20,7 +20,7 @@ func conformanceProfile(id, family string) providerprofile.Profile {
 }
 
 func TestModelHostConformanceRejectsInvalidAndMissingProfiles(t *testing.T) {
-	supported := modelhost.Capabilities{"openai-compatible": modelhost.CapabilitySupported}
+	supported := []string{"openai-compatible"}
 	if _, err := modelhost.New([]providerprofile.Profile{
 		conformanceProfile("duplicate", "openai-compatible"),
 		conformanceProfile("duplicate", "openai-compatible"),
@@ -47,9 +47,7 @@ func TestModelHostConformanceStatusInspectionIsPassiveAndSecretFree(t *testing.T
 	const canary = "SECRET_CANARY_MUST_NOT_CROSS_STATUS"
 	profile := conformanceProfile("openai", "openai-compatible")
 	profile.SecretRefs = []string{canary}
-	host, err := modelhost.New([]providerprofile.Profile{profile}, modelhost.Capabilities{
-		"openai-compatible": modelhost.CapabilitySupported,
-	})
+	host, err := modelhost.New([]providerprofile.Profile{profile}, []string{"openai-compatible"})
 	if err != nil {
 		t.Fatal(err)
 	}

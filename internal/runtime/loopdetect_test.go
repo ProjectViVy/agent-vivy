@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 )
 
@@ -68,7 +66,7 @@ func TestServiceToolLoopDetected(t *testing.T) {
 // Repeats that stay inside the window limit complete normally: the
 // guardrail must not disturb legitimate repeated tool use.
 func TestServiceToolLoopWithinLimit(t *testing.T) {
-	script := append(loopCallScript(5), schema.AssistantMessage("Done repeating.", nil))
+	script := append(loopCallScript(5), testAssistant("Done repeating."))
 	svc, backend, _ := newLoopGuardService(t, 8, script)
 	mustCreateSession(t, backend, "sess-loop-ok")
 

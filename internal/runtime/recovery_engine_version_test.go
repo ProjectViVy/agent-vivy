@@ -2,12 +2,11 @@ package runtime
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
@@ -33,7 +32,7 @@ func restartServiceAt(t *testing.T, backend *sqlite.Backend, engineVersion strin
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}
-	resumed := NewScriptedModel(schema.AssistantMessage("Done: the note has been handled.", nil))
+	resumed := NewScriptedModel(testAssistant("Done: the note has been handled."))
 	eng, err := NewEngine(ctx, resumed, ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
 	})
@@ -61,7 +60,7 @@ func restartQuestionServiceAt(t *testing.T, backend *sqlite.Backend, engineVersi
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}
-	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("Recovered answer.", nil)), ts, EngineConfig{
+	eng, err := NewEngine(ctx, NewScriptedModel(testAssistant("Recovered answer.")), ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
 	})
 	if err != nil {
@@ -213,10 +212,8 @@ func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 		})
 	}
 	initial := planService("test-engine", NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{
-			{ID: "submit-plan", Function: schema.FunctionCall{Name: tools.SubmitPlanName, Arguments: `{"markdown":"1. inspect"}`}},
-		}),
-		schema.AssistantMessage("The plan is ready for review.", nil),
+		testToolCalls(testCall("submit-plan", tools.SubmitPlanName, `{"markdown":"1. inspect"}`)),
+		testAssistant("The plan is ready for review."),
 	))
 	runID, err := initial.Run(ctx, sessionID, "Prepare a plan.")
 	if err != nil {
@@ -237,7 +234,7 @@ func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	restarted := planService("test-engine-next", NewScriptedModel(schema.AssistantMessage("unused", nil)))
+	restarted := planService("test-engine-next", NewScriptedModel(testAssistant("unused")))
 	if err := restarted.Recover(ctx); err != nil {
 		t.Fatalf("recover: %v", err)
 	}
@@ -245,5 +242,68 @@ func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 	state, err := backend.ReadWork(ctx, sessionID)
 	if err != nil || state.Plan.ReviewStatus != domain.PlanReviewCancelled {
 		t.Fatalf("Plan review after recovery = %q, err=%v; want cancelled", state.Plan.ReviewStatus, err)
+	}
+}
+
+// A restart after the model-generation migration cannot resume a checkpoint
+// written by the previous generation: the persisted ADK state holds a different
+// message type. Recovery closes the paused run through the same lost-checkpoint
+// path (with the engine-changed message) and settles the pending approval.
+func TestRecoverAcrossModelGenerationCancelsPendingApproval(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+	mustCreateSession(t, backend, "sess-generation")
+	runID, err := svc.Run(ctx, "sess-generation", "note that I need milk")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	approval := waitForPendingApproval(t, backend, runID)
+	waitForApprovalEvent(t, backend, runID)
+
+	// Rewrite the stored envelope as a pre-migration one: it carries no
+	// generation field at all, exactly like a text-generation checkpoint.
+	downgradeCheckpointGeneration(t, ctx, backend, checkpointIDFor(runID))
+
+	restarted, _ := restartService(t, backend)
+	if err := restarted.Recover(ctx); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	assertEngineChangedFailure(t, backend, runID)
+	got, err := backend.GetApproval(ctx, approval.ID)
+	if err != nil || got.Decision != domain.ApprovalCancelled {
+		t.Fatalf("approval after recovery = %q, err=%v; want cancelled", got.Decision, err)
+	}
+	// Idempotent: the second pass has nothing left to recover.
+	if err := restarted.Recover(ctx); err != nil {
+		t.Fatalf("second recover: %v", err)
+	}
+	if n := countTerminal(replayAll(t, backend, runID)); n != 1 {
+		t.Fatalf("terminal events after second recovery = %d, want 1", n)
+	}
+}
+
+// downgradeCheckpointGeneration rewrites one stored checkpoint as a
+// text-generation envelope, keeping the payload and prompt identity intact so
+// only the generation check can reject it.
+func downgradeCheckpointGeneration(t *testing.T, ctx context.Context, backend *sqlite.Backend, id string) {
+	t.Helper()
+	raw, ok, err := backend.Blobs().Get(ctx, id)
+	if err != nil || !ok {
+		t.Fatalf("read checkpoint %q: ok=%v err=%v", id, ok, err)
+	}
+	payload, env, err := decodeCheckpointEnvelope(raw)
+	if err != nil {
+		t.Fatalf("decode checkpoint envelope: %v", err)
+	}
+	env.Generation = ""
+	header, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal legacy envelope: %v", err)
+	}
+	blob := binary.BigEndian.AppendUint32(nil, uint32(len(header)))
+	blob = append(blob, header...)
+	blob = append(blob, payload...)
+	if err := backend.Blobs().Put(ctx, id, blob); err != nil {
+		t.Fatalf("write legacy checkpoint: %v", err)
 	}
 }

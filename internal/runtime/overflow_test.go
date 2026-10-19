@@ -26,13 +26,13 @@ type overflowScriptedModel struct {
 	streamCalls int
 	skipFirst   int
 	failCount   int
-	inputs      [][]*schema.Message
-	response    *schema.Message
+	inputs      [][]*schema.AgenticMessage
+	response    *schema.AgenticMessage
 	errText     string
 	lengthStop  bool
 }
 
-func (m *overflowScriptedModel) Stream(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *overflowScriptedModel) Stream(_ context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.mu.Lock()
 	m.streamCalls++
 	m.inputs = append(m.inputs, input)
@@ -50,21 +50,18 @@ func (m *overflowScriptedModel) Stream(_ context.Context, input []*schema.Messag
 		return nil, errors.New(errText)
 	}
 	if lengthStop && n > skipFirst && n <= skipFirst+1 {
-		return oneShot(&schema.Message{
-			Role:         schema.Assistant,
-			ResponseMeta: &schema.ResponseMeta{FinishReason: "length"},
-		}), nil
+		return oneShot(testLengthStop("")), nil
 	}
 	if resp == nil {
-		resp = &schema.Message{Role: schema.Assistant, Content: "recovered reply"}
+		resp = testAssistant("recovered reply")
 	}
 	return oneShot(resp), nil
 }
 
-func (m *overflowScriptedModel) Generate(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (m *overflowScriptedModel) Generate(ctx context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	for _, msg := range input {
-		if msg != nil && msg.Role == schema.System && strings.Contains(msg.Content, "压缩") {
-			return &schema.Message{Role: schema.Assistant, Content: "compacted history summary"}, nil
+		if msg != nil && msg.Role == schema.AgenticRoleTypeSystem && strings.Contains(agenticMessageText(msg), "压缩") {
+			return testAssistant("compacted history summary"), nil
 		}
 	}
 	// Non-summary Generate mirrors Stream behavior for parity.
@@ -74,10 +71,6 @@ func (m *overflowScriptedModel) Generate(ctx context.Context, input []*schema.Me
 	}
 	defer r.Close()
 	return r.Recv()
-}
-
-func (m *overflowScriptedModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }
 
 func (m *overflowScriptedModel) calls() int {
@@ -95,13 +88,13 @@ func (m *overflowScriptedModel) inputTexts(call int) []string {
 	var out []string
 	for _, msg := range m.inputs[call-1] {
 		if msg != nil {
-			out = append(out, string(msg.Role)+": "+msg.Content)
+			out = append(out, string(msg.Role)+": "+agenticMessageText(msg))
 		}
 	}
 	return out
 }
 
-var _ model.ToolCallingChatModel = (*overflowScriptedModel)(nil)
+var _ model.AgenticModel = (*overflowScriptedModel)(nil)
 
 // newOverflowService is newScriptedService plus a compaction store and an
 // enabled compaction policy — the decider requires all three.
@@ -345,15 +338,15 @@ func TestIsContextOverflowClassifier(t *testing.T) {
 }
 
 func TestIsEmptyLengthStop(t *testing.T) {
-	truncated := &schema.Message{Role: schema.Assistant, ResponseMeta: &schema.ResponseMeta{FinishReason: "length"}}
+	truncated := testLengthStop("")
 	if !isEmptyLengthStop(truncated) {
 		t.Errorf("empty length-stop message not detected")
 	}
-	withContent := &schema.Message{Role: schema.Assistant, Content: "partial", ResponseMeta: &schema.ResponseMeta{FinishReason: "length"}}
+	withContent := testLengthStop("partial")
 	if isEmptyLengthStop(withContent) {
 		t.Errorf("length-stop with content should not trigger recovery")
 	}
-	if isEmptyLengthStop(&schema.Message{Role: schema.Assistant, ResponseMeta: &schema.ResponseMeta{FinishReason: "stop"}}) {
+	if isEmptyLengthStop(testAssistant("plain")) {
 		t.Errorf("plain stop should not trigger recovery")
 	}
 	if isEmptyLengthStop(nil) {

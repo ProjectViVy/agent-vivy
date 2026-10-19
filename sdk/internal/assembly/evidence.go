@@ -75,7 +75,7 @@ func SupportedPortEvidence() map[string]port.SupportEvidence {
 			port.EvidenceSDKContract:       "sdk/port/providerprofile/providerprofile.go#Provider",
 			port.EvidenceHostConsumer:      "internal/modelhost/profile.go#Host",
 			port.EvidenceRealProvider:      "internal/modules/defaults/providers.go#ProviderProfiles",
-			port.EvidenceFailureModel:      "internal/modelhost/profile_test.go#TestResolveExecutableRejectsDeferredAdapter",
+			port.EvidenceFailureModel:      "internal/modelhost/profile_test.go#TestResolveExecutableRejectsUnknownProfile",
 			port.EvidenceConformanceSuite:  "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies",
 			port.EvidenceInspectProjection: "sdk/generation/manifest.go#ProviderProfiles",
 		}),

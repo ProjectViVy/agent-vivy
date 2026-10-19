@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"agent-vivy/internal/modelhost"
 )
 
 // ReconcileAdapters proves that the embedded provider data and the sealed
@@ -15,9 +13,8 @@ import (
 // and a mismatch is a startup failure: fail closed rather than let a data
 // edit quietly change which wire protocols this build can speak.
 //
-// PROV-P2 narrows this further with capability states, so that a sealed
-// DEFERRED-INDEFINITE adapter may legitimately declare no endpoint while a
-// sealed SUPPORTED adapter may not.
+// Both directions are mandatory: every family the data declares must be
+// executable, and every executable family must be reachable from the data.
 func ReconcileAdapters(vendors []Vendor, sealedAdapters []string) error {
 	declared := make(map[string]struct{})
 	for _, vendor := range vendors {
@@ -41,12 +38,6 @@ func ReconcileAdapters(vendors []Vendor, sealedAdapters []string) error {
 	}
 	for _, adapter := range sortedKeys(sealed) {
 		if _, ok := declared[adapter]; !ok {
-			// A DEFERRED-INDEFINITE family has no constructor at all, so the
-			// data may legitimately declare no endpoint for it: the capability
-			// stays visible without becoming executable.
-			if state, isSealed := AdapterState(adapter); isSealed && state == modelhost.CapabilityDeferredIndefinite {
-				continue
-			}
 			errs = append(errs, fmt.Errorf("sealed adapter %q has no endpoint in the provider data", adapter))
 		}
 	}

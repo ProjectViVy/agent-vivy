@@ -143,7 +143,7 @@ func drainReassembled(t *testing.T, eng *Engine, query string) string {
 			if err != nil {
 				t.Fatalf("stream recv: %v", err)
 			}
-			chunks = append(chunks, chunk.Content)
+			chunks = append(chunks, agenticMessageText(chunk))
 		}
 	}
 	if !sawStreaming {

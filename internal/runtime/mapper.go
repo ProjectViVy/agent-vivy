@@ -144,7 +144,7 @@ func (m *eventMapper) setContextViewID(viewID string) {
 
 // onEvent maps one engine event. A non-nil error means the run cannot
 // continue; the service emits the terminal event.
-func (m *eventMapper) onEvent(ev *adk.AgentEvent) ([]domain.RunEvent, error) {
+func (m *eventMapper) onEvent(ev *adk.TypedAgentEvent[*schema.AgenticMessage]) ([]domain.RunEvent, error) {
 	var out []domain.RunEvent
 	err := m.onEventEach(ev, func(events []domain.RunEvent) error {
 		out = append(out, events...)
@@ -157,7 +157,7 @@ func (m *eventMapper) onEvent(ev *adk.AgentEvent) ([]domain.RunEvent, error) {
 // particular, provider stream chunks must reach the Journal before the stream
 // reaches EOF; collecting the whole stream here turns token streaming into a
 // burst and can starve bounded transports.
-func (m *eventMapper) onEventEach(ev *adk.AgentEvent, emit func([]domain.RunEvent) error) error {
+func (m *eventMapper) onEventEach(ev *adk.TypedAgentEvent[*schema.AgenticMessage], emit func([]domain.RunEvent) error) error {
 	if ev.Err != nil {
 		m.takeObservedStream()
 		var retry *adk.WillRetryError
@@ -204,13 +204,13 @@ func (m *eventMapper) onEventEach(ev *adk.AgentEvent, emit func([]domain.RunEven
 		return err
 	}
 	err = emit(events)
-	if mv.Message != nil && mv.Message.Role == schema.Tool {
+	if mv.Message != nil && agenticIsToolResult(mv.Message) {
 		m.signalToolsSettled()
 	}
 	return err
 }
 
-func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]) ([]domain.RunEvent, error) {
+func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.AgenticMessage]) ([]domain.RunEvent, error) {
 	var out []domain.RunEvent
 	err := m.onStreamEventEach(mv, func(events []domain.RunEvent) error {
 		out = append(out, events...)
@@ -219,10 +219,10 @@ func (m *eventMapper) onStreamEvent(mv *adk.TypedMessageVariant[*schema.Message]
 	return out, err
 }
 
-func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Message], emit func([]domain.RunEvent) error) error {
+func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.AgenticMessage], emit func([]domain.RunEvent) error) error {
 	observedLive := m.takeObservedStream()
 	var content strings.Builder
-	var callChunks []*schema.Message
+	var callChunks []*schema.AgenticMessage
 	started := time.Now()
 	var usage *schema.TokenUsage
 	var toolParts []json.RawMessage
@@ -246,31 +246,29 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 		if chunk == nil {
 			continue
 		}
-		content.WriteString(chunk.Content)
-		for _, part := range chunk.UserInputMultiContent {
-			if data, marshalErr := json.Marshal(part); marshalErr == nil {
-				toolParts = append(toolParts, data)
-			}
+		content.WriteString(agenticAssistantText(chunk))
+		for _, result := range agenticToolResults(chunk) {
+			toolParts = append(toolParts, agenticToolResultParts(result)...)
 		}
-		if len(chunk.ToolCalls) > 0 {
+		if len(agenticToolCalls(chunk)) > 0 {
 			callChunks = append(callChunks, chunk)
 		}
-		if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
-			usage = chunk.ResponseMeta.Usage
+		if u := agenticUsage(chunk); u != nil {
+			usage = u
 		}
-		if mv.Role == schema.Tool {
+		if m.streamIsToolResult(mv) {
 			continue // assembled below as a tool result
 		}
 		if !observedLive {
 			var chunkEvents []domain.RunEvent
-			if reasoning := reasoningText(chunk); reasoning != "" {
+			if reasoning := agenticReasoningText(chunk); reasoning != "" {
 				chunkEvents = append(chunkEvents, m.reasoningEvents(reasoning)...)
 			}
-			// Reasoning-only provider chunks commonly carry an empty Content.
+			// Reasoning-only provider chunks commonly carry no assistant text.
 			// A real content delta is the boundary between reasoning and answer.
-			if chunk.Content != "" {
-				chunkEvents = append(chunkEvents, m.deltaEvents(chunk.Content)...)
-				m.pendingText.WriteString(chunk.Content)
+			if text := agenticAssistantText(chunk); text != "" {
+				chunkEvents = append(chunkEvents, m.deltaEvents(text)...)
+				m.pendingText.WriteString(text)
 				m.hasPending = true
 			}
 			if len(chunkEvents) > 0 {
@@ -280,8 +278,8 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 			}
 		}
 	}
-	if mv.Role == schema.Tool {
-		events, err := m.toolResultEventsParts(mv.ToolName, "", content.String(), toolParts, "")
+	if m.streamIsToolResult(mv) {
+		events, err := m.toolResultEventsParts("", "", content.String(), toolParts, "")
 		if err != nil {
 			return err
 		}
@@ -300,7 +298,7 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 		tail = append(tail, m.usageEvent(usage))
 	}
 	if len(callChunks) > 0 {
-		callsMsg, err := schema.ConcatMessages(callChunks)
+		callsMsg, err := schema.ConcatAgenticMessages(callChunks)
 		if err != nil {
 			return fmt.Errorf("concat streamed tool calls: %w", err)
 		}
@@ -313,6 +311,16 @@ func (m *eventMapper) onStreamEventEach(mv *adk.TypedMessageVariant[*schema.Mess
 		tail = append(tail, m.toolCallEvents(callsMsg)...)
 	}
 	return emit(tail)
+}
+
+// streamIsToolResult reports whether one streaming model event carries a tool
+// result. Agentic tool results arrive as user-role events; in streaming mode
+// the message has not materialized yet, so the event role is the only signal.
+func (m *eventMapper) streamIsToolResult(mv *adk.TypedMessageVariant[*schema.AgenticMessage]) bool {
+	if mv == nil {
+		return false
+	}
+	return mv.AgenticRole == schema.AgenticRoleTypeUser
 }
 
 // noteObservedCallStart credits one observed call whose v3 request
@@ -368,17 +376,17 @@ func (m *eventMapper) takeObservedStream() bool {
 	return true
 }
 
-func (m *eventMapper) observeStreamChunk(chunk *schema.Message) []domain.RunEvent {
+func (m *eventMapper) observeStreamChunk(chunk *schema.AgenticMessage) []domain.RunEvent {
 	if chunk == nil {
 		return nil
 	}
 	var events []domain.RunEvent
-	if reasoning := reasoningText(chunk); reasoning != "" {
+	if reasoning := agenticReasoningText(chunk); reasoning != "" {
 		events = append(events, m.reasoningEvents(reasoning)...)
 	}
-	if chunk.Content != "" {
-		events = append(events, m.deltaEvents(chunk.Content)...)
-		m.pendingText.WriteString(chunk.Content)
+	if text := agenticAssistantText(chunk); text != "" {
+		events = append(events, m.deltaEvents(text)...)
+		m.pendingText.WriteString(text)
 		m.hasPending = true
 	}
 	return events
@@ -389,28 +397,28 @@ func (m *eventMapper) observeStreamChunk(chunk *schema.Message) []domain.RunEven
 // the real token usage of the hidden summary provider call, so the run
 // accounts it like any other model.usage. Everything else is silent.
 func (m *eventMapper) onCustomizedAction(action any) ([]domain.RunEvent, error) {
-	ca, ok := action.(*summarization.CustomizedAction)
+	ca, ok := action.(*summarization.TypedCustomizedAction[*schema.AgenticMessage])
 	if !ok || ca.Type != summarization.ActionTypeGenerateSummary || ca.GenerateSummary == nil {
 		return nil, nil
 	}
 	resp := ca.GenerateSummary.ModelResponse
-	if resp == nil || resp.ResponseMeta == nil || resp.ResponseMeta.Usage == nil {
+	if usage := agenticUsage(resp); usage == nil {
 		return nil, nil
-	}
-	if m.takeObservedSummaryCall() {
+	} else if m.takeObservedSummaryCall() {
 		// The wrapped summary model already journaled its v2 usage
 		// samples through the observer seam; re-reporting the action's
 		// usage would double the call.
 		return nil, nil
+	} else {
+		provider, model := m.runProvider, m.runModel
+		if ca.GenerateSummary.Phase == summarization.GenerateSummaryPhasePrimary && m.summaryModel != "" {
+			model = m.summaryModel
+		}
+		return []domain.RunEvent{m.usageEventForRoute(usage, "summary", provider, model)}, nil
 	}
-	provider, model := m.runProvider, m.runModel
-	if ca.GenerateSummary.Phase == summarization.GenerateSummaryPhasePrimary && m.summaryModel != "" {
-		model = m.summaryModel
-	}
-	return []domain.RunEvent{m.usageEventForRoute(resp.ResponseMeta.Usage, "summary", provider, model)}, nil
 }
 
-func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message]) ([]domain.RunEvent, error) {
+func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.AgenticMessage]) ([]domain.RunEvent, error) {
 	msg := mv.Message
 	if msg == nil {
 		return nil, nil
@@ -419,8 +427,10 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 	// Tool-result events are not model streams. Consuming an observer marker
 	// here can steal the marker from a concurrently starting post-tool model
 	// stream (notably approval resume), causing its deltas to be emitted twice.
-	if msg.Role == schema.Tool {
-		events, err := m.toolResultEventsParts(mv.ToolName, msg.ToolCallID, toolMessageText(msg), toolMessageParts(msg), "")
+	if agenticIsToolResult(msg) {
+		results := agenticToolResults(msg)
+		result := results[0]
+		events, err := m.toolResultEventsParts(result.Name, result.CallID, agenticToolResultText(result), agenticToolResultParts(result), "")
 		if err != nil {
 			return nil, err
 		}
@@ -432,12 +442,13 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 		// unattributed v1 sample messageMetaEvents already produced.
 		out = removeUsageEvents(out)
 	}
+	calls := agenticToolCalls(msg)
 	switch {
-	case len(msg.ToolCalls) > 0:
+	case len(calls) > 0:
 		// Some providers attach assistant preamble text to the same message as
 		// tool calls. Close that model phase before emitting tool.requested and
 		// clear the pending accumulator so the next model round cannot inherit it.
-		content := msg.Content
+		content := agenticAssistantText(msg)
 		if m.hasPending {
 			content = m.pendingText.String()
 		}
@@ -453,7 +464,7 @@ func (m *eventMapper) onMessageEvent(mv *adk.TypedMessageVariant[*schema.Message
 		return append(out, m.toolCallEvents(msg)...), nil
 	default:
 		// Final assistant message of the model turn.
-		content := msg.Content
+		content := agenticAssistantText(msg)
 		if m.hasPending {
 			content = m.pendingText.String()
 		}
@@ -477,29 +488,15 @@ func removeUsageEvents(events []domain.RunEvent) []domain.RunEvent {
 	return out
 }
 
-func (m *eventMapper) messageMetaEvents(msg *schema.Message) []domain.RunEvent {
+func (m *eventMapper) messageMetaEvents(msg *schema.AgenticMessage) []domain.RunEvent {
 	var out []domain.RunEvent
-	if reasoning := reasoningText(msg); reasoning != "" {
+	if reasoning := agenticReasoningText(msg); reasoning != "" {
 		out = append(out, m.reasoningEvents(reasoning)...)
 	}
-	if msg.ResponseMeta != nil && msg.ResponseMeta.Usage != nil {
-		out = append(out, m.usageEvent(msg.ResponseMeta.Usage))
+	if usage := agenticUsage(msg); usage != nil {
+		out = append(out, m.usageEvent(usage))
 	}
 	return out
-}
-
-func reasoningText(msg *schema.Message) string {
-	if msg == nil {
-		return ""
-	}
-	var out strings.Builder
-	out.WriteString(msg.ReasoningContent)
-	for _, part := range msg.AssistantGenMultiContent {
-		if part.Type == schema.ChatMessagePartTypeReasoning && part.Reasoning != nil {
-			out.WriteString(part.Reasoning.Text)
-		}
-	}
-	return out.String()
 }
 
 func (m *eventMapper) reasoningEvents(text string) []domain.RunEvent {
@@ -551,14 +548,14 @@ func (m *eventMapper) resetPending() {
 	m.hasPending = false
 }
 
-func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
+func (m *eventMapper) toolCallEvents(msg *schema.AgenticMessage) []domain.RunEvent {
 	var out []domain.RunEvent
 	m.toolBatch = m.toolBatch[:0]
-	for _, tc := range msg.ToolCalls {
+	for _, tc := range agenticToolCalls(msg) {
 		args := map[string]any{}
-		if tc.Function.Arguments != "" {
-			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-				slog.Warn("tool call arguments are not a JSON object", "tool", tc.Function.Name, "err", err)
+		if tc.Arguments != "" {
+			if err := json.Unmarshal([]byte(tc.Arguments), &args); err != nil {
+				slog.Warn("tool call arguments are not a JSON object", "tool", tc.Name, "err", err)
 			}
 		}
 		// Canonical form: re-marshaling the decoded map sorts keys, so
@@ -566,11 +563,11 @@ func (m *eventMapper) toolCallEvents(msg *schema.Message) []domain.RunEvent {
 		// repeat for the loop detector. Decoded JSON cannot fail here.
 		argsJSON, _ := json.Marshal(args)
 		out = append(out, m.build(domain.EventToolRequested, payloadToolRequested{
-			ToolCallID: tc.ID,
-			ToolName:   tc.Function.Name,
+			ToolCallID: tc.CallID,
+			ToolName:   tc.Name,
 			Args:       args,
 		}))
-		call := openToolCall{id: tc.ID, name: tc.Function.Name, args: args, argsJSON: string(argsJSON)}
+		call := openToolCall{id: tc.CallID, name: tc.Name, args: args, argsJSON: string(argsJSON)}
 		m.toolBatch = append(m.toolBatch, call)
 		m.registerOpenCall(call)
 	}
@@ -708,38 +705,6 @@ func (m *eventMapper) argsJSONFor(callID, toolName string) string {
 		}
 	}
 	return ""
-}
-
-func toolMessageText(msg *schema.Message) string {
-	if msg == nil {
-		return ""
-	}
-	if msg.Content != "" {
-		return msg.Content
-	}
-	var out strings.Builder
-	for _, part := range msg.UserInputMultiContent {
-		if part.Type == schema.ChatMessagePartTypeText {
-			out.WriteString(part.Text)
-		}
-	}
-	return out.String()
-}
-
-func toolMessageParts(msg *schema.Message) []json.RawMessage {
-	if msg == nil || len(msg.UserInputMultiContent) == 0 {
-		return nil
-	}
-	var out []json.RawMessage
-	for _, part := range msg.UserInputMultiContent {
-		if part.Type == schema.ChatMessagePartTypeText {
-			continue
-		}
-		if data, err := json.Marshal(part); err == nil {
-			out = append(out, data)
-		}
-	}
-	return out
 }
 
 func (m *eventMapper) registerOpenCall(call openToolCall) {

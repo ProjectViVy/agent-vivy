@@ -535,7 +535,7 @@ export const setThinking = (level: ThinkingMode) => request<ThinkingReport>('mod
 export const thinkingLevels = () => request<ThinkingLevelsView>('model/thinking/levels');
 
 /** 密封协议适配器 id（后端 provider.AdapterFamilies()）：选择写侧的唯一词汇。 */
-export type ProviderAdapterId = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
+export type ProviderAdapterId = 'openai-completions' | 'anthropic-messages';
 
 /** 迁移前 settings.yaml 存过的一等运行束名（MIGRATION.md §3）；后端读取时归一为适配器。 */
 export type LegacyProviderBundle = 'openai' | 'anthropic' | 'deepseek';
@@ -555,10 +555,8 @@ export interface ProviderEntry {
   api_key_set: boolean;
 }
 
-export type ProviderCapabilityState = 'COMPILED' | 'UNCONFIGURED' | 'READY' | 'UNAVAILABLE' | 'DEFERRED-INDEFINITE';
+export type ProviderCapabilityState = 'COMPILED' | 'UNCONFIGURED' | 'READY' | 'UNAVAILABLE';
 
-/** 适配器自身的能力状态（后端 modelhost.CapabilityState）。 */
-export type ProviderAdapterState = 'SUPPORTED' | 'DEFERRED-INDEFINITE';
 export interface ProviderProfileStatus {
   id: string;
   adapter_family: string;
@@ -586,10 +584,6 @@ export interface ProviderEndpoint {
   base_url: string;
   default_model: string;
   models: string[];
-  /** 本 Generation 能否构造该适配器；false（DEFERRED-INDEFINITE）= 可见但不可选。 */
-  executable: boolean;
-  /** 适配器能力状态。 */
-  state: ProviderAdapterState;
 }
 
 /** settings/providers 的一个目录厂商及其全部端点变体（如 DeepSeek 有两条）。 */

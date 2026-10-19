@@ -26,15 +26,9 @@ func TestPlanGoalProbePlanGuidanceAfterEnterPlanMode(t *testing.T) {
 	t.Cleanup(func() { _ = backend.Close() })
 
 	script := &recordingChatModel{inner: NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "enter-plan",
-			Function: schema.FunctionCall{Name: tools.EnterPlanModeName, Arguments: `{}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "echo-after-plan",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"planning"}`},
-		}}),
-		schema.AssistantMessage("I will outline a plan.", nil),
+		testToolCalls(testCall("enter-plan", tools.EnterPlanModeName, `{}`)),
+		testToolCalls(testCall("echo-after-plan", tools.EchoInfoName, `{"text":"planning"}`)),
+		testAssistant("I will outline a plan."),
 	)}
 	toolset, err := tools.NewRegistry(tools.NewEnterPlanMode(), tools.NewEchoInfo()).Resolve([]string{
 		tools.EnterPlanModeName, tools.EchoInfoName,
@@ -66,7 +60,7 @@ func TestPlanGoalProbePlanGuidanceAfterEnterPlanMode(t *testing.T) {
 	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
 	script.mu.Lock()
-	inputs := append([][]*schema.Message(nil), script.inputs...)
+	inputs := append([][]*schema.AgenticMessage(nil), script.inputs...)
 	script.mu.Unlock()
 	if len(inputs) < 3 {
 		t.Fatalf("model calls = %d, want two tool follow-up calls", len(inputs))
@@ -75,12 +69,7 @@ func TestPlanGoalProbePlanGuidanceAfterEnterPlanMode(t *testing.T) {
 	for call := 1; call < 3; call++ {
 		var nextInput strings.Builder
 		for _, msg := range inputs[call] {
-			nextInput.WriteString(msg.Content)
-			for _, part := range msg.MultiContent {
-				if part.Text != "" {
-					nextInput.WriteString(part.Text)
-				}
-			}
+			nextInput.WriteString(agenticMessageText(msg))
 		}
 		if got := strings.Count(nextInput.String(), planningGuidance); got != 1 {
 			t.Fatalf("model request %d contains planning guidance %d times, want exactly once; input: %s", call+1, got, nextInput.String())
@@ -110,20 +99,12 @@ func TestPlanGoalProbeReportFencesLaterToolInSameBatch(t *testing.T) {
 	t.Cleanup(func() { _ = backend.Close() })
 
 	const sessions = 1
-	script := make([]*schema.Message, 0, sessions*2)
+	script := make([]*schema.AgenticMessage, 0, sessions*2)
 	for i := 0; i < sessions; i++ {
 		goalID := fmt.Sprintf("goal-%03d", i)
 		script = append(script,
-			schema.AssistantMessage("", []schema.ToolCall{
-				{ID: fmt.Sprintf("report-%03d", i), Function: schema.FunctionCall{
-					Name:      tools.ReportGoalName,
-					Arguments: fmt.Sprintf(`{"goal_id":%q,"revision":1,"status":"completed","reason":"done"}`, goalID),
-				}},
-				{ID: fmt.Sprintf("write-%03d", i), Function: schema.FunctionCall{
-					Name: tools.WriteFileName, Arguments: `{}`,
-				}},
-			}),
-			schema.AssistantMessage("Goal work finished.", nil),
+			testToolCalls(testCall(fmt.Sprintf("report-%03d", i), tools.ReportGoalName, fmt.Sprintf(`{"goal_id":%q,"revision":1,"status":"completed","reason":"done"}`, goalID)), testCall(fmt.Sprintf("write-%03d", i), tools.WriteFileName, `{}`)),
+			testAssistant("Goal work finished."),
 		)
 	}
 	effect := &goalFenceEffectTool{}
@@ -203,11 +184,8 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 		t.Fatalf("checkpoint store: %v", err)
 	}
 	script := &recordingChatModel{inner: NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{
-			{ID: "submit-plan", Function: schema.FunctionCall{Name: tools.SubmitPlanName, Arguments: `{"markdown":"1. inspect\n2. implement"}`}},
-			{ID: "write-after-submit", Function: schema.FunctionCall{Name: tools.WriteFileName, Arguments: `{}`}},
-		}),
-		schema.AssistantMessage("The plan is ready for review.", nil),
+		testToolCalls(testCall("submit-plan", tools.SubmitPlanName, `{"markdown":"1. inspect\n2. implement"}`), testCall("write-after-submit", tools.WriteFileName, `{}`)),
+		testAssistant("The plan is ready for review."),
 	)}
 	engine, err := NewEngine(ctx, script, toolset, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
@@ -373,10 +351,8 @@ func TestPlanSubmissionSurvivesToolApprovalGate(t *testing.T) {
 		t.Fatalf("checkpoint store: %v", err)
 	}
 	engine, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{
-			{ID: "submit-plan", Function: schema.FunctionCall{Name: tools.SubmitPlanName, Arguments: `{"markdown":"1. inspect\n2. implement"}`}},
-		}),
-		schema.AssistantMessage("The plan is ready for review.", nil),
+		testToolCalls(testCall("submit-plan", tools.SubmitPlanName, `{"markdown":"1. inspect\n2. implement"}`)),
+		testAssistant("The plan is ready for review."),
 	), toolset, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
 	})

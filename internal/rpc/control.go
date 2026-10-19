@@ -5491,8 +5491,10 @@ func toProviderEntryResult(e settings.ProviderEntry) providerEntryResult {
 }
 
 // catalogEndpointResult is one endpoint variant: the (adapter, base_url) pair
-// that identifies it, its default model and model list, and whether this
-// Generation can execute it. No credential name or value crosses this boundary.
+// that identifies it, its default model and model list. No credential name or
+// value crosses this boundary. Every listed endpoint belongs to a sealed,
+// executable adapter, so there is no per-endpoint capability gate on the wire:
+// an adapter this build does not seal never reaches the catalog at all.
 type catalogEndpointResult struct {
 	Adapter      string   `json:"adapter"`
 	BaseURL      string   `json:"base_url"`
@@ -5501,11 +5503,6 @@ type catalogEndpointResult struct {
 	// ThinkingModels is the subset of Models that declares extended-thinking
 	// support; the terminal picker renders it as the thinking badge (VCP F3).
 	ThinkingModels []string `json:"thinking_models"`
-	// Executable is false for an adapter this Generation seals but cannot
-	// construct (DEFERRED-INDEFINITE): the UI shows it and disables it.
-	Executable bool `json:"executable"`
-	// State is the sealed adapter's capability state (PROV-P2).
-	State string `json:"state"`
 }
 
 // catalogEntryResult is one embedded vendor with all of its endpoint variants.
@@ -5519,7 +5516,6 @@ type catalogEntryResult struct {
 // the frontend's only provider source: the UI holds no vendor, endpoint, or
 // model data of its own (PROV-P4).
 func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
-	capabilities := provider.Capabilities()
 	catalog := make([]catalogEntryResult, 0, len(vendors))
 	for _, vendor := range vendors {
 		endpoints := make([]catalogEndpointResult, 0, len(vendor.Endpoints))
@@ -5537,15 +5533,12 @@ func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
 			if thinking == nil {
 				thinking = []string{}
 			}
-			state := capabilities[endpoint.Adapter]
 			endpoints = append(endpoints, catalogEndpointResult{
 				Adapter:        endpoint.Adapter,
 				BaseURL:        endpoint.BaseURL,
 				DefaultModel:   endpoint.DefaultModel,
 				Models:         models,
 				ThinkingModels: thinking,
-				Executable:     state == modelhost.CapabilitySupported,
-				State:          string(state),
 			})
 		}
 		catalog = append(catalog, catalogEntryResult{

@@ -489,12 +489,9 @@ func TestNudgeJournalFailure(t *testing.T) {
 		t.Fatalf("resolve tools: %v", err)
 	}
 	// One parallel batch: a single assistant turn requests two calls.
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			{ID: "call-a", Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"spin"}`}},
-			{ID: "call-b", Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"spin"}`}},
-		}),
-		schema.AssistantMessage("never reached", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(testCall("call-a", tools.EchoInfoName, `{"text":"spin"}`), testCall("call-b", tools.EchoInfoName, `{"text":"spin"}`)),
+		testAssistant("never reached"),
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(script...), ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxToolTurns: 8,

@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -20,15 +18,9 @@ import (
 // next model leg sees the activated tool in its catalog and calls it.
 func TestToolSearchActivatesDeferredTool(t *testing.T) {
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-search",
-			Function: schema.FunctionCall{Name: officialToolSearchName, Arguments: `{"query":"echo"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-echo",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"parity"}`},
-		}}),
-		schema.AssistantMessage("searched and echoed.", nil),
+		testToolCalls(testCall("call-search", officialToolSearchName, `{"query":"echo"}`)),
+		testToolCalls(testCall("call-echo", tools.EchoInfoName, `{"text":"parity"}`)),
+		testAssistant("searched and echoed."),
 	)
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "search.db"))

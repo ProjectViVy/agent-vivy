@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/modules/defaults"
 	"agent-vivy/internal/runtime"
@@ -420,11 +418,8 @@ func TestProductionMCPGovernancePathUsesToolHostOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := runtime.NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-mcp-governance",
-			Function: schema.FunctionCall{Name: "mcp.docs.write", Arguments: `{"mode":"safe","items":[1],"config":{"enabled":true}}`},
-		}}),
-		schema.AssistantMessage("governed", nil),
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-mcp-governance", "mcp.docs.write", `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
+		runtime.ScriptedText("governed"),
 	)
 	callables := make([]tools.Tool, 0, len(registry.Specs()))
 	for _, spec := range registry.Specs() {
@@ -530,10 +525,8 @@ func TestToolApprovalFailsClosedWhenMiddlewareRewriteDriftsOnResume(t *testing.T
 		t.Fatal(err)
 	}
 	model := runtime.NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID: "call-p3-drift", Function: schema.FunctionCall{Name: provider.id, Arguments: `{"mode":"safe","items":[1],"config":{"enabled":true}}`},
-		}}),
-		schema.AssistantMessage("must not complete", nil),
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-p3-drift", provider.id, `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
+		runtime.ScriptedText("must not complete"),
 	)
 	engine, err := runtime.NewEngine(context.Background(), model, []tools.Tool{governed}, runtime.EngineConfig{Checkpoints: checkpoints})
 	if err != nil {
@@ -623,10 +616,8 @@ func TestToolApprovalBindingCannotBeBypassedWhenResumeBecomesAllowed(t *testing.
 				t.Fatal(err)
 			}
 			model := runtime.NewScriptedModel(
-				schema.AssistantMessage("", []schema.ToolCall{{
-					ID: "call-p3-allow-bypass", Function: schema.FunctionCall{Name: provider.id, Arguments: `{"mode":"safe","items":[1],"config":{"enabled":true}}`},
-				}}),
-				schema.AssistantMessage("must not complete", nil),
+				runtime.ScriptedToolCalls(runtime.ScriptedCall("call-p3-allow-bypass", provider.id, `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
+				runtime.ScriptedText("must not complete"),
 			)
 			engine, err := runtime.NewEngine(context.Background(), model, []tools.Tool{governed}, runtime.EngineConfig{
 				Checkpoints: checkpoints, Policy: policy,
@@ -691,10 +682,8 @@ func TestToolApprovalJournalRedactsMiddlewareInjectedSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := runtime.NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID: "call-p3-secret", Function: schema.FunctionCall{Name: provider.id, Arguments: `{"mode":"safe","items":[1],"config":{"enabled":true}}`},
-		}}),
-		schema.AssistantMessage("denied", nil),
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-p3-secret", provider.id, `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
+		runtime.ScriptedText("denied"),
 	)
 	engine, err := runtime.NewEngine(context.Background(), model, []tools.Tool{governed}, runtime.EngineConfig{Checkpoints: checkpoints})
 	if err != nil {
@@ -766,11 +755,8 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := runtime.NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-production-mcp",
-			Function: schema.FunctionCall{Name: "mcp.docs.write", Arguments: `{"mode":"safe","items":[1],"config":{"enabled":true}}`},
-		}}),
-		schema.AssistantMessage("governed", nil),
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-production-mcp", "mcp.docs.write", `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
+		runtime.ScriptedText("governed"),
 	)
 	callables := make([]tools.Tool, 0, len(registry.Specs()))
 	for _, spec := range registry.Specs() {
@@ -1005,11 +991,8 @@ func assertGovernedToolEnvelope(t *testing.T, registry *tools.Registry, toolID s
 		t.Fatal(err)
 	}
 	model := runtime.NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-p3-envelope",
-			Function: schema.FunctionCall{Name: toolID, Arguments: `{"mode":"safe","items":[1],"config":{"enabled":true}}`},
-		}}),
-		schema.AssistantMessage("governed", nil),
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-p3-envelope", toolID, `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
+		runtime.ScriptedText("governed"),
 	)
 	engine, err := runtime.NewEngine(context.Background(), model, []tools.Tool{governed}, runtime.EngineConfig{
 		Checkpoints:        checkpoints,

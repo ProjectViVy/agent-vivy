@@ -19,7 +19,7 @@ import (
 )
 
 type heldPlanResumeModel struct {
-	inner         model.ToolCallingChatModel
+	inner         model.AgenticModel
 	calls         atomic.Int32
 	resumeEntered chan struct{}
 	release       chan struct{}
@@ -32,7 +32,7 @@ type heldCancellationEinoModel struct {
 	once      sync.Once
 }
 
-func (m *heldCancellationEinoModel) Generate(ctx context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (m *heldCancellationEinoModel) Generate(ctx context.Context, _ []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	m.once.Do(func() {
 		close(m.entered)
 		context.AfterFunc(ctx, func() { close(m.cancelled) })
@@ -41,13 +41,9 @@ func (m *heldCancellationEinoModel) Generate(ctx context.Context, _ []*schema.Me
 	return nil, ctx.Err()
 }
 
-func (m *heldCancellationEinoModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *heldCancellationEinoModel) Stream(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	_, err := m.Generate(ctx, in, opts...)
 	return nil, err
-}
-
-func (m *heldCancellationEinoModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }
 
 func TestResumeBeforePlanCancellationLeavesOwnedRunAlive(t *testing.T) {
@@ -56,7 +52,7 @@ func TestResumeBeforePlanCancellationLeavesOwnedRunAlive(t *testing.T) {
 	const sessionID domain.SessionID = "sess-resume-before-plan-cancel"
 	ref := createLifecycleGoal(t, backend, sessionID, 2)
 	model := &gatedLifecycleModel{
-		inner:   NewScriptedModel(schema.AssistantMessage("held Goal run", nil)),
+		inner:   NewScriptedModel(testAssistant("held Goal run")),
 		entered: make(chan struct{}), release: make(chan struct{}),
 	}
 	svc := newGoalLifecycleService(t, backend, model, nil, backend, nil)
@@ -179,7 +175,7 @@ func TestResumeCannotCommitAfterPlanClaimsCancellation(t *testing.T) {
 	}
 }
 
-func (m *heldPlanResumeModel) Stream(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *heldPlanResumeModel) Stream(ctx context.Context, messages []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	if m.calls.Add(1) == 2 {
 		close(m.resumeEntered)
 		select {
@@ -191,17 +187,8 @@ func (m *heldPlanResumeModel) Stream(ctx context.Context, messages []*schema.Mes
 	return m.inner.Stream(ctx, messages, opts...)
 }
 
-func (m *heldPlanResumeModel) Generate(ctx context.Context, messages []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *heldPlanResumeModel) Generate(ctx context.Context, messages []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	return m.inner.Generate(ctx, messages, opts...)
-}
-
-func (m *heldPlanResumeModel) WithTools(infos []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	inner, err := m.inner.WithTools(infos)
-	if err != nil {
-		return nil, err
-	}
-	m.inner = inner
-	return m, nil
 }
 
 func TestPlanDecisionHandoffUsesOriginTerminalBeforeGoalAdmission(t *testing.T) {
@@ -255,9 +242,9 @@ func TestPlanDecisionHandoffUsesOriginTerminalBeforeGoalAdmission(t *testing.T) 
 			}
 			model := &heldPlanResumeModel{
 				inner: NewScriptedModel(
-					schema.AssistantMessage("", []schema.ToolCall{{ID: "submit", Function: schema.FunctionCall{Name: tools.SubmitPlanName, Arguments: `{"markdown":"1. inspect\n2. implement"}`}}}),
-					schema.AssistantMessage("I will proceed.", nil),
-					schema.AssistantMessage("Goal round done.", nil),
+					testToolCalls(testCall("submit", tools.SubmitPlanName, `{"markdown":"1. inspect\n2. implement"}`)),
+					testAssistant("I will proceed."),
+					testAssistant("Goal round done."),
 				),
 				resumeEntered: make(chan struct{}), release: make(chan struct{}),
 			}

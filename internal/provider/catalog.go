@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/modelhost"
 )
 
 // Catalog resolves a provider selection to live Refs over the embedded vendor
@@ -118,7 +117,7 @@ func (c *Catalog) EndpointForVendor(vendor, adapter, baseURL string) (Endpoint, 
 // Adapter resolves one sealed protocol family to the build-owned adapter that
 // implements it, independent of any vendor: every address, credential and model
 // id then has to come from the ModelSpec. It is the sealed-set lookup, and it
-// is what makes a deferred family fail closed instead of falling back to a
+// is what makes an unsealed family fail closed instead of falling back to a
 // substitute.
 //
 // The runtime constructs models through RefForEndpoint rather than through this
@@ -133,10 +132,10 @@ func (c *Catalog) Adapter(family string) (Ref, error) {
 }
 
 // RefForEndpoint resolves one vendor endpoint (adapter + base URL) to its Ref.
-// An adapter that is sealed but deferred, or a family this build does not know,
-// fails closed instead of falling back to a substitute; so does a vendor the
-// embedded data does not describe, because only the vendor carries the
-// environment key and the identity an error message needs.
+// A family this build does not know fails closed instead of falling back to a
+// substitute; so does a vendor the embedded data does not describe, because
+// only the vendor carries the environment key and the identity an error message
+// needs.
 func (c *Catalog) RefForEndpoint(vendor string, endpoint Endpoint) (Ref, error) {
 	entry, ok := c.Vendor(vendor)
 	if !ok {
@@ -166,14 +165,10 @@ func (c *Catalog) For(name string) (Ref, error) {
 }
 
 // checkAdapter is the one place that decides whether a family is executable:
-// unknown families and deferred families both fail closed.
+// a family this build does not seal fails closed.
 func checkAdapter(family string) error {
-	state, sealed := AdapterState(family)
-	if !sealed {
+	if !IsSealedAdapter(family) {
 		return fmt.Errorf("%w: %q", ErrAdapterUnknown, family)
-	}
-	if state != modelhost.CapabilitySupported {
-		return fmt.Errorf("%w: %q is %s", ErrAdapterDeferred, family, state)
 	}
 	return nil
 }

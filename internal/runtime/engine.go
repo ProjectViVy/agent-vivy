@@ -29,7 +29,7 @@ const officialToolSearchName = "tool_search"
 // summarizer (CMP-2). The app layer builds it in internal/provider (D9
 // override model) and passes it through without touching eino directly
 // (D-007 quarantine).
-type SummaryModel = model.BaseModel[*schema.Message]
+type SummaryModel = model.BaseModel[*schema.AgenticMessage]
 
 // EngineConfig carries the tunables the app layer reads from config.
 type EngineConfig struct {
@@ -95,7 +95,7 @@ type EngineConfig struct {
 	// SummaryModel optionally overrides the model that generates
 	// compaction summaries (CMP-2). Nil keeps the main chat model. When
 	// set, a summary failure falls back to the main model once.
-	SummaryModel model.BaseModel[*schema.Message]
+	SummaryModel model.BaseModel[*schema.AgenticMessage]
 	// SummaryModelID is the provider-native id paired with SummaryModel. It
 	// lets usage events distinguish the primary summary route from the main
 	// model used by failover without inspecting provider implementation types.
@@ -124,14 +124,14 @@ type EngineConfig struct {
 // Together with internal/provider it is the only code allowed to touch
 // Eino types (D-007).
 type Engine struct {
-	runner *adk.Runner
+	runner *adk.TypedRunner[*schema.AgenticMessage]
 	cfg    EngineConfig
 	// agentName is the root ChatModelAgent's name — its resume-data address
 	// segment ("agent:<name>") when steer resumes inject history modifiers.
 	agentName string
 	// chatModel is the wrapped provider model; the service reuses it for
 	// session-level summary generation (context/compact).
-	chatModel model.ToolCallingChatModel
+	chatModel model.AgenticModel
 	// toolSpecs mirrors the resolved tool set for the per-run prompt
 	// composer (MA-2); the engine never needs the callables here.
 	toolSpecs []domain.ToolSpec
@@ -151,15 +151,16 @@ type Engine struct {
 	setRetryDecider func(ModelRetryDecider)
 }
 
-// EngineFactory pins the production LoopDriver to the Eino v0.9.13 APIs used
-// by NewEngine: adk.NewChatModelAgent, adk.NewRunner, Runner.Run/Query, and
-// Runner.ResumeWithParams. The model value stays inside this quarantined
-// package; internal/modules/loop sees only Vivy runtime types.
+// EngineFactory pins the production LoopDriver to the typed agentic Eino ADK
+// APIs used by NewEngine: adk.NewTypedChatModelAgent, adk.NewTypedRunner,
+// TypedRunner.Run/Query, and TypedRunner.ResumeWithParams. The model value
+// stays inside this quarantined package; internal/modules/loop sees only Vivy
+// runtime types.
 type EngineFactory struct {
-	model model.ToolCallingChatModel
+	model model.AgenticModel
 }
 
-func NewEngineFactory(m model.ToolCallingChatModel) *EngineFactory {
+func NewEngineFactory(m model.AgenticModel) *EngineFactory {
 	return &EngineFactory{model: m}
 }
 
@@ -178,7 +179,7 @@ func (factory *EngineFactory) Build(ctx context.Context, ts []tools.Tool, cfg En
 // When cfg.Checkpoints is wired, the runner persists interrupt points
 // through the versioned blob bridge; a nil store keeps interrupts
 // non-resumable (eino skips persistence without a CheckPointStore).
-func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Tool, cfg EngineConfig) (*Engine, error) {
+func NewEngine(ctx context.Context, m model.AgenticModel, ts []tools.Tool, cfg EngineConfig) (*Engine, error) {
 	if m == nil {
 		return nil, errors.New("runtime: nil model")
 	}
@@ -294,11 +295,11 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	}
 	// With no deferred tools every active tool is fixed-visible, so the
 	// staticTools slice already contains the complete active surface.
-	handlers := make([]adk.ChatModelAgentMiddleware, 0, 2+len(cfg.HiddenTools))
-	var searchHandler adk.ChatModelAgentMiddleware
+	handlers := make([]adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage], 0, 2+len(cfg.HiddenTools))
+	var searchHandler adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage]
 	if len(dynamicTools) > 0 {
 		var err error
-		searchHandler, err = einotoolsearch.New(ctx, &einotoolsearch.Config{
+		searchHandler, err = einotoolsearch.NewTyped[*schema.AgenticMessage](ctx, &einotoolsearch.Config{
 			DynamicTools:       dynamicTools,
 			UseModelToolSearch: false,
 		})
@@ -308,7 +309,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	}
 	if cfg.SkillBackend != nil {
 		// Inline load only; fork frontmatter is left to Eino's native error.
-		skillHandler, err := einoskill.NewMiddleware(ctx, &einoskill.Config{Backend: cfg.SkillBackend})
+		skillHandler, err := einoskill.NewTyped[*schema.AgenticMessage](ctx, &einoskill.TypedConfig[*schema.AgenticMessage]{Backend: cfg.SkillBackend})
 		if err != nil {
 			return nil, fmt.Errorf("runtime: skill middleware: %w", err)
 		}
@@ -318,7 +319,7 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		// Eino-native compression (research AGENT-LOOP-PORT-COMPARISON
 		// §4.3-E2): reduction clears old tool turns deterministically, then
 		// summarization LLM-compacts what remains when the feed is still
-		// over the trigger. m is a model.ToolCallingChatModel, so it also
+		// over the trigger. m is a model.AgenticModel, so it also
 		// satisfies the summarization middleware's BaseModel requirement.
 		compHandlers, err := buildCompactionHandlers(ctx, m, cfg.SummaryModel, *cfg.Compaction, cfg.MaxContextBytes, cfg.OffloadBackend)
 		if err != nil {
@@ -362,6 +363,10 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		handlers = append(handlers, newMountedToolVisibilityMiddleware(hiddenInfos, hiddenOrder))
 	}
 	handlers = append(handlers, newWorkPlanGuidanceMiddleware())
+	// VCP-B1: boundary steering appends the queued steer delivery inside the
+	// resumed run's history. Registered before the prompt middleware so the
+	// byte-budget check sees the injected message.
+	handlers = append(handlers, newSteerMiddleware())
 	// Same-batch work-control terminal actions must fence every later call in
 	// model order. Eino parallelizes calls by default, so execute this node in
 	// order and let the Service fence decide whether each call may run.
@@ -387,16 +392,16 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 	// until after the engine. The slot is filled by Engine.SetRetryDecider;
 	// a nil decider accepts every call as-is (no retry).
 	var retryDecider ModelRetryDecider
-	agentCfg := &adk.ChatModelAgentConfig{
+	agentCfg := &adk.TypedChatModelAgentConfig[*schema.AgenticMessage]{
 		Name:          agentName,
 		Description:   agentDescription,
 		Instruction:   instruction,
 		GenModelInput: literalGenModelInput,
 		Model:         observeChatModel(m),
 		Handlers:      handlers,
-		ModelRetryConfig: &adk.ModelRetryConfig{
+		ModelRetryConfig: &adk.TypedModelRetryConfig[*schema.AgenticMessage]{
 			MaxRetries: 1,
-			ShouldRetry: func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
+			ShouldRetry: func(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
 				if retryDecider == nil {
 					return nil
 				}
@@ -413,18 +418,18 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 		// cap, which the service classifies into a run.failed terminal.
 		agentCfg.MaxIterations = cfg.MaxToolTurns
 	}
-	agent, err := adk.NewChatModelAgent(ctx, agentCfg)
+	agent, err := adk.NewTypedChatModelAgent[*schema.AgenticMessage](ctx, agentCfg)
 	if err != nil {
 		return nil, err
 	}
-	runnerCfg := adk.RunnerConfig{
+	runnerCfg := adk.TypedRunnerConfig[*schema.AgenticMessage]{
 		Agent:           agent,
 		EnableStreaming: true,
 	}
 	if cfg.Checkpoints != nil {
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(cfg.Checkpoints)
 	}
-	runner := adk.NewRunner(ctx, runnerCfg)
+	runner := adk.NewTypedRunner(runnerCfg)
 	eng := &Engine{runner: runner, cfg: cfg, agentName: agentName, chatModel: m, toolSpecs: specs, instruction: instruction, toolInfos: allToolInfos, activeTools: append([]tools.Tool(nil), ts...), toolByName: byName}
 	eng.setRetryDecider = func(d ModelRetryDecider) { retryDecider = d }
 	return eng, nil
@@ -432,8 +437,9 @@ func NewEngine(ctx context.Context, m model.ToolCallingChatModel, ts []tools.Too
 
 // ModelRetryDecider is the VCP-D2 overflow-recovery hook: the service binds
 // its compact-and-retry decider after the engine exists. The signature uses
-// ADK types because it is invoked verbatim by ModelRetryConfig.ShouldRetry.
-type ModelRetryDecider func(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision
+// the ADK's typed agentic types because it is invoked verbatim by
+// TypedModelRetryConfig.ShouldRetry.
+type ModelRetryDecider func(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage]
 
 // SetRetryDecider binds the overflow recovery decider (nil decider = every
 // model error propagates as before). Called once by the service at wiring.
@@ -539,16 +545,16 @@ func (e *Engine) SelectTools() tools.Selection {
 
 // Query starts one user turn and returns the raw engine event iterator.
 // Options such as adk.WithCheckPointID are supplied by the service (C4/C6).
-func (e *Engine) Query(ctx context.Context, text string, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
+func (e *Engine) Query(ctx context.Context, text string, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]] {
 	return e.runner.Query(ctx, text, opts...)
 }
 
 // RunHistory starts a run over an explicit message list — the session
 // transcript the service rebuilds from the message store (MA-1, ADR-009).
-// eino's Runner.Query is exactly this call with a single fresh user
+// eino's TypedRunner.Query is exactly this call with a single fresh user
 // message, so the checkpoint/resume contract carries over unchanged
 // (docs/v1-minimal-agent-proposal.md §1).
-func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.Message, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.AgentEvent] {
+func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.AgenticMessage, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]] {
 	return e.runner.Run(ctx, msgs, opts...)
 }
 
@@ -556,6 +562,6 @@ func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.Message, opts ..
 // payload (an approval, question answer, or Plan review decision) back to
 // the interrupted tool via params.Targets. The caller must pass the
 // checkpoint id used to start the run (docs/eino-capability-verify.md §2.2).
-func (e *Engine) Resume(ctx context.Context, checkpointID string, params *adk.ResumeParams, opts ...adk.AgentRunOption) (*adk.AsyncIterator[*adk.AgentEvent], error) {
+func (e *Engine) Resume(ctx context.Context, checkpointID string, params *adk.ResumeParams, opts ...adk.AgentRunOption) (*adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]], error) {
 	return e.runner.ResumeWithParams(ctx, checkpointID, params, opts...)
 }

@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/contexthost"
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/mcphost"
@@ -286,7 +284,7 @@ func TestMCPResourceBridgeReachesProductionServiceModelInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorder := &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("ok", nil))}
+	recorder := &recordingChatModel{inner: NewScriptedModel(testAssistant("ok"))}
 	engine, err := NewEngine(context.Background(), recorder, toolsForRun, EngineConfig{
 		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 4096,
 	})
@@ -304,8 +302,11 @@ func TestMCPResourceBridgeReachesProductionServiceModelInput(t *testing.T) {
 	waitForRunStatus(t, journal, runID, domain.RunCompleted)
 	found := false
 	for _, message := range recorder.lastInput() {
-		for _, part := range message.UserInputMultiContent {
-			if strings.Contains(part.Text, "production MCP resource body") && strings.Contains(part.Text, "docs://guide") {
+		for _, block := range message.ContentBlocks {
+			if block == nil || block.UserInputText == nil {
+				continue
+			}
+			if strings.Contains(block.UserInputText.Text, "production MCP resource body") && strings.Contains(block.UserInputText.Text, "docs://guide") {
 				found = true
 			}
 		}

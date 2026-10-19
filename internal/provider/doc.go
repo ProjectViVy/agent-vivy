@@ -1,14 +1,17 @@
 // Package provider implements the ProviderRef boundary and the embedded
 // provider catalog.
 //
-// The sealed capability set is three protocol adapters (adapters.go):
+// The sealed capability set is two protocol adapters (adapters.go), both on
+// Eino's agentic generation:
 //
 //   - openai-completions: POST {base}/chat/completions, backed by
-//     github.com/cloudwego/eino-ext/components/model/openai;
-//   - openai-responses: POST {base}/responses, DECLARED and
-//     DEFERRED-INDEFINITE — no implementation placeholder exists;
+//     github.com/cloudwego/eino-ext/components/model/agenticopenai;
 //   - anthropic-messages: POST {base}/messages, backed by
-//     github.com/cloudwego/eino-ext/components/model/claude.
+//     github.com/cloudwego/eino-ext/components/model/agenticclaude.
+//
+// The former openai-responses family was retired with the agentic migration:
+// it is not sealed, so an endpoint naming it fails closed as ErrAdapterUnknown
+// rather than becoming a visible-but-unusable capability.
 //
 // Everything else about a provider — which vendor, which address, which
 // models, which environment variable holds the credential — is data in

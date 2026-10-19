@@ -41,14 +41,15 @@ func TestReconcileAdaptersRejectsSealedAdapterWithoutEndpoint(t *testing.T) {
 	}
 }
 
-// A DEFERRED-INDEFINITE family has no constructor, so data may declare no
-// endpoint for it while the capability row stays visible.
-func TestReconcileAdaptersAcceptsDeferredAdapterWithoutEndpoint(t *testing.T) {
+// Every sealed family is executable, so a sealed family with no endpoint is a
+// startup failure — there is no deferral allowance any more.
+func TestReconcileAdaptersRejectsSealedAdapterWithoutAnyEndpoint(t *testing.T) {
 	vendors := []Vendor{{Name: "example", Endpoints: []Endpoint{
 		{Adapter: AdapterOpenAICompletions, BaseURL: "https://a.example.com"},
 	}}}
-	if err := ReconcileAdapters(vendors, []string{AdapterOpenAICompletions, AdapterOpenAIResponses}); err != nil {
-		t.Fatalf("deferred adapter without an endpoint must reconcile: %v", err)
+	err := ReconcileAdapters(vendors, []string{AdapterOpenAICompletions, AdapterAnthropicMessages})
+	if err == nil || !strings.Contains(err.Error(), AdapterAnthropicMessages) {
+		t.Fatalf("sealed family without data must fail the gate: %v", err)
 	}
 }
 
@@ -56,11 +57,11 @@ func TestReconcileAdaptersJoinsBothDirections(t *testing.T) {
 	vendors := []Vendor{{Name: "example", Endpoints: []Endpoint{
 		{Adapter: "gemini-generate-content", BaseURL: "https://a.example.com"},
 	}}}
-	err := ReconcileAdapters(vendors, []string{AdapterOpenAICompletions, AdapterOpenAIResponses})
+	err := ReconcileAdapters(vendors, []string{AdapterOpenAICompletions, AdapterAnthropicMessages})
 	if err == nil {
 		t.Fatal("expected a bidirectional mismatch to fail")
 	}
-	for _, want := range []string{"not sealed", AdapterOpenAICompletions, AdapterOpenAIResponses} {
+	for _, want := range []string{"not sealed", AdapterOpenAICompletions, AdapterAnthropicMessages} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("joined error %q is missing %q", err, want)
 		}
@@ -80,10 +81,10 @@ func TestReconcileAdaptersAcceptsEmbeddedData(t *testing.T) {
 
 func TestAdapterFamiliesIsTheSealedSet(t *testing.T) {
 	families := AdapterFamilies()
-	if len(families) != 3 {
-		t.Fatalf("sealed adapters = %v, want exactly three", families)
+	if len(families) != 2 {
+		t.Fatalf("sealed adapters = %v, want exactly two", families)
 	}
-	want := []string{AdapterOpenAICompletions, AdapterOpenAIResponses, AdapterAnthropicMessages}
+	want := []string{AdapterOpenAICompletions, AdapterAnthropicMessages}
 	for i, family := range want {
 		if families[i] != family {
 			t.Fatalf("sealed adapters = %v, want %v", families, want)
@@ -102,7 +103,7 @@ func TestAdapterCapabilityVocabulary(t *testing.T) {
 	if !AdapterSupportsCapability(AdapterOpenAICompletions, CapabilityDeepSeekThinking) {
 		t.Fatal("deepseek-thinking must be legal on openai-completions")
 	}
-	for _, adapter := range []string{AdapterOpenAIResponses, AdapterAnthropicMessages} {
+	for _, adapter := range []string{"openai-responses", AdapterAnthropicMessages} {
 		if AdapterSupportsCapability(adapter, CapabilityDeepSeekThinking) {
 			t.Fatalf("deepseek-thinking must not be legal on %q", adapter)
 		}

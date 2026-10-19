@@ -98,7 +98,7 @@ func testModelHost(t *testing.T, vendors ...Vendor) *modelhost.Host {
 		seen[profile.ID] = struct{}{}
 		profiles = append(profiles, profile)
 	}
-	host, err := modelhost.New(profiles, Capabilities())
+	host, err := modelhost.New(profiles, AdapterFamilies())
 	if err != nil {
 		t.Fatalf("modelhost.New: %v", err)
 	}

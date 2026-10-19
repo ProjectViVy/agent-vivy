@@ -58,12 +58,12 @@ func TestClaudeRefOutboundProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("model: %v", err)
 	}
-	resp, err := cm.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+	resp, err := cm.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if resp.Content != "ok" {
-		t.Fatalf("content = %q, want ok", resp.Content)
+	if agenticMessageText(resp) != "ok" {
+		t.Fatalf("content = %q, want ok", agenticMessageText(resp))
 	}
 	if gotPath != "/v1/messages" {
 		t.Fatalf("path = %q, want /v1/messages", gotPath)
@@ -101,7 +101,7 @@ func TestClaudeRefFallsBackToVendorDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("model: %v", err)
 	}
-	if _, err := cm.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err != nil {
+	if _, err := cm.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if body.Model != "claude-sonnet-4-5" {

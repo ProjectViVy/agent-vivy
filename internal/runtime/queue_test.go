@@ -160,26 +160,19 @@ type scriptedToolModel struct {
 	release chan struct{}
 
 	mu     sync.Mutex
-	inputs [][]*schema.Message
+	inputs [][]*schema.AgenticMessage
 }
 
 func newScriptedToolModel() *scriptedToolModel {
 	return &scriptedToolModel{entered: make(chan struct{}), release: make(chan struct{})}
 }
 
-func toolCallMessage(id, name, args string) *schema.Message {
-	return &schema.Message{
-		Role: schema.Assistant,
-		ToolCalls: []schema.ToolCall{{
-			ID:       id,
-			Type:     "function",
-			Function: schema.FunctionCall{Name: name, Arguments: args},
-		}},
-	}
+func toolCallMessage(id, name, args string) *schema.AgenticMessage {
+	return agenticTestMessage(schema.AgenticRoleTypeAssistant, "", testCalls(testCall(id, name, args)), nil, nil)
 }
 
-func oneShot(msg *schema.Message) *schema.StreamReader[*schema.Message] {
-	r, w := schema.Pipe[*schema.Message](1)
+func oneShot(msg *schema.AgenticMessage) *schema.StreamReader[*schema.AgenticMessage] {
+	r, w := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
 		w.Send(msg, nil)
 		w.Close()
@@ -187,7 +180,7 @@ func oneShot(msg *schema.Message) *schema.StreamReader[*schema.Message] {
 	return r
 }
 
-func (m *scriptedToolModel) record(input []*schema.Message) int {
+func (m *scriptedToolModel) record(input []*schema.AgenticMessage) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.inputs = append(m.inputs, input)
@@ -205,14 +198,14 @@ func (m *scriptedToolModel) lastUserTexts() []string {
 	defer m.mu.Unlock()
 	var out []string
 	for _, msg := range m.inputs[len(m.inputs)-1] {
-		if msg != nil && msg.Role == schema.User {
-			out = append(out, msg.Content)
+		if msg != nil && msg.Role == schema.AgenticRoleTypeUser {
+			out = append(out, agenticMessageText(msg))
 		}
 	}
 	return out
 }
 
-func (m *scriptedToolModel) Stream(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *scriptedToolModel) Stream(ctx context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	call := m.record(input)
 	switch call {
 	case 1:
@@ -226,11 +219,11 @@ func (m *scriptedToolModel) Stream(ctx context.Context, input []*schema.Message,
 		}
 		return oneShot(toolCallMessage("call-2", tools.EchoInfoName, `{"text":"two"}`)), nil
 	default:
-		return oneShot(&schema.Message{Role: schema.Assistant, Content: "done"}), nil
+		return oneShot(testAssistant("done")), nil
 	}
 }
 
-func (m *scriptedToolModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *scriptedToolModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	r, err := m.Stream(ctx, input, opts...)
 	if err != nil {
 		return nil, err
@@ -240,16 +233,12 @@ func (m *scriptedToolModel) Generate(ctx context.Context, input []*schema.Messag
 	return msg, err
 }
 
-func (m *scriptedToolModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
-}
-
-var _ model.ToolCallingChatModel = (*scriptedToolModel)(nil)
+var _ model.AgenticModel = (*scriptedToolModel)(nil)
 
 // newScriptedService builds a service whose engine is bound to a
 // schema-level model (no domain ChatModel wrap) — needed for tool-call
 // flows that exercise turn-boundary steering.
-func newScriptedService(t *testing.T, m model.ToolCallingChatModel) (*Service, *sqlite.Backend) {
+func newScriptedService(t *testing.T, m model.AgenticModel) (*Service, *sqlite.Backend) {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "queue.db"))

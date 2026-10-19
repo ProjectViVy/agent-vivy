@@ -28,10 +28,10 @@ const (
 // never-failing tail so a session is still named when every model is
 // unusable.
 type ChainTitler struct {
-	candidates []model.ToolCallingChatModel
+	candidates []model.AgenticModel
 }
 
-func NewChainTitler(candidates ...model.ToolCallingChatModel) *ChainTitler {
+func NewChainTitler(candidates ...model.AgenticModel) *ChainTitler {
 	return &ChainTitler{candidates: candidates}
 }
 
@@ -49,7 +49,7 @@ func (t *ChainTitler) GenerateTitle(ctx context.Context, userText, assistantText
 			lastErr = err
 			continue
 		}
-		if title := strings.TrimSpace(resp.Content); title != "" {
+		if title := strings.TrimSpace(agenticGeneratedText(resp)); title != "" {
 			return title, nil
 		}
 	}
@@ -59,9 +59,27 @@ func (t *ChainTitler) GenerateTitle(ctx context.Context, userText, assistantText
 	return truncateTitleFallback(userText), nil
 }
 
+// agenticGeneratedText concatenates the assistant-generated text blocks of one
+// agentic response. Reasoning blocks never contribute to a title.
+func agenticGeneratedText(msg *schema.AgenticMessage) string {
+	if msg == nil {
+		return ""
+	}
+	var out strings.Builder
+	for _, block := range msg.ContentBlocks {
+		if block == nil {
+			continue
+		}
+		if block.AssistantGenText != nil {
+			out.WriteString(block.AssistantGenText.Text)
+		}
+	}
+	return out.String()
+}
+
 // titlePrompt asks for a bare short label; the strict "title only" wording
 // keeps reasoning-model chatter and trailing punctuation out of the label.
-func titlePrompt(userText, assistantText string) []*schema.Message {
+func titlePrompt(userText, assistantText string) []*schema.AgenticMessage {
 	system := "Generate a short title (3-6 words) for this conversation. " +
 		"Reply with the title only — no quotes, no trailing punctuation, no explanation."
 	var b strings.Builder
@@ -69,9 +87,9 @@ func titlePrompt(userText, assistantText string) []*schema.Message {
 	if strings.TrimSpace(assistantText) != "" {
 		b.WriteString("\n\nAssistant reply:\n" + clipTitleText(assistantText))
 	}
-	return []*schema.Message{
-		{Role: schema.System, Content: system},
-		{Role: schema.User, Content: b.String()},
+	return []*schema.AgenticMessage{
+		schema.SystemAgenticMessage(system),
+		schema.UserAgenticMessage(b.String()),
 	}
 }
 
@@ -112,15 +130,15 @@ func (s modelOverrideSource) Live() LiveSpec {
 // NewOverrideModel pins an auxiliary model id (session titles, compaction
 // summaries, …) over the active provider's live spec, so provider/model
 // management stays one data source (D-9). The id resolves at call time.
-func NewOverrideModel(host *modelhost.Host, catalog *Catalog, resolver SpecSource, modelID string) model.ToolCallingChatModel {
+func NewOverrideModel(host *modelhost.Host, catalog *Catalog, resolver SpecSource, modelID string) model.AgenticModel {
 	return NewResolvingChatModel(host, catalog, modelOverrideSource{base: resolver, model: strings.TrimSpace(modelID)})
 }
 
 // TitleCandidates builds the ordered title chain over the app composition:
 // the configured small model (same provider, pinned id) first, then the
 // main chat model.
-func TitleCandidates(host *modelhost.Host, catalog *Catalog, resolver SpecSource, main model.ToolCallingChatModel, smallModel string) []model.ToolCallingChatModel {
-	candidates := make([]model.ToolCallingChatModel, 0, 2)
+func TitleCandidates(host *modelhost.Host, catalog *Catalog, resolver SpecSource, main model.AgenticModel, smallModel string) []model.AgenticModel {
+	candidates := make([]model.AgenticModel, 0, 2)
 	if small := strings.TrimSpace(smallModel); small != "" && catalog != nil {
 		candidates = append(candidates, NewOverrideModel(host, catalog, resolver, small))
 	}

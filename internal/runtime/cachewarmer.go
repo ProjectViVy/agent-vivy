@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
+	einoclaude "github.com/cloudwego/eino-ext/components/model/agenticclaude"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
@@ -184,9 +184,9 @@ func (w *runCacheWarmer) warm(mode string) {
 	if len(w.tools) > 0 {
 		opts = append(opts, model.WithTools(w.tools))
 	}
-	msgs := []*schema.Message{
-		schema.SystemMessage(w.eng.instruction),
-		schema.UserMessage(cacheWarmPrompt),
+	msgs := []*schema.AgenticMessage{
+		agenticSystemMessage(w.eng.instruction),
+		agenticUserMessage(cacheWarmPrompt),
 	}
 	resp, err := w.eng.chatModel.Generate(callCtx, msgs, opts...)
 	if err != nil {
@@ -199,8 +199,8 @@ func (w *runCacheWarmer) warm(mode string) {
 		return
 	}
 	prompt, cacheWrite := 0, 0
-	if resp != nil && resp.ResponseMeta != nil && resp.ResponseMeta.Usage != nil {
-		prompt = resp.ResponseMeta.Usage.PromptTokens
+	if usage := agenticUsage(resp); usage != nil {
+		prompt = usage.PromptTokens
 	}
 	if resp != nil {
 		if v, ok := einoclaude.GetCacheCreationInputTokens(resp); ok {

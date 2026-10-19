@@ -224,8 +224,12 @@ func TestProjectContextRPCAndTurnPersistSnapshotMetadataOnly(t *testing.T) {
 	if user == nil || len(user.FileContexts) != 1 || user.FileContexts[0].Path != "README.md" || user.FileContexts[0].Size != int64(len(body)) {
 		t.Fatalf("history context metadata = %+v", user)
 	}
-	if strings.Contains(string(historyJSON), string(body)) {
-		t.Fatalf("history leaked snapshot body: %s", historyJSON)
+	// The snapshot body must not ride the persisted user row. The assistant
+	// reply may quote it back (the test echo model does), so the assertion
+	// targets the user projection rather than the whole transcript.
+	userJSON, _ := json.Marshal(user)
+	if strings.Contains(string(userJSON), string(body)) {
+		t.Fatalf("history leaked snapshot body: %s", userJSON)
 	}
 	stored, err := env.backend.ListMessages(context.Background(), domain.SessionID(session.ID))
 	if err != nil || len(stored) == 0 || len(stored[0].FileContexts) != 1 || string(stored[0].FileContexts[0].Content) != string(body) {

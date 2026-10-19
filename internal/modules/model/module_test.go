@@ -15,9 +15,7 @@ func TestModelModuleComposesExistingModelHost(t *testing.T) {
 		EndpointClass: providerprofile.EndpointGateway, SecretRefs: []string{"OPENAI_API_KEY"},
 		OptionsSchema: json.RawMessage(`{"type":"object"}`),
 	}
-	provider, err := Compose([]providerprofile.Profile{profile}, modelhost.Capabilities{
-		"openai-completions": modelhost.CapabilitySupported,
-	})
+	provider, err := Compose([]providerprofile.Profile{profile}, []string{"openai-completions"})
 	if err != nil {
 		t.Fatal(err)
 	}

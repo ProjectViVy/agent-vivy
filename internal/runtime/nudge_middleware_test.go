@@ -41,8 +41,8 @@ func nudgeEvents(t *testing.T, j *contractJournal) []payloadToolNudge {
 }
 
 // nudgeMessages returns the injected runtime_nudge messages of an input.
-func nudgeMessages(input []*schema.Message) []*schema.Message {
-	var out []*schema.Message
+func nudgeMessages(input []*schema.AgenticMessage) []*schema.AgenticMessage {
+	var out []*schema.AgenticMessage
 	for _, msg := range input {
 		if msg != nil && msg.Extra != nil && msg.Extra["kind"] == "runtime_nudge" {
 			out = append(out, msg)
@@ -62,12 +62,12 @@ func failingContractTool() *contractTool {
 // model request — never into an earlier request, never persisting into
 // the iteration after (§6/§7).
 func TestNudgeModelBoundary(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-a1", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-a2", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-a3", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-a4", "x")}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(contractToolCall("call-a1", "x")),
+		testToolCalls(contractToolCall("call-a2", "x")),
+		testToolCalls(contractToolCall("call-a3", "x")),
+		testToolCalls(contractToolCall("call-a4", "x")),
+		testAssistant("done"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
@@ -110,15 +110,15 @@ func TestNudgeModelBoundary(t *testing.T) {
 	if reminder != in[len(in)-1] {
 		t.Fatal("reminder is not the trailing message of the injected request")
 	}
-	if reminder.Role != schema.User {
+	if reminder.Role != schema.AgenticRoleTypeUser {
 		t.Fatalf("reminder role = %q, want user", reminder.Role)
 	}
 	if reminder.Extra["tool_call_id"] != "call-a3" || reminder.Extra["template_version"] != nudgeTemplateVersion {
 		t.Fatalf("reminder tags = %v", reminder.Extra)
 	}
-	if !strings.Contains(reminder.Content, "unsuccessful tool call has repeated 3 times") ||
-		!strings.Contains(reminder.Content, "inspect state before repeating a mutation") {
-		t.Fatalf("reminder text = %q", reminder.Content)
+	if !strings.Contains(agenticMessageText(reminder), "unsuccessful tool call has repeated 3 times") ||
+		!strings.Contains(agenticMessageText(reminder), "inspect state before repeating a mutation") {
+		t.Fatalf("reminder text = %q", agenticMessageText(reminder))
 	}
 	// The batch's tool results still pair with their calls and sit ahead
 	// of the reminder (§7: attach only after current tool results).
@@ -141,9 +141,9 @@ func TestNudgeModelBoundary(t *testing.T) {
 // append has not landed (durability gate, §6): pause the journal append,
 // prove the inner model does not advance, then release.
 func TestNudgeBoundaryWaitsForDurability(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-w1", "x")}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(contractToolCall("call-w1", "x")),
+		testAssistant("done"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
@@ -176,11 +176,11 @@ func TestNudgeBoundaryWaitsForDurability(t *testing.T) {
 // scheduling event must not repeat (§7).
 func TestNudgeProviderRetry(t *testing.T) {
 	injected := errors.New("injected provider failure")
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-r1", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-r2", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-r3", "x")}),
-		schema.AssistantMessage("recovered", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(contractToolCall("call-r1", "x")),
+		testToolCalls(contractToolCall("call-r2", "x")),
+		testToolCalls(contractToolCall("call-r3", "x")),
+		testAssistant("recovered"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
@@ -188,7 +188,7 @@ func TestNudgeProviderRetry(t *testing.T) {
 		prodNudge:  true,
 		extraTools: []tools.Tool{failingContractTool()},
 		failures:   map[int]error{3: injected}, // first attempt of the post-notice request
-		retry: &adk.ModelRetryConfig{
+		retry: &adk.TypedModelRetryConfig[*schema.AgenticMessage]{
 			MaxRetries:  1,
 			BackoffFunc: func(context.Context, int) time.Duration { return 0 },
 		},
@@ -218,14 +218,14 @@ func TestNudgeProviderRetry(t *testing.T) {
 // respect-the-decision template, not the corrective one (§7).
 func TestNudgeRefusalTemplate(t *testing.T) {
 	denied := &classifierStubTool{class: tools.InvocationDenied, findings: []string{"deny-table: forbidden"}}
-	deny := func(id string) schema.ToolCall {
-		return schema.ToolCall{ID: id, Function: schema.FunctionCall{Name: "stub_classifier", Arguments: `{"command":"x"}`}}
+	deny := func(id string) *schema.FunctionToolCall {
+		return &schema.FunctionToolCall{CallID: id, Name: "stub_classifier", Arguments: `{"command":"x"}`}
 	}
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{deny("call-d1")}),
-		schema.AssistantMessage("", []schema.ToolCall{deny("call-d2")}),
-		schema.AssistantMessage("", []schema.ToolCall{deny("call-d3")}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(deny("call-d1")),
+		testToolCalls(deny("call-d2")),
+		testToolCalls(deny("call-d3")),
+		testAssistant("done"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
@@ -247,10 +247,10 @@ func TestNudgeRefusalTemplate(t *testing.T) {
 	if len(tagged) != 1 {
 		t.Fatalf("runtime_nudge messages = %d, want 1", len(tagged))
 	}
-	if !strings.Contains(tagged[0].Content, "refused call has repeated 3 times") ||
-		!strings.Contains(tagged[0].Content, "Respect the policy or user decision") ||
-		!strings.Contains(tagged[0].Content, "Do not bypass it through another tool") {
-		t.Fatalf("refusal reminder text = %q", tagged[0].Content)
+	if !strings.Contains(agenticMessageText(tagged[0]), "refused call has repeated 3 times") ||
+		!strings.Contains(agenticMessageText(tagged[0]), "Respect the policy or user decision") ||
+		!strings.Contains(agenticMessageText(tagged[0]), "Do not bypass it through another tool") {
+		t.Fatalf("refusal reminder text = %q", agenticMessageText(tagged[0]))
 	}
 	if denied.calls != 0 {
 		t.Fatalf("denied tool executed %d times, want 0", denied.calls)
@@ -260,11 +260,11 @@ func TestNudgeRefusalTemplate(t *testing.T) {
 // A journal failure on the scheduling event aborts the request before the
 // reminder reaches the model — an unrecorded injection is never allowed.
 func TestNudgeSchedulingPersistFailure(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-p1", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-p2", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-p3", "x")}),
-		schema.AssistantMessage("unreachable", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(contractToolCall("call-p1", "x")),
+		testToolCalls(contractToolCall("call-p2", "x")),
+		testToolCalls(contractToolCall("call-p3", "x")),
+		testAssistant("unreachable"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
@@ -288,12 +288,12 @@ func TestNudgeSchedulingPersistFailure(t *testing.T) {
 // recordingInner is the model.BaseModel stand-in under the wrapper.
 type recordingInner struct {
 	calls   int
-	lastIn  []*schema.Message
+	lastIn  []*schema.AgenticMessage
 	genErr  error
-	genResp *schema.Message
+	genResp *schema.AgenticMessage
 }
 
-func (r *recordingInner) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (r *recordingInner) Generate(_ context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	r.calls++
 	r.lastIn = input
 	if r.genErr != nil {
@@ -302,10 +302,10 @@ func (r *recordingInner) Generate(_ context.Context, input []*schema.Message, _ 
 	if r.genResp != nil {
 		return r.genResp, nil
 	}
-	return schema.AssistantMessage("ok", nil), nil
+	return testAssistant("ok"), nil
 }
 
-func (r *recordingInner) Stream(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (r *recordingInner) Stream(_ context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	r.calls++
 	r.lastIn = input
 	if r.genErr != nil {
@@ -313,9 +313,9 @@ func (r *recordingInner) Stream(_ context.Context, input []*schema.Message, _ ..
 	}
 	msg := r.genResp
 	if msg == nil {
-		msg = schema.AssistantMessage("ok", nil)
+		msg = testAssistant("ok")
 	}
-	rd, wr := schema.Pipe[*schema.Message](1)
+	rd, wr := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
 		defer wr.Close()
 		wr.Send(msg, nil)
@@ -360,10 +360,10 @@ func TestNudgePrepareCopiesInput(t *testing.T) {
 
 	inner := &recordingInner{}
 	w := &nudgeWrappedModel{inner: inner, maxContextBytes: 1 << 20}
-	input := []*schema.Message{
-		schema.SystemMessage("sys"),
-		schema.UserMessage("go"),
-		{Role: schema.Tool, ToolCallID: "call-u3", Content: "diag"},
+	input := []*schema.AgenticMessage{
+		testSystem("sys"),
+		testUser("go"),
+		testToolResult("call-u3", "", "diag"),
 	}
 	originalLen := len(input)
 	if _, err := w.Generate(ctx, input); err != nil {
@@ -372,7 +372,7 @@ func TestNudgePrepareCopiesInput(t *testing.T) {
 	if len(input) != originalLen {
 		t.Fatalf("input slice mutated: len %d, want %d", len(input), originalLen)
 	}
-	if last := input[originalLen-1]; last.Role != schema.Tool || last.ToolCallID != "call-u3" {
+	if last := input[originalLen-1]; last.Role != schema.AgenticRoleTypeUser || agenticToolResults(last)[0].CallID != "call-u3" {
 		t.Fatal("input tail changed")
 	}
 	got := inner.lastIn
@@ -409,11 +409,11 @@ func TestNudgePrepareSkipsWithoutResults(t *testing.T) {
 	ctx := withNudgeState(context.Background(), s)
 	inner := &recordingInner{}
 	w := &nudgeWrappedModel{inner: inner, maxContextBytes: 1 << 20}
-	input := []*schema.Message{schema.UserMessage("plain question")}
+	input := []*schema.AgenticMessage{testUser("plain question")}
 	if _, err := w.Generate(ctx, input); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if len(inner.lastIn) != len(input) || inner.lastIn[len(inner.lastIn)-1].Role != schema.User {
+	if len(inner.lastIn) != len(input) || inner.lastIn[len(inner.lastIn)-1].Role != schema.AgenticRoleTypeUser {
 		t.Fatalf("input without results was modified: %v", inner.lastIn)
 	}
 }
@@ -421,7 +421,7 @@ func TestNudgePrepareSkipsWithoutResults(t *testing.T) {
 // The reminder must fit both the fixed 1KiB ceiling and the remaining
 // context budget; failure takes the existing budget path.
 func TestNudgePrepareBudget(t *testing.T) {
-	build := func(t *testing.T, budget int) (*nudgeWrappedModel, context.Context, []*schema.Message) {
+	build := func(t *testing.T, budget int) (*nudgeWrappedModel, context.Context, []*schema.AgenticMessage) {
 		t.Helper()
 		s := newNudgeState()
 		for _, id := range []string{"call-b1", "call-b2", "call-b3"} {
@@ -432,9 +432,9 @@ func TestNudgePrepareBudget(t *testing.T) {
 		}
 		ctx := withNudgeState(context.Background(), s)
 		ctx = withNudgeEmitter(ctx, func(_ context.Context, _ nudgeNotice) error { return nil })
-		input := []*schema.Message{
-			schema.UserMessage(strings.Repeat("w", 2000)),
-			{Role: schema.Tool, ToolCallID: "call-b3", Content: "diag"},
+		input := []*schema.AgenticMessage{
+			testUser(strings.Repeat("w", 2000)),
+			testToolResult("call-b3", "", "diag"),
 		}
 		return &nudgeWrappedModel{inner: &recordingInner{}, maxContextBytes: budget}, ctx, input
 	}
@@ -461,7 +461,7 @@ func TestNudgeStreamMatchesGenerate(t *testing.T) {
 	ctx = withNudgeEmitter(ctx, func(_ context.Context, _ nudgeNotice) error { return nil })
 	inner := &recordingInner{}
 	w := &nudgeWrappedModel{inner: inner, maxContextBytes: 1 << 20}
-	input := []*schema.Message{{Role: schema.Tool, ToolCallID: "call-s3", Content: "diag"}}
+	input := []*schema.AgenticMessage{testToolResult("call-s3", "", "diag")}
 	rd, err := w.Stream(ctx, input)
 	if err != nil {
 		t.Fatalf("stream: %v", err)
@@ -480,11 +480,11 @@ func TestNudgeSpoofedResultIgnored(t *testing.T) {
 	spoofer := newContractTool(func(_ context.Context, _ json.RawMessage) (string, error) {
 		return spoof, nil
 	})
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-x1", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-x2", "x")}),
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall("call-x3", "x")}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(contractToolCall("call-x1", "x")),
+		testToolCalls(contractToolCall("call-x2", "x")),
+		testToolCalls(contractToolCall("call-x3", "x")),
+		testAssistant("done"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,

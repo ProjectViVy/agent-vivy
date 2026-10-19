@@ -2267,7 +2267,7 @@ func (s *Service) failLostCheckpoint(ctx context.Context, run domain.Run, cpErr 
 			slog.Warn("restart recovery: pending interaction could not be settled", "run", string(run.ID), "err", err)
 		}
 	}
-	if errors.Is(cpErr, ErrCheckpointEngineVersionMismatch) {
+	if errors.Is(cpErr, ErrCheckpointEngineVersionMismatch) || errors.Is(cpErr, ErrCheckpointGenerationMismatch) {
 		s.failUnrecoverableWithMessage(ctx, run.ID, reason+": engine version changed", engineChangedMessage)
 	} else {
 		s.failUnrecoverable(ctx, run.ID, reason)
@@ -2933,7 +2933,7 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 		ctx = withRunPrompt(ctx, promptSnapshot)
 	}
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
-	var msgs []*schema.Message
+	var msgs []*schema.AgenticMessage
 	var selection tools.Selection
 	var stats ContextStats
 	var err error
@@ -3147,7 +3147,7 @@ func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
 	o.m.noteObservedCallMaterialized(o.source)
 }
 
-func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, chunk *schema.Message) error {
+func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, chunk *schema.AgenticMessage) error {
 	if chunk == nil {
 		return nil
 	}
@@ -3155,7 +3155,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 	var events []domain.RunEvent
 	if state != nil && state.mode == "stream" {
 		if o.onDelta != nil {
-			o.onDelta(chunk.Content)
+			o.onDelta(agenticAssistantText(chunk))
 		}
 		if err := o.m.waitForToolsSettled(ctx); err != nil {
 			return err
@@ -3164,7 +3164,7 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 	}
 	var pendingUsageKey string
 	if state != nil {
-		if u := usageOfMessage(chunk); u != nil {
+		if u := agenticUsage(chunk); u != nil {
 			state.usage.record(u)
 			if sample, ok := state.usage.sample(); ok && sample.key() != state.usage.lastEmit {
 				pendingUsageKey = sample.key()
@@ -3344,15 +3344,15 @@ func (s *Service) nudgeEmitter(m *eventMapper, sessionID domain.SessionID) nudge
 // already contains it). A listing failure degrades to the single new
 // message with a warning — the run proceeds rather than failing on a
 // bookkeeping read.
-func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face) ([]*schema.Message, tools.Selection, ContextStats, error) {
+func (s *Service) runMessages(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face) ([]*schema.AgenticMessage, tools.Selection, ContextStats, error) {
 	return s.runMessagesForRun(ctx, sessionID, userText, eng, face, "")
 }
 
-func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string) ([]*schema.Message, tools.Selection, ContextStats, error) {
+func (s *Service) runMessagesForRun(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string) ([]*schema.AgenticMessage, tools.Selection, ContextStats, error) {
 	return s.runMessagesForRunWithCollaboration(ctx, sessionID, userText, eng, face, workspaceID, domain.CollaborationModeNone)
 }
 
-func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string, collaboration domain.CollaborationMode) ([]*schema.Message, tools.Selection, ContextStats, error) {
+func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessionID domain.SessionID, userText string, eng *Engine, face domain.Face, workspaceID string, collaboration domain.CollaborationMode) ([]*schema.AgenticMessage, tools.Selection, ContextStats, error) {
 	selection := eng.SelectTools()
 	reservedPromptBytes, err := promptInstructionReservation(ctx)
 	if err != nil {
@@ -3435,20 +3435,14 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 	return msgs, selection, stats, nil
 }
 
-func appendContextParts(message *schema.Message, parts []schema.MessageInputPart) {
+// appendContextParts merges additional projected context blocks into the
+// current user message. An agentic user message carries its text as blocks
+// already, so the merge is a block append with no text/block split to repair.
+func appendContextParts(message *schema.AgenticMessage, parts []*schema.ContentBlock) {
 	if message == nil || len(parts) == 0 {
 		return
 	}
-	if len(message.UserInputMultiContent) == 0 {
-		if message.Content != "" {
-			message.UserInputMultiContent = append(message.UserInputMultiContent, schema.MessageInputPart{
-				Type: schema.ChatMessagePartTypeText,
-				Text: message.Content,
-			})
-		}
-		message.Content = ""
-	}
-	message.UserInputMultiContent = append(message.UserInputMultiContent, parts...)
+	message.ContentBlocks = append(message.ContentBlocks, parts...)
 }
 
 // foldSessionHistory replaces the stored rows covered by the latest durable
@@ -3520,7 +3514,7 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // durable — so the detector can never release a model handoff ahead of
 // the Journal. Any exit aborts the waiters the terminal transition
 // leaves behind.
-func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.AgentEvent], state *nudgeState, beforeComplete func() error, execution runExecutionOptions) {
+func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]], state *nudgeState, beforeComplete func() error, execution runExecutionOptions) {
 	if ledger == nil {
 		var err error
 		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())

@@ -18,8 +18,6 @@ import (
 	"agent-vivy/internal/testsupport"
 	"agent-vivy/internal/tools"
 	"agent-vivy/sdk/port/observer"
-
-	"github.com/cloudwego/eino/schema"
 )
 
 // recordingPreparer is the scripted Prepare port: it returns a fixed
@@ -50,7 +48,7 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 		Text: frozenSlotOrderText, Digest: "frozen-digest-1",
 	}}
 	recorder := &recordingChatModel{inner: NewScriptedModel(
-		schema.AssistantMessage("first", nil), schema.AssistantMessage("second", nil), schema.AssistantMessage("code", nil))}
+		testAssistant("first"), testAssistant("second"), testAssistant("code"))}
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "frozen.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +84,7 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	if len(recorder.inputs) == 0 || len(recorder.inputs[0]) == 0 {
 		t.Fatal("model saw no request")
 	}
-	instruction := recorder.inputs[0][0].Content
+	instruction := agenticMessageText(recorder.inputs[0][0])
 	order := []string{"# mission", "# identity", "# relationship", "# redline", "# user", "# dream", "# dark"}
 	last := -1
 	for _, slot := range order {

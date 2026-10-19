@@ -1770,7 +1770,7 @@ refreshModels: 'Refresh model list',
     back: 'Back',
     modelTitle: 'Configure your model',
     modelBody:
-      'Enter the protocol adapter (openai-completions / openai-responses / anthropic-messages), Base URL, and default model. Vendors, endpoint addresses, and model lists come from the backend\'s embedded catalog; leave Base URL empty to use the catalog address, or point it at your own OpenAI-compatible gateway. The API key is injected by the runtime environment — the wizard never collects it.',
+      'Enter the protocol adapter (openai-completions / anthropic-messages), Base URL, and default model. Vendors, endpoint addresses, and model lists come from the backend\'s embedded catalog; leave Base URL empty to use the catalog address, or point it at your own OpenAI-compatible gateway. The API key is injected by the runtime environment — the wizard never collects it.',
     openInBrowser: 'Open in browser',
     provider: 'Protocol adapter',
     providerPlaceholder: 'openai-completions',

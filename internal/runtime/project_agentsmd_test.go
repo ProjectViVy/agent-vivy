@@ -76,8 +76,8 @@ func TestEngineProjectAgentsMDInjectsHostFileInSandbox(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws.Path, AgentsMDFileName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("sandbox AGENTS.md should be absent, err=%v", err)
 	}
-	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.Message{
-		schema.UserMessage("echo something"),
+	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.AgenticMessage{
+		testUser("echo something"),
 	}))
 	if final != "AGENTSMD-TEST-DONE" {
 		t.Fatalf("final answer = %q", final)
@@ -90,7 +90,7 @@ func TestEngineProjectAgentsMDInjectsHostFileInSandbox(t *testing.T) {
 		joined := ""
 		for _, msg := range input {
 			if msg != nil {
-				joined += msg.Content
+				joined += agenticMessageText(msg)
 			}
 		}
 		if !strings.Contains(joined, agentsMDTestMarker) {
@@ -125,8 +125,8 @@ func TestEngineReadsInitCreatedProjectInstructionsOnNextTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := &recordingModel{inner: NewScriptedModel(
-		schema.AssistantMessage("FIRST", nil),
-		schema.AssistantMessage("SECOND", nil),
+		testAssistant("FIRST"),
+		testAssistant("SECOND"),
 	)}
 	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
@@ -135,13 +135,13 @@ func TestEngineReadsInitCreatedProjectInstructionsOnNextTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := drainFinalText(t, eng.RunHistory(withRunID(ctx, "run-before-init"), []*schema.Message{schema.UserMessage("before")})); got != "FIRST" {
+	if got := drainFinalText(t, eng.RunHistory(withRunID(ctx, "run-before-init"), []*schema.AgenticMessage{testUser("before")})); got != "FIRST" {
 		t.Fatalf("before = %q", got)
 	}
 	if err := os.WriteFile(filepath.Join(child, AgentsMDFileName), []byte(agentsMDTestMarker), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := drainFinalText(t, eng.RunHistory(withRunID(ctx, "run-after-init"), []*schema.Message{schema.UserMessage("after")})); got != "SECOND" {
+	if got := drainFinalText(t, eng.RunHistory(withRunID(ctx, "run-after-init"), []*schema.AgenticMessage{testUser("after")})); got != "SECOND" {
 		t.Fatalf("after = %q", got)
 	}
 	inputs := rec.snapshot()
@@ -152,7 +152,7 @@ func TestEngineReadsInitCreatedProjectInstructionsOnNextTurn(t *testing.T) {
 		joined := ""
 		for _, message := range input {
 			if message != nil {
-				joined += message.Content
+				joined += agenticMessageText(message)
 			}
 		}
 		if !strings.Contains(joined, "original root rules") || strings.Contains(joined, agentsMDTestMarker) != (i == 1) {
@@ -194,14 +194,14 @@ func TestEngineSelectedWorkspaceAgentsMDReplacesLaunchProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	runCtx := withSessionID(withRunID(ctx, "run-selected-instructions"), "session-selected")
-	if final := drainFinalText(t, eng.RunHistory(runCtx, []*schema.Message{schema.UserMessage("follow the project")})); final != "AGENTSMD-TEST-DONE" {
+	if final := drainFinalText(t, eng.RunHistory(runCtx, []*schema.AgenticMessage{testUser("follow the project")})); final != "AGENTSMD-TEST-DONE" {
 		t.Fatalf("final answer = %q", final)
 	}
 	for i, input := range rec.snapshot() {
 		joined := ""
 		for _, msg := range input {
 			if msg != nil {
-				joined += msg.Content
+				joined += agenticMessageText(msg)
 			}
 		}
 		if !strings.Contains(joined, selectedMarker) {

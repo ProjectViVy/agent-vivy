@@ -137,7 +137,7 @@ func TestDeepSeekThinkingRequest(t *testing.T) {
 				APIKey: "secret", Ready: true,
 			}})
 			ctx := domain.WithThinkingMode(context.Background(), tc.mode)
-			if _, err := cm.Generate(ctx, []*schema.Message{schema.UserMessage("hi")}); err != nil {
+			if _, err := cm.Generate(ctx, []*schema.AgenticMessage{testUser("hi")}); err != nil {
 				t.Fatalf("Generate() error = %v", err)
 			}
 			if outbound.Model != tc.wantModel {

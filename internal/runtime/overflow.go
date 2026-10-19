@@ -114,21 +114,25 @@ func errorChainText(err error, maxLen int) string {
 }
 
 // isEmptyLengthStop detects pi's "case 3" overflow: the server truncated an
-// oversized input, finished with stop_reason "length", and produced no
-// usable output (Xiaomi MiMo behavior; the same guard on Anthropic/OpenAI).
-func isEmptyLengthStop(msg *schema.Message) bool {
-	return msg != nil && msg.ResponseMeta != nil &&
-		msg.ResponseMeta.FinishReason == "length" &&
-		len(msg.ToolCalls) == 0 &&
-		strings.TrimSpace(msg.Content) == "" &&
-		strings.TrimSpace(msg.ReasoningContent) == ""
+// oversized input, finished at the length limit, and produced no usable
+// output (Xiaomi MiMo behavior; the same guard on Anthropic/OpenAI).
+//
+// The pinned agentic components expose no unified finish reason, so the length
+// signal comes from the per-protocol response extension (see
+// agenticFinishReason). A provider that reports neither leaves this heuristic
+// inert; the text-error classification still covers the reported overflow.
+func isEmptyLengthStop(msg *schema.AgenticMessage) bool {
+	return agenticFinishReason(msg) == "length" &&
+		len(agenticToolCalls(msg)) == 0 &&
+		strings.TrimSpace(agenticAssistantText(msg)) == "" &&
+		strings.TrimSpace(agenticReasoningText(msg)) == ""
 }
 
-// overflowRetryDecision is the service-side ModelRetryConfig.ShouldRetry
+// overflowRetryDecision is the service-side TypedModelRetryConfig.ShouldRetry
 // decider. Returning nil accepts the call as-is; an overflow decision folds
 // durable session history, replaces the call input with the compacted feed,
 // and tags the retry for the auto_retry.* projection.
-func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.RetryContext) *adk.RetryDecision {
+func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
 	if s.engine == nil || s.engine.cfg.Compaction == nil || !s.engine.cfg.Compaction.Enabled {
 		return nil
 	}
@@ -178,11 +182,11 @@ func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.RetryContex
 	// The retried call's first streamed event (or its own failure) emits
 	// auto_retry.finished from the consume loop via overflowAwaiting — the
 	// decider only reports that the recovery attempt was dispatched.
-	modified := make([]*schema.Message, 0, 2+len(tail))
+	modified := make([]*schema.AgenticMessage, 0, 2+len(tail))
 	modified = append(modified, rc.InputMessages[0]) // per-run preamble stays first
-	modified = append(modified, schema.UserMessage(compactionSummaryPrefix+rec.Summary))
+	modified = append(modified, agenticUserMessage(compactionSummaryPrefix+rec.Summary))
 	modified = append(modified, tail...)
-	return &adk.RetryDecision{
+	return &adk.TypedRetryDecision[*schema.AgenticMessage]{
 		Retry:                        true,
 		ModifiedInputMessages:        modified,
 		PersistModifiedInputMessages: true,
@@ -195,7 +199,7 @@ func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.RetryContex
 // never folded — they stay verbatim after the summary. The returned tail is
 // the post-fold feed the retry should run on: kept pre-run tail plus the
 // pending turn's projected rows.
-func (s *Service) compactForOverflow(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) (*storage.SessionCompaction, []*schema.Message, error) {
+func (s *Service) compactForOverflow(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) (*storage.SessionCompaction, []*schema.AgenticMessage, error) {
 	if s.deps.Messages == nil || s.deps.Compactions == nil {
 		return nil, nil, ErrCompactionNotWired
 	}

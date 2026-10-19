@@ -17,26 +17,26 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-// toolSurfaceScriptModel is a deterministic ToolCallingChatModel that records
+// toolSurfaceScriptModel is a deterministic AgenticModel that records
 // the ToolInfo list actually passed to each model generation. It intentionally
 // drives the real Eino Runner rather than calling middleware hooks directly.
 type toolSurfaceScriptModel struct {
 	mu       sync.Mutex
-	script   []*schema.Message
+	script   []*schema.AgenticMessage
 	calls    int
 	surfaces [][]string
 }
 
-func (m *toolSurfaceScriptModel) Generate(_ context.Context, _ []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *toolSurfaceScriptModel) Generate(_ context.Context, _ []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	return m.next(opts)
 }
 
-func (m *toolSurfaceScriptModel) Stream(_ context.Context, _ []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *toolSurfaceScriptModel) Stream(_ context.Context, _ []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	msg, err := m.next(opts)
 	if err != nil {
 		return nil, err
 	}
-	reader, writer := schema.Pipe[*schema.Message](1)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
 		defer writer.Close()
 		writer.Send(msg, nil)
@@ -44,11 +44,7 @@ func (m *toolSurfaceScriptModel) Stream(_ context.Context, _ []*schema.Message, 
 	return reader, nil
 }
 
-func (m *toolSurfaceScriptModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
-}
-
-func (m *toolSurfaceScriptModel) next(opts []model.Option) (*schema.Message, error) {
+func (m *toolSurfaceScriptModel) next(opts []model.Option) (*schema.AgenticMessage, error) {
 	options := model.GetCommonOptions(nil, opts...)
 	names := make([]string, 0, len(options.Tools))
 	for _, info := range options.Tools {
@@ -129,16 +125,10 @@ func drainSurfaceRunner(t *testing.T, eng *Engine, ctx context.Context) {
 
 func runDynamicToolSearchScenario(t *testing.T, active []tools.Tool, selected []string, dynamic *runnerProbeTool) *toolSurfaceScriptModel {
 	t.Helper()
-	model := &toolSurfaceScriptModel{script: []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "search-1",
-			Function: schema.FunctionCall{Name: officialToolSearchName, Arguments: `{"query":"select:dynamic_probe"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "dynamic-1",
-			Function: schema.FunctionCall{Name: dynamic.name, Arguments: `{}`},
-		}}),
-		schema.AssistantMessage("done", nil),
+	model := &toolSurfaceScriptModel{script: []*schema.AgenticMessage{
+		testToolCalls(testCall("search-1", officialToolSearchName, `{"query":"select:dynamic_probe"}`)),
+		testToolCalls(testCall("dynamic-1", dynamic.name, `{}`)),
+		testAssistant("done"),
 	}}
 	eng, err := NewEngine(context.Background(), model, active, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
@@ -185,16 +175,10 @@ func TestEngineRunnerUsesOfficialToolSearchWithoutFixedTools(t *testing.T) {
 }
 
 func TestEngineRunnerMountsHiddenToolInfoAfterTheFirstModelCall(t *testing.T) {
-	model := &toolSurfaceScriptModel{script: []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "view-1",
-			Function: schema.FunctionCall{Name: tools.SkillViewName, Arguments: `{"name":"writer"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "mounted-1",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"mounted"}`},
-		}}),
-		schema.AssistantMessage("done", nil),
+	model := &toolSurfaceScriptModel{script: []*schema.AgenticMessage{
+		testToolCalls(testCall("view-1", tools.SkillViewName, `{"name":"writer"}`)),
+		testToolCalls(testCall("mounted-1", tools.EchoInfoName, `{"text":"mounted"}`)),
+		testAssistant("done"),
 	}}
 	eng, err := NewEngine(context.Background(), model, []tools.Tool{tools.NewSkillView(mountSkillOps{})}, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
@@ -221,7 +205,7 @@ func TestEngineRunnerMountsHiddenToolInfoAfterTheFirstModelCall(t *testing.T) {
 }
 
 func TestEngineRunnerWithoutDynamicToolsDoesNotInstallSearch(t *testing.T) {
-	model := &toolSurfaceScriptModel{script: []*schema.Message{schema.AssistantMessage("done", nil)}}
+	model := &toolSurfaceScriptModel{script: []*schema.AgenticMessage{testAssistant("done")}}
 	eng, err := NewEngine(context.Background(), model, []tools.Tool{tools.NewListDir(nil)}, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 		HiddenTools: []tools.Tool{tools.NewEchoInfo()},
@@ -244,7 +228,7 @@ func (reservedTool) Spec() domain.ToolSpec {
 func (reservedTool) InvokableRun(context.Context, json.RawMessage) (string, error) { return "", nil }
 
 func TestEngineRejectsReservedToolSearchName(t *testing.T) {
-	_, err := NewEngine(context.Background(), &toolSurfaceScriptModel{script: []*schema.Message{{}}}, []tools.Tool{reservedTool{}}, EngineConfig{})
+	_, err := NewEngine(context.Background(), &toolSurfaceScriptModel{script: []*schema.AgenticMessage{{}}}, []tools.Tool{reservedTool{}}, EngineConfig{})
 	if err == nil || !strings.Contains(err.Error(), officialToolSearchName) {
 		t.Fatalf("reserved tool name error = %v", err)
 	}

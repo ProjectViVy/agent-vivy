@@ -412,9 +412,9 @@ func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Mess
 	if trimmed := strings.TrimSpace(instructions); trimmed != "" {
 		systemPrompt += "\n\nFocus: " + trimmed
 	}
-	input := []*schema.Message{
-		schema.SystemMessage(systemPrompt),
-		schema.UserMessage(transcript.String()),
+	input := []*schema.AgenticMessage{
+		agenticSystemMessage(systemPrompt),
+		agenticUserMessage(transcript.String()),
 	}
 	resp, err := s.engine.chatModel.Generate(ctx, input)
 	if err != nil {
@@ -423,7 +423,7 @@ func (s *Service) generateSessionSummary(ctx context.Context, feed []domain.Mess
 	if resp == nil {
 		return "", errCompactionCallbackAborted
 	}
-	out := strings.TrimSpace(resp.Content)
+	out := strings.TrimSpace(agenticAssistantText(resp))
 	if out == "" {
 		return "", errCompactionCallbackAborted
 	}

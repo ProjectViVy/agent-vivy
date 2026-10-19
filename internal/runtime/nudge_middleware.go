@@ -40,19 +40,19 @@ func nudgeEmitterFromContext(ctx context.Context) nudgeEmitter {
 // newNudgeMiddleware builds the immutable boundary middleware.
 // maxContextBytes is the run's context byte budget; the reminder must
 // fit inside what the current input leaves.
-func newNudgeMiddleware(maxContextBytes int) adk.ChatModelAgentMiddleware {
+func newNudgeMiddleware(maxContextBytes int) adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
 	return &nudgeMiddleware{
-		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
-		maxContextBytes:              maxContextBytes,
+		TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{},
+		maxContextBytes:                   maxContextBytes,
 	}
 }
 
 type nudgeMiddleware struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 	maxContextBytes int
 }
 
-func (m *nudgeMiddleware) WrapModel(_ context.Context, inner model.BaseModel[*schema.Message], _ *adk.ModelContext) (model.BaseModel[*schema.Message], error) {
+func (m *nudgeMiddleware) WrapModel(_ context.Context, inner model.BaseModel[*schema.AgenticMessage], _ *adk.TypedModelContext[*schema.AgenticMessage]) (model.BaseModel[*schema.AgenticMessage], error) {
 	return &nudgeWrappedModel{inner: inner, maxContextBytes: m.maxContextBytes}, nil
 }
 
@@ -61,11 +61,11 @@ func (m *nudgeMiddleware) WrapModel(_ context.Context, inner model.BaseModel[*sc
 // their outputs. It is safe for provider retries — Take yields the same
 // notice again without a second scheduling signal.
 type nudgeWrappedModel struct {
-	inner           model.BaseModel[*schema.Message]
+	inner           model.BaseModel[*schema.AgenticMessage]
 	maxContextBytes int
 }
 
-func (w *nudgeWrappedModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (w *nudgeWrappedModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	prepared, err := w.prepare(ctx, input)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func (w *nudgeWrappedModel) Generate(ctx context.Context, input []*schema.Messag
 	return w.inner.Generate(ctx, prepared, opts...)
 }
 
-func (w *nudgeWrappedModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (w *nudgeWrappedModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	prepared, err := w.prepare(ctx, input)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (w *nudgeWrappedModel) Stream(ctx context.Context, input []*schema.Message,
 	return w.inner.Stream(ctx, prepared, opts...)
 }
 
-func (w *nudgeWrappedModel) prepare(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
+func (w *nudgeWrappedModel) prepare(ctx context.Context, input []*schema.AgenticMessage) ([]*schema.AgenticMessage, error) {
 	// Nothing settled this turn → no barrier. The reminder only ever
 	// attaches after the current tool results (§7).
 	ids := trailingToolCallIDs(input)
@@ -115,9 +115,9 @@ func (w *nudgeWrappedModel) prepare(ctx context.Context, input []*schema.Message
 			}
 		}
 	}
-	out := make([]*schema.Message, len(input), len(input)+1)
+	out := make([]*schema.AgenticMessage, len(input), len(input)+1)
 	copy(out, input)
-	reminder := schema.UserMessage(rendered)
+	reminder := agenticUserMessage(rendered)
 	reminder.Extra = map[string]any{
 		"kind":             "runtime_nudge",
 		"tool_call_id":     notice.CallID,
@@ -132,14 +132,18 @@ func (w *nudgeWrappedModel) prepare(ctx context.Context, input []*schema.Message
 // sealed before the inner model may run. Keying on the input (not on the
 // latest registered batch) matters: the engine can reach the next model
 // call before the consumer finishes journaling the request events.
-func trailingToolCallIDs(input []*schema.Message) []string {
+func trailingToolCallIDs(input []*schema.AgenticMessage) []string {
 	var ids []string
 	for i := len(input) - 1; i >= 0; i-- {
 		msg := input[i]
-		if msg == nil || msg.Role != schema.Tool || msg.ToolCallID == "" {
+		if msg == nil {
 			break
 		}
-		ids = append(ids, msg.ToolCallID)
+		results := agenticToolResults(msg)
+		if len(results) == 0 || results[0].CallID == "" {
+			break
+		}
+		ids = append(ids, results[0].CallID)
 	}
 	for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {
 		ids[i], ids[j] = ids[j], ids[i]

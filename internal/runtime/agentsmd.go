@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/middlewares/agentsmd"
+	"github.com/cloudwego/eino/schema"
 )
 
 // D6 ratifies the workspace AGENTS.md as the only injected context file:
@@ -32,11 +33,11 @@ type AgentsMDBackend = agentsmd.Backend
 var _ AgentsMDBackend = (*EinoFilesystemBackend)(nil)
 
 // newAgentsMDHandler builds the agentsmd middleware for one engine.
-func newAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []string) (adk.ChatModelAgentMiddleware, error) {
+func newAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []string) (adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage], error) {
 	if len(files) == 0 {
 		files = []string{AgentsMDFileName}
 	}
-	return agentsmd.New(ctx, &agentsmd.Config{
+	return agentsmd.NewTyped[*schema.AgenticMessage](ctx, &agentsmd.Config{
 		Backend: backend,
 		// D6: only AGENTS.md (discovered list when an instruction root is
 		// wired). A missing file is a non-fatal warning.
@@ -49,7 +50,7 @@ func newAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []st
 }
 
 // buildAgentsMDHandler is the NewEngine seam: nil backend disables injection.
-func buildAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []string) (adk.ChatModelAgentMiddleware, error) {
+func buildAgentsMDHandler(ctx context.Context, backend AgentsMDBackend, files []string) (adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage], error) {
 	if backend == nil {
 		return nil, nil
 	}

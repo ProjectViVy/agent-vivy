@@ -572,17 +572,6 @@ func newQueueID() string {
 	return "q-" + hex.EncodeToString(b[:])
 }
 
-// steeredMessage builds the user message a resume leg injects into the
-// model-visible history. Multiple steer items under mode "all" join into
-// one delivery — pi concatenates queued steering into the next turn.
-func steeredMessage(items []domain.QueuedTurn) *schema.Message {
-	parts := make([]string, 0, len(items))
-	for _, item := range items {
-		parts = append(parts, item.Text)
-	}
-	return schema.UserMessage(joinLines(parts))
-}
-
 func joinLines(parts []string) string {
 	out := ""
 	for i, p := range parts {
@@ -594,50 +583,36 @@ func joinLines(parts []string) string {
 	return out
 }
 
-// resumeSteeredRun builds the continuation iterator after a boundary-cancel:
-// checkpoint resume with a HistoryModifier that appends the steered user
-// message — the model sees it in the SAME run's history (turn.steered is the
-// single continuity marker). Nil iterator = resume unavailable; the caller
-// falls back to terminal settle and the items re-enter the follow-up lane.
-func (s *Service) resumeSteeredRun(ctx context.Context, runID domain.RunID, items []domain.QueuedTurn, info *adk.InterruptInfo) *adk.AsyncIterator[*adk.AgentEvent] {
+// resumeSteeredRun builds the continuation iterator after a boundary-cancel.
+// The steer text rides the resume context and is injected by the typed
+// steerMiddleware on the resumed run's next model call, so the model sees it
+// in the SAME run's history (turn.steered is the single continuity marker).
+// Nil iterator = resume unavailable; the caller falls back to terminal settle
+// and the items re-enter the follow-up lane.
+func (s *Service) resumeSteeredRun(ctx context.Context, runID domain.RunID, items []domain.QueuedTurn, info *adk.InterruptInfo) *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]] {
 	if s.engine == nil || s.engine.cfg.Checkpoints == nil {
 		return nil
 	}
-	msg := steeredMessage(items)
-	modifier := func(_ context.Context, history []adk.Message) []adk.Message {
-		// A boundary-cancel checkpoint pins the next node to ToolNode
-		// with a trailing assistant(tool_calls) message, which must stay
-		// last or ToolNode rejects the resume. Land the steer text just
-		// before it: the pending calls still execute, and the model sees
-		// the steer inside the same turn's history.
-		if n := len(history); n > 0 {
-			if last := history[n-1]; last.Role == schema.Assistant && len(last.ToolCalls) > 0 {
-				out := make([]adk.Message, 0, n+1)
-				out = append(out, history[:n-1]...)
-				return append(out, msg, last)
-			}
-		}
-		return append(history, msg)
-	}
+	ctx = withSteerText(ctx, steerMessageText(items))
 	// Resume targets must be actual InterruptCtx IDs. The boundary-cancel
 	// interrupt carries the agent context plus the pending tool context;
 	// walk every context and its parent chain and address the agent-level
-	// targets with the history modifier (per adk interrupt_test.go: agent
-	// ctx -> *ChatModelAgentResumeData, tool ctx -> the tool's resume
-	// value; a missing tool target re-executes the tool, which is what we
-	// want for a boundary steer).
+	// targets (per adk interrupt_test.go: agent ctx ->
+	// *ChatModelAgentResumeData, tool ctx -> the tool's resume value; a
+	// missing tool target re-executes the tool, which is what we want for a
+	// boundary steer).
 	targets := map[string]any{}
 	if info != nil {
 		for _, c := range info.InterruptContexts {
-			for ctx := c; ctx != nil; ctx = ctx.Parent {
-				if len(ctx.Address) > 0 && ctx.Address[len(ctx.Address)-1].Type == adk.AddressSegmentAgent {
-					targets[ctx.ID] = &adk.ChatModelAgentResumeData{HistoryModifier: modifier}
+			for current := c; current != nil; current = current.Parent {
+				if len(current.Address) > 0 && current.Address[len(current.Address)-1].Type == adk.AddressSegmentAgent {
+					targets[current.ID] = &adk.ChatModelAgentResumeData{}
 				}
 			}
 		}
 	}
 	if len(targets) == 0 {
-		targets["agent:"+s.engine.agentName] = &adk.ChatModelAgentResumeData{HistoryModifier: modifier}
+		targets["agent:"+s.engine.agentName] = &adk.ChatModelAgentResumeData{}
 	}
 	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{Targets: targets})
 	if err != nil {

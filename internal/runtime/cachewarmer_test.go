@@ -41,7 +41,7 @@ func warmVendor(lifetimeSeconds int) provider.Vendor {
 	}
 }
 
-// warmSpyModel is a ToolCallingChatModel double: call 1 requests the
+// warmSpyModel is an AgenticModel double: call 1 requests the
 // echo_info tool and reports usage; every later real call blocks until
 // release; a call whose last message is the warm marker counts itself
 // and replies immediately with usage + a cache-write extra.
@@ -53,7 +53,7 @@ type warmSpyModel struct {
 	warmCalls int
 }
 
-var _ model.ToolCallingChatModel = (*warmSpyModel)(nil)
+var _ model.AgenticModel = (*warmSpyModel)(nil)
 
 func newWarmSpyModel() *warmSpyModel {
 	return &warmSpyModel{release: make(chan struct{})}
@@ -65,31 +65,26 @@ func (m *warmSpyModel) counts() (calls, warm int) {
 	return m.calls, m.warmCalls
 }
 
-func warmReply() *schema.Message {
-	msg := &schema.Message{
-		Role:    schema.Assistant,
-		Content: "ok",
-		ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
-			PromptTokens: 111, CompletionTokens: 2, TotalTokens: 113,
-		}},
-		Extra: map[string]any{},
-	}
+func warmReply() *schema.AgenticMessage {
+	msg := agenticTestMessage(schema.AgenticRoleTypeAssistant, "ok", nil, &schema.TokenUsage{
+		PromptTokens: 111, CompletionTokens: 2, TotalTokens: 113,
+	}, map[string]any{})
 	// Mirrors einoclaude's keyOfCacheCreationInputTokens message extra so
 	// the accounting fold exercises the real read path.
 	msg.Extra["_eino_claude_cache_creation_input_tokens"] = 1234
 	return msg
 }
 
-func (m *warmSpyModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *warmSpyModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	r, err := m.Stream(ctx, input, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return schema.ConcatMessages(collectStream(r))
+	return schema.ConcatAgenticMessages(collectStream(r))
 }
 
-func (m *warmSpyModel) Stream(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	if n := len(input); n > 0 && input[n-1].Role == schema.User && input[n-1].Content == cacheWarmPrompt {
+func (m *warmSpyModel) Stream(ctx context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
+	if n := len(input); n > 0 && input[n-1].Role == schema.AgenticRoleTypeUser && agenticMessageText(input[n-1]) == cacheWarmPrompt {
 		m.mu.Lock()
 		m.warmCalls++
 		m.mu.Unlock()
@@ -104,18 +99,14 @@ func (m *warmSpyModel) Stream(ctx context.Context, input []*schema.Message, _ ..
 	}
 	select {
 	case <-m.release:
-		return streamOf(schema.AssistantMessage("done", nil), usageText("", 5000, 10)), nil
+		return streamOf(testAssistant("done"), usageText("", 5000, 10)), nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-func (m *warmSpyModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
-}
-
-func streamOf(msgs ...*schema.Message) *schema.StreamReader[*schema.Message] {
-	r, w := schema.Pipe[*schema.Message](8)
+func streamOf(msgs ...*schema.AgenticMessage) *schema.StreamReader[*schema.AgenticMessage] {
+	r, w := schema.Pipe[*schema.AgenticMessage](8)
 	go func() {
 		defer w.Close()
 		for _, c := range msgs {
@@ -127,7 +118,7 @@ func streamOf(msgs ...*schema.Message) *schema.StreamReader[*schema.Message] {
 	return r
 }
 
-func newWarmService(t *testing.T, chat model.ToolCallingChatModel, mode string, minSavings float64, lifetime int) (*Service, *sqlite.Backend, *testSink) {
+func newWarmService(t *testing.T, chat model.AgenticModel, mode string, minSavings float64, lifetime int) (*Service, *sqlite.Backend, *testSink) {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))

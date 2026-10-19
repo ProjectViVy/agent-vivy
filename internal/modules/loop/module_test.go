@@ -54,7 +54,7 @@ func TestLoopDriverPreservesPinnedEinoStreamingPath(t *testing.T) {
 			if recvErr != nil {
 				t.Fatal(recvErr)
 			}
-			chunks = append(chunks, chunk.Content)
+			chunks = append(chunks, runtime.AgenticMessageText(chunk))
 		}
 	}
 	if got, want := strings.Join(chunks, ""), "test response to: through loop module"; got != want {

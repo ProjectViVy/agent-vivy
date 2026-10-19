@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -35,16 +33,10 @@ func TestServiceSessionPinRestoresSkillMountedTools(t *testing.T) {
 	// One scripted queue serves both runs: view skill + close (run 1),
 	// then echo directly + close (run 2, no skill_view in between).
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-skill-view-pin",
-			Function: schema.FunctionCall{Name: tools.SkillViewName, Arguments: `{"name":"writer"}`},
-		}}),
-		schema.AssistantMessage("Skill reviewed.", nil),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-echo-pinned",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"echo pin"}`},
-		}}),
-		schema.AssistantMessage("Pinned tool ran in a later run.", nil),
+		testToolCalls(testCall("call-skill-view-pin", tools.SkillViewName, `{"name":"writer"}`)),
+		testAssistant("Skill reviewed."),
+		testToolCalls(testCall("call-echo-pinned", tools.EchoInfoName, `{"text":"echo pin"}`)),
+		testAssistant("Pinned tool ran in a later run."),
 	)
 	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
 	if err != nil {
@@ -116,11 +108,8 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 		t.Fatalf("resolve toolset: %v", err)
 	}
 	mountModel := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-skill-view-leak",
-			Function: schema.FunctionCall{Name: tools.SkillViewName, Arguments: `{"name":"writer"}`},
-		}}),
-		schema.AssistantMessage("Skill reviewed.", nil),
+		testToolCalls(testCall("call-skill-view-leak", tools.SkillViewName, `{"name":"writer"}`)),
+		testAssistant("Skill reviewed."),
 	)
 	checkpoints, err := NewVersionedCheckpointStore(backend.Blobs(), "test-engine")
 	if err != nil {
@@ -148,11 +137,8 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 	// A second engine + service over the same durable state, its own script
 	// calling echo_info directly in a DIFFERENT session.
 	leakModel := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-echo-leak",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"echo leak"}`},
-		}}),
-		schema.AssistantMessage("Unrelated final reply.", nil),
+		testToolCalls(testCall("call-echo-leak", tools.EchoInfoName, `{"text":"echo leak"}`)),
+		testAssistant("Unrelated final reply."),
 	)
 	eng2, err := NewEngine(ctx, leakModel, ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,

@@ -12,8 +12,6 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
@@ -84,27 +82,12 @@ func TestVC1Walkthrough(t *testing.T) {
 		t.Fatalf("checkpoint store: %v", err)
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-wt-write",
-			Function: schema.FunctionCall{Name: tools.WriteFileName, Arguments: `{"path":"calc.sh","content":"#!/bin/sh\necho FIAL\n"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-wt-read",
-			Function: schema.FunctionCall{Name: tools.ReadFileName, Arguments: `{"path":"calc.sh"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-wt-grep",
-			Function: schema.FunctionCall{Name: tools.GrepName, Arguments: `{"pattern":"FIAL"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-wt-edit",
-			Function: schema.FunctionCall{Name: tools.MultiEditName, Arguments: `{"path":"calc.sh","edits":[{"old_string":"echo FIAL","new_string":"echo PASS"}]}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-wt-bash",
-			Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"git grep --no-index PASS -- calc.sh"}`},
-		}}),
-		schema.AssistantMessage("Walkthrough complete: script fixed and verified.", nil),
+		testToolCalls(testCall("call-wt-write", tools.WriteFileName, `{"path":"calc.sh","content":"#!/bin/sh\necho FIAL\n"}`)),
+		testToolCalls(testCall("call-wt-read", tools.ReadFileName, `{"path":"calc.sh"}`)),
+		testToolCalls(testCall("call-wt-grep", tools.GrepName, `{"pattern":"FIAL"}`)),
+		testToolCalls(testCall("call-wt-edit", tools.MultiEditName, `{"path":"calc.sh","edits":[{"old_string":"echo FIAL","new_string":"echo PASS"}]}`)),
+		testToolCalls(testCall("call-wt-bash", tools.BashName, `{"command":"git grep --no-index PASS -- calc.sh"}`)),
+		testAssistant("Walkthrough complete: script fixed and verified."),
 	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints, AutoApproveTools: []string{tools.WriteFileName, tools.MultiEditName}})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

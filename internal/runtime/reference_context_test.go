@@ -11,21 +11,18 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// importedText flattens everything the model could read out of one feed
-// message: plain content plus every text part.
-func importedText(msg *schema.Message) string {
-	var b strings.Builder
-	if msg == nil {
+// importedText flattens what the model can read out of one feed message. Only
+// user-role messages can carry an imported projection: an assistant reply may
+// quote the same text back (the echo model does), and that is not a second
+// projection.
+func importedText(msg *schema.AgenticMessage) string {
+	if msg == nil || msg.Role != schema.AgenticRoleTypeUser || agenticIsToolResult(msg) {
 		return ""
 	}
-	b.WriteString(msg.Content)
-	for _, part := range msg.UserInputMultiContent {
-		b.WriteString(part.Text)
-	}
-	return b.String()
+	return agenticMessageText(msg)
 }
 
-func countImportedBlocks(msgs []*schema.Message) int {
+func countImportedBlocks(msgs []*schema.AgenticMessage) int {
 	count := 0
 	for _, msg := range msgs {
 		count += strings.Count(importedText(msg), "[imported reference:")
@@ -33,7 +30,7 @@ func countImportedBlocks(msgs []*schema.Message) int {
 	return count
 }
 
-func latestFeed(rec *recordingModel) []*schema.Message {
+func latestFeed(rec *recordingModel) []*schema.AgenticMessage {
 	inputs := rec.snapshot()
 	if len(inputs) == 0 {
 		return nil
@@ -94,10 +91,10 @@ func TestReferenceContextAdmissionProjectsImportedDataOnly(t *testing.T) {
 			continue
 		}
 		copies++
-		if msg.Role != schema.User {
+		if msg.Role != schema.AgenticRoleTypeUser {
 			t.Fatalf("imported block reached role %s: %q", msg.Role, text)
 		}
-		if len(msg.ToolCalls) != 0 {
+		if len(agenticToolCalls(msg)) != 0 {
 			t.Fatalf("imported block gained tool calls: %q", text)
 		}
 	}
@@ -158,7 +155,7 @@ func TestReferenceContextBudgetElision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build context: %v", err)
 	}
-	var owning *schema.Message
+	var owning *schema.AgenticMessage
 	for _, msg := range msgs {
 		if strings.Contains(importedText(msg), "first question") {
 			owning = msg
@@ -198,7 +195,7 @@ func TestReferenceContextProjectionStates(t *testing.T) {
 	}
 	var joined string
 	for _, part := range parts {
-		joined += part.Text
+		joined += agenticMessageText(agenticUserBlocks([]*schema.ContentBlock{part}))
 	}
 	if !strings.Contains(joined, "clean imported text") || !strings.Contains(joined, "unavailable") {
 		t.Fatalf("projection parts = %q", joined)
@@ -213,7 +210,7 @@ func TestReferenceContextProjectionStates(t *testing.T) {
 	}
 	joined = ""
 	for _, part := range parts {
-		joined += part.Text
+		joined += agenticMessageText(agenticUserBlocks([]*schema.ContentBlock{part}))
 	}
 	if !strings.Contains(joined, "elided_budget") || strings.Contains(joined, "clean imported text") {
 		t.Fatalf("zero-budget parts = %q", joined)

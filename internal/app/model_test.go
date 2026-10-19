@@ -64,7 +64,7 @@ func testCatalog(t *testing.T) *provider.Catalog {
 
 func testModelHost(t *testing.T) *modelhost.Host {
 	t.Helper()
-	host, err := modelhost.New(testProfiles(t), provider.Capabilities())
+	host, err := modelhost.New(testProfiles(t), provider.AdapterFamilies())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestResolverCannotReadyUncompiledProfile(t *testing.T) {
 	if _, ok := testVendors(t)["deepseek"]; !ok {
 		t.Fatal("embedded data must still declare the deepseek vendor")
 	}
-	host, err := modelhost.New([]providerprofile.Profile{testProfiles(t)[0]}, provider.Capabilities())
+	host, err := modelhost.New([]providerprofile.Profile{testProfiles(t)[0]}, provider.AdapterFamilies())
 	if err != nil {
 		t.Fatal(err)
 	}

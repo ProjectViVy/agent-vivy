@@ -58,11 +58,11 @@ func (budget *contextProjectionBudget) remaining() int {
 	return budget.limit - budget.used
 }
 
-func (budget *contextProjectionBudget) add(message *schema.Message) {
+func (budget *contextProjectionBudget) add(message *schema.AgenticMessage) {
 	if budget == nil || message == nil {
 		return
 	}
-	budget.used += projectedContextBytes([]*schema.Message{message})
+	budget.used += projectedContextBytes([]*schema.AgenticMessage{message})
 }
 
 // ErrContextBudgetExceeded means the fixed preamble and current user request
@@ -86,11 +86,11 @@ func (s *Service) sessionAttachedReferences(ctx context.Context, sessionID domai
 // preamble and current user request are mandatory; older transcript rows are
 // retained from newest to oldest until the message and byte budgets are
 // reached. Tool-call / tool-result pairs stay in the feed (ADR-010).
-func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.Message, ContextStats, error) {
+func buildRunContext(policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.AgenticMessage, ContextStats, error) {
 	return buildRunContextWithContext(context.Background(), nil, policy, preamble, stored, currentUserText)
 }
 
-func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.Message, ContextStats, error) {
+func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string) ([]*schema.AgenticMessage, ContextStats, error) {
 	return buildRunContextWithReferences(ctx, contextHost, policy, preamble, stored, currentUserText, nil)
 }
 
@@ -98,7 +98,7 @@ func buildRunContextWithContext(ctx context.Context, contextHost *contexthost.Ho
 // reference snapshots that belong to each selected turn's run. Only startup
 // (admission) and fork-copied snapshots reach here: a same-run model attach
 // is delivered by its tool result and is never re-injected.
-func buildRunContextWithReferences(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string, references map[domain.RunID][]domain.ContextReference) ([]*schema.Message, ContextStats, error) {
+func buildRunContextWithReferences(ctx context.Context, contextHost *contexthost.Host, policy ContextPolicy, preamble string, stored []domain.Message, currentUserText string, references map[domain.RunID][]domain.ContextReference) ([]*schema.AgenticMessage, ContextStats, error) {
 	if policy.MaxBytes < 0 || policy.MaxHistoryMessages < 0 || policy.ReservedBytes < 0 {
 		return nil, ContextStats{}, fmt.Errorf("%w: policy values must not be negative", ErrContextBudgetExceeded)
 	}
@@ -148,9 +148,9 @@ func buildRunContextWithReferences(ctx context.Context, contextHost *contexthost
 	stats.IncludedHistoryMessages = len(selected)
 	stats.DroppedHistoryMessages = len(history) - stats.IncludedHistoryMessages
 
-	msgs := make([]*schema.Message, 0, len(selected)+2)
+	msgs := make([]*schema.AgenticMessage, 0, len(selected)+2)
 	projectionBudget := &contextProjectionBudget{limit: policy.MaxBytes, used: policy.ReservedBytes}
-	preambleMessage := schema.SystemMessage(preamble)
+	preambleMessage := agenticSystemMessage(preamble)
 	msgs = append(msgs, preambleMessage)
 	projectionBudget.add(preambleMessage)
 	feed, err := projectFeedWithContextBudget(ctx, contextHost, selected, projectionBudget, references)
@@ -233,8 +233,8 @@ func pairToolTurns(in []domain.Message) []domain.Message {
 	return out
 }
 
-func projectFeed(msgs []domain.Message) []*schema.Message {
-	out := make([]*schema.Message, 0, len(msgs))
+func projectFeed(msgs []domain.Message) []*schema.AgenticMessage {
+	out := make([]*schema.AgenticMessage, 0, len(msgs))
 	for i := 0; i < len(msgs); {
 		msg := msgs[i]
 		switch {
@@ -242,35 +242,33 @@ func projectFeed(msgs []domain.Message) []*schema.Message {
 			out = append(out, userFeedMessage(msg))
 			i++
 		case msg.Role == domain.RoleTool:
-			out = append(out, schema.ToolMessage(msg.Content, msg.ToolCallID))
+			out = append(out, agenticToolResultMessage(msg.ToolCallID, msg.ToolName, msg.Content))
 			i++
 		case msg.Role == domain.RoleAssistant && msg.ToolCallID != "":
-			var calls []schema.ToolCall
+			var calls []*schema.FunctionToolCall
 			for i < len(msgs) && msgs[i].Role == domain.RoleAssistant && msgs[i].ToolCallID != "" {
-				calls = append(calls, schema.ToolCall{
-					ID: msgs[i].ToolCallID,
-					Function: schema.FunctionCall{
-						Name:      msgs[i].ToolName,
-						Arguments: string(msgs[i].ToolArgs),
-					},
+				calls = append(calls, &schema.FunctionToolCall{
+					CallID:    msgs[i].ToolCallID,
+					Name:      msgs[i].ToolName,
+					Arguments: string(msgs[i].ToolArgs),
 				})
 				i++
 			}
-			out = append(out, schema.AssistantMessage("", calls))
+			out = append(out, agenticAssistantToolCallMessage(calls))
 		default:
-			out = append(out, schema.AssistantMessage(msg.Content, nil))
+			out = append(out, agenticAssistantTextMessage(msg.Content))
 			i++
 		}
 	}
 	return out
 }
 
-func projectFeedWithContext(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message) ([]*schema.Message, error) {
+func projectFeedWithContext(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message) ([]*schema.AgenticMessage, error) {
 	return projectFeedWithContextBudget(ctx, contextHost, msgs, nil, nil)
 }
 
-func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message, budget *contextProjectionBudget, references map[domain.RunID][]domain.ContextReference) ([]*schema.Message, error) {
-	out := make([]*schema.Message, 0, len(msgs))
+func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.Host, msgs []domain.Message, budget *contextProjectionBudget, references map[domain.RunID][]domain.ContextReference) ([]*schema.AgenticMessage, error) {
+	out := make([]*schema.AgenticMessage, 0, len(msgs))
 	for i := 0; i < len(msgs); {
 		msg := msgs[i]
 		if msg.Role == domain.RoleUser {
@@ -284,21 +282,25 @@ func projectFeedWithContextBudget(ctx context.Context, contextHost *contexthost.
 		}
 		switch {
 		case msg.Role == domain.RoleTool:
-			projected := schema.ToolMessage(msg.Content, msg.ToolCallID)
+			projected := agenticToolResultMessage(msg.ToolCallID, msg.ToolName, msg.Content)
 			out = append(out, projected)
 			budget.add(projected)
 			i++
 		case msg.Role == domain.RoleAssistant && msg.ToolCallID != "":
-			var calls []schema.ToolCall
+			var calls []*schema.FunctionToolCall
 			for i < len(msgs) && msgs[i].Role == domain.RoleAssistant && msgs[i].ToolCallID != "" {
-				calls = append(calls, schema.ToolCall{ID: msgs[i].ToolCallID, Function: schema.FunctionCall{Name: msgs[i].ToolName, Arguments: string(msgs[i].ToolArgs)}})
+				calls = append(calls, &schema.FunctionToolCall{
+					CallID:    msgs[i].ToolCallID,
+					Name:      msgs[i].ToolName,
+					Arguments: string(msgs[i].ToolArgs),
+				})
 				i++
 			}
-			projected := schema.AssistantMessage("", calls)
+			projected := agenticAssistantToolCallMessage(calls)
 			out = append(out, projected)
 			budget.add(projected)
 		default:
-			projected := schema.AssistantMessage(msg.Content, nil)
+			projected := agenticAssistantTextMessage(msg.Content)
 			out = append(out, projected)
 			budget.add(projected)
 			i++
@@ -311,18 +313,15 @@ func messageCost(content, role string) int {
 	return len(content) + len(role) + contextMessageOverhead
 }
 
-func projectedContextBytes(msgs []*schema.Message) int {
+// projectedContextBytes is the single byte-budget projection over the agentic
+// feed: every text-bearing block plus the per-message role/envelope overhead.
+func projectedContextBytes(msgs []*schema.AgenticMessage) int {
 	total := 0
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
-		total += messageCost(msg.Content, string(msg.Role))
-		for _, part := range msg.UserInputMultiContent {
-			if part.Type == schema.ChatMessagePartTypeText {
-				total += len(part.Text)
-			}
-		}
+		total += messageCost(agenticMessageText(msg), agenticRoleName(msg))
 	}
 	return total
 }

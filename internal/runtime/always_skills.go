@@ -77,11 +77,11 @@ func truncateRunes(s string, max int) string {
 
 // alwaysSkillsMiddleware injects the always-on skill context per model call.
 type alwaysSkillsMiddleware struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 	source AlwaysSkillsSource
 }
 
-func (m *alwaysSkillsMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+func (m *alwaysSkillsMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.AgenticMessage], _ *adk.TypedModelContext[*schema.AgenticMessage]) (context.Context, *adk.TypedChatModelAgentState[*schema.AgenticMessage], error) {
 	if state == nil {
 		return ctx, state, nil
 	}
@@ -100,17 +100,17 @@ func (m *alwaysSkillsMiddleware) BeforeModelRewriteState(ctx context.Context, st
 	if strings.TrimSpace(content) == "" {
 		return ctx, state, nil
 	}
-	injected := schema.UserMessage("## Active Skills\n\n" + content)
+	injected := agenticUserMessage("## Active Skills\n\n" + content)
 	injected.Extra = map[string]any{alwaysSkillsExtraKey: true}
 	nState := *state
 	nState.Messages = insertMessageBeforeFirstUser(state.Messages, injected)
 	return ctx, &nState, nil
 }
 
-func insertMessageBeforeFirstUser(msgs []*schema.Message, injected *schema.Message) []*schema.Message {
-	out := make([]*schema.Message, 0, len(msgs)+1)
+func insertMessageBeforeFirstUser(msgs []*schema.AgenticMessage, injected *schema.AgenticMessage) []*schema.AgenticMessage {
+	out := make([]*schema.AgenticMessage, 0, len(msgs)+1)
 	for i, msg := range msgs {
-		if msg != nil && msg.Role == schema.User {
+		if msg != nil && msg.Role == schema.AgenticRoleTypeUser {
 			out = append(out, msgs[:i]...)
 			out = append(out, injected)
 			return append(out, msgs[i:]...)
@@ -122,7 +122,7 @@ func insertMessageBeforeFirstUser(msgs []*schema.Message, injected *schema.Messa
 
 // buildAlwaysSkillsHandler is the NewEngine seam: a SkillBackend without the
 // AlwaysSkills capability disables injection.
-func buildAlwaysSkillsHandler(backend einoskill.Backend) adk.ChatModelAgentMiddleware {
+func buildAlwaysSkillsHandler(backend einoskill.Backend) adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
 	source, ok := backend.(AlwaysSkillsSource)
 	if !ok {
 		return nil

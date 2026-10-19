@@ -12,20 +12,10 @@ import (
 	"agent-vivy/sdk/port/providerprofile"
 )
 
-type CapabilityState string
-
-const (
-	CapabilitySupported          CapabilityState = "SUPPORTED"
-	CapabilityDeferredIndefinite CapabilityState = "DEFERRED-INDEFINITE"
-)
-
 var (
-	ErrHostRequired       = errors.New("ModelHost is required")
-	ErrProfileNotFound    = errors.New("provider Profile is not compiled")
-	ErrAdapterUnavailable = errors.New("provider adapter is unavailable")
+	ErrHostRequired    = errors.New("ModelHost is required")
+	ErrProfileNotFound = errors.New("provider Profile is not compiled")
 )
-
-type Capabilities map[string]CapabilityState
 
 // ProfileState is the runtime-safe projection of one compiled Provider
 // Profile. It deliberately describes availability without carrying Secret
@@ -33,11 +23,10 @@ type Capabilities map[string]CapabilityState
 type ProfileState string
 
 const (
-	ProfileCompiled           ProfileState = "COMPILED"
-	ProfileUnconfigured       ProfileState = "UNCONFIGURED"
-	ProfileReady              ProfileState = "READY"
-	ProfileUnavailable        ProfileState = "UNAVAILABLE"
-	ProfileDeferredIndefinite ProfileState = "DEFERRED-INDEFINITE"
+	ProfileCompiled     ProfileState = "COMPILED"
+	ProfileUnconfigured ProfileState = "UNCONFIGURED"
+	ProfileReady        ProfileState = "READY"
+	ProfileUnavailable  ProfileState = "UNAVAILABLE"
 )
 
 type ProfileStatus struct {
@@ -49,23 +38,28 @@ type ProfileStatus struct {
 }
 
 type Host struct {
-	profiles     map[string]providerprofile.Profile
-	capabilities Capabilities
-	statusMu     sync.RWMutex
-	unavailable  map[string]bool
+	profiles map[string]providerprofile.Profile
+	statusMu sync.RWMutex
+	// unavailable records Profile ids whose adapter construction already
+	// failed in this process.
+	unavailable map[string]bool
 }
 
-func New(profiles []providerprofile.Profile, capabilities Capabilities) (*Host, error) {
+// New indexes the compiled Profiles over the adapter families this build can
+// construct. A Profile naming a family outside executableAdapters is a
+// construction error: the Generation seals executable adapters, so a Profile
+// that no adapter can serve must never become resolvable.
+func New(profiles []providerprofile.Profile, executableAdapters []string) (*Host, error) {
 	host := &Host{
-		profiles:     make(map[string]providerprofile.Profile, len(profiles)),
-		capabilities: make(Capabilities, len(capabilities)),
-		unavailable:  make(map[string]bool),
+		profiles:    make(map[string]providerprofile.Profile, len(profiles)),
+		unavailable: make(map[string]bool),
 	}
-	for family, state := range capabilities {
-		if family == "" || (state != CapabilitySupported && state != CapabilityDeferredIndefinite) {
-			return nil, fmt.Errorf("modelhost: invalid adapter capability %q=%q", family, state)
+	executable := make(map[string]struct{}, len(executableAdapters))
+	for _, family := range executableAdapters {
+		if family == "" {
+			continue
 		}
-		host.capabilities[family] = state
+		executable[family] = struct{}{}
 	}
 	for _, profile := range profiles {
 		if err := profile.Validate(); err != nil {
@@ -74,7 +68,7 @@ func New(profiles []providerprofile.Profile, capabilities Capabilities) (*Host, 
 		if _, duplicate := host.profiles[profile.ID]; duplicate {
 			return nil, fmt.Errorf("modelhost: duplicate Profile id %q", profile.ID)
 		}
-		if _, known := host.capabilities[profile.AdapterFamily]; !known {
+		if _, known := executable[profile.AdapterFamily]; !known {
 			return nil, fmt.Errorf("modelhost: Profile %q names unsupported adapter family %q", profile.ID, profile.AdapterFamily)
 		}
 		host.profiles[profile.ID] = profile.Clone()
@@ -119,8 +113,6 @@ func (host *Host) Statuses(activeID string, activeReady bool) []ProfileStatus {
 	for _, profile := range host.profiles {
 		state := ProfileCompiled
 		switch {
-		case host.capabilities[profile.AdapterFamily] == CapabilityDeferredIndefinite:
-			state = ProfileDeferredIndefinite
 		case host.unavailable[profile.ID]:
 			state = ProfileUnavailable
 		case profile.ID == activeID && activeReady:
@@ -151,6 +143,10 @@ func (host *Host) Profiles() []providerprofile.Profile {
 	return profiles
 }
 
+// ResolveExecutable returns the compiled Profile id. Every Profile in a built
+// Host was validated against the executable adapter set at construction, so
+// an unknown id is the only remaining failure — the same fail-closed answer
+// for a stored selection this build cannot serve.
 func (host *Host) ResolveExecutable(id string) (providerprofile.Profile, error) {
 	if host == nil {
 		return providerprofile.Profile{}, fmt.Errorf("modelhost: %w: %q", ErrProfileNotFound, id)
@@ -159,16 +155,5 @@ func (host *Host) ResolveExecutable(id string) (providerprofile.Profile, error) 
 	if !ok {
 		return providerprofile.Profile{}, fmt.Errorf("modelhost: %w: %q", ErrProfileNotFound, id)
 	}
-	if host.capabilities[profile.AdapterFamily] != CapabilitySupported {
-		return providerprofile.Profile{}, fmt.Errorf("modelhost: %w: Profile %q family %q is %s", ErrAdapterUnavailable, id, profile.AdapterFamily, host.capabilities[profile.AdapterFamily])
-	}
 	return profile.Clone(), nil
-}
-
-func (host *Host) Capability(family string) (CapabilityState, bool) {
-	if host == nil {
-		return "", false
-	}
-	state, ok := host.capabilities[family]
-	return state, ok
 }

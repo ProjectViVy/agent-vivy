@@ -28,50 +28,43 @@ const loopSentinel = "SENTINEL-C-9f3c1a-unrelated"
 // loopRecordingModel wraps a scripted model and keeps every request input so
 // the test can prove cross-session content never reached the model.
 type loopRecordingModel struct {
-	inner  model.ToolCallingChatModel
+	inner  model.AgenticModel
 	mu     sync.Mutex
-	inputs [][]*schema.Message
+	inputs [][]*schema.AgenticMessage
 }
 
-func (m *loopRecordingModel) record(input []*schema.Message) {
+func (m *loopRecordingModel) record(input []*schema.AgenticMessage) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]*schema.Message, len(input))
+	cp := make([]*schema.AgenticMessage, len(input))
 	copy(cp, input)
 	m.inputs = append(m.inputs, cp)
 }
 
-func (m *loopRecordingModel) snapshot() [][]*schema.Message {
+func (m *loopRecordingModel) snapshot() [][]*schema.AgenticMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([][]*schema.Message, len(m.inputs))
+	out := make([][]*schema.AgenticMessage, len(m.inputs))
 	for i, input := range m.inputs {
-		cp := make([]*schema.Message, len(input))
+		cp := make([]*schema.AgenticMessage, len(input))
 		copy(cp, input)
 		out[i] = cp
 	}
 	return out
 }
 
-func (m *loopRecordingModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *loopRecordingModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	m.record(input)
 	return m.inner.Generate(ctx, input, opts...)
 }
 
-func (m *loopRecordingModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *loopRecordingModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.record(input)
 	return m.inner.Stream(ctx, input, opts...)
 }
 
-func (m *loopRecordingModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m.inner.WithTools(tools)
-}
-
-func loopToolCall(id, name, args string) *schema.Message {
-	return schema.AssistantMessage("", []schema.ToolCall{{
-		ID:       id,
-		Function: schema.FunctionCall{Name: name, Arguments: args},
-	}})
+func loopToolCall(id, name, args string) *schema.AgenticMessage {
+	return runtime.ScriptedToolCalls(runtime.ScriptedCall(id, name, args))
 }
 
 // continuityLoopFixture wires the same stack app.go composes for the
@@ -245,7 +238,7 @@ func TestContinuityCodingLoop(t *testing.T) {
 	f.createSession(t, "sess-a", "source", "")
 	svcA := f.newService(t, &loopRecordingModel{inner: runtime.NewScriptedModel(
 		loopToolCall("call-a-1", tools.EchoInfoName, `{"text":"probe alpha"}`),
-		schema.AssistantMessage("PLAN-ALPHA rationale: refactor the parser then verify.", nil),
+		runtime.ScriptedText("PLAN-ALPHA rationale: refactor the parser then verify."),
 	)})
 	runA := f.runToCompletion(t, svcA, "sess-a", "explain the plan", runtime.RunOptions{})
 	var aToolResults int
@@ -266,7 +259,7 @@ func TestContinuityCodingLoop(t *testing.T) {
 	// Unrelated session C: only the sentinel, never shared.
 	f.createSession(t, "sess-c", "unrelated", "")
 	svcC := f.newService(t, &loopRecordingModel{inner: runtime.NewScriptedModel(
-		schema.AssistantMessage("private note "+loopSentinel, nil),
+		runtime.ScriptedText("private note " + loopSentinel),
 	)})
 	f.runToCompletion(t, svcC, "sess-c", "keep this private", runtime.RunOptions{})
 
@@ -299,7 +292,7 @@ func TestContinuityCodingLoop(t *testing.T) {
 		loopToolCall("call-b-6", tools.ExecuteName, `{"command":"rg","args":["-n","PLAN-ALPHA","source.txt"]}`),
 		loopToolCall("call-b-7", tools.BashName, `{"command":"printf 'report for PLAN-ALPHA\\n' > report.txt && tar -cf report.tar report.txt"}`),
 		loopToolCall("call-b-8", tools.PresentFilesName, `{"files":[{"path":"report.txt","description":"final report"},{"path":"report.tar","description":"report archive"}],"title":"Report bundle"}`),
-		schema.AssistantMessage("loop complete", nil),
+		runtime.ScriptedText("loop complete"),
 	)}
 	svcB := f.newService(t, recB)
 	runB := f.runToCompletion(t, svcB, "sess-b", "fix the source and deliver the report", runtime.RunOptions{
@@ -425,7 +418,7 @@ func TestContinuityCodingLoop(t *testing.T) {
 	// committed admission instead of writing a second run — the receipt
 	// binds the caller identity, so no duplicate reference or turn lands.
 	recB2 := &loopRecordingModel{inner: runtime.NewScriptedModel(
-		schema.AssistantMessage("ack", nil),
+		runtime.ScriptedText("ack"),
 	)}
 	svcB2 := f.newService(t, recB2)
 	replayID, err := svcB2.RunWithOptions(ctx, "sess-b", "fix the source and deliver the report", runtime.RunOptions{
@@ -450,13 +443,13 @@ func TestContinuityCodingLoop(t *testing.T) {
 	}
 }
 
-func joinSchemaContent(msgs []*schema.Message) string {
+func joinSchemaContent(msgs []*schema.AgenticMessage) string {
 	var sb strings.Builder
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
-		sb.WriteString(msg.Content)
+		sb.WriteString(runtime.AgenticMessageText(msg))
 	}
 	return sb.String()
 }

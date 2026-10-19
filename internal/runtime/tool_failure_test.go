@@ -231,8 +231,8 @@ func (t *transportErrTool) InvokableRun(context.Context, json.RawMessage) (strin
 	return "", errors.New("connection reset by peer")
 }
 
-func failureToolCall(id, name, args string) schema.ToolCall {
-	return schema.ToolCall{ID: id, Function: schema.FunctionCall{Name: name, Arguments: args}}
+func failureToolCall(id, name, args string) *schema.FunctionToolCall {
+	return &schema.FunctionToolCall{CallID: id, Name: name, Arguments: args}
 }
 
 // The full ND-1 arc in one run: a scripted model observes
@@ -256,16 +256,11 @@ func TestToolFailureCorrection(t *testing.T) {
 	nfTool := &notFoundReadTool{}
 	cmdTool := &commandStubTool{}
 	remoteTool := &remoteErrTool{}
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			failureToolCall(c1, contractToolName, `{"text":"bad"}`),
-			failureToolCall(c2, "missing_read", `{"path":"/tmp/gone"}`),
-			failureToolCall(c3, tools.BashName, `{"command":"false"}`),
-			failureToolCall(c4, "mcp_remote", `{"q":"x"}`),
-		}),
+	script := []*schema.AgenticMessage{
+		testToolCalls(failureToolCall(c1, contractToolName, `{"text":"bad"}`), failureToolCall(c2, "missing_read", `{"path":"/tmp/gone"}`), failureToolCall(c3, tools.BashName, `{"command":"false"}`), failureToolCall(c4, "mcp_remote", `{"q":"x"}`)),
 		// The model corrects the failed call and finishes in the same Run.
-		schema.AssistantMessage("", []schema.ToolCall{failureToolCall(c5, contractToolName, `{"text":"fixed"}`)}),
-		schema.AssistantMessage("recovered", nil),
+		testToolCalls(failureToolCall(c5, contractToolName, `{"text":"fixed"}`)),
+		testAssistant("recovered"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{argTool, nfTool, cmdTool, remoteTool}})
 
@@ -307,7 +302,7 @@ func TestToolFailureCorrection(t *testing.T) {
 	tail := toolResults(h.model.entry(1).input)
 	joined := ""
 	for _, m := range tail {
-		joined += m.Content + "\n"
+		joined += agenticMessageText(m) + "\n"
 	}
 	for _, want := range []string{"non-empty string", "gone", "boom happened", "remote exploded"} {
 		if !strings.Contains(joined, want) {
@@ -321,9 +316,9 @@ func TestToolFailureCorrection(t *testing.T) {
 func TestToolFailureRefusalNeverExecutes(t *testing.T) {
 	d1 := "call-denied"
 	denied := &classifierStubTool{class: tools.InvocationDenied, findings: []string{"deny-table: host shell or interpreter escape"}}
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{failureToolCall(d1, "stub_classifier", `{"command":"cmd /c dir"}`)}),
-		schema.AssistantMessage("done without it", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(failureToolCall(d1, "stub_classifier", `{"command":"cmd /c dir"}`)),
+		testAssistant("done without it"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{denied}})
 	runID, err := h.svc.Run(context.Background(), "sess-failure-refusal", "run the denied tool")
@@ -350,9 +345,9 @@ func TestToolFailureRefusalNeverExecutes(t *testing.T) {
 func TestToolFailureUnknownEffectsCountOnce(t *testing.T) {
 	w1 := "call-write"
 	writeTool := &writeArgTool{}
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{failureToolCall(w1, "write_arg", `{"value":"x"}`)}),
-		schema.AssistantMessage("stopping here", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(failureToolCall(w1, "write_arg", `{"value":"x"}`)),
+		testAssistant("stopping here"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{writeTool}, autoApprove: []string{"write_arg"}})
 	// The write tool only reaches its invocation under an auto-approve
@@ -386,9 +381,9 @@ func TestToolFailureUnknownEffectsCountOnce(t *testing.T) {
 func TestToolFailureTransportErrorStaysFatal(t *testing.T) {
 	t1 := "call-transport"
 	flaky := &transportErrTool{}
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{failureToolCall(t1, "flaky_remote", `{"q":"x"}`)}),
-		schema.AssistantMessage("should never arrive", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(failureToolCall(t1, "flaky_remote", `{"q":"x"}`)),
+		testAssistant("should never arrive"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{flaky}})
 	runID, err := h.svc.Run(context.Background(), "sess-failure-fatal", "run the flaky tool")

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino-ext/components/model/agenticopenai"
 	"github.com/cloudwego/eino/components/model"
 
 	"agent-vivy/internal/domain"
 )
 
-// openaiRef wires one embedded openai-completions endpoint to the online
+// openaiRef wires one embedded openai-completions endpoint to the agentic
 // eino-ext OpenAI chat model component. Construction happens at Model() call
 // time from the supplied ModelSpec; no network traffic happens before the
 // first Generate/Stream.
@@ -39,7 +39,7 @@ func (r *openaiRef) Name() string {
 // gateway URL for one process. Resolver reads it; this package does not.
 const APIBaseEnvVar = "VIVY_API_BASE"
 
-func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallingChatModel, error) {
+func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.AgenticModel, error) {
 	modelID := strings.TrimSpace(spec.ID)
 	if modelID == "" {
 		modelID = r.endpoint.DefaultModel
@@ -52,7 +52,7 @@ func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallin
 	if baseURL == "" {
 		baseURL = r.endpoint.BaseURL
 	}
-	cm, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
+	cm, err := agenticopenai.NewChatModel(ctx, &agenticopenai.ChatConfig{
 		APIKey:  key,
 		BaseURL: baseURL,
 		Model:   modelID,

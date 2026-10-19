@@ -28,7 +28,7 @@ type recordingObserver struct {
 	inputs   []modelCallInput
 	metas    []modelCallMeta
 	opened   []modelCallMeta
-	chunks   []*schema.Message
+	chunks   []*schema.AgenticMessage
 	results  []modelCallResult
 	beginErr error
 	chunkErr error
@@ -53,7 +53,7 @@ func (o *recordingObserver) StreamOpened(meta modelCallMeta) {
 	o.opened = append(o.opened, meta)
 }
 
-func (o *recordingObserver) Chunk(_ context.Context, _ modelCallMeta, chunk *schema.Message) error {
+func (o *recordingObserver) Chunk(_ context.Context, _ modelCallMeta, chunk *schema.AgenticMessage) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.chunkErr != nil {
@@ -88,25 +88,21 @@ func observedCtx(o modelCallObserver) context.Context {
 // StreamOpened -> Chunk* -> End(ResponseComplete for a clean EOF).
 func TestObserverLifecycleGenerateAndStream(t *testing.T) {
 	streamObs := &recordingObserver{}
-	sr, sw := schema.Pipe[*schema.Message](8)
+	sr, sw := schema.Pipe[*schema.AgenticMessage](8)
 	inner := &fakeChatModel{streamReader: sr}
 	go func() {
 		defer sw.Close()
-		sw.Send(schema.AssistantMessage("hel", nil), nil)
-		sw.Send(&schema.Message{
-			Role:    schema.Assistant,
-			Content: "lo",
-			ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
-				PromptTokens: 5, CompletionTokens: 2, TotalTokens: 7,
-			}},
-		}, nil)
+		sw.Send(testAssistant("hel"), nil)
+		sw.Send(agenticTestMessage(schema.AgenticRoleTypeAssistant, "lo", nil, &schema.TokenUsage{
+			PromptTokens: 5, CompletionTokens: 2, TotalTokens: 7,
+		}, nil), nil)
 	}()
 
-	out, err := observeChatModel(inner).Stream(observedCtx(streamObs), []*schema.Message{schema.UserMessage("hi")})
+	out, err := observeChatModel(inner).Stream(observedCtx(streamObs), []*schema.AgenticMessage{testUser("hi")})
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}
-	var got []*schema.Message
+	var got []*schema.AgenticMessage
 	for {
 		c, err := out.Recv()
 		if err == io.EOF {
@@ -139,14 +135,10 @@ func TestObserverLifecycleGenerateAndStream(t *testing.T) {
 	}
 
 	genObs := &recordingObserver{}
-	gmsg := &schema.Message{
-		Role:    schema.Assistant,
-		Content: "done",
-		ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
-			PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7,
-		}},
-	}
-	msg, err := observeChatModel(&fakeChatModel{generateMsg: gmsg}).Generate(observedCtx(genObs), []*schema.Message{schema.UserMessage("hi")})
+	gmsg := agenticTestMessage(schema.AgenticRoleTypeAssistant, "done", nil, &schema.TokenUsage{
+		PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7,
+	}, nil)
+	msg, err := observeChatModel(&fakeChatModel{generateMsg: gmsg}).Generate(observedCtx(genObs), []*schema.AgenticMessage{testUser("hi")})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -185,24 +177,17 @@ func TestObserverRecordsStreamSetupFailure(t *testing.T) {
 	}
 }
 
-// TestObserverBoundToolsPreservesCallScope: WithTools flows into the
-// Begin input while each invocation still gets its own meta scope.
-func TestObserverBoundToolsPreservesCallScope(t *testing.T) {
+// TestObserverRequestTimeToolsPreservesCallScope: request-time
+// model.WithTools reaches the Begin input while each invocation still gets its
+// own meta scope. The agentic generation binds tools per request; the model
+// value carries no WithTools method.
+func TestObserverRequestTimeToolsPreservesCallScope(t *testing.T) {
 	obs := &recordingObserver{}
 	wrapped := observeChatModel(&fakeChatModel{streamReader: closedStream(t)})
-	bound, err := wrapped.WithTools([]*schema.ToolInfo{
+	reader, err := wrapped.Stream(observedCtx(obs), nil, model.WithTools([]*schema.ToolInfo{
 		{Name: "tool_a", Desc: "a"},
 		{Name: "tool_b", Desc: "b"},
-	})
-	if err != nil {
-		t.Fatalf("with tools: %v", err)
-	}
-	// Rebinding appends without losing the earlier scope.
-	rebound, err := bound.(model.ToolCallingChatModel).WithTools([]*schema.ToolInfo{{Name: "tool_b"}, {Name: "tool_c"}})
-	if err != nil {
-		t.Fatalf("rebind: %v", err)
-	}
-	reader, err := rebound.Stream(observedCtx(obs), nil)
+	}))
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}
@@ -215,17 +200,16 @@ func TestObserverBoundToolsPreservesCallScope(t *testing.T) {
 		t.Fatalf("begins = %d, want 1", len(obs.inputs))
 	}
 	names := toolInfoNames(obs.inputs[0].Tools)
-	if len(names) != 3 || names[0] != "tool_a" || names[1] != "tool_b" || names[2] != "tool_c" {
-		t.Fatalf("bound tools = %v, want [tool_a tool_b tool_c]", names)
+	if len(names) != 2 || names[0] != "tool_a" || names[1] != "tool_b" {
+		t.Fatalf("bound tools = %v, want [tool_a tool_b]", names)
 	}
 
-	// A second call on the same bound model is a new call scope.
+	// A second call on the same wrapped model is a new call scope.
 	obs2 := &recordingObserver{}
-	fresh := observeChatModel(&fakeChatModel{streamFactory: func() (*schema.StreamReader[*schema.Message], error) {
+	fresh := observeChatModel(&fakeChatModel{streamFactory: func() (*schema.StreamReader[*schema.AgenticMessage], error) {
 		return closedStream(t), nil
 	}})
-	bound2, _ := fresh.WithTools([]*schema.ToolInfo{{Name: "tool_a"}})
-	reader, err = bound2.Stream(observedCtx(obs2), nil)
+	reader, err = fresh.Stream(observedCtx(obs2), nil, model.WithTools([]*schema.ToolInfo{{Name: "tool_a"}}))
 	if err != nil {
 		t.Fatalf("stream 2: %v", err)
 	}
@@ -240,9 +224,9 @@ func TestObserverBoundToolsPreservesCallScope(t *testing.T) {
 }
 
 // closedStream returns an already-EOF stream.
-func closedStream(t *testing.T) *schema.StreamReader[*schema.Message] {
+func closedStream(t *testing.T) *schema.StreamReader[*schema.AgenticMessage] {
 	t.Helper()
-	r, w := schema.Pipe[*schema.Message](1)
+	r, w := schema.Pipe[*schema.AgenticMessage](1)
 	w.Close()
 	return r
 }
@@ -252,9 +236,9 @@ func closedStream(t *testing.T) *schema.StreamReader[*schema.Message] {
 func TestObserverUpstreamReadErrorEndsCall(t *testing.T) {
 	innerErr := errors.New("read reset")
 	obs := &recordingObserver{}
-	sr, sw := schema.Pipe[*schema.Message](1)
+	sr, sw := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
-		sw.Send(schema.AssistantMessage("partial", nil), nil)
+		sw.Send(testAssistant("partial"), nil)
 		sw.Send(nil, innerErr)
 	}()
 	out, err := observeChatModel(&fakeChatModel{streamReader: sr}).Stream(observedCtx(obs), nil)
@@ -280,10 +264,10 @@ func TestObserverUpstreamReadErrorEndsCall(t *testing.T) {
 // the whole call — journal integrity outranks delivery.
 func TestObserverChunkErrorFailsDownstream(t *testing.T) {
 	obs := &recordingObserver{chunkErr: errors.New("journal full")}
-	sr, sw := schema.Pipe[*schema.Message](1)
+	sr, sw := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
 		defer sw.Close()
-		sw.Send(schema.AssistantMessage("a", nil), nil)
+		sw.Send(testAssistant("a"), nil)
 	}()
 	out, err := observeChatModel(&fakeChatModel{streamReader: sr}).Stream(observedCtx(obs), nil)
 	if err != nil {
@@ -306,13 +290,13 @@ func TestObserverChunkErrorFailsDownstream(t *testing.T) {
 func TestObserverDownstreamCloseEndsCallOnce(t *testing.T) {
 	obs := &recordingObserver{}
 	gate := make(chan struct{})
-	sr, sw := schema.Pipe[*schema.Message](8)
+	sr, sw := schema.Pipe[*schema.AgenticMessage](8)
 	go func() {
 		defer sw.Close()
-		sw.Send(schema.AssistantMessage("first", nil), nil)
+		sw.Send(testAssistant("first"), nil)
 		<-gate
 		for i := 0; i < 8; i++ {
-			if sw.Send(schema.AssistantMessage("x", nil), nil) {
+			if sw.Send(testAssistant("x"), nil) {
 				return
 			}
 		}
@@ -346,11 +330,11 @@ func TestObserverDownstreamCloseEndsCallOnce(t *testing.T) {
 // the pipeline (frame queue drains independently).
 func TestObserverBackpressureKeepsPumpAlive(t *testing.T) {
 	obs := &recordingObserver{}
-	sr, sw := schema.Pipe[*schema.Message](4)
+	sr, sw := schema.Pipe[*schema.AgenticMessage](4)
 	go func() {
 		defer sw.Close()
 		for i := 0; i < 32; i++ {
-			if sw.Send(schema.AssistantMessage(fmt.Sprintf("%d", i), nil), nil) {
+			if sw.Send(testAssistant(fmt.Sprintf("%d", i)), nil) {
 				return
 			}
 		}
@@ -382,17 +366,17 @@ func TestObserverBackpressureKeepsPumpAlive(t *testing.T) {
 // TestObserverAbsentPassesThrough: without a factory in context the model
 // is a pure passthrough — no lifecycle calls, no behavioral change.
 func TestObserverAbsentPassesThrough(t *testing.T) {
-	sr, sw := schema.Pipe[*schema.Message](2)
+	sr, sw := schema.Pipe[*schema.AgenticMessage](2)
 	go func() {
 		defer sw.Close()
-		sw.Send(schema.AssistantMessage("ok", nil), nil)
+		sw.Send(testAssistant("ok"), nil)
 	}()
 	out, err := observeChatModel(&fakeChatModel{streamReader: sr}).Stream(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}
 	msg, err := out.Recv()
-	if err != nil || msg.Content != "ok" {
+	if err != nil || agenticMessageText(msg) != "ok" {
 		t.Fatalf("recv = %v / %v", msg, err)
 	}
 }
@@ -513,37 +497,33 @@ func TestUsageAccumulatorOptionalBreakdown(t *testing.T) {
 // ---------------------------------------------------------------------
 // Service-level observed-call tests (OBS-02).
 
-// scriptedUsageModel is an eino ToolCallingChatModel test double that
+// scriptedUsageModel is an eino AgenticModel test double that
 // streams a fixed chunk script per call (chunks may carry ResponseMeta
 // usage). The domain adapter cannot transport usage, so the service-level
 // tests build the Engine directly.
 type scriptedUsageModel struct {
 	mu     sync.Mutex
 	calls  int
-	chunks [][]*schema.Message
+	chunks [][]*schema.AgenticMessage
 }
 
-var _ model.ToolCallingChatModel = (*scriptedUsageModel)(nil)
+var _ model.AgenticModel = (*scriptedUsageModel)(nil)
 
-func usageText(text string, p, c int) *schema.Message {
-	return &schema.Message{
-		Role:    schema.Assistant,
-		Content: text,
-		ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
-			PromptTokens: p, CompletionTokens: c, TotalTokens: p + c,
-		}},
-	}
+func usageText(text string, p, c int) *schema.AgenticMessage {
+	return agenticTestMessage(schema.AgenticRoleTypeAssistant, text, nil, &schema.TokenUsage{
+		PromptTokens: p, CompletionTokens: c, TotalTokens: p + c,
+	}, nil)
 }
 
-func (m *scriptedUsageModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *scriptedUsageModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	r, err := m.Stream(ctx, input, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return schema.ConcatMessages(collectStream(r))
+	return schema.ConcatAgenticMessages(collectStream(r))
 }
 
-func (m *scriptedUsageModel) Stream(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *scriptedUsageModel) Stream(_ context.Context, _ []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.mu.Lock()
 	i := m.calls
 	m.calls++
@@ -551,7 +531,7 @@ func (m *scriptedUsageModel) Stream(_ context.Context, _ []*schema.Message, _ ..
 	if i >= len(m.chunks) {
 		return nil, fmt.Errorf("runtime: scripted usage model exhausted at call %d", i)
 	}
-	r, w := schema.Pipe[*schema.Message](8)
+	r, w := schema.Pipe[*schema.AgenticMessage](8)
 	go func() {
 		defer w.Close()
 		for _, c := range m.chunks[i] {
@@ -563,12 +543,8 @@ func (m *scriptedUsageModel) Stream(_ context.Context, _ []*schema.Message, _ ..
 	return r, nil
 }
 
-func (m *scriptedUsageModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
-}
-
-func collectStream(r *schema.StreamReader[*schema.Message]) []*schema.Message {
-	var out []*schema.Message
+func collectStream(r *schema.StreamReader[*schema.AgenticMessage]) []*schema.AgenticMessage {
+	var out []*schema.AgenticMessage
 	for {
 		c, err := r.Recv()
 		if err != nil {
@@ -579,7 +555,7 @@ func collectStream(r *schema.StreamReader[*schema.Message]) []*schema.Message {
 	return out
 }
 
-func newObservedService(t *testing.T, chat model.ToolCallingChatModel, budget BudgetPolicy) (*Service, *sqlite.Backend, *testSink) {
+func newObservedService(t *testing.T, chat model.AgenticModel, budget BudgetPolicy) (*Service, *sqlite.Backend, *testSink) {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "journal.db"))
@@ -639,9 +615,9 @@ func classifyObservedCall(events []domain.RunEvent) observedCallKinds {
 
 // usageScript returns a single-call script with a duplicated usage report
 // (the second identical report must dedupe away) and a final advance.
-func usageScript() [][]*schema.Message {
-	return [][]*schema.Message{{
-		schema.AssistantMessage("hel", nil),
+func usageScript() [][]*schema.AgenticMessage {
+	return [][]*schema.AgenticMessage{{
+		testAssistant("hel"),
 		usageText("", 5, 2),
 		usageText("lo", 5, 2), // identical cumulative report -> deduped
 		usageText(" world", 12, 5),
@@ -886,24 +862,24 @@ func TestObservedCallFailedStreamJournalsFinish(t *testing.T) {
 	}
 }
 
-// fakeChatModel is a minimal ToolCallingChatModel: scripted stream reader
+// fakeChatModel is a minimal AgenticModel: scripted stream reader
 // (or a factory for one), a generate message, fixed error otherwise.
 type fakeChatModel struct {
-	streamReader  *schema.StreamReader[*schema.Message]
-	streamFactory func() (*schema.StreamReader[*schema.Message], error)
+	streamReader  *schema.StreamReader[*schema.AgenticMessage]
+	streamFactory func() (*schema.StreamReader[*schema.AgenticMessage], error)
 	streamErr     error
-	generateMsg   *schema.Message
+	generateMsg   *schema.AgenticMessage
 	generateErr   error
 	streamCalls   int
 }
 
-var _ model.ToolCallingChatModel = (*fakeChatModel)(nil)
+var _ model.AgenticModel = (*fakeChatModel)(nil)
 
-func (m *fakeChatModel) Generate(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (m *fakeChatModel) Generate(_ context.Context, _ []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	return m.generateMsg, m.generateErr
 }
 
-func (m *fakeChatModel) Stream(_ context.Context, _ []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *fakeChatModel) Stream(_ context.Context, _ []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.streamCalls++
 	if m.streamFactory != nil {
 		return m.streamFactory()
@@ -911,16 +887,12 @@ func (m *fakeChatModel) Stream(_ context.Context, _ []*schema.Message, _ ...mode
 	return m.streamReader, m.streamErr
 }
 
-func (m *fakeChatModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
-}
-
 // TestObservedCallSourceAttribution: the run's factory resolves source and
 // model per route — main/child come from the execution context, summary
 // calls report "summary" with the summary model (or the run model on
 // failover), and Begin tags the meta identically.
 func TestObservedCallSourceAttribution(t *testing.T) {
-	svc, backend, _ := newObservedService(t, &scriptedUsageModel{chunks: [][]*schema.Message{{schema.AssistantMessage("ok", nil)}}}, DefaultBudgetPolicy())
+	svc, backend, _ := newObservedService(t, &scriptedUsageModel{chunks: [][]*schema.AgenticMessage{{testAssistant("ok")}}}, DefaultBudgetPolicy())
 	mustCreateSession(t, backend, "sess-src")
 	ctx := context.Background()
 	runID, err := svc.Run(ctx, "sess-src", "hi")
@@ -955,7 +927,7 @@ func TestObservedCallSourceAttribution(t *testing.T) {
 	// Begin on a run that already carries its terminal event is refused by
 	// the journal — fail-closed proof that no call can be journaled after
 	// run closure. The meta still shows the resolved route attribution.
-	meta, beginErr := sum.Begin(ctx, modelCallInput{Mode: "generate", Messages: []*schema.Message{schema.UserMessage("sum")}})
+	meta, beginErr := sum.Begin(ctx, modelCallInput{Mode: "generate", Messages: []*schema.AgenticMessage{testUser("sum")}})
 	if beginErr == nil {
 		t.Fatal("Begin on a terminal run must fail closed")
 	}

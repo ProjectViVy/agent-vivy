@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
@@ -52,10 +50,10 @@ func TestModelWorkIdentityUsesEinoCallIDForDistinctCallsAndRetries(t *testing.T)
 		t.Fatalf("resolve tools: %v", err)
 	}
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{ID: "retry-call", Function: schema.FunctionCall{Name: tools.EnterPlanModeName, Arguments: `{}`}}}),
-		schema.AssistantMessage("", []schema.ToolCall{{ID: "retry-call", Function: schema.FunctionCall{Name: tools.EnterPlanModeName, Arguments: `{}`}}}),
-		schema.AssistantMessage("", []schema.ToolCall{{ID: "distinct-call", Function: schema.FunctionCall{Name: tools.EnterPlanModeName, Arguments: `{}`}}}),
-		schema.AssistantMessage("Plan mode is active.", nil),
+		testToolCalls(testCall("retry-call", tools.EnterPlanModeName, `{}`)),
+		testToolCalls(testCall("retry-call", tools.EnterPlanModeName, `{}`)),
+		testToolCalls(testCall("distinct-call", tools.EnterPlanModeName, `{}`)),
+		testAssistant("Plan mode is active."),
 	)
 	engine, err := NewEngine(ctx, model, toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {

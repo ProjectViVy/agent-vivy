@@ -12,16 +12,16 @@ import (
 func TestLiteralGenModelInputKeepsMaskBraces(t *testing.T) {
 	ctx := context.Background()
 	instruction := `Selected mask data: {"body":"{system} {{persona}}"}`
-	input := &adk.AgentInput{Messages: []*schema.Message{schema.UserMessage("hello")}}
+	input := &adk.TypedAgentInput[*schema.AgenticMessage]{Messages: []*schema.AgenticMessage{testUser("hello")}}
 
 	msgs, err := literalGenModelInput(ctx, instruction, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 2 || msgs[0].Role != "system" || msgs[0].Content != instruction {
+	if len(msgs) != 2 || msgs[0].Role != "system" || agenticMessageText(msgs[0]) != instruction {
 		t.Fatalf("literal instruction was changed: %+v", msgs)
 	}
-	if msgs[1].Content != "hello" {
+	if agenticMessageText(msgs[1]) != "hello" {
 		t.Fatalf("input message was not preserved: %+v", msgs[1])
 	}
 }
@@ -56,7 +56,7 @@ func TestPromptInstructionReservationIncludesLegacyStaticInstruction(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := projectedContextBytes([]*schema.Message{schema.SystemMessage(composeStaticInstruction())})
+	want := projectedContextBytes([]*schema.AgenticMessage{testSystem(composeStaticInstruction())})
 	if got != want {
 		t.Fatalf("legacy prompt reservation = %d, want %d", got, want)
 	}

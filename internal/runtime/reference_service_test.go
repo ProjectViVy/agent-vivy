@@ -35,7 +35,7 @@ func newReferenceFixture(t *testing.T) *referenceFixture {
 
 // newReferenceFixtureWithConfig lets lifecycle tests observe the exact model
 // feed or exercise compaction through the real service graph.
-func newReferenceFixtureWithConfig(t *testing.T, chatModel model.ToolCallingChatModel, cfg EngineConfig) *referenceFixture {
+func newReferenceFixtureWithConfig(t *testing.T, chatModel model.AgenticModel, cfg EngineConfig) *referenceFixture {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "references.db"))

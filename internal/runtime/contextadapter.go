@@ -18,17 +18,14 @@ import (
 
 // contextCandidatesToUserParts is the only generic ContextHost -> Eino
 // projection. Context Sources and ContextHost themselves never import Eino.
-func contextCandidatesToUserParts(candidates []contexthost.Candidate) []schema.MessageInputPart {
-	parts := make([]schema.MessageInputPart, 0, len(candidates))
+func contextCandidatesToUserParts(candidates []contexthost.Candidate) []*schema.ContentBlock {
+	parts := make([]*schema.ContentBlock, 0, len(candidates))
 	for _, candidate := range candidates {
 		if !validContextProjectionCandidate(candidate) {
 			continue
 		}
 		label := contextCandidateLabel(candidate)
-		parts = append(parts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeText,
-			Text: label + candidate.Content,
-		})
+		parts = append(parts, agenticTextBlock(label+candidate.Content))
 	}
 	return parts
 }
@@ -65,16 +62,16 @@ func validContextProjectionCandidate(candidate contexthost.Candidate) bool {
 // forcing first-party snapshots through ContextSource and ContextHost before
 // they become Eino message parts. The source is memory-only and cannot perform
 // filesystem or network work at this stage.
-func hostedFileContextParts(files []domain.FileContext) []schema.MessageInputPart {
+func hostedFileContextParts(files []domain.FileContext) []*schema.ContentBlock {
 	parts, _ := hostedFileContextPartsWithContext(context.Background(), nil, files)
 	return parts
 }
 
-func hostedFileContextPartsWithContext(ctx context.Context, host *contexthost.Host, files []domain.FileContext) ([]schema.MessageInputPart, error) {
+func hostedFileContextPartsWithContext(ctx context.Context, host *contexthost.Host, files []domain.FileContext) ([]*schema.ContentBlock, error) {
 	return hostedFileContextPartsWithBudget(ctx, host, files, 0, 0)
 }
 
-func hostedFileContextPartsWithBudget(ctx context.Context, host *contexthost.Host, files []domain.FileContext, byteBudget, tokenBudget int) ([]schema.MessageInputPart, error) {
+func hostedFileContextPartsWithBudget(ctx context.Context, host *contexthost.Host, files []domain.FileContext, byteBudget, tokenBudget int) ([]*schema.ContentBlock, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
@@ -101,12 +98,9 @@ func hostedFileContextPartsWithBudget(ctx context.Context, host *contexthost.Hos
 	if len(result.Failures) > 0 {
 		return nil, result.Failures[0].Cause
 	}
-	parts := make([]schema.MessageInputPart, 0, len(result.Candidates))
+	parts := make([]*schema.ContentBlock, 0, len(result.Candidates))
 	for _, candidate := range result.Candidates {
-		parts = append(parts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeText,
-			Text: "\n\n[project file: " + candidate.ContentID + "]\n" + candidate.Content,
-		})
+		parts = append(parts, agenticTextBlock("\n\n[project file: "+candidate.ContentID+"]\n"+candidate.Content))
 	}
 	return parts, nil
 }
@@ -115,38 +109,36 @@ func fileContextCandidateBytes(candidate contexthost.Candidate) int {
 	return len("\n\n[project file: "+candidate.ContentID+"]\n") + len(candidate.Content)
 }
 
-func userFeedMessageWithContext(ctx context.Context, host *contexthost.Host, msg domain.Message) (*schema.Message, error) {
+func userFeedMessageWithContext(ctx context.Context, host *contexthost.Host, msg domain.Message) (*schema.AgenticMessage, error) {
 	return userFeedMessageWithContextBudget(ctx, host, msg, nil, nil)
 }
 
-func userFeedMessageWithContextBudget(ctx context.Context, host *contexthost.Host, msg domain.Message, budget *contextProjectionBudget, references []domain.ContextReference) (*schema.Message, error) {
+func userFeedMessageWithContextBudget(ctx context.Context, host *contexthost.Host, msg domain.Message, budget *contextProjectionBudget, references []domain.ContextReference) (*schema.AgenticMessage, error) {
 	if len(msg.Attachments) == 0 && len(msg.FileContexts) == 0 && len(references) == 0 {
-		projected := schema.UserMessage(msg.Content)
+		projected := agenticUserMessage(msg.Content)
 		budget.add(projected)
 		return projected, nil
 	}
-	textParts := make([]schema.MessageInputPart, 0, 1)
+	textParts := make([]*schema.ContentBlock, 0, 1)
 	if msg.Content != "" {
-		textParts = append(textParts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: msg.Content})
+		textParts = append(textParts, agenticTextBlock(msg.Content))
 	}
-	attachmentParts := make([]schema.MessageInputPart, 0, len(msg.Attachments))
+	attachmentParts := make([]*schema.ContentBlock, 0, len(msg.Attachments))
 	for _, attachment := range msg.Attachments {
 		data := base64.StdEncoding.EncodeToString(attachment.Data)
-		attachmentParts = append(attachmentParts, schema.MessageInputPart{
-			Type: schema.ChatMessagePartTypeImageURL,
-			Image: &schema.MessageInputImage{
-				MessagePartCommon: schema.MessagePartCommon{Base64Data: &data, MIMEType: attachment.MimeType},
-			},
-		})
+		attachmentParts = append(attachmentParts, schema.NewContentBlock(&schema.UserInputImage{
+			Base64Data: data,
+			MIMEType:   attachment.MimeType,
+		}))
 	}
-	fileParts := make([]schema.MessageInputPart, 0, len(msg.FileContexts))
+	fileParts := make([]*schema.ContentBlock, 0, len(msg.FileContexts))
 	if len(msg.FileContexts) > 0 {
 		byteBudget, tokenBudget := 0, 0
 		if budget != nil && budget.limit > 0 {
-			baseParts := append(append([]schema.MessageInputPart(nil), textParts...), attachmentParts...)
+			baseParts := append(append([]*schema.ContentBlock(nil), textParts...), attachmentParts...)
 			base := userMessageFromParts(msg.Content, baseParts)
 			remaining := budget.remaining()
-			baseBytes := projectedContextBytes([]*schema.Message{base})
+			baseBytes := projectedContextBytes([]*schema.AgenticMessage{base})
 			if remaining > baseBytes {
 				byteBudget = remaining - baseBytes
 				tokenBudget = byteBudget
@@ -160,15 +152,15 @@ func userFeedMessageWithContextBudget(ctx context.Context, host *contexthost.Hos
 			}
 		}
 	}
-	referenceParts := make([]schema.MessageInputPart, 0, len(references))
+	referenceParts := make([]*schema.ContentBlock, 0, len(references))
 	if len(references) > 0 {
 		// Imported blocks take whatever the rest of this message leaves;
 		// their status markers are reserved inside the same allowance.
 		remaining := -1
 		if budget != nil && budget.limit > 0 {
-			baseParts := make([]schema.MessageInputPart, 0, len(textParts)+len(fileParts)+len(attachmentParts))
+			baseParts := make([]*schema.ContentBlock, 0, len(textParts)+len(fileParts)+len(attachmentParts))
 			baseParts = append(append(append(baseParts, textParts...), fileParts...), attachmentParts...)
-			used := projectedContextBytes([]*schema.Message{userMessageFromParts("", baseParts)})
+			used := projectedContextBytes([]*schema.AgenticMessage{userMessageFromParts("", baseParts)})
 			if rem := budget.remaining() - used; rem > 0 {
 				remaining = rem
 			} else {
@@ -181,29 +173,29 @@ func userFeedMessageWithContextBudget(ctx context.Context, host *contexthost.Hos
 			return nil, err
 		}
 	}
-	parts := make([]schema.MessageInputPart, 0, len(textParts)+len(fileParts)+len(attachmentParts)+len(referenceParts))
+	parts := make([]*schema.ContentBlock, 0, len(textParts)+len(fileParts)+len(attachmentParts)+len(referenceParts))
 	parts = append(parts, textParts...)
 	parts = append(parts, fileParts...)
 	parts = append(parts, attachmentParts...)
 	parts = append(parts, referenceParts...)
 	if len(parts) == 0 {
-		projected := schema.UserMessage(msg.Content)
+		projected := agenticUserMessage(msg.Content)
 		budget.add(projected)
 		return projected, nil
 	}
-	projected := &schema.Message{Role: schema.User, UserInputMultiContent: parts}
+	projected := agenticUserBlocks(parts)
 	budget.add(projected)
 	return projected, nil
 }
 
-func userMessageFromParts(content string, parts []schema.MessageInputPart) *schema.Message {
+func userMessageFromParts(content string, parts []*schema.ContentBlock) *schema.AgenticMessage {
 	if len(parts) == 0 {
-		return schema.UserMessage(content)
+		return agenticUserMessage(content)
 	}
-	return &schema.Message{Role: schema.User, UserInputMultiContent: parts}
+	return agenticUserBlocks(parts)
 }
 
-func userFeedMessage(msg domain.Message) *schema.Message {
+func userFeedMessage(msg domain.Message) *schema.AgenticMessage {
 	projected, _ := userFeedMessageWithContext(context.Background(), nil, msg)
 	return projected
 }
@@ -233,7 +225,7 @@ const referenceSnapshotSourceID = "vivy.context-references"
 // through ContextHost budgeting via a memory-only resolved source; the
 // per-reference marker lines are reserved before the query so statuses stay
 // honest even under a tight budget. remainingBytes < 0 means unbounded.
-func ProjectReferenceContext(ctx context.Context, host *contexthost.Host, refs []domain.ContextReference, remainingBytes int) ([]schema.MessageInputPart, []ReferenceInclusion, error) {
+func ProjectReferenceContext(ctx context.Context, host *contexthost.Host, refs []domain.ContextReference, remainingBytes int) ([]*schema.ContentBlock, []ReferenceInclusion, error) {
 	inclusions := make([]ReferenceInclusion, 0, len(refs))
 	if len(refs) == 0 {
 		return nil, inclusions, nil
@@ -291,18 +283,18 @@ func ProjectReferenceContext(ctx context.Context, host *contexthost.Host, refs [
 			included[candidate.ContentID] = true
 		}
 	}
-	parts := make([]schema.MessageInputPart, 0, len(refs))
+	parts := make([]*schema.ContentBlock, 0, len(refs))
 	for _, ref := range refs {
 		switch {
 		case !projectable[ref.ID]:
 			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionUnavailable})
-			parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: referenceMarkerText(ref, ReferenceInclusionUnavailable)})
+			parts = append(parts, agenticTextBlock(referenceMarkerText(ref, ReferenceInclusionUnavailable)))
 		case included[ref.ID]:
 			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionIncluded, Digest: ref.Digest})
-			parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: rendered[ref.ID]})
+			parts = append(parts, agenticTextBlock(rendered[ref.ID]))
 		default:
 			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionElidedBudget, Digest: ref.Digest})
-			parts = append(parts, schema.MessageInputPart{Type: schema.ChatMessagePartTypeText, Text: referenceMarkerText(ref, ReferenceInclusionElidedBudget)})
+			parts = append(parts, agenticTextBlock(referenceMarkerText(ref, ReferenceInclusionElidedBudget)))
 		}
 	}
 	return parts, inclusions, nil

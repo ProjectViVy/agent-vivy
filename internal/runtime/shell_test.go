@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
@@ -60,7 +58,7 @@ func newShellFixture(t *testing.T, approval domain.ApprovalPolicy, hooks ...*Too
 	if len(hooks) > 0 {
 		config.ToolHooks = hooks[0]
 	}
-	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("unused", nil)), ts, config)
+	eng, err := NewEngine(ctx, NewScriptedModel(testAssistant("unused")), ts, config)
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}

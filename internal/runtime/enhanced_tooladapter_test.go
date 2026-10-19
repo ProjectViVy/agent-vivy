@@ -32,10 +32,10 @@ func TestEnhancedAdapterPreservesFailureOutcome(t *testing.T) {
 		}
 		return "ok-" + p.Text, nil
 	})
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{failureToolCall(c1, contractToolName, `{"text":"bad"}`)}),
-		schema.AssistantMessage("", []schema.ToolCall{failureToolCall(c2, contractToolName, `{"text":"fixed"}`)}),
-		schema.AssistantMessage("recovered", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(failureToolCall(c1, contractToolName, `{"text":"bad"}`)),
+		testToolCalls(failureToolCall(c2, contractToolName, `{"text":"fixed"}`)),
+		testAssistant("recovered"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, enhanced: true, extraTools: []tools.Tool{argTool}})
 

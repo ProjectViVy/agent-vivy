@@ -1766,7 +1766,7 @@ refreshModels: '刷新模型列表',
     back: '上一步',
     modelTitle: '配置模型',
     modelBody:
-      '填写协议适配器（openai-completions / openai-responses / anthropic-messages）、Base URL 与默认模型。厂商、端点地址与模型清单来自后端内置目录，Base URL 留空即用目录地址；其他 OpenAI 兼容服务可用 Base URL 自建网关接入。API Key 由运行环境注入，向导不收集。',
+      '填写协议适配器（openai-completions / anthropic-messages）、Base URL 与默认模型。厂商、端点地址与模型清单来自后端内置目录，Base URL 留空即用目录地址；其他 OpenAI 兼容服务可用 Base URL 自建网关接入。API Key 由运行环境注入，向导不收集。',
     openInBrowser: '在浏览器中打开',
     provider: '协议适配器',
     providerPlaceholder: 'openai-completions',

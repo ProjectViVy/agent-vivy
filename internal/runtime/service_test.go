@@ -1058,7 +1058,7 @@ func TestParentRunReceivesChildReplyInModelInputAndConsumesAtCompletion(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorder := &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("parent done", nil))}
+	recorder := &recordingChatModel{inner: NewScriptedModel(testAssistant("parent done"))}
 	engine, err := NewEngine(ctx, recorder, resolved, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatal(err)
@@ -1126,7 +1126,7 @@ func TestParentRunReceivesChildReplyInModelInputAndConsumesAtCompletion(t *testi
 	var input strings.Builder
 	for _, msg := range feed {
 		if msg != nil {
-			input.WriteString(msg.Content)
+			input.WriteString(agenticMessageText(msg))
 			input.WriteByte('\n')
 		}
 	}
@@ -1372,15 +1372,9 @@ func TestServiceRunFailedProviderTransport(t *testing.T) {
 func TestMapperToolCallAndResult(t *testing.T) {
 	m := newEventMapper("run-test", 0)
 
-	callEvents, err := m.onEvent(&adk.AgentEvent{
-		Output: &adk.AgentOutput{MessageOutput: &adk.TypedMessageVariant[*schema.Message]{
-			Message: &schema.Message{
-				Role: schema.Assistant,
-				ToolCalls: []schema.ToolCall{{
-					ID:       "call-1",
-					Function: schema.FunctionCall{Name: "echo_info", Arguments: `{"text":"hi"}`},
-				}},
-			},
+	callEvents, err := m.onEvent(&adk.TypedAgentEvent[*schema.AgenticMessage]{
+		Output: &adk.TypedAgentOutput[*schema.AgenticMessage]{MessageOutput: &adk.TypedMessageVariant[*schema.AgenticMessage]{
+			Message: agenticTestMessage(schema.AgenticRoleTypeAssistant, "", testCalls(testCall("call-1", "echo_info", `{"text":"hi"}`)), nil, nil),
 		}},
 	})
 	if err != nil {
@@ -1396,9 +1390,9 @@ func TestMapperToolCallAndResult(t *testing.T) {
 		t.Fatalf("tool.requested payload missing parsed args: %s", callEvents[0].Payload)
 	}
 
-	resultEvents, err := m.onEvent(&adk.AgentEvent{
-		Output: &adk.AgentOutput{MessageOutput: &adk.TypedMessageVariant[*schema.Message]{
-			Message: &schema.Message{Role: schema.Tool, Content: "hi", ToolCallID: "call-1"},
+	resultEvents, err := m.onEvent(&adk.TypedAgentEvent[*schema.AgenticMessage]{
+		Output: &adk.TypedAgentOutput[*schema.AgenticMessage]{MessageOutput: &adk.TypedMessageVariant[*schema.AgenticMessage]{
+			Message: testToolResult("call-1", "", "hi"),
 		}},
 	})
 	if err != nil {
@@ -1440,10 +1434,7 @@ func TestMapperFlushesAssistantTextBeforeToolAndFencesNextRound(t *testing.T) {
 	m := newEventMapper("run-test", 0)
 	m.pendingText.WriteString("before tool")
 	m.hasPending = true
-	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{
-		Role:      schema.Assistant,
-		ToolCalls: []schema.ToolCall{{ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`}}},
-	}})
+	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{Message: agenticTestMessage(schema.AgenticRoleTypeAssistant, "", testCalls(testCall("call-1", "echo_info", `{}`)), nil, nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1454,7 +1445,7 @@ func TestMapperFlushesAssistantTextBeforeToolAndFencesNextRound(t *testing.T) {
 		t.Fatalf("already-durable tool preamble was not fenced: pending=%q", m.pendingText.String())
 	}
 
-	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{Role: schema.Assistant, Content: "final"}})
+	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{Message: testAssistant("final")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1917,48 +1908,37 @@ func mustUnmarshal(t *testing.T, b []byte, v any) {
 }
 
 type recordingChatModel struct {
-	inner  model.ToolCallingChatModel
+	inner  model.AgenticModel
 	mu     sync.Mutex
-	inputs [][]*schema.Message
+	inputs [][]*schema.AgenticMessage
 }
 
-func (m *recordingChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *recordingChatModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	m.record(input)
 	return m.inner.Generate(ctx, input, opts...)
 }
 
-func (m *recordingChatModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *recordingChatModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.record(input)
 	return m.inner.Stream(ctx, input, opts...)
 }
 
-func (m *recordingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	next, err := m.inner.WithTools(tools)
-	if err != nil {
-		return nil, err
-	}
-	m.inner = next
-	return m, nil
-}
-
-func (m *recordingChatModel) record(input []*schema.Message) {
+func (m *recordingChatModel) record(input []*schema.AgenticMessage) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]*schema.Message, 0, len(input))
+	cp := make([]*schema.AgenticMessage, 0, len(input))
 	for _, msg := range input {
 		if msg == nil {
 			continue
 		}
 		clone := *msg
-		if len(msg.ToolCalls) > 0 {
-			clone.ToolCalls = append([]schema.ToolCall(nil), msg.ToolCalls...)
-		}
+		clone.ContentBlocks = append([]*schema.ContentBlock(nil), msg.ContentBlocks...)
 		cp = append(cp, &clone)
 	}
 	m.inputs = append(m.inputs, cp)
 }
 
-func (m *recordingChatModel) lastInput() []*schema.Message {
+func (m *recordingChatModel) lastInput() []*schema.AgenticMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.inputs) == 0 {
@@ -1976,12 +1956,9 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 	t.Cleanup(func() { _ = backend.Close() })
 
 	recorder := &recordingChatModel{inner: NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-echo-1",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"hi"}`},
-		}}),
-		schema.AssistantMessage("echoed", nil),
-		schema.AssistantMessage("second turn", nil),
+		testToolCalls(testCall("call-echo-1", tools.EchoInfoName, `{"text":"hi"}`)),
+		testAssistant("echoed"),
+		testAssistant("second turn"),
 	)}
 	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName})
 	if err != nil {
@@ -2028,7 +2005,7 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 	feed := recorder.lastInput()
 	var sawToolRole bool
 	for _, msg := range feed {
-		if msg.Role == schema.Tool && msg.ToolCallID == "call-echo-1" {
+		if agenticIsToolResult(msg) && agenticToolResults(msg)[0].CallID == "call-echo-1" {
 			sawToolRole = true
 		}
 	}

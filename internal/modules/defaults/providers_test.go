@@ -31,37 +31,24 @@ func TestDefaultProviderProfilesMatchExistingRuntimeFamilies(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Profile IDs = %v, want %v", got, want)
 	}
-	capabilities := provider.Capabilities()
-	host, err := modelhost.New(nil, capabilities)
+	families := provider.AdapterFamilies()
+	host, err := modelhost.New(definitions, families)
 	if err != nil {
 		t.Fatalf("modelhost.New: %v", err)
 	}
-	for i, profile := range definitions {
+	for _, profile := range definitions {
 		if profile.AdapterFamily != profile.ID {
 			t.Fatalf("Profile %q family = %q, want the adapter id", profile.ID, profile.AdapterFamily)
 		}
-		state, ok := host.Capability(profile.AdapterFamily)
-		if !ok {
-			t.Fatalf("Profile %q names adapter family %q, which is not sealed", profile.ID, profile.AdapterFamily)
-		}
-		if state != capabilities[want[i]] {
-			t.Fatalf("Profile %q state = %q, want %q", profile.ID, state, capabilities[want[i]])
-		}
-		if state != modelhost.CapabilitySupported {
-			t.Fatalf("Profile %q state = %q, want SUPPORTED", profile.ID, state)
+		if _, err := host.ResolveExecutable(profile.ID); err != nil {
+			t.Fatalf("Profile %q names adapter family %q, which is not executable: %v", profile.ID, profile.AdapterFamily, err)
 		}
 		if len(profile.ModelIDs) == 0 || len(profile.SecretRefs) == 0 {
-			t.Fatalf("supported Profile %q carries %d model ids and %d Secret references", profile.ID, len(profile.ModelIDs), len(profile.SecretRefs))
+			t.Fatalf("Profile %q carries %d model ids and %d Secret references", profile.ID, len(profile.ModelIDs), len(profile.SecretRefs))
 		}
 	}
-	supported := 0
-	for _, profile := range definitions {
-		if capabilities[profile.AdapterFamily] == modelhost.CapabilitySupported {
-			supported++
-		}
-	}
-	if supported != 2 {
-		t.Fatalf("supported adapter families = %d, want 2", supported)
+	if !reflect.DeepEqual(families, want) {
+		t.Fatalf("sealed adapter families = %v, want %v", families, want)
 	}
 }
 

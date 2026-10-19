@@ -19,7 +19,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func newGoalLifecycleService(t *testing.T, backend *sqlite.Backend, chat model.ToolCallingChatModel, workspace WorkspaceAllocator, goalRuns storage.GoalRunStore, toolset []tools.Tool) *Service {
+func newGoalLifecycleService(t *testing.T, backend *sqlite.Backend, chat model.AgenticModel, workspace WorkspaceAllocator, goalRuns storage.GoalRunStore, toolset []tools.Tool) *Service {
 	t.Helper()
 	ctx := context.Background()
 	engine, err := NewEngine(ctx, chat, toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
@@ -117,7 +117,7 @@ func TestGoalReservationCannotCommitAfterPauseOrEdit(t *testing.T) {
 			const sessionID domain.SessionID = "sess-goal-reservation"
 			ref := createLifecycleGoal(t, backend, sessionID, 2)
 			workspace := &precommitBarrierWorkspaceAllocator{entered: make(chan struct{}), release: make(chan struct{}), path: t.TempDir()}
-			svc := newGoalLifecycleService(t, backend, NewScriptedModel(schema.AssistantMessage("unexpected", nil)), workspace, backend, nil)
+			svc := newGoalLifecycleService(t, backend, NewScriptedModel(testAssistant("unexpected")), workspace, backend, nil)
 			defer func() { workspace.releaseBarrier(); waitLifecycleIdle(t, svc) }()
 			svc.WakeGoal(sessionID)
 			select {
@@ -216,7 +216,7 @@ func TestGoalRoundCapPersistsExplicitBlock(t *testing.T) {
 	const sessionID domain.SessionID = "sess-goal-cap"
 	createLifecycleGoal(t, backend, sessionID, 1)
 	goalRuns := &notifyingGoalRunStore{GoalRunStore: backend, committed: make(chan storage.GoalRunCommitResult, 1)}
-	svc := newGoalLifecycleService(t, backend, NewScriptedModel(schema.AssistantMessage("one round finished", nil)), nil, goalRuns, nil)
+	svc := newGoalLifecycleService(t, backend, NewScriptedModel(testAssistant("one round finished")), nil, goalRuns, nil)
 	t.Cleanup(func() { svc.CancelAll(); waitLifecycleIdle(t, svc) })
 	svc.WakeGoal(sessionID)
 	var admitted storage.GoalRunCommitResult
@@ -254,10 +254,8 @@ func TestOldGoalRunCannotReportEditedGoalReference(t *testing.T) {
 	}
 	model := &gatedLifecycleModel{
 		inner: NewScriptedModel(
-			schema.AssistantMessage("", []schema.ToolCall{{ID: "report-old-revision", Function: schema.FunctionCall{
-				Name: tools.ReportGoalName, Arguments: `{"goal_id":"goal-lifecycle","revision":2,"status":"completed","reason":"old run claims the edited Goal"}`,
-			}}}),
-			schema.AssistantMessage("Old report was rejected.", nil),
+			testToolCalls(testCall("report-old-revision", tools.ReportGoalName, `{"goal_id":"goal-lifecycle","revision":2,"status":"completed","reason":"old run claims the edited Goal"}`)),
+			testAssistant("Old report was rejected."),
 		),
 		entered: make(chan struct{}), release: make(chan struct{}),
 	}
@@ -490,7 +488,7 @@ type heldResumedQuestionModel struct {
 	once      sync.Once
 }
 
-func (m *heldResumedQuestionModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *heldResumedQuestionModel) Stream(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.mu.Lock()
 	m.calls++
 	call := m.calls
@@ -506,11 +504,8 @@ func (m *heldResumedQuestionModel) Stream(ctx context.Context, in []*schema.Mess
 	}
 	return m.inner.Stream(ctx, in, opts...)
 }
-func (m *heldResumedQuestionModel) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *heldResumedQuestionModel) Generate(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	return m.inner.Generate(ctx, in, opts...)
-}
-func (m *heldResumedQuestionModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }
 func (m *heldResumedQuestionModel) unblock() { m.once.Do(func() { close(m.release) }) }
 
@@ -590,36 +585,30 @@ func (m *gatedLifecycleModel) wait(ctx context.Context) error {
 	}
 }
 func (m *gatedLifecycleModel) unblock() { m.done.Do(func() { close(m.release) }) }
-func (m *gatedLifecycleModel) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *gatedLifecycleModel) Generate(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	if err := m.wait(ctx); err != nil {
 		return nil, err
 	}
 	return m.inner.Generate(ctx, in, opts...)
 }
-func (m *gatedLifecycleModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *gatedLifecycleModel) Stream(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	if err := m.wait(ctx); err != nil {
 		return nil, err
 	}
 	return m.inner.Stream(ctx, in, opts...)
-}
-func (m *gatedLifecycleModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }
 
 // This model never returns a model response; cancellation must terminate the
 // already committed run without permitting a replacement round.
 type blockingEinoModel struct{}
 
-func (*blockingEinoModel) Generate(ctx context.Context, _ []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (*blockingEinoModel) Generate(ctx context.Context, _ []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
-func (m *blockingEinoModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *blockingEinoModel) Stream(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	_, err := m.Generate(ctx, in, opts...)
 	return nil, err
-}
-func (m *blockingEinoModel) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }
 
 type commitThenLoseResultStore struct {
@@ -641,7 +630,7 @@ func TestCrashAfterGoalRunCommitNeverRefundsOrReplaysRound(t *testing.T) {
 	const sessionID domain.SessionID = "sess-goal-commit-crash"
 	createLifecycleGoal(t, backend, sessionID, 1)
 	store := &commitThenLoseResultStore{GoalRunStore: backend, committed: make(chan struct{})}
-	svc := newGoalLifecycleService(t, backend, NewScriptedModel(schema.AssistantMessage("must not execute", nil)), nil, store, nil)
+	svc := newGoalLifecycleService(t, backend, NewScriptedModel(testAssistant("must not execute")), nil, store, nil)
 	svc.WakeGoal(sessionID)
 	select {
 	case <-store.committed:
@@ -661,7 +650,7 @@ func TestCrashAfterGoalRunCommitNeverRefundsOrReplaysRound(t *testing.T) {
 	if err != nil || len(messages) != 1 || messages[0].RunID != runs[0].ID {
 		t.Fatalf("committed crash-window message = %+v / %v", messages, err)
 	}
-	restarted := newGoalLifecycleService(t, backend, NewScriptedModel(schema.AssistantMessage("must not replay", nil)), nil, backend, nil)
+	restarted := newGoalLifecycleService(t, backend, NewScriptedModel(testAssistant("must not replay")), nil, backend, nil)
 	if err := restarted.Recover(ctx); err != nil {
 		t.Fatalf("recover committed Goal run: %v", err)
 	}

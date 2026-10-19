@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 //
 // PROV-P4：向导不再持有任何 provider 数据。三个字段全部预填自后端 settings
 // 文档（provider / default_model / base_url，缺省留空由用户填写），写出的
-// provider 归一为密封适配器 id（openai-completions / openai-responses /
+// provider 归一为密封适配器 id（openai-completions /
 // anthropic-messages）；地址与默认模型由后端按目录端点解析，前端不再内置
 // 「一等运行束」默认值。唯一保留的供应商相关常量是 DeepSeek 控制台链接
 // （获取 API Key 的文档入口，不是配置数据；见 docs/TODO.md §0.1）。

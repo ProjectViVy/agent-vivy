@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/cloudwego/eino-ext/components/model/agenticclaude"
 	"github.com/cloudwego/eino/components/model"
 
 	"agent-vivy/internal/domain"
@@ -23,7 +24,7 @@ const claudeDefaultMaxTokens = 8192
 // the thinking budget.
 const claudeThinkingBudgetTokens = 4096
 
-// claudeRef wires one embedded anthropic-messages endpoint to the online
+// claudeRef wires one embedded anthropic-messages endpoint to the agentic
 // eino-ext Claude component (Anthropic Messages API). Construction happens at
 // Model() call time from the supplied ModelSpec; no network traffic happens
 // before the first Generate/Stream.
@@ -47,7 +48,7 @@ func (r *claudeRef) Name() string {
 	return r.vendor.Name
 }
 
-func (r *claudeRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallingChatModel, error) {
+func (r *claudeRef) Model(ctx context.Context, spec ModelSpec) (model.AgenticModel, error) {
 	modelID := strings.TrimSpace(spec.ID)
 	if modelID == "" {
 		modelID = r.endpoint.DefaultModel
@@ -63,20 +64,22 @@ func (r *claudeRef) Model(ctx context.Context, spec ModelSpec) (model.ToolCallin
 	if baseURL == "" {
 		baseURL = r.endpoint.BaseURL
 	}
-	cfg := &einoclaude.Config{
+	cfg := &agenticclaude.Config{
 		APIKey:    key,
 		Model:     modelID,
-		BaseURL:   &baseURL,
+		BaseURL:   baseURL,
 		MaxTokens: claudeDefaultMaxTokens,
 	}
 	// The endpoint's cache flag is the first consumer of the data-driven
-	// prompt-caching field: automatic cache breakpoints on system + tools +
-	// last message (SDK-default 5m TTL). Crush's system + last-2-messages
-	// placement is a known, accepted difference (§8.5).
+	// prompt-caching field. The agentic component applies the top-level
+	// marker to the last cacheable block (system + tools + last message),
+	// which is the same automatic placement the previous generation used.
+	// Type must be set explicitly: the SDK's omitzero encoding drops the
+	// parameter when only its default tag would have filled the value.
 	if r.endpoint.SupportsPromptCaching {
-		cfg.AutoCacheControl = &einoclaude.CacheControl{}
+		cfg.CacheControl = &anthropic.CacheControlEphemeralParam{Type: "ephemeral"}
 	}
-	cm, err := einoclaude.NewChatModel(ctx, cfg)
+	cm, err := agenticclaude.New(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: construct claude model %q: %w", r.Name(), modelID, err)
 	}

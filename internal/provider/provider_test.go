@@ -84,7 +84,7 @@ func (s staticSpec) Live() LiveSpec { return s.live }
 
 func TestResolvingChatModelRejectsUnconfigured(t *testing.T) {
 	cm := NewResolvingChatModel(routedHost(t), NewCatalog(), staticSpec{live: LiveSpec{}})
-	_, err := cm.Generate(context.Background(), []*schema.Message{{Role: schema.User, Content: "hi"}})
+	_, err := cm.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")})
 	if !errors.Is(err, ErrModelNotConfigured) {
 		t.Fatalf("error = %v, want ErrModelNotConfigured", err)
 	}
@@ -101,7 +101,7 @@ func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *te
 		chatModel := NewResolvingChatModel(host, NewCatalog(vendor), staticSpec{live: LiveSpec{
 			Provider: vendor.Name, Model: "gpt-4o", Ready: true,
 		}})
-		_, err := chatModel.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+		_, err := chatModel.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")})
 		var missing *KeyMissingError
 		if !errors.As(err, &missing) {
 			t.Fatalf("adapter failure = %v, want KeyMissingError", err)
@@ -116,7 +116,7 @@ func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *te
 		defer closeServer()
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 		defer cancel()
-		_, err := chatModel.Generate(ctx, []*schema.Message{schema.UserMessage("hi")})
+		_, err := chatModel.Generate(ctx, []*schema.AgenticMessage{testUser("hi")})
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("timeout error = %v, want DeadlineExceeded", err)
 		}
@@ -127,7 +127,7 @@ func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *te
 		defer closeServer()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := chatModel.Generate(ctx, []*schema.Message{schema.UserMessage("hi")})
+		_, err := chatModel.Generate(ctx, []*schema.AgenticMessage{testUser("hi")})
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancellation error = %v, want Canceled", err)
 		}
@@ -142,7 +142,7 @@ func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *te
 		chatModel := NewResolvingChatModel(routedHost(t, testProfile(t, vendor)), NewCatalog(vendor), staticSpec{live: LiveSpec{
 			Provider: vendor.Name, Model: "gpt-4o", BaseURL: server.URL, APIKey: "secret", Ready: true,
 		}})
-		if stream, err := chatModel.Stream(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err == nil {
+		if stream, err := chatModel.Stream(context.Background(), []*schema.AgenticMessage{testUser("hi")}); err == nil {
 			if stream != nil {
 				stream.Close()
 			}
@@ -151,7 +151,7 @@ func TestResolvingModelConformanceFailureTimeoutCancellationAndStreamError(t *te
 	})
 }
 
-func blockingResolvingModel(t *testing.T) (model.ToolCallingChatModel, func()) {
+func blockingResolvingModel(t *testing.T) (model.AgenticModel, func()) {
 	t.Helper()
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {

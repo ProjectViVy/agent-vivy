@@ -47,10 +47,10 @@ func TestCompactionPolicyTriggerTokens(t *testing.T) {
 }
 
 func TestCountMessageTokens(t *testing.T) {
-	msgs := []*schema.Message{
-		schema.UserMessage(strings.Repeat("a", 400)),
-		schema.AssistantMessage(strings.Repeat("b", 400), nil),
-		{Role: schema.User, UserInputMultiContent: []schema.MessageInputPart{{Type: schema.ChatMessagePartTypeText, Text: strings.Repeat("c", 400)}}},
+	msgs := []*schema.AgenticMessage{
+		testUser(strings.Repeat("a", 400)),
+		testAssistant(strings.Repeat("b", 400)),
+		agenticUserBlocks([]*schema.ContentBlock{agenticTextBlock(strings.Repeat("c", 400))}),
 	}
 	got, err := countMessageTokens(msgs, nil)
 	if err != nil {
@@ -96,17 +96,14 @@ func TestCompactionFoldRetainsFileContextSnapshots(t *testing.T) {
 }
 
 func TestSummarizationFinalizePreservesExactProjectFileMessage(t *testing.T) {
-	fileMsg := &schema.Message{Role: schema.User, UserInputMultiContent: []schema.MessageInputPart{
-		{Type: schema.ChatMessagePartTypeText, Text: "inspect"},
-		{Type: schema.ChatMessagePartTypeText, Text: "\n\n[project file: main.go]\npackage main"},
-	}}
-	got, err := preserveProjectFileContextsFinalize(context.Background(), []*schema.Message{
-		schema.SystemMessage("system"), schema.UserMessage("old"), fileMsg,
-	}, schema.AssistantMessage("summary", nil))
+	fileMsg := agenticUserBlocks([]*schema.ContentBlock{agenticTextBlock("\n\n[project file: a.go]\npackage a")})
+	got, err := preserveProjectFileContextsFinalize(context.Background(), []*schema.AgenticMessage{
+		testSystem("system"), testUser("old"), fileMsg,
+	}, testAssistant("summary"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) < 3 || got[len(got)-1] != fileMsg || !schemaMessageHasProjectFileContext(got[len(got)-1]) {
+	if len(got) < 3 || got[len(got)-1] != fileMsg || !agenticMessageHasProjectFileContext(got[len(got)-1]) {
 		t.Fatalf("finalized messages did not retain exact file snapshot: %+v", got)
 	}
 }
@@ -117,15 +114,12 @@ func TestSummarizationFinalizePreservesExactProjectFileMessage(t *testing.T) {
 func TestMapperMapsSummarizationUsageEvent(t *testing.T) {
 	m := newEventMapper("run-1", 0)
 	m.setUsageRoutes("deepseek", "main-model", "summary-model")
-	action := &summarization.CustomizedAction{
+	action := &summarization.TypedCustomizedAction[*schema.AgenticMessage]{
 		Type: summarization.ActionTypeGenerateSummary,
-		GenerateSummary: &summarization.GenerateSummaryAction{
-			Attempt: 1,
-			Phase:   summarization.GenerateSummaryPhasePrimary,
-			ModelResponse: &schema.Message{
-				Role: schema.Assistant, Content: "summary",
-				ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}},
-			},
+		GenerateSummary: &summarization.TypedGenerateSummaryAction[*schema.AgenticMessage]{
+			Attempt:       1,
+			Phase:         summarization.GenerateSummaryPhasePrimary,
+			ModelResponse: agenticTestMessage(schema.AgenticRoleTypeAssistant, "summary", nil, &schema.TokenUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}, nil),
 		},
 	}
 	events, err := m.onCustomizedAction(action)
@@ -189,14 +183,14 @@ func TestResumeEventMapperRestoresSummaryUsageRoutesFromJournal(t *testing.T) {
 		deps:   ServiceDeps{Journal: backend},
 	}
 	m := svc.newResumeEventMapper(ctx, runID)
-	action := &summarization.CustomizedAction{
+	action := &summarization.TypedCustomizedAction[*schema.AgenticMessage]{
 		Type: summarization.ActionTypeGenerateSummary,
-		GenerateSummary: &summarization.GenerateSummaryAction{
+		GenerateSummary: &summarization.TypedGenerateSummaryAction[*schema.AgenticMessage]{
 			Attempt: 1,
 			Phase:   summarization.GenerateSummaryPhasePrimary,
-			ModelResponse: &schema.Message{Role: schema.Assistant, ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
+			ModelResponse: agenticTestMessage(schema.AgenticRoleTypeAssistant, "", nil, &schema.TokenUsage{
 				PromptTokens: 8, CompletionTokens: 2, TotalTokens: 10,
-			}}},
+			}, nil),
 		},
 	}
 	primary, err := m.onCustomizedAction(action)
@@ -230,7 +224,7 @@ func TestResumeEventMapperRestoresSummaryUsageRoutesFromJournal(t *testing.T) {
 
 // drainFinalText reassembles the assistant output of a run, whether it
 // arrives as whole messages or streaming chunks.
-func drainFinalText(t *testing.T, iter *adk.AsyncIterator[*adk.AgentEvent]) string {
+func drainFinalText(t *testing.T, iter *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]]) string {
 	t.Helper()
 	var sb strings.Builder
 	for {
@@ -255,13 +249,13 @@ func drainFinalText(t *testing.T, iter *adk.AsyncIterator[*adk.AgentEvent]) stri
 					t.Fatalf("stream recv: %v", err)
 				}
 				if chunk != nil {
-					sb.WriteString(chunk.Content)
+					sb.WriteString(agenticAssistantText(chunk))
 				}
 			}
 			continue
 		}
 		if mv.Message != nil {
-			sb.WriteString(mv.Message.Content)
+			sb.WriteString(agenticAssistantText(mv.Message))
 		}
 	}
 	return sb.String()
@@ -269,18 +263,15 @@ func drainFinalText(t *testing.T, iter *adk.AsyncIterator[*adk.AgentEvent]) stri
 
 // compactFeed builds a well-formed over-budget historical feed: a system
 // message, one user message, and n assistant-toolcall + tool-result rounds.
-func compactFeed(n int) []*schema.Message {
-	msgs := []*schema.Message{
-		schema.SystemMessage("you are a precise test agent"),
-		schema.UserMessage("execute all steps in order"),
+func compactFeed(n int) []*schema.AgenticMessage {
+	msgs := []*schema.AgenticMessage{
+		testSystem("you are a precise test agent"),
+		testUser("execute all steps in order"),
 	}
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("call-%d", i)
-		msgs = append(msgs, schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       id,
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: strings.Repeat("a", 120)},
-		}}))
-		msgs = append(msgs, schema.ToolMessage(strings.Repeat("b", 140), id))
+		msgs = append(msgs, testToolCalls(testCall(id, tools.EchoInfoName, strings.Repeat("a", 120))))
+		msgs = append(msgs, testToolResult(id, "", strings.Repeat("b", 140)))
 	}
 	return msgs
 }
@@ -288,65 +279,61 @@ func compactFeed(n int) []*schema.Message {
 // recordingModel wraps a ScriptedModel and records every model input so
 // tests can assert what the model actually saw after compaction.
 type recordingModel struct {
-	inner  model.ToolCallingChatModel
+	inner  model.AgenticModel
 	mu     sync.Mutex
-	inputs [][]*schema.Message
+	inputs [][]*schema.AgenticMessage
 }
 
-func (m *recordingModel) record(input []*schema.Message) {
+func (m *recordingModel) record(input []*schema.AgenticMessage) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]*schema.Message, len(input))
+	cp := make([]*schema.AgenticMessage, len(input))
 	copy(cp, input)
 	m.inputs = append(m.inputs, cp)
 }
 
-func (m *recordingModel) snapshot() [][]*schema.Message {
+func (m *recordingModel) snapshot() [][]*schema.AgenticMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([][]*schema.Message, len(m.inputs))
+	out := make([][]*schema.AgenticMessage, len(m.inputs))
 	for i, input := range m.inputs {
-		cp := make([]*schema.Message, len(input))
+		cp := make([]*schema.AgenticMessage, len(input))
 		copy(cp, input)
 		out[i] = cp
 	}
 	return out
 }
 
-func (m *recordingModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *recordingModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	m.record(input)
 	return m.inner.Generate(ctx, input, opts...)
 }
 
-func (m *recordingModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *recordingModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.record(input)
 	return m.inner.Stream(ctx, input, opts...)
 }
 
-func (m *recordingModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m.inner.WithTools(tools)
-}
-
-func joinContent(msgs []*schema.Message) string {
+func joinContent(msgs []*schema.AgenticMessage) string {
 	var sb strings.Builder
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
-		sb.WriteString(msg.Content)
+		sb.WriteString(agenticMessageText(msg))
 	}
 	return sb.String()
 }
 
-func countBytes(msgs []*schema.Message) int {
+func countBytes(msgs []*schema.AgenticMessage) int {
 	n := 0
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
-		n += len(msg.Content)
-		for _, tc := range msg.ToolCalls {
-			n += len(tc.Function.Name) + len(tc.Function.Arguments)
+		n += len(agenticMessageText(msg))
+		for _, tc := range agenticToolCalls(msg) {
+			n += len(tc.Name) + len(tc.Arguments)
 		}
 	}
 	return n
@@ -362,8 +349,8 @@ func TestEngineSummarizationCompaction(t *testing.T) {
 		t.Fatalf("resolve tools: %v", err)
 	}
 	scripted := NewScriptedModel(
-		schema.AssistantMessage("SUMMARY-DIGEST-xyz", nil),
-		schema.AssistantMessage("FINAL-ANSWER-yz", nil),
+		testAssistant("SUMMARY-DIGEST-xyz"),
+		testAssistant("FINAL-ANSWER-yz"),
 	)
 	rec := &recordingModel{inner: scripted}
 	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
@@ -407,8 +394,8 @@ func TestEngineReductionRunsBeforeSummarization(t *testing.T) {
 		t.Fatalf("resolve tools: %v", err)
 	}
 	scripted := NewScriptedModel(
-		schema.AssistantMessage("REDUCTION-SUMMARY-zz", nil),
-		schema.AssistantMessage("FINAL-ANSWER-rx", nil),
+		testAssistant("REDUCTION-SUMMARY-zz"),
+		testAssistant("FINAL-ANSWER-rx"),
 	)
 	rec := &recordingModel{inner: scripted}
 	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
@@ -461,7 +448,7 @@ type failoverFake struct {
 	called int
 }
 
-func (f *failoverFake) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (f *failoverFake) Generate(_ context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	f.mu.Lock()
 	f.calls++
 	n := f.calls
@@ -469,15 +456,15 @@ func (f *failoverFake) Generate(_ context.Context, input []*schema.Message, _ ..
 	if n <= f.failN {
 		return nil, errors.New("failoverFake: summary model down")
 	}
-	return schema.AssistantMessage(f.reply, nil), nil
+	return testAssistant(f.reply), nil
 }
 
-func (f *failoverFake) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (f *failoverFake) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	msg, err := f.Generate(ctx, input, opts...)
 	if err != nil {
 		return nil, err
 	}
-	sr, sw := schema.Pipe[*schema.Message](1)
+	sr, sw := schema.Pipe[*schema.AgenticMessage](1)
 	sw.Send(msg, nil)
 	sw.Close()
 	return sr, nil
@@ -500,7 +487,7 @@ func TestEngineSummaryModelPreferredWhenHealthy(t *testing.T) {
 	}
 	summary := &failoverFake{reply: "CHEAP-SUMMARY-cc"}
 	rec := &recordingModel{inner: NewScriptedModel(
-		schema.AssistantMessage("FINAL-ANSWER-mm", nil),
+		testAssistant("FINAL-ANSWER-mm"),
 	)}
 	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
 		StreamBuffer:         8,
@@ -543,8 +530,8 @@ func TestEngineSummaryModelFailsOverToMain(t *testing.T) {
 	}
 	summary := &failoverFake{failN: 1, reply: "NEVER-REACHED"}
 	rec := &recordingModel{inner: NewScriptedModel(
-		schema.AssistantMessage("MAIN-FAILOVER-SUMMARY", nil),
-		schema.AssistantMessage("FINAL-ANSWER-ff", nil),
+		testAssistant("MAIN-FAILOVER-SUMMARY"),
+		testAssistant("FINAL-ANSWER-ff"),
 	)}
 	eng, err := NewEngine(ctx, rec, ts, EngineConfig{
 		StreamBuffer:         8,
@@ -574,12 +561,12 @@ func TestEngineSummaryModelFailsOverToMain(t *testing.T) {
 	// instruction last — the original leading system message is not
 	// duplicated.
 	failoverInput := inputs[0]
-	if len(failoverInput) == 0 || failoverInput[0].Role != schema.System {
+	if len(failoverInput) == 0 || failoverInput[0].Role != schema.AgenticRoleTypeSystem {
 		t.Fatalf("failover input must start with the summary system instruction, got %v", failoverInput)
 	}
 	for _, msg := range failoverInput[1:] {
-		if msg != nil && msg.Role == schema.System {
-			t.Fatalf("failover input duplicates a system message: %q", msg.Content)
+		if msg != nil && msg.Role == schema.AgenticRoleTypeSystem {
+			t.Fatalf("failover input duplicates a system message: %q", agenticMessageText(msg))
 		}
 	}
 	if !strings.Contains(joinContent(failoverInput), "execute all steps in order") {
@@ -718,7 +705,7 @@ func TestServiceContextStatusAndCompactSession(t *testing.T) {
 	}
 	found := false
 	for _, msg := range msgs {
-		if strings.Contains(msg.Content, compactionSummaryPrefix) {
+		if strings.Contains(agenticMessageText(msg), compactionSummaryPrefix) {
 			found = true
 			break
 		}
@@ -822,8 +809,8 @@ func TestEngineReductionOffloadsClearedToolResults(t *testing.T) {
 		t.Fatalf("resolve tools: %v", err)
 	}
 	scripted := NewScriptedModel(
-		schema.AssistantMessage("REDUCTION-SUMMARY-zz", nil),
-		schema.AssistantMessage("FINAL-ANSWER-rx", nil),
+		testAssistant("REDUCTION-SUMMARY-zz"),
+		testAssistant("FINAL-ANSWER-rx"),
 	)
 	rec := &recordingModel{inner: scripted}
 	eng, err := NewEngine(ctx, rec, ts, EngineConfig{

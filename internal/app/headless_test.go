@@ -22,7 +22,7 @@ import (
 // newHeadlessTestService wires the same stack the runtime approval tests
 // use: sqlite over a temp dir, checkpoint bridge, scripted model, and the
 // headless sink writing into capture buffers.
-func newHeadlessTestService(t *testing.T, script []*schema.Message, toolNames ...string) (*runtime.Service, *sqlite.Backend, *headlessSink, *bytes.Buffer, *bytes.Buffer) {
+func newHeadlessTestService(t *testing.T, script []*schema.AgenticMessage, toolNames ...string) (*runtime.Service, *sqlite.Backend, *headlessSink, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -40,7 +40,7 @@ func newHeadlessTestService(t *testing.T, script []*schema.Message, toolNames ..
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}
-	var m model.ToolCallingChatModel = runtime.NewScriptedModel(script...)
+	var m model.AgenticModel = runtime.NewScriptedModel(script...)
 	eng, err := runtime.NewEngine(ctx, m, ts, runtime.EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
 	})
@@ -125,7 +125,7 @@ func TestHeadlessSinkRendersStream(t *testing.T) {
 // provenance, and lands as a completed run on the shared Journal.
 func TestHeadlessTurnCompletesWithScriptedModel(t *testing.T) {
 	svc, backend, sink, out, _ := newHeadlessTestService(t,
-		[]*schema.Message{schema.AssistantMessage("All done.", nil)},
+		[]*schema.AgenticMessage{runtime.ScriptedText("All done.")},
 		tools.EchoInfoName)
 	ctx := context.Background()
 	if err := backend.CreateSession(ctx, domain.Session{ID: "sess_hl_ok", Title: "t", CreatedAt: time.Now().UnixMilli()}); err != nil {
@@ -196,12 +196,9 @@ func TestHeadlessTurnCompletesWithScriptedModel(t *testing.T) {
 // text leaks to stdout.
 func TestHeadlessTurnApprovalFailsLoudly(t *testing.T) {
 	svc, backend, sink, out, errw := newHeadlessTestService(t,
-		[]*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{{
-				ID:       "call-hl-apr",
-				Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
-			}}),
-			schema.AssistantMessage("must never stream", nil),
+		[]*schema.AgenticMessage{
+			runtime.ScriptedToolCalls(runtime.ScriptedCall("call-hl-apr", tools.WriteNoteName, `{"content":"buy milk"}`)),
+			runtime.ScriptedText("must never stream"),
 		},
 		tools.WriteNoteName)
 	ctx := context.Background()
@@ -253,15 +250,9 @@ func indexHeadless(events []domain.RunEvent, want domain.EventType) int {
 // sink reports the block on stderr, the run is cancelled, and exactly one
 // terminal lands in the journal.
 func TestHeadlessTurnQuestionFailsLoudly(t *testing.T) {
-	svc, backend, sink, out, _ := newHeadlessTestService(t, []*schema.Message{
-		{Role: schema.Assistant, Content: "", ToolCalls: []schema.ToolCall{{
-			ID: "call-hl-que",
-			Function: schema.FunctionCall{
-				Name:      tools.AskUserName,
-				Arguments: `{"question":"Which color?"}`,
-			},
-		}}},
-		{Role: schema.Assistant, Content: "must never stream"},
+	svc, backend, sink, out, _ := newHeadlessTestService(t, []*schema.AgenticMessage{
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-hl-que", tools.AskUserName, `{"question":"Which color?"}`)),
+		runtime.ScriptedText("must never stream"),
 	}, tools.AskUserName)
 	ctx := context.Background()
 

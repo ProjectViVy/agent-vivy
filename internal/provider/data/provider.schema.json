@@ -38,8 +38,8 @@
       "required": ["adapter", "base_url", "default_model", "models"],
       "properties": {
         "adapter": {
-          "enum": ["openai-completions", "openai-responses", "anthropic-messages"],
-          "description": "One of the sealed adapter families. openai-responses is DEFERRED-INDEFINITE: declaring it makes the capability visible, it is never executable."
+          "enum": ["openai-completions", "anthropic-messages"],
+          "description": "One of the sealed, executable adapter families."
         },
         "base_url": {
           "type": "string",

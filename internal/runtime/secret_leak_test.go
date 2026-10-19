@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -36,7 +34,7 @@ func TestSecretsNeverReachStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	model := NewScriptedModel(schema.AssistantMessage("a complete reply", nil))
+	model := NewScriptedModel(testAssistant("a complete reply"))
 	eng, err := NewEngine(ctx, model, ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

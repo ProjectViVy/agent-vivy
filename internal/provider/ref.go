@@ -28,9 +28,10 @@ type Ref interface {
 	// Name returns the provider/bundle name this ref serves.
 	Name() string
 
-	// Model builds a tool-calling chat model for spec. An empty ID falls
-	// back to the bundle's default_model.
-	Model(ctx context.Context, spec ModelSpec) (model.ToolCallingChatModel, error)
+	// Model builds an agentic tool-calling chat model for spec. An empty ID
+	// falls back to the bundle's default_model. Tools are bound at request
+	// time (model.WithTools), never by the model value.
+	Model(ctx context.Context, spec ModelSpec) (model.AgenticModel, error)
 
 	// ModelInfo returns capacity metadata for the given modelID. If
 	// modelID is empty, it uses the bundle's default_model. Returns

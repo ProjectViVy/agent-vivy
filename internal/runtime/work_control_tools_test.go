@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -38,8 +36,8 @@ func TestModelEnterPlanWhileGoalArmedReportsGoalArmedWithoutPersistingPlan(t *te
 		t.Fatal(err)
 	}
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{ID: "enter-while-armed", Function: schema.FunctionCall{Name: tools.EnterPlanModeName, Arguments: `{}`}}}),
-		schema.AssistantMessage("The Goal remains armed.", nil),
+		testToolCalls(testCall("enter-while-armed", tools.EnterPlanModeName, `{}`)),
+		testAssistant("The Goal remains armed."),
 	)
 	engine, err := NewEngine(ctx, model, toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 		AutoApproveTools: []string{tools.EnterPlanModeName}})
@@ -135,10 +133,7 @@ func TestUnadmittedRunCannotReportCurrentGoalFromSameSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("", []schema.ToolCall{{
-		ID: "report-unadmitted", Function: schema.FunctionCall{Name: tools.ReportGoalName,
-			Arguments: `{"goal_id":"goal-current","revision":1,"status":"completed","reason":"I claim this Goal"}`},
-	}})), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	engine, err := NewEngine(ctx, NewScriptedModel(testToolCalls(testCall("report-unadmitted", tools.ReportGoalName, `{"goal_id":"goal-current","revision":1,"status":"completed","reason":"I claim this Goal"}`))), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 		AutoApproveTools: []string{tools.ReportGoalName}})
 	if err != nil {
 		t.Fatal(err)
@@ -198,9 +193,7 @@ func TestModelResumeGoalToolIsUnavailableAfterHumanPause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("", []schema.ToolCall{{
-		ID: "forged-resume", Function: schema.FunctionCall{Name: "resume_goal", Arguments: `{"goal_id":"goal-human-paused","revision":1}`},
-	}})), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
+	engine, err := NewEngine(ctx, NewScriptedModel(testToolCalls(testCall("forged-resume", "resume_goal", `{"goal_id":"goal-human-paused","revision":1}`))), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,9 +20,9 @@ import (
 // modelCallInput is the exact invocation surface handed to the model.
 type modelCallInput struct {
 	Mode     string // "generate" | "stream"
-	Messages []*schema.Message
+	Messages []*schema.AgenticMessage
 	// Tools is the resolved bound-tool set the model will call with
-	// (WithTools bindings plus per-call common options).
+	// (request-time model.WithTools bindings plus per-call common options).
 	Tools []*schema.ToolInfo
 }
 
@@ -67,7 +67,7 @@ const modelCallSourceSummary = "summary"
 type modelCallObserver interface {
 	Begin(context.Context, modelCallInput) (modelCallMeta, error)
 	StreamOpened(modelCallMeta)
-	Chunk(context.Context, modelCallMeta, *schema.Message) error
+	Chunk(context.Context, modelCallMeta, *schema.AgenticMessage) error
 	End(context.Context, modelCallMeta, modelCallResult) error
 }
 
@@ -96,7 +96,7 @@ func withoutModelCallObserver(ctx context.Context) context.Context {
 }
 
 // observedModelCallCore carries the wrapper state shared by the
-// ToolCallingChatModel and BaseModel observers.
+// AgenticModel and BaseModel observers.
 type observedModelCallCore struct {
 	route      modelCallRoute
 	boundTools []*schema.ToolInfo
@@ -105,7 +105,7 @@ type observedModelCallCore struct {
 // begin resolves the observer and runs Begin. A nil observer means the
 // call proceeds unobserved (legacy/test paths keep the old behavior); a
 // Begin error is returned to the caller and the provider is not invoked.
-func (c *observedModelCallCore) begin(ctx context.Context, mode string, input []*schema.Message, opts []model.Option) (modelCallObserver, modelCallMeta, error) {
+func (c *observedModelCallCore) begin(ctx context.Context, mode string, input []*schema.AgenticMessage, opts []model.Option) (modelCallObserver, modelCallMeta, error) {
 	factory := modelCallObserverFactoryFrom(ctx)
 	if factory == nil {
 		return nil, modelCallMeta{}, nil
@@ -151,16 +151,9 @@ func mergeToolInfos(base, extra []*schema.ToolInfo) []*schema.ToolInfo {
 	return out
 }
 
-func usageOfMessage(msg *schema.Message) *schema.TokenUsage {
-	if msg == nil || msg.ResponseMeta == nil {
-		return nil
-	}
-	return msg.ResponseMeta.Usage
-}
-
 // observeGenerate runs one observed non-streaming invocation: Begin,
 // inner Generate, the returned message observed once, then End.
-func observeGenerate(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.Message], input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func observeGenerate(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.AgenticMessage], input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	obs, meta, err := core.begin(ctx, "generate", input, opts)
 	if err != nil {
 		return nil, err
@@ -175,10 +168,10 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 	}
 	obs.StreamOpened(meta)
 	if err := obs.Chunk(ctx, meta, msg); err != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: err, Usage: usageOfMessage(msg)})
+		_ = obs.End(ctx, meta, modelCallResult{Err: err, Usage: agenticUsage(msg)})
 		return nil, err
 	}
-	_ = obs.End(ctx, meta, modelCallResult{Usage: usageOfMessage(msg), ResponseComplete: true})
+	_ = obs.End(ctx, meta, modelCallResult{Usage: agenticUsage(msg), ResponseComplete: true})
 	return msg, nil
 }
 
@@ -188,7 +181,7 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 // Chunk before each downstream Recv and End exactly once on EOF, read
 // error, observer failure, downstream close, or cancellation.
 //
-// Inspected Eino v0.9.13 callbacks.OnEndWithStreamOutput /
+// Inspected Eino v0.9.21 callbacks.OnEndWithStreamOutput /
 // schema.StreamReader.Copy / compose.genericOnEndWithStreamOutput: those
 // timings Copy the stream after inner Stream returns. A sync handler can
 // run before compose Recv, but it is still a sibling copy — it cannot put
@@ -196,7 +189,7 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 // provider Recv, fail-close the graph copy from a persist error, or run
 // the tool-settled barrier. Revisit if Eino adds a producer-path Recv hook
 // with those semantics.
-func observeStream(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.Message], input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func observeStream(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.AgenticMessage], input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	obs, meta, err := core.begin(ctx, "stream", input, opts)
 	if err != nil {
 		return nil, err
@@ -214,7 +207,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 	// materialized event can otherwise enter the mapper first and emit
 	// the same deltas again.
 	obs.StreamOpened(meta)
-	reader, writer := schema.Pipe[*schema.Message](8)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](8)
 	go func() {
 		defer upstream.Close()
 		var lastUsage *schema.TokenUsage
@@ -250,7 +243,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 			if chunk == nil {
 				continue
 			}
-			if usage := usageOfMessage(chunk); usage != nil {
+			if usage := agenticUsage(chunk); usage != nil {
 				lastUsage = usage
 			}
 			if err := obs.Chunk(ctx, meta, chunk); err != nil {
@@ -268,66 +261,55 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 	return reader, nil
 }
 
-// observingChatModel wraps a ToolCallingChatModel for the run's chat
-// route; WithTools returns an observed clone that keeps the bound-tool
-// scope inside this call's request record.
+// observingChatModel wraps an AgenticModel for the run's chat route. Tools are
+// bound per request by the agent (model.WithTools), so there is no WithTools
+// method to forward: the wrapper only observes the call lifecycle.
 type observingChatModel struct {
-	inner model.ToolCallingChatModel
+	inner model.AgenticModel
 	core  observedModelCallCore
 }
 
-func observeChatModel(inner model.ToolCallingChatModel) model.ToolCallingChatModel {
+func observeChatModel(inner model.AgenticModel) model.AgenticModel {
 	return &observingChatModel{inner: inner}
 }
 
-func (m *observingChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *observingChatModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	return observeGenerate(ctx, &m.core, m.inner, input, opts...)
 }
 
-func (m *observingChatModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *observingChatModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	return observeStream(ctx, &m.core, m.inner, input, opts...)
-}
-
-func (m *observingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	bound, err := m.inner.WithTools(tools)
-	if err != nil {
-		return nil, err
-	}
-	return &observingChatModel{
-		inner: bound,
-		core:  observedModelCallCore{route: m.core.route, boundTools: mergeToolInfos(m.core.boundTools, tools)},
-	}, nil
 }
 
 // observingBaseModel wraps a plain BaseModel — the compaction
 // summarizer's primary and failover routes, which never bind tools.
 type observingBaseModel struct {
-	inner model.BaseModel[*schema.Message]
+	inner model.BaseModel[*schema.AgenticMessage]
 	core  observedModelCallCore
 }
 
-func observeSummaryModel(inner model.BaseModel[*schema.Message], fallback bool) model.BaseModel[*schema.Message] {
+func observeSummaryModel(inner model.BaseModel[*schema.AgenticMessage], fallback bool) model.BaseModel[*schema.AgenticMessage] {
 	return &observingBaseModel{
 		inner: inner,
 		core:  observedModelCallCore{route: modelCallRoute{Source: modelCallSourceSummary, FallbackModel: fallback}},
 	}
 }
 
-func (m *observingBaseModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *observingBaseModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	return observeGenerate(ctx, &m.core, m.inner, input, opts...)
 }
 
-func (m *observingBaseModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *observingBaseModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	return observeStream(ctx, &m.core, m.inner, input, opts...)
 }
 
 // usageAccumulator merges one call's cumulative usage samples through the
-// pinned Eino merge (schema.ConcatMessages on usage-only messages):
+// pinned Eino merge (schema.ConcatAgenticMessages on usage-only messages):
 // bounded state, no text accumulation. Contradictory (decreasing) samples
 // and non-cumulative total conventions mark the call partial rather than
 // silently rewriting evidence (D2).
 type usageAccumulator struct {
-	merged   *schema.Message
+	merged   *schema.AgenticMessage
 	latest   *schema.TokenUsage
 	partial  bool
 	reported bool
@@ -352,9 +334,9 @@ func (a *usageAccumulator) record(u *schema.TokenUsage) {
 	if u.TotalTokens != u.PromptTokens+u.CompletionTokens {
 		a.partial = true
 	}
-	merged, err := schema.ConcatMessages([]*schema.Message{
+	merged, err := schema.ConcatAgenticMessages([]*schema.AgenticMessage{
 		a.baseMessage(),
-		{ResponseMeta: &schema.ResponseMeta{Usage: u}},
+		{ResponseMeta: &schema.AgenticResponseMeta{TokenUsage: u}},
 	})
 	if err != nil {
 		a.partial = true
@@ -363,18 +345,18 @@ func (a *usageAccumulator) record(u *schema.TokenUsage) {
 	a.merged = merged
 }
 
-func (a *usageAccumulator) baseMessage() *schema.Message {
+func (a *usageAccumulator) baseMessage() *schema.AgenticMessage {
 	if a.merged != nil {
 		return a.merged
 	}
-	return &schema.Message{}
+	return &schema.AgenticMessage{}
 }
 
 func (a *usageAccumulator) mergedUsage() *schema.TokenUsage {
 	if a.merged == nil || a.merged.ResponseMeta == nil {
 		return nil
 	}
-	return a.merged.ResponseMeta.Usage
+	return a.merged.ResponseMeta.TokenUsage
 }
 
 // normalizedUsageSample is the merged, VIVY-convention usage shape: total

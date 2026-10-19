@@ -337,7 +337,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct Credential Resolver: %w", err)
 	}
-	modelProvider, err := modelmodule.Compose(compiledProfiles, provider.Capabilities())
+	modelProvider, err := modelmodule.Compose(compiledProfiles, provider.AdapterFamilies())
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: construct ModelHost: %w", err)

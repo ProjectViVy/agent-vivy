@@ -16,17 +16,17 @@ var providerOptionsSchema = json.RawMessage(`{"type":"object","additionalPropert
 // status surface then describes the protocol the build can actually reach,
 // instead of one vendor's slice of it.
 //
-// The ids are the adapter families, which is also what the ModelHost capability
-// map is keyed by (Capabilities): a family no embedded vendor speaks keeps its
-// capability state but compiles no Profile, because a Profile with no model ids
-// would claim reachability the data does not have.
+// The ids are the adapter families, which is also the vocabulary the executable
+// adapter set is keyed by: the agentic generation compiles one Profile per
+// sealed family that the embedded data reaches, because a Profile with no model
+// ids would claim reachability the data does not have.
 func AdapterProfiles() ([]providerprofile.Profile, error) {
 	vendors, err := LoadEmbedded()
 	if err != nil {
 		return nil, err
 	}
 	profiles := make([]providerprofile.Profile, 0, len(adapterTable))
-	for _, adapter := range Adapters() {
+	for _, adapter := range AdapterFamilies() {
 		models := make([]string, 0, 32)
 		seenModel := make(map[string]struct{}, 32)
 		secrets := make([]string, 0, 8)
@@ -34,7 +34,7 @@ func AdapterProfiles() ([]providerprofile.Profile, error) {
 		for _, vendor := range vendors {
 			speaks := false
 			for _, endpoint := range vendor.Endpoints {
-				if endpoint.Adapter != adapter.Family {
+				if endpoint.Adapter != adapter {
 					continue
 				}
 				speaks = true
@@ -58,14 +58,13 @@ func AdapterProfiles() ([]providerprofile.Profile, error) {
 		sort.Strings(secrets)
 		if len(models) == 0 {
 			// No embedded vendor speaks this family, so there is no endpoint to
-			// compile. A DEFERRED-INDEFINITE family stays visible through
-			// Capabilities; a Profile with no model ids would be rejected by the
+			// compile. A Profile with no model ids would be rejected by the
 			// ModelHost and would claim reachability the data does not have.
 			continue
 		}
 		profiles = append(profiles, providerprofile.Profile{
-			ID:            adapter.Family,
-			AdapterFamily: adapter.Family,
+			ID:            adapter,
+			AdapterFamily: adapter,
 			ModelIDs:      models,
 			EndpointClass: providerprofile.EndpointNative,
 			SecretRefs:    secrets,

@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
@@ -28,8 +26,8 @@ func TestAutomaticPrimaryCommitYieldsToHumanRegisteredDuringPreparation(t *testi
 		t.Fatalf("create session: %v", err)
 	}
 	engine, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("Human turn completed.", nil),
-		schema.AssistantMessage("Automatic turn completed.", nil),
+		testAssistant("Human turn completed."),
+		testAssistant("Automatic turn completed."),
 	), nil, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -181,7 +179,7 @@ func TestWakeGoalCoalescesSignalsWithoutLosingInFlightEligibility(t *testing.T) 
 	work := &barrierReadWorkStore{
 		WorkStore: backend, firstRead: make(chan domain.WorkState, 1), releaseFirst: make(chan struct{}),
 	}
-	engine, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("Goal round finished.", nil)), nil, EngineConfig{
+	engine, err := NewEngine(ctx, NewScriptedModel(testAssistant("Goal round finished.")), nil, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {

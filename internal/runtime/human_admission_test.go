@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
@@ -34,8 +32,8 @@ func TestHumanAdmissionRegistersBeforeWaitingForSessionGate(t *testing.T) {
 	}
 	goalRuns := &notifyingGoalRunStore{GoalRunStore: backend, committed: make(chan storage.GoalRunCommitResult, 1)}
 	engine, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("Human request completed.", nil),
-		schema.AssistantMessage("The one Goal round completed.", nil),
+		testAssistant("Human request completed."),
+		testAssistant("The one Goal round completed."),
 	), nil, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
@@ -123,7 +121,7 @@ func TestCancelledHumanAdmissionLeavesNoRunOrMessage(t *testing.T) {
 	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "Cancelled intent", CreatedAt: 1}); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	engine, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("unexpected", nil)), nil, EngineConfig{
+	engine, err := NewEngine(ctx, NewScriptedModel(testAssistant("unexpected")), nil, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {

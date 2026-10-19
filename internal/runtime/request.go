@@ -4,7 +4,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-func digestModelRequest(msgs []*schema.Message, selectedTools []string) payloadModelRequest {
+func digestModelRequest(msgs []*schema.AgenticMessage, selectedTools []string) payloadModelRequest {
 	if selectedTools == nil {
 		selectedTools = []string{}
 	}
@@ -18,20 +18,18 @@ func digestModelRequest(msgs []*schema.Message, selectedTools []string) payloadM
 		}
 		content := modelRequestText(msg)
 		row := payloadModelRequestMessage{
-			Role:          string(msg.Role),
+			Role:          agenticRoleName(msg),
 			ContentSHA256: sha256Hex(content),
 			ByteLen:       len(content),
 		}
-		if msg.Role == schema.Tool {
-			row.ToolCallID = msg.ToolCallID
+		if results := agenticToolResults(msg); len(results) > 0 {
+			row.ToolCallID = results[0].CallID
 		}
-		if len(msg.ToolCalls) == 1 {
-			row.ToolName = msg.ToolCalls[0].Function.Name
-			row.ToolCallID = msg.ToolCalls[0].ID
-		} else if len(msg.ToolCalls) > 1 {
-			row.ToolName = msg.ToolCalls[0].Function.Name
+		if calls := agenticToolCalls(msg); len(calls) > 0 {
+			row.ToolName = calls[0].Name
+			row.ToolCallID = calls[0].CallID
 		}
-		if i == 0 && msg.Role == schema.System {
+		if i == 0 && msg.Role == schema.AgenticRoleTypeSystem {
 			out.PreambleSHA256 = row.ContentSHA256
 			out.PreambleBytes = row.ByteLen
 		}
@@ -43,22 +41,12 @@ func digestModelRequest(msgs []*schema.Message, selectedTools []string) payloadM
 	return out
 }
 
-func modelRequestText(msg *schema.Message) []byte {
+// modelRequestText is the byte identity one request row reports: every
+// text-bearing block, so a preamble or a tool result keeps the same digest
+// contract the text generation had.
+func modelRequestText(msg *schema.AgenticMessage) []byte {
 	if msg == nil {
 		return nil
 	}
-	size := len(msg.Content)
-	for _, part := range msg.UserInputMultiContent {
-		if part.Type == schema.ChatMessagePartTypeText {
-			size += len(part.Text)
-		}
-	}
-	out := make([]byte, 0, size)
-	out = append(out, msg.Content...)
-	for _, part := range msg.UserInputMultiContent {
-		if part.Type == schema.ChatMessagePartTypeText {
-			out = append(out, part.Text...)
-		}
-	}
-	return out
+	return []byte(agenticMessageText(msg))
 }

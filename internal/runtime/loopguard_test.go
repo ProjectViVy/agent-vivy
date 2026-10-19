@@ -16,13 +16,10 @@ import (
 
 // loopCallScript builds a script of n read-only echo_info tool calls
 // with distinct call ids: a model that keeps calling tools forever.
-func loopCallScript(n int) []*schema.Message {
-	script := make([]*schema.Message, 0, n)
+func loopCallScript(n int) []*schema.AgenticMessage {
+	script := make([]*schema.AgenticMessage, 0, n)
 	for i := 0; i < n; i++ {
-		script = append(script, schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       fmt.Sprintf("call-loop-%d", i),
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"spin"}`},
-		}}))
+		script = append(script, testToolCalls(testCall(fmt.Sprintf("call-loop-%d", i), tools.EchoInfoName, `{"text":"spin"}`)))
 	}
 	return script
 }
@@ -30,7 +27,7 @@ func loopCallScript(n int) []*schema.Message {
 // newLoopGuardService wires an engine with an explicit tool-turn cap
 // over the auto-execute echo tool — no approval gate is involved, so the
 // loop runs until the guardrail stops it (MA-4).
-func newLoopGuardService(t *testing.T, maxToolTurns int, script []*schema.Message) (*Service, *sqlite.Backend, *testSink) {
+func newLoopGuardService(t *testing.T, maxToolTurns int, script []*schema.AgenticMessage) (*Service, *sqlite.Backend, *testSink) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -101,7 +98,7 @@ func TestServiceMaxToolTurnsBreached(t *testing.T) {
 // Runs that stay inside the cap complete normally: the guardrail must
 // not disturb healthy tool flows.
 func TestServiceMaxToolTurnsWithinCap(t *testing.T) {
-	script := append(loopCallScript(2), schema.AssistantMessage("Done spinning.", nil))
+	script := append(loopCallScript(2), testAssistant("Done spinning."))
 	svc, backend, _ := newLoopGuardService(t, 8, script)
 
 	mustCreateSession(t, backend, "sess-ok")

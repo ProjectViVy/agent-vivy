@@ -20,7 +20,7 @@ const agentsMDTestMarker = "VIVY-AGENTSMD-MARKER: always run just ci before clai
 // newAgentsMDTestEngine builds an engine whose AGENTS.md seam is the real
 // EinoFilesystemBackend over a per-run workspace manager, plus a recording
 // model wrapper so tests can assert what the model actually saw.
-func newAgentsMDTestEngine(t *testing.T, script ...*schema.Message) (*Engine, *recordingModel, *WorkspaceManager) {
+func newAgentsMDTestEngine(t *testing.T, script ...*schema.AgenticMessage) (*Engine, *recordingModel, *WorkspaceManager) {
 	t.Helper()
 	ctx := context.Background()
 	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
@@ -50,31 +50,28 @@ func newAgentsMDTestEngine(t *testing.T, script ...*schema.Message) (*Engine, *r
 }
 
 // agentsMDScript is a two-turn script: one echo tool call, then the close.
-func agentsMDScript() []*schema.Message {
-	return []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-agentsmd-1",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"probe"}`},
-		}}),
-		schema.AssistantMessage("AGENTSMD-TEST-DONE", nil),
+func agentsMDScript() []*schema.AgenticMessage {
+	return []*schema.AgenticMessage{
+		testToolCalls(testCall("call-agentsmd-1", tools.EchoInfoName, `{"text":"probe"}`)),
+		testAssistant("AGENTSMD-TEST-DONE"),
 	}
 }
 
 // countInjected returns how many messages carry the marker, the index of
 // the first one, and the index of the first user message without it.
-func countInjected(input []*schema.Message) (int, int, int) {
+func countInjected(input []*schema.AgenticMessage) (int, int, int) {
 	count, firstInjected, firstRealUser := 0, -1, -1
 	for i, msg := range input {
-		if msg == nil || msg.Role != schema.User {
+		if msg == nil || msg.Role != schema.AgenticRoleTypeUser {
 			continue
 		}
 		// Eino's official dynamic-tool middleware adds this user-role
 		// reminder as transient model context. It is not the real request
 		// message whose adjacency the AGENTS.md middleware guarantees.
-		if strings.HasPrefix(msg.Content, "<available-deferred-tools>") {
+		if strings.HasPrefix(agenticMessageText(msg), "<available-deferred-tools>") {
 			continue
 		}
-		if strings.Contains(msg.Content, agentsMDTestMarker) {
+		if strings.Contains(agenticMessageText(msg), agentsMDTestMarker) {
 			if firstInjected < 0 {
 				firstInjected = i
 			}
@@ -100,8 +97,8 @@ func TestEngineAgentsMDInjection(t *testing.T) {
 		t.Fatalf("write AGENTS.md: %v", err)
 	}
 
-	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.Message{
-		schema.UserMessage("echo something"),
+	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.AgenticMessage{
+		testUser("echo something"),
 	}))
 	if final != "AGENTSMD-TEST-DONE" {
 		t.Fatalf("final answer = %q", final)
@@ -128,8 +125,8 @@ func TestEngineAgentsMDMissingFileInjectsNothing(t *testing.T) {
 	ctx := context.Background()
 	eng, rec, _ := newAgentsMDTestEngine(t, agentsMDScript()...)
 	runID := domain.RunID("run-agentsmd-empty")
-	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.Message{
-		schema.UserMessage("echo something"),
+	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.AgenticMessage{
+		testUser("echo something"),
 	}))
 	if final != "AGENTSMD-TEST-DONE" {
 		t.Fatalf("final answer = %q", final)
@@ -153,8 +150,8 @@ func TestEngineAgentsMDRunWorkspaceScoping(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wsA.Path, AgentsMDFileName), []byte(agentsMDTestMarker), 0o600); err != nil {
 		t.Fatalf("write AGENTS.md: %v", err)
 	}
-	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, domain.RunID("run-agentsmd-b")), []*schema.Message{
-		schema.UserMessage("echo something"),
+	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, domain.RunID("run-agentsmd-b")), []*schema.AgenticMessage{
+		testUser("echo something"),
 	}))
 	if final != "AGENTSMD-TEST-DONE" {
 		t.Fatalf("final answer = %q", final)
@@ -189,7 +186,7 @@ func (s *seedingWorkspaces) Ensure(ctx context.Context, runID domain.RunID) (Wor
 // newAgentsMDService wires the service stack with a recording model, the
 // real filesystem backend as the AGENTS.md seam, and a workspace allocator
 // that seeds every run workspace with the marker file.
-func newAgentsMDService(t *testing.T, toolNames []string, script ...*schema.Message) (*Service, *sqlite.Backend, *recordingModel) {
+func newAgentsMDService(t *testing.T, toolNames []string, script ...*schema.AgenticMessage) (*Service, *sqlite.Backend, *recordingModel) {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "agentsmd.db"))
@@ -290,12 +287,9 @@ func TestServiceAgentsMDInjectionIsTransient(t *testing.T) {
 func TestServiceAgentsMDInjectionSurvivesApprovalResume(t *testing.T) {
 	// The write_note approval script: turn one requests the effectful call
 	// (ApprovalFlowCallID), the resumed turn closes with the final reply.
-	approvalScript := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       ApprovalFlowCallID,
-			Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
-		}}),
-		schema.AssistantMessage("Done: the note has been handled.", nil),
+	approvalScript := []*schema.AgenticMessage{
+		testToolCalls(testCall(ApprovalFlowCallID, tools.WriteNoteName, `{"content":"buy milk"}`)),
+		testAssistant("Done: the note has been handled."),
 	}
 	svc, backend, rec := newAgentsMDService(t,
 		[]string{tools.WriteNoteName}, approvalScript...)

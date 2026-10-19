@@ -1,6 +1,5 @@
 import type {
   ProviderAdapterId,
-  ProviderAdapterState,
   ProviderCapabilityState,
   ProviderCatalogEntry,
   ProviderEntry,
@@ -16,8 +15,8 @@ export type { ProviderCapabilityState, ProviderProfileStatus } from '@/lib/api';
  *
  * - 一行 = 一个目录端点（厂商 + 协议适配器变体）。DeepSeek 因此贡献两行
  *   （openai-completions / anthropic-messages），共用同一个 display_name。
- * - 可执行性 = 端点自带能力 与 编译后 Profile 状态 的合取；Profile 以适配器
- *   id 为键，与后端 profileSelectionError 同一口径（`EXECUTABLE_STATES`）。
+ * - 可执行性 = 编译后 Profile 的状态；Profile 以适配器 id 为键，与后端
+ *   profileSelectionError 同一口径（`EXECUTABLE_STATES`）。
  * - 选择三元组 (adapter, base_url, default_model)：provider 是适配器 id，
  *   旧文档的运行束名只在读取侧归一（normalizeProviderValue）。
  */
@@ -59,7 +58,7 @@ export function normalizeProviderAdapter(value: string): string {
 
 /** 是否为密封适配器 id（写侧合法取值）。 */
 export function isProviderAdapter(value: unknown): value is ProviderAdapterId {
-  return value === 'openai-completions' || value === 'openai-responses' || value === 'anthropic-messages';
+  return value === 'openai-completions' || value === 'anthropic-messages';
 }
 
 /** 是否为迁移前的运行束名（旧文档 / 旧 localStorage 条目可能持有）。 */
@@ -113,25 +112,19 @@ export function isProviderExecutable(
   return !!state && EXECUTABLE_STATES.has(state);
 }
 
-/** 端点自带状态里只有 deferred 对「能力徽标」有意义（SUPPORTED = 无徽标）。 */
-function declaredCapability(state: ProviderAdapterState | undefined): ProviderCapabilityState | undefined {
-  return state === 'DEFERRED-INDEFINITE' ? state : undefined;
-}
-
 /**
- * 投影一行：`declared` 是端点自带的执行性（注册表条目没有，目录端点有），
- * Profile 叠加始终参与判定，deferred 端点因此永远不可选。
+ * 投影一行：执行性只由编译 Profile 的状态决定（`EXECUTABLE_STATES`）。后端
+ * 目录只列出密封且可构造的适配器，因此端点本身不再携带执行性标记。
  */
 export function projectProviderRow(
   row: Omit<ProviderCatalogRow, 'capabilityState' | 'executable'>,
-  declared: { executable?: boolean; state?: ProviderAdapterState } = {},
   profiles: readonly ProviderProfileStatus[] = [],
 ): ProviderCatalogRow {
   return {
     ...row,
     models: [...row.models],
-    capabilityState: profileState(row.adapter, profiles) ?? declaredCapability(declared.state),
-    executable: (declared.executable ?? true) && isProviderExecutable(row.adapter, profiles),
+    capabilityState: profileState(row.adapter, profiles),
+    executable: isProviderExecutable(row.adapter, profiles),
   };
 }
 
@@ -148,7 +141,7 @@ export function catalogRows(
       baseUrl: endpoint.base_url,
       defaultModel: endpoint.default_model,
       models: endpoint.models,
-    }, { executable: endpoint.executable, state: endpoint.state }, profiles)),
+    }, profiles)),
   );
 }
 
@@ -183,7 +176,7 @@ export function providerEntryRow(
     baseUrl: entry.base_url,
     defaultModel: entry.default_model,
     models: entry.models,
-  }, {}, profiles);
+  }, profiles);
 }
 
 /** 仅对可执行的端点生成设置选择三元组：provider = 适配器 id，base_url 为该端点地址。 */

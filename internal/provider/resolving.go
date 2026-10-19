@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	einoclaude "github.com/cloudwego/eino-ext/components/model/claude"
-	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino-ext/components/model/agenticclaude"
+	"github.com/cloudwego/eino-ext/components/model/agenticopenai"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
@@ -23,14 +23,13 @@ import (
 var ErrModelNotConfigured = errors.New("model provider is not configured")
 
 // LiveSpec is the current provider selection without Eino types. App
-// implements this so the resolving ChatModel can stay inside this package
+// implements this so the resolving AgenticModel can stay inside this package
 // (D-007).
 //
 // Provider is the vendor whose credential and default address apply; Adapter
 // is the sealed protocol the stored selection names, which is what the
-// capability gate, the availability mark and the thinking rule key on. A
-// selection with no stored adapter (an empty Adapter) is resolved from the
-// endpoint's data instead.
+// availability mark and the thinking rule key on. A selection with no stored
+// adapter (an empty Adapter) is resolved from the endpoint's data instead.
 type LiveSpec struct {
 	Provider string
 	Adapter  string
@@ -46,9 +45,10 @@ type SpecSource interface {
 	Live() LiveSpec
 }
 
-// NewResolvingChatModel returns a ChatModel that constructs the underlying
-// provider model on each Generate/Stream from src. catalog must not be nil.
-func NewResolvingChatModel(host *modelhost.Host, catalog *Catalog, src SpecSource) model.ToolCallingChatModel {
+// NewResolvingChatModel returns an agentic chat model that constructs the
+// underlying provider model on each Generate/Stream from src. catalog must not
+// be nil.
+func NewResolvingChatModel(host *modelhost.Host, catalog *Catalog, src SpecSource) model.AgenticModel {
 	return &resolvingChatModel{host: host, catalog: catalog, src: src}
 }
 
@@ -58,10 +58,10 @@ type resolvingChatModel struct {
 	src      SpecSource
 	mu       sync.Mutex
 	cacheKey string
-	cached   model.ToolCallingChatModel
+	cached   model.AgenticModel
 }
 
-func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	inner, err := m.inner(ctx)
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.Message,
 	return inner.Generate(ctx, in, append(opts, m.thinkingOptions(ctx)...)...)
 }
 
-func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	inner, err := m.inner(ctx)
 	if err != nil {
 		return nil, err
@@ -77,11 +77,7 @@ func (m *resolvingChatModel) Stream(ctx context.Context, in []*schema.Message, o
 	return inner.Stream(ctx, in, append(opts, m.thinkingOptions(ctx)...)...)
 }
 
-func (m *resolvingChatModel) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return &resolvingChatModelWithTools{parent: m, tools: tools}, nil
-}
-
-func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatModel, error) {
+func (m *resolvingChatModel) inner(ctx context.Context) (model.AgenticModel, error) {
 	if m.host == nil {
 		return nil, fmt.Errorf("provider: %w", modelhost.ErrHostRequired)
 	}
@@ -95,7 +91,7 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	}
 	// The compiled Generation seals adapters, not vendors, so both the
 	// capability gate and the availability mark are keyed by the adapter the
-	// selection speaks. A deferred family fails here.
+	// selection speaks. A family this build does not seal fails here.
 	adapter := endpoint.Adapter
 	if _, err := m.host.ResolveExecutable(adapter); err != nil {
 		return nil, err
@@ -126,10 +122,11 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.ToolCallingChatMo
 	return cm, nil
 }
 
-type resolvingChatModelWithTools struct {
-	parent *resolvingChatModel
-	tools  []*schema.ToolInfo
-}
+// reasoningEffortHigh is the legacy default effort for a reasoning model that
+// asks for thinking without naming a level. The agentic openai component has no
+// effort enum of its own; the value lands in the request body verbatim, so it
+// must be the domain level string.
+const reasoningEffortHigh = "high"
 
 // thinkingShape is the provider-neutral outcome of the thinking rule: what the
 // outbound request must carry, decided without any vendor identity. Keeping the
@@ -137,6 +134,8 @@ type resolvingChatModelWithTools struct {
 // keeping it out of the request path means no call site can special-case a
 // vendor.
 type thinkingShape struct {
+	// adapter is the sealed family the shape is rendered for.
+	adapter string
 	// effective is the level the request resolves to, for diagnostics and
 	// level reporting; "off"/"" means no explicit thinking option.
 	effective domain.ThinkingMode
@@ -210,9 +209,7 @@ func ResolveThinkingLevel(info domain.ModelInfo, mode domain.ThinkingMode) domai
 //     the level's budget; the legacy "on" marker sends the legacy budget;
 //     everything else sends nothing (provider default).
 //   - openai-completions on a deepseek-thinking endpoint: "off" sends
-//     thinking disabled; "auto"/"" send nothing... wait, legacy behavior
-//     must hold: auto/on send enabled + effort high, off sends disabled.
-//     Levels send enabled + the level as reasoning_effort.
+//     thinking disabled; levels send enabled + the canonical effort.
 //   - openai-completions elsewhere: a reasoning model, so auto/on send
 //     reasoning_effort high (legacy), a level sends it verbatim, "off"
 //     sends nothing.
@@ -225,7 +222,7 @@ func decideThinking(adapter string, deepSeekThinking bool, info domain.ModelInfo
 		return thinkingShape{}
 	}
 	resolved := ResolveThinkingLevel(info, mode)
-	shape := thinkingShape{effective: resolved}
+	shape := thinkingShape{adapter: adapter, effective: resolved}
 	switch adapter {
 	case AdapterAnthropicMessages:
 		switch {
@@ -236,7 +233,7 @@ func decideThinking(adapter string, deepSeekThinking bool, info domain.ModelInfo
 			shape.effective = domain.ThinkingLevelMedium
 		}
 	case AdapterOpenAICompletions:
-		effort := string(einoopenai.ReasoningEffortLevelHigh)
+		effort := reasoningEffortHigh
 		if resolved.IsLevel() {
 			effort = string(resolved)
 		}
@@ -251,7 +248,7 @@ func decideThinking(adapter string, deepSeekThinking bool, info domain.ModelInfo
 			// DeepSeek's thinking surface is binary; a requested level
 			// still maps to the canonical effort the endpoint documents.
 			shape.deepSeekFlag = "enabled"
-			shape.reasoningEffort = string(einoopenai.ReasoningEffortLevelHigh)
+			shape.reasoningEffort = reasoningEffortHigh
 		}
 	}
 	if shape.effective.IsLevel() {
@@ -280,23 +277,35 @@ const claudeNonStreamingTokenCeiling = 128000 / 6
 // 40960 tokens at ~19 minutes; half an hour leaves headroom.
 const claudeLongRequestTimeout = 30 * time.Minute
 
-// options renders the shape as Eino per-call options.
+// options renders the shape as Eino per-call options for the adapter the shape
+// was decided for.
 func (s thinkingShape) options() []model.Option {
+	switch s.adapter {
+	case AdapterAnthropicMessages:
+		return s.claudeOptions()
+	case AdapterOpenAICompletions:
+		return s.openAIOptions()
+	}
+	return nil
+}
+
+// claudeOptions renders the Anthropic shape: the thinking object travels as a
+// request-body extra field, the protocol-required response budget as
+// max_tokens, and sampling through the component's common options.
+func (s thinkingShape) claudeOptions() []model.Option {
 	var options []model.Option
 	if s.claudeBudget > 0 {
-		options = append(options, einoclaude.WithThinking(&einoclaude.Thinking{Enable: true, BudgetTokens: s.claudeBudget}))
+		options = append(options,
+			agenticclaude.WithExtraFields(map[string]any{
+				"thinking": map[string]any{"type": "enabled", "budget_tokens": s.claudeBudget},
+			}),
+		)
 		// The response budget must exceed the thinking budget by headroom;
 		// the provider rejects thinking budgets >= max_tokens.
 		options = append(options, model.WithMaxTokens(s.claudeBudget+claudeDefaultMaxTokens))
 		if s.claudeBudget+claudeDefaultMaxTokens > claudeNonStreamingTokenCeiling {
-			options = append(options, einoclaude.WithRequestTimeout(claudeLongRequestTimeout))
+			options = append(options, agenticclaude.WithRequestTimeout(claudeLongRequestTimeout))
 		}
-	}
-	if s.deepSeekFlag != "" {
-		options = append(options, einoopenai.WithExtraFields(map[string]any{"thinking": map[string]any{"type": s.deepSeekFlag}}))
-	}
-	if s.reasoningEffort != "" {
-		options = append(options, einoopenai.WithReasoningEffort(einoopenai.ReasoningEffortLevel(s.reasoningEffort)))
 	}
 	if s.sampling.Temperature != nil {
 		options = append(options, model.WithTemperature(float32(*s.sampling.Temperature)))
@@ -305,6 +314,30 @@ func (s thinkingShape) options() []model.Option {
 		options = append(options, model.WithTopP(float32(*s.sampling.TopP)))
 	}
 	return options
+}
+
+// openAIOptions renders the openai-completions shape. The agentic component
+// reads no common options, so the DeepSeek thinking flag, reasoning_effort and
+// the sampling overrides all travel as request-body extra fields in one
+// option.
+func (s thinkingShape) openAIOptions() []model.Option {
+	extra := map[string]any{}
+	if s.deepSeekFlag != "" {
+		extra["thinking"] = map[string]any{"type": s.deepSeekFlag}
+	}
+	if s.reasoningEffort != "" {
+		extra["reasoning_effort"] = s.reasoningEffort
+	}
+	if s.sampling.Temperature != nil {
+		extra["temperature"] = *s.sampling.Temperature
+	}
+	if s.sampling.TopP != nil {
+		extra["top_p"] = *s.sampling.TopP
+	}
+	if len(extra) == 0 {
+		return nil
+	}
+	return []model.Option{agenticopenai.WithExtraFields(extra)}
 }
 
 // thinkingOptions translates the run's thinking preference (domain context)
@@ -326,32 +359,4 @@ func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option
 		info,
 		domain.ThinkingModeFromContext(ctx),
 	).options()
-}
-
-func (m *resolvingChatModelWithTools) Generate(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	inner, err := m.bound(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return inner.Generate(ctx, in, append(opts, m.parent.thinkingOptions(ctx)...)...)
-}
-
-func (m *resolvingChatModelWithTools) Stream(ctx context.Context, in []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	inner, err := m.bound(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return inner.Stream(ctx, in, append(opts, m.parent.thinkingOptions(ctx)...)...)
-}
-
-func (m *resolvingChatModelWithTools) WithTools(tools []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return &resolvingChatModelWithTools{parent: m.parent, tools: tools}, nil
-}
-
-func (m *resolvingChatModelWithTools) bound(ctx context.Context) (model.ToolCallingChatModel, error) {
-	inner, err := m.parent.inner(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return inner.WithTools(m.tools)
 }

@@ -45,13 +45,13 @@ func TestNormalizeProviderSelectionTranslatesLegacyVocabulary(t *testing.T) {
 func TestValidProviderValueAcceptsBothVocabularies(t *testing.T) {
 	for _, value := range []string{
 		"", ProviderDeepSeek, ProviderOpenAI, ProviderAnthropic,
-		provider.AdapterOpenAICompletions, provider.AdapterOpenAIResponses, provider.AdapterAnthropicMessages,
+		provider.AdapterOpenAICompletions, provider.AdapterAnthropicMessages,
 	} {
 		if !ValidProviderValue(value) {
 			t.Fatalf("ValidProviderValue(%q) = false, want true", value)
 		}
 	}
-	for _, value := range []string{"banana", "vendor:openai", "OpenAI"} {
+	for _, value := range []string{"banana", "vendor:openai", "OpenAI", "openai-responses"} {
 		if ValidProviderValue(value) {
 			t.Fatalf("ValidProviderValue(%q) = true, want false", value)
 		}

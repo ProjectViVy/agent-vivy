@@ -27,7 +27,7 @@ func newApprovalService(t *testing.T, expiration time.Duration) (*Service, *sqli
 	return newApprovalServiceWithModel(t, expiration, NewApprovalFlowModel())
 }
 
-func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatModel model.ToolCallingChatModel, hookOptions ...*ToolHookChain) (*Service, *sqlite.Backend, *testSink) {
+func newApprovalServiceWithModel(t *testing.T, expiration time.Duration, chatModel model.AgenticModel, hookOptions ...*ToolHookChain) (*Service, *sqlite.Backend, *testSink) {
 	t.Helper()
 	ctx := context.Background()
 	var hooks *ToolHookChain
@@ -101,41 +101,35 @@ type gatedApprovalResumeModel struct {
 	release chan struct{}
 }
 
-func (m *gatedApprovalResumeModel) Generate(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error) {
+func (m *gatedApprovalResumeModel) Generate(context.Context, []*schema.AgenticMessage, ...model.Option) (*schema.AgenticMessage, error) {
 	return nil, errors.New("gated approval model requires streaming")
 }
 
-func (m *gatedApprovalResumeModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *gatedApprovalResumeModel) Stream(context.Context, []*schema.AgenticMessage, ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.mu.Lock()
 	call := m.calls
 	m.calls++
 	m.mu.Unlock()
-	reader, writer := schema.Pipe[*schema.Message](1)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](1)
 	switch call {
 	case 0:
 		go func() {
 			defer writer.Close()
-			writer.Send(schema.AssistantMessage("", []schema.ToolCall{{
-				ID: ApprovalFlowCallID, Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
-			}}), nil)
+			writer.Send(testToolCalls(testCall(ApprovalFlowCallID, tools.WriteNoteName, `{"content":"buy milk"}`)), nil)
 		}()
 	case 1:
 		go func() {
 			defer writer.Close()
-			writer.Send(schema.AssistantMessage("恢", nil), nil)
+			writer.Send(testAssistant("恢"), nil)
 			close(m.blocked)
 			<-m.release
-			writer.Send(schema.AssistantMessage("复完成", nil), nil)
+			writer.Send(testAssistant("复完成"), nil)
 		}()
 	default:
 		writer.Close()
 		return nil, fmt.Errorf("unexpected model stream call %d", call)
 	}
 	return reader, nil
-}
-
-func (m *gatedApprovalResumeModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }
 
 // waitForPendingApproval polls until the run's approval row exists.
@@ -494,9 +488,7 @@ func TestNativeOneShotChildApprovalRecoversThroughServiceAfterRestart(t *testing
 	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-child-recovery", Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
 		t.Fatal(err)
 	}
-	firstModel := NewScriptedModel(schema.AssistantMessage("", []schema.ToolCall{{
-		ID: ApprovalFlowCallID, Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
-	}}))
+	firstModel := NewScriptedModel(testToolCalls(testCall(ApprovalFlowCallID, tools.WriteNoteName, `{"content":"buy milk"}`)))
 	first, err := newApprovalServiceForRestart(t, backend, workspaceRoot, firstModel)
 	if err != nil {
 		t.Fatal(err)
@@ -522,7 +514,7 @@ func TestNativeOneShotChildApprovalRecoversThroughServiceAfterRestart(t *testing
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
-	secondModel := NewScriptedModel(schema.AssistantMessage("Done after restart.", nil))
+	secondModel := NewScriptedModel(testAssistant("Done after restart."))
 	second, err := newApprovalServiceForRestart(t, reopened, workspaceRoot, secondModel)
 	if err != nil {
 		t.Fatal(err)
@@ -551,7 +543,7 @@ func TestNativeOneShotChildApprovalRecoversThroughServiceAfterRestart(t *testing
 	}
 }
 
-func newApprovalServiceForRestart(t *testing.T, backend *sqlite.Backend, workspaceRoot string, chatModel model.ToolCallingChatModel) (*Service, error) {
+func newApprovalServiceForRestart(t *testing.T, backend *sqlite.Backend, workspaceRoot string, chatModel model.AgenticModel) (*Service, error) {
 	t.Helper()
 	ctx := context.Background()
 	ts, err := tools.Builtin(backend).Resolve([]string{tools.EchoInfoName, tools.WriteNoteName})
@@ -626,15 +618,11 @@ func TestServiceResumedRunDispatchesToolsAfterApproval(t *testing.T) {
 		echoText   = "resumed turn still dispatches tools"
 	)
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID: ApprovalFlowCallID, Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
-		}}),
+		testToolCalls(testCall(ApprovalFlowCallID, tools.WriteNoteName, `{"content":"buy milk"}`)),
 		// The resumed segment asks for a read-only tool that carries no
 		// interrupt state of its own.
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID: echoCallID, Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"` + echoText + `"}`},
-		}}),
-		schema.AssistantMessage("Done after approval.", nil),
+		testToolCalls(testCall(echoCallID, tools.EchoInfoName, `{"text":"`+echoText+`"}`)),
+		testAssistant("Done after approval."),
 	)
 	svc, backend, _ := newApprovalServiceWithModel(t, 5*time.Minute, model)
 	ctx := context.Background()
@@ -1129,21 +1117,15 @@ func TestServiceCancelDuringApprovalPublishClosesDurableApproval(t *testing.T) {
 
 func TestMapperInterruptDetails(t *testing.T) {
 	m := newEventMapper("run-test", 0)
-	if _, err := m.onEvent(&adk.AgentEvent{
-		Output: &adk.AgentOutput{MessageOutput: &adk.TypedMessageVariant[*schema.Message]{
-			Message: &schema.Message{
-				Role: schema.Assistant,
-				ToolCalls: []schema.ToolCall{{
-					ID:       ApprovalFlowCallID,
-					Function: schema.FunctionCall{Name: "write_note", Arguments: `{"content":"buy milk"}`},
-				}},
-			},
+	if _, err := m.onEvent(&adk.TypedAgentEvent[*schema.AgenticMessage]{
+		Output: &adk.TypedAgentOutput[*schema.AgenticMessage]{MessageOutput: &adk.TypedMessageVariant[*schema.AgenticMessage]{
+			Message: agenticTestMessage(schema.AgenticRoleTypeAssistant, "", testCalls(testCall(ApprovalFlowCallID, "write_note", `{"content":"buy milk"}`)), nil, nil),
 		}},
 	}); err != nil {
 		t.Fatalf("map tool call: %v", err)
 	}
 
-	interrupt := &adk.AgentEvent{Action: &adk.AgentAction{Interrupted: &adk.InterruptInfo{
+	interrupt := &adk.TypedAgentEvent[*schema.AgenticMessage]{Action: &adk.AgentAction{Interrupted: &adk.InterruptInfo{
 		InterruptContexts: []*adk.InterruptCtx{{
 			ID: "agent:vivy;tools:write_note;" + ApprovalFlowCallID,
 			Address: adk.Address{
@@ -1177,7 +1159,7 @@ func TestMapperInterruptDetailsFallback(t *testing.T) {
 	m := newEventMapper("run-test", 0)
 	m.registerOpenCall(openToolCall{id: "call-9", name: "write_note", args: map[string]any{"content": "x"}})
 
-	if _, err := m.onEvent(&adk.AgentEvent{Action: &adk.AgentAction{Interrupted: &adk.InterruptInfo{
+	if _, err := m.onEvent(&adk.TypedAgentEvent[*schema.AgenticMessage]{Action: &adk.AgentAction{Interrupted: &adk.InterruptInfo{
 		InterruptContexts: []*adk.InterruptCtx{{ID: "intr-9", IsRootCause: true}},
 	}}}); !errors.Is(err, errRunInterrupted) {
 		t.Fatalf("interrupt must surface errRunInterrupted, got %v", err)

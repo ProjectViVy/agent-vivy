@@ -1340,7 +1340,6 @@ export interface FaceToolsCatalogView {
  */
 export type FaceProviderAdapter =
   | "openai-completions"
-  | "openai-responses"
   | "anthropic-messages";
 
 /**
@@ -1353,24 +1352,16 @@ export type FaceLegacyProviderBundle = "openai" | "anthropic" | "deepseek";
 /** A provider selection as the wire carries it: an adapter id, or a legacy bundle name. */
 export type FaceProviderValue = FaceProviderAdapter | FaceLegacyProviderBundle;
 
-/** The sealed adapter's own capability state. */
-export type FaceProviderAdapterState = "SUPPORTED" | "DEFERRED-INDEFINITE";
-
 /**
- * One endpoint variant of an embedded vendor: the (adapter, base_url) identity,
- * its model list, and whether this Generation can construct it.
+ * One endpoint variant of an embedded vendor: the (adapter, base_url) identity
+ * and its model list. Every listed endpoint belongs to a sealed, executable
+ * adapter, so there is no per-endpoint capability state on the wire.
  */
 export interface FaceProviderEndpoint {
   readonly adapter: FaceProviderAdapter;
   readonly base_url: string;
   readonly default_model: string;
   readonly models: string[];
-  /**
-   * False for an adapter this Generation seals but cannot construct
-   * (DEFERRED-INDEFINITE): visible, not selectable.
-   */
-  readonly executable: boolean;
-  readonly state: FaceProviderAdapterState;
 }
 
 /**

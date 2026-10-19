@@ -124,7 +124,7 @@ func (bareSkillBackend) Get(context.Context, string) (einoskill.Skill, error) {
 	return einoskill.Skill{}, errors.New("not found")
 }
 
-func alwaysSkillsTestEngine(t *testing.T, skillBackend einoskill.Backend, script ...*schema.Message) (*Engine, *recordingModel) {
+func alwaysSkillsTestEngine(t *testing.T, skillBackend einoskill.Backend, script ...*schema.AgenticMessage) (*Engine, *recordingModel) {
 	t.Helper()
 	ctx := context.Background()
 	ts, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
@@ -143,13 +143,10 @@ func alwaysSkillsTestEngine(t *testing.T, skillBackend einoskill.Backend, script
 	return eng, rec
 }
 
-func alwaysSkillsTestScript() []*schema.Message {
-	return []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-always-1",
-			Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"probe"}`},
-		}}),
-		schema.AssistantMessage("ALWAYS-SKILLS-TEST-DONE", nil),
+func alwaysSkillsTestScript() []*schema.AgenticMessage {
+	return []*schema.AgenticMessage{
+		testToolCalls(testCall("call-always-1", tools.EchoInfoName, `{"text":"probe"}`)),
+		testAssistant("ALWAYS-SKILLS-TEST-DONE"),
 	}
 }
 
@@ -166,8 +163,8 @@ func TestEngineAlwaysSkillsInjection(t *testing.T) {
 	}
 	eng, rec := alwaysSkillsTestEngine(t, backend, alwaysSkillsTestScript()...)
 	runID := domain.RunID("run-always-skills-1")
-	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.Message{
-		schema.UserMessage("echo something"),
+	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.AgenticMessage{
+		testUser("echo something"),
 	}))
 	if final != "ALWAYS-SKILLS-TEST-DONE" {
 		t.Fatalf("final answer = %q", final)
@@ -180,12 +177,12 @@ func TestEngineAlwaysSkillsInjection(t *testing.T) {
 		count := 0
 		injectedAt, firstRealUser := -1, -1
 		for j, msg := range input {
-			if msg == nil || msg.Role != schema.User {
+			if msg == nil || msg.Role != schema.AgenticRoleTypeUser {
 				continue
 			}
 			// The official Eino tool-search middleware's transient reminder
 			// also uses the user role; it is not the real request turn.
-			if strings.HasPrefix(msg.Content, "<available-deferred-tools>") {
+			if strings.HasPrefix(agenticMessageText(msg), "<available-deferred-tools>") {
 				continue
 			}
 			if msg.Extra != nil {
@@ -207,11 +204,11 @@ func TestEngineAlwaysSkillsInjection(t *testing.T) {
 		if injectedAt != firstRealUser-1 {
 			t.Fatalf("model call %d: injection at %d, first real user message at %d", i, injectedAt, firstRealUser)
 		}
-		if !strings.Contains(input[injectedAt].Content, "## Active Skills") || !strings.Contains(input[injectedAt].Content, "### Skill: always-probe") || !strings.Contains(input[injectedAt].Content, alwaysSkillsTestMarker) {
-			t.Fatalf("model call %d: injected content = %q", i, input[injectedAt].Content)
+		if !strings.Contains(agenticMessageText(input[injectedAt]), "## Active Skills") || !strings.Contains(agenticMessageText(input[injectedAt]), "### Skill: always-probe") || !strings.Contains(agenticMessageText(input[injectedAt]), alwaysSkillsTestMarker) {
+			t.Fatalf("model call %d: injected content = %q", i, agenticMessageText(input[injectedAt]))
 		}
-		if strings.Contains(input[injectedAt].Content, "quiet-skill") || strings.Contains(input[injectedAt].Content, "never injected body") {
-			t.Fatalf("model call %d: non-always skill leaked: %q", i, input[injectedAt].Content)
+		if strings.Contains(agenticMessageText(input[injectedAt]), "quiet-skill") || strings.Contains(agenticMessageText(input[injectedAt]), "never injected body") {
+			t.Fatalf("model call %d: non-always skill leaked: %q", i, agenticMessageText(input[injectedAt]))
 		}
 	}
 }
@@ -220,8 +217,8 @@ func TestEngineAlwaysSkillsRequiresCapability(t *testing.T) {
 	ctx := context.Background()
 	eng, rec := alwaysSkillsTestEngine(t, bareSkillBackend{}, alwaysSkillsTestScript()...)
 	runID := domain.RunID("run-always-skills-bare")
-	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.Message{
-		schema.UserMessage("echo something"),
+	final := drainFinalText(t, eng.RunHistory(withRunID(ctx, runID), []*schema.AgenticMessage{
+		testUser("echo something"),
 	}))
 	if final != "ALWAYS-SKILLS-TEST-DONE" {
 		t.Fatalf("final answer = %q", final)
@@ -236,7 +233,7 @@ func TestEngineAlwaysSkillsRequiresCapability(t *testing.T) {
 					t.Fatalf("model call %d: bare backend must not inject", i)
 				}
 			}
-			if strings.Contains(msg.Content, "## Active Skills") {
+			if strings.Contains(agenticMessageText(msg), "## Active Skills") {
 				t.Fatalf("model call %d: bare backend injected Active Skills", i)
 			}
 		}

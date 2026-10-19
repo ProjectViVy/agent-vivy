@@ -14,17 +14,17 @@ import (
 
 func TestMapperEmitsReasoningAndUsageEvents(t *testing.T) {
 	m := newEventMapper("run-observe", 4096)
-	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{
-		Role: schema.Assistant,
-		Message: &schema.Message{
-			Role:             schema.Assistant,
-			Content:          "final answer",
-			ReasoningContent: "short reasoning summary",
-			ResponseMeta: &schema.ResponseMeta{Usage: &schema.TokenUsage{
-				PromptTokens: 11, CompletionTokens: 7, TotalTokens: 18,
-				CompletionTokensDetails: schema.CompletionTokensDetails{ReasoningTokens: 3},
-			}},
-		},
+	msg := agenticTestMessage(schema.AgenticRoleTypeAssistant, "final answer", nil, &schema.TokenUsage{
+		PromptTokens: 11, CompletionTokens: 7, TotalTokens: 18,
+		CompletionTokensDetails: schema.CompletionTokensDetails{ReasoningTokens: 3},
+	}, nil)
+	msg.ContentBlocks = append(
+		[]*schema.ContentBlock{schema.NewContentBlock(&schema.Reasoning{Text: "thinking it over"})},
+		msg.ContentBlocks...,
+	)
+	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		AgenticRole: schema.AgenticRoleTypeAssistant,
+		Message:     msg,
 	})
 	if err != nil {
 		t.Fatalf("map message: %v", err)
@@ -44,19 +44,19 @@ func TestMapperEmitsReasoningAndUsageEvents(t *testing.T) {
 }
 
 func TestMapperPublishesStreamChunkBeforeEOF(t *testing.T) {
-	reader, writer := schema.Pipe[*schema.Message](1)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](1)
 	m := newEventMapper("run-live", 4096)
 	emitted := make(chan []domain.RunEvent, 2)
 	done := make(chan error, 1)
 	go func() {
-		done <- m.onStreamEventEach(&adk.TypedMessageVariant[*schema.Message]{
-			IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+		done <- m.onStreamEventEach(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+			IsStreaming: true, MessageStream: reader, AgenticRole: schema.AgenticRoleTypeAssistant,
 		}, func(events []domain.RunEvent) error {
 			emitted <- append([]domain.RunEvent(nil), events...)
 			return nil
 		})
 	}()
-	writer.Send(&schema.Message{Role: schema.Assistant, ReasoningContent: "这"}, nil)
+	writer.Send(testReasoningChunk("thinking", 0), nil)
 	select {
 	case events := <-emitted:
 		if len(events) != 1 || events[0].Type != domain.EventModelReasoningDelta {
@@ -101,8 +101,8 @@ func TestMapperBoundsLargeNonStreamingAssistantPayload(t *testing.T) {
 	const budget = 256
 	content := strings.Repeat("large non-stream answer ", 5000)
 	m := newEventMapper("run-large-non-stream", budget)
-	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{
-		Message: &schema.Message{Role: schema.Assistant, Content: content},
+	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		Message: testAssistant(content),
 	})
 	if err != nil {
 		t.Fatalf("map non-stream message: %v", err)
@@ -145,11 +145,8 @@ func TestMapperV2CompletionFitsMinimumConfiguredPayloadBudget(t *testing.T) {
 // the following model round starts with a fresh accumulator.
 func TestMapperNonStreamingToolCallFlushesPreamble(t *testing.T) {
 	m := newEventMapper("run-non-stream-tool-preamble", 4096)
-	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{
-		Message: &schema.Message{
-			Role: schema.Assistant, Content: "before tool",
-			ToolCalls: []schema.ToolCall{{ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`}}},
-		},
+	events, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		Message: agenticTestMessage(schema.AgenticRoleTypeAssistant, "before tool", testCalls(testCall("call-1", "echo_info", `{}`)), nil, nil),
 	})
 	if err != nil {
 		t.Fatalf("map non-stream tool call: %v", err)
@@ -164,8 +161,8 @@ func TestMapperNonStreamingToolCallFlushesPreamble(t *testing.T) {
 		t.Fatalf("tool preamble remained pending: %q", m.pendingText.String())
 	}
 
-	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{
-		Message: &schema.Message{Role: schema.Assistant, Content: "after tool"},
+	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		Message: testAssistant("after tool"),
 	})
 	if err != nil {
 		t.Fatalf("map post-tool message: %v", err)
@@ -184,7 +181,7 @@ func TestMapperNonStreamingToolCallFlushesPreamble(t *testing.T) {
 
 func TestMapperEmitsProviderRetryWithoutErrorLeak(t *testing.T) {
 	m := newEventMapper("run-retry", 4096)
-	events, err := m.onEvent(&adk.AgentEvent{Err: &adk.WillRetryError{
+	events, err := m.onEvent(&adk.TypedAgentEvent[*schema.AgenticMessage]{Err: &adk.WillRetryError{
 		ErrStr: "provider secret and URL must not be durable", RetryAttempt: 2,
 	}})
 	if err != nil {
@@ -199,15 +196,15 @@ func TestMapperEmitsProviderRetryWithoutErrorLeak(t *testing.T) {
 }
 
 func TestMapperEmitsStallForSlowProviderStream(t *testing.T) {
-	reader, writer := schema.Pipe[*schema.Message](1)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](1)
 	m := newEventMapper("run-stall", 4096)
 	m.stallThreshold = 0
 	go func() {
-		writer.Send(&schema.Message{Role: schema.Assistant, Content: "chunk"}, nil)
+		writer.Send(testAssistant("chunk"), nil)
 		writer.Close()
 	}()
-	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.Message]{
-		IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		IsStreaming: true, MessageStream: reader, AgenticRole: schema.AgenticRoleTypeAssistant,
 	})
 	if err != nil {
 		t.Fatalf("map stream: %v", err)
@@ -222,15 +219,15 @@ func TestMapperEmitsStallForSlowProviderStream(t *testing.T) {
 }
 
 func TestMapperReasoningOnlyChunksDoNotEmitEmptyDeltas(t *testing.T) {
-	reader, writer := schema.Pipe[*schema.Message](2)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](2)
 	m := newEventMapper("run-reasoning", 4096)
 	go func() {
-		writer.Send(&schema.Message{Role: schema.Assistant, ReasoningContent: "这"}, nil)
-		writer.Send(&schema.Message{Role: schema.Assistant, ReasoningContent: "是一句话"}, nil)
+		writer.Send(testReasoningChunk("thinking", 0), nil)
+		writer.Send(testReasoningChunk("thinking", 0), nil)
 		writer.Close()
 	}()
-	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.Message]{
-		IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		IsStreaming: true, MessageStream: reader, AgenticRole: schema.AgenticRoleTypeAssistant,
 	})
 	if err != nil {
 		t.Fatalf("map reasoning stream: %v", err)
@@ -249,17 +246,15 @@ func TestMapperReasoningOnlyChunksDoNotEmitEmptyDeltas(t *testing.T) {
 }
 
 func TestMapperStreamingToolCallFlushesPreambleAndFencesNextRound(t *testing.T) {
-	reader, writer := schema.Pipe[*schema.Message](2)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](2)
 	m := newEventMapper("run-stream-tool", 4096)
 	go func() {
-		writer.Send(&schema.Message{Role: schema.Assistant, Content: "before tool"}, nil)
-		writer.Send(&schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
-			ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`},
-		}}}, nil)
+		writer.Send(testAssistant("before tool"), nil)
+		writer.Send(agenticTestMessage(schema.AgenticRoleTypeAssistant, "", testCalls(testCall("call-1", "echo_info", `{}`)), nil, nil), nil)
 		writer.Close()
 	}()
-	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.Message]{
-		IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		IsStreaming: true, MessageStream: reader, AgenticRole: schema.AgenticRoleTypeAssistant,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +265,7 @@ func TestMapperStreamingToolCallFlushesPreambleAndFencesNextRound(t *testing.T) 
 	if !strings.Contains(string(events[0].Payload), `"delta":"before tool"`) || m.hasPending || m.pendingText.Len() != 0 {
 		t.Fatalf("streaming preamble was not flushed: event=%s pending=%q", events[0].Payload, m.pendingText.String())
 	}
-	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{Role: schema.Assistant, Content: "after tool"}})
+	next, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{Message: testAssistant("after tool")})
 	if err != nil || len(next) != 2 || next[0].Type != domain.EventModelDelta || next[1].Type != domain.EventModelCompleted || strings.Contains(string(next[1].Payload), "before tool") {
 		t.Fatalf("next round was contaminated: events=%+v err=%v", next, err)
 	}
@@ -284,24 +279,16 @@ func TestMapperStreamingToolCallFlushesPreambleAndFencesNextRound(t *testing.T) 
 }
 
 func TestMapperConcatenatesStreamingToolCallIdentityAndArguments(t *testing.T) {
-	reader, writer := schema.Pipe[*schema.Message](3)
+	reader, writer := schema.Pipe[*schema.AgenticMessage](3)
 	m := newEventMapper("run-stream-tool-fragments", 4096)
-	index := 0
 	go func() {
-		writer.Send(&schema.Message{Role: schema.Assistant, ToolCalls: []schema.ToolCall{{
-			Index: &index, ID: "call-1", Type: "function",
-			Function: schema.FunctionCall{Name: "list_dir", Arguments: `{"path":"`},
-		}}}, nil)
-		writer.Send(&schema.Message{ToolCalls: []schema.ToolCall{{
-			Index: &index, Function: schema.FunctionCall{Arguments: "."},
-		}}}, nil)
-		writer.Send(&schema.Message{ToolCalls: []schema.ToolCall{{
-			Index: &index, Function: schema.FunctionCall{Arguments: `"}`},
-		}}}, nil)
+		writer.Send(testToolCallChunk("call-1", "list_dir", `{"path":"`, 0), nil)
+		writer.Send(testToolCallChunk("", "", ".", 0), nil)
+		writer.Send(testToolCallChunk("", "", `"}`, 0), nil)
 		writer.Close()
 	}()
-	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.Message]{
-		IsStreaming: true, MessageStream: reader, Role: schema.Assistant,
+	events, err := m.onStreamEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{
+		IsStreaming: true, MessageStream: reader, AgenticRole: schema.AgenticRoleTypeAssistant,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -336,11 +323,8 @@ func TestMapperConcatenatesStreamingToolCallIdentityAndArguments(t *testing.T) {
 func TestMapperMaterializedObservedToolCallDoesNotDuplicatePreamble(t *testing.T) {
 	m := newEventMapper("run-observed-tool", 4096)
 	m.noteObservedCallMaterialized("run")
-	observed := m.observeStreamChunk(&schema.Message{Role: schema.Assistant, Content: "before tool"})
-	materialized, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.Message]{Message: &schema.Message{
-		Role:      schema.Assistant,
-		ToolCalls: []schema.ToolCall{{ID: "call-1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{}`}}},
-	}})
+	observed := m.observeStreamChunk(testAssistant("before tool"))
+	materialized, err := m.onMessageEvent(&adk.TypedMessageVariant[*schema.AgenticMessage]{Message: agenticTestMessage(schema.AgenticRoleTypeAssistant, "", testCalls(testCall("call-1", "echo_info", `{}`)), nil, nil)})
 	if err != nil {
 		t.Fatal(err)
 	}

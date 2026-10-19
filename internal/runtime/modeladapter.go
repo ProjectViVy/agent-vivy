@@ -11,17 +11,17 @@ import (
 	"agent-vivy/internal/domain"
 )
 
-// WrapModel bridges a domain.ChatModel to Eino's
-// model.ToolCallingChatModel. Messages cross the D-007 firewall only here;
-// the domain side never imports Eino. Tests use ScriptedModel or a test-only
-// chat model; the product openai path passes the native eino-ext
-// component straight through (no double wrap).
+// WrapModel bridges a domain.ChatModel to the agentic Eino model seam. Domain
+// messages cross the D-007 firewall only here; the domain side never imports
+// Eino. Tests use ScriptedModel or a test-only domain model; the product
+// provider path passes the native agentic eino-ext component straight through
+// (no wrap, no second generation).
 //
-// V0 transports text content only (role + content). WithTools returns the
-// adapter unchanged: the domain model contract does not emit tool calls in
-// V0, which matches the spike's scriptedModel behavior
-// (docs/eino-capability-verify.md).
-func WrapModel(m domain.ChatModel) model.ToolCallingChatModel {
+// This is the domain↔Eino projection, not a text-generation bridge: the
+// adapter still speaks schema.AgenticMessage, and a domain model that emits
+// only text produces assistant text blocks. Tool calls are bound at request
+// time by the agent, so the adapter carries no WithTools method.
+func WrapModel(m domain.ChatModel) model.AgenticModel {
 	return &modelAdapter{inner: m}
 }
 
@@ -29,10 +29,10 @@ type modelAdapter struct {
 	inner domain.ChatModel
 }
 
-var _ model.ToolCallingChatModel = (*modelAdapter)(nil)
+var _ model.AgenticModel = (*modelAdapter)(nil)
 
-func (a *modelAdapter) Generate(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
-	stream, err := a.Stream(ctx, input)
+func (a *modelAdapter) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
+	stream, err := a.Stream(ctx, input, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -45,20 +45,20 @@ func (a *modelAdapter) Generate(ctx context.Context, input []*schema.Message, _ 
 		if err != nil {
 			return nil, err
 		}
-		sb.WriteString(chunk.Content)
+		sb.WriteString(agenticAssistantText(chunk))
 	}
-	return &schema.Message{Role: schema.Assistant, Content: sb.String()}, nil
+	return agenticAssistantTextMessage(sb.String()), nil
 }
 
-func (a *modelAdapter) Stream(ctx context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (a *modelAdapter) Stream(ctx context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	ds, err := a.inner.Stream(ctx, fromEinoMessages(input))
+	ds, err := a.inner.Stream(ctx, fromAgenticMessages(input))
 	if err != nil {
 		return nil, err
 	}
-	r, w := schema.Pipe[*schema.Message](8)
+	r, w := schema.Pipe[*schema.AgenticMessage](8)
 	go func() {
 		defer w.Close()
 		for {
@@ -76,7 +76,7 @@ func (a *modelAdapter) Stream(ctx context.Context, input []*schema.Message, _ ..
 			}
 			// Send reports whether the reader side closed; stop pumping
 			// when it does.
-			if w.Send(&schema.Message{Role: schema.Assistant, Content: chunk.Content}, nil) {
+			if w.Send(agenticAssistantTextMessage(chunk.Content), nil) {
 				return
 			}
 		}
@@ -84,36 +84,27 @@ func (a *modelAdapter) Stream(ctx context.Context, input []*schema.Message, _ ..
 	return r, nil
 }
 
-func (a *modelAdapter) WithTools(_ []*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return a, nil
-}
-
-func fromEinoMessages(ms []*schema.Message) []*domain.Message {
+// fromAgenticMessages projects the agentic feed onto the three-role domain
+// vocabulary one domain model consumes. Tool results carry their call id and
+// name; tool calls carry the first call's identity, matching the previous
+// domain projection.
+func fromAgenticMessages(ms []*schema.AgenticMessage) []*domain.Message {
 	out := make([]*domain.Message, 0, len(ms))
 	for _, m := range ms {
 		if m == nil {
 			continue
 		}
-		row := &domain.Message{Role: fromEinoRole(m.Role), Content: m.Content, ToolCallID: m.ToolCallID}
-		if len(m.ToolCalls) > 0 {
-			row.ToolCallID = m.ToolCalls[0].ID
-			row.ToolName = m.ToolCalls[0].Function.Name
-			row.ToolArgs = []byte(m.ToolCalls[0].Function.Arguments)
+		row := &domain.Message{Role: agenticRole(m), Content: agenticMessageText(m)}
+		if results := agenticToolResults(m); len(results) > 0 {
+			row.ToolCallID = results[0].CallID
+			row.ToolName = results[0].Name
+		}
+		if calls := agenticToolCalls(m); len(calls) > 0 {
+			row.ToolCallID = calls[0].CallID
+			row.ToolName = calls[0].Name
+			row.ToolArgs = []byte(calls[0].Arguments)
 		}
 		out = append(out, row)
 	}
 	return out
-}
-
-func fromEinoRole(r schema.RoleType) domain.Role {
-	switch r {
-	case schema.User:
-		return domain.RoleUser
-	case schema.Tool:
-		return domain.RoleTool
-	default:
-		// System and any future roles collapse to assistant; the domain
-		// vocabulary intentionally stays at three roles in V0.
-		return domain.RoleAssistant
-	}
 }

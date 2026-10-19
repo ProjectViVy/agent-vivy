@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -113,7 +111,7 @@ func restartQuestionService(t *testing.T, backend *sqlite.Backend) *Service {
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}
-	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("Recovered answer.", nil)), ts, EngineConfig{
+	eng, err := NewEngine(ctx, NewScriptedModel(testAssistant("Recovered answer.")), ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
 	})
 	if err != nil {

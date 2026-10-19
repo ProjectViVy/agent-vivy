@@ -274,11 +274,8 @@ func TestServiceBashToolEndToEnd(t *testing.T) {
 		t.Fatalf("checkpoint store: %v", err)
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-bash-e2e",
-			Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"echo vivy_bash_e2e"}`},
-		}}),
-		schema.AssistantMessage("Done: bash echoed the marker.", nil),
+		testToolCalls(testCall("call-bash-e2e", tools.BashName, `{"command":"echo vivy_bash_e2e"}`)),
+		testAssistant("Done: bash echoed the marker."),
 	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -347,19 +344,13 @@ func TestServiceBashToolBackgroundEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}
-	jobOutput := func() *schema.Message {
-		return schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-job-read",
-			Function: schema.FunctionCall{Name: tools.JobOutputName, Arguments: `{"job_id":"job_000001"}`},
-		}})
+	jobOutput := func() *schema.AgenticMessage {
+		return testToolCalls(testCall("call-job-read", tools.JobOutputName, `{"job_id":"job_000001"}`))
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-bash-bg",
-			Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"echo vivy_bg_e2e","run_in_background":true}`},
-		}}),
+		testToolCalls(testCall("call-bash-bg", tools.BashName, `{"command":"echo vivy_bg_e2e","run_in_background":true}`)),
 		jobOutput(), jobOutput(), jobOutput(),
-		schema.AssistantMessage("Done: the background job echoed the marker.", nil),
+		testAssistant("Done: the background job echoed the marker."),
 	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -429,11 +420,8 @@ func TestServiceBashTraversalRefusedWithoutFailingRun(t *testing.T) {
 		t.Fatalf("checkpoint store: %v", err)
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{
-			{ID: "call-sibling", Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"echo vivy_sibling_marker"}`}},
-			{ID: "call-traversal", Function: schema.FunctionCall{Name: tools.BashName, Arguments: `{"command":"cd ../../../../../.. 2>/dev/null && pwd && ls"}`}},
-		}),
-		schema.AssistantMessage("Done: one call was refused.", nil),
+		testToolCalls(testCall("call-sibling", tools.BashName, `{"command":"echo vivy_sibling_marker"}`), testCall("call-traversal", tools.BashName, `{"command":"cd ../../../../../.. 2>/dev/null && pwd && ls"}`)),
+		testAssistant("Done: one call was refused."),
 	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

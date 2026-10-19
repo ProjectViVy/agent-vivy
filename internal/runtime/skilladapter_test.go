@@ -160,7 +160,7 @@ func TestHostedSkillBackendDoesNotCollapseLocalOverlayConflicts(t *testing.T) {
 func TestEngineSkillSourceReceivesLiveWorkspaceIdentity(t *testing.T) {
 	base, _, _ := openSkillTestBackend(t)
 	source := &recordingSkillSource{request: make(chan skillsource.Request, 4)}
-	model := &recordingModel{inner: NewScriptedModel(schema.AssistantMessage("done", nil))}
+	model := &recordingModel{inner: NewScriptedModel(testAssistant("done"))}
 	items, err := tools.Builtin(nil).Resolve([]string{tools.EchoInfoName})
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestEngineSkillSourceReceivesLiveWorkspaceIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := withWorkspaceID(withSessionID(withRunID(context.Background(), domain.RunID("run-live-skill")), domain.SessionID("session-live-skill")), "workspace-live-skill")
-	iter := engine.RunHistory(ctx, []*schema.Message{schema.UserMessage("hello")})
+	iter := engine.RunHistory(ctx, []*schema.AgenticMessage{testUser("hello")})
 	deadline := time.After(5 * time.Second)
 	for {
 		event, ok := iter.Next()

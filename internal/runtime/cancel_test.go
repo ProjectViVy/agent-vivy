@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/testsupport"
@@ -57,11 +55,8 @@ func newCancelService(t *testing.T, wait *blockingTool) (*Service, *sqlite.Backe
 	t.Cleanup(func() { _ = backend.Close() })
 
 	model := NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-wait-1",
-			Function: schema.FunctionCall{Name: waitForeverName, Arguments: `{}`},
-		}}),
-		schema.AssistantMessage("unreachable", nil),
+		testToolCalls(testCall("call-wait-1", waitForeverName, `{}`)),
+		testAssistant("unreachable"),
 	)
 	eng, err := NewEngine(ctx, model, []tools.Tool{wait}, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,

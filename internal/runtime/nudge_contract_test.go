@@ -223,24 +223,24 @@ func (h *contractStateHolder) current() *contractState { return h.p.Load() }
 // ---------------------------------------------------------------------------
 
 type contractBarrier struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 	holder *contractStateHolder
 	emit   func(context.Context, *contractNotice) error
 
 	wraps    atomic.Int32
 	mu       sync.Mutex
-	prepared [][]*schema.Message // every input the wrapper observed, pre-injection
+	prepared [][]*schema.AgenticMessage // every input the wrapper observed, pre-injection
 }
 
-func (b *contractBarrier) WrapModel(_ context.Context, m model.BaseModel[*schema.Message], _ *adk.ModelContext) (model.BaseModel[*schema.Message], error) {
+func (b *contractBarrier) WrapModel(_ context.Context, m model.BaseModel[*schema.AgenticMessage], _ *adk.TypedModelContext[*schema.AgenticMessage]) (model.BaseModel[*schema.AgenticMessage], error) {
 	b.wraps.Add(1)
 	return &contractWrappedModel{inner: m, barrier: b}, nil
 }
 
-func (b *contractBarrier) record(input []*schema.Message) {
+func (b *contractBarrier) record(input []*schema.AgenticMessage) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.prepared = append(b.prepared, append([]*schema.Message(nil), input...))
+	b.prepared = append(b.prepared, append([]*schema.AgenticMessage(nil), input...))
 }
 
 // contractWrappedModel implements the §6 request barrier: it waits for the
@@ -248,11 +248,11 @@ func (b *contractBarrier) record(input []*schema.Message) {
 // inner Generate/Stream call, then appends the scheduled reminder to a COPY
 // of the input — the request slice is never mutated in place.
 type contractWrappedModel struct {
-	inner   model.BaseModel[*schema.Message]
+	inner   model.BaseModel[*schema.AgenticMessage]
 	barrier *contractBarrier
 }
 
-func (w *contractWrappedModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (w *contractWrappedModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	prepared, err := w.prepare(ctx, input)
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func (w *contractWrappedModel) Generate(ctx context.Context, input []*schema.Mes
 	return w.inner.Generate(ctx, prepared, opts...)
 }
 
-func (w *contractWrappedModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (w *contractWrappedModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	prepared, err := w.prepare(ctx, input)
 	if err != nil {
 		return nil, err
@@ -268,7 +268,7 @@ func (w *contractWrappedModel) Stream(ctx context.Context, input []*schema.Messa
 	return w.inner.Stream(ctx, prepared, opts...)
 }
 
-func (w *contractWrappedModel) prepare(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
+func (w *contractWrappedModel) prepare(ctx context.Context, input []*schema.AgenticMessage) ([]*schema.AgenticMessage, error) {
 	w.barrier.record(input)
 	ids := trailingToolCallIDs(input)
 	if len(ids) == 0 {
@@ -290,9 +290,9 @@ func (w *contractWrappedModel) prepare(ctx context.Context, input []*schema.Mess
 			return nil, err
 		}
 	}
-	out := make([]*schema.Message, len(input), len(input)+1)
+	out := make([]*schema.AgenticMessage, len(input), len(input)+1)
 	copy(out, input)
-	return append(out, schema.UserMessage(notice.text)), nil
+	return append(out, testUser(notice.text)), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -455,7 +455,7 @@ func (j *contractJournal) finishedPayload(t *testing.T, callID string) payloadTo
 
 type contractModelEntry struct {
 	mode  string
-	input []*schema.Message
+	input []*schema.AgenticMessage
 }
 
 // contractCaptureModel replays a script like ScriptedModel but records the
@@ -463,19 +463,19 @@ type contractModelEntry struct {
 // failing entries do not consume a script slot.
 type contractCaptureModel struct {
 	mu       sync.Mutex
-	script   []*schema.Message
+	script   []*schema.AgenticMessage
 	failures map[int]error // entry index → fail this entry once
 	pos      int
 	entries  []contractModelEntry
 }
 
-var _ model.ToolCallingChatModel = (*contractCaptureModel)(nil)
+var _ model.AgenticModel = (*contractCaptureModel)(nil)
 
-func (m *contractCaptureModel) Generate(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+func (m *contractCaptureModel) Generate(_ context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.AgenticMessage, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	idx := len(m.entries)
-	m.entries = append(m.entries, contractModelEntry{mode: "generate", input: append([]*schema.Message(nil), input...)})
+	m.entries = append(m.entries, contractModelEntry{mode: "generate", input: append([]*schema.AgenticMessage(nil), input...)})
 	if err := m.failures[idx]; err != nil {
 		delete(m.failures, idx)
 		return nil, err
@@ -488,13 +488,13 @@ func (m *contractCaptureModel) Generate(_ context.Context, input []*schema.Messa
 	return msg, nil
 }
 
-func (m *contractCaptureModel) Stream(_ context.Context, input []*schema.Message, _ ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *contractCaptureModel) Stream(_ context.Context, input []*schema.AgenticMessage, _ ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	m.mu.Lock()
 	idx := len(m.entries)
-	m.entries = append(m.entries, contractModelEntry{mode: "stream", input: append([]*schema.Message(nil), input...)})
+	m.entries = append(m.entries, contractModelEntry{mode: "stream", input: append([]*schema.AgenticMessage(nil), input...)})
 	ferr := m.failures[idx]
 	delete(m.failures, idx)
-	var msg *schema.Message
+	var msg *schema.AgenticMessage
 	if ferr == nil {
 		if m.pos >= len(m.script) {
 			m.mu.Unlock()
@@ -507,16 +507,12 @@ func (m *contractCaptureModel) Stream(_ context.Context, input []*schema.Message
 	if ferr != nil {
 		return nil, ferr
 	}
-	r, w := schema.Pipe[*schema.Message](1)
+	r, w := schema.Pipe[*schema.AgenticMessage](1)
 	go func() {
 		defer w.Close()
 		w.Send(msg, nil)
 	}()
 	return r, nil
-}
-
-func (m *contractCaptureModel) WithTools([]*schema.ToolInfo) (model.ToolCallingChatModel, error) {
-	return m, nil
 }
 
 func (m *contractCaptureModel) count() int {
@@ -589,7 +585,7 @@ type contractHarnessOpts struct {
 	noBarrier   bool
 	checkpoints bool
 	emitNotices bool
-	retry       *adk.ModelRetryConfig
+	retry       *adk.TypedModelRetryConfig[*schema.AgenticMessage]
 	extraTools  []tools.Tool
 	autoApprove []string
 	failures    map[int]error
@@ -612,7 +608,7 @@ type contractHarness struct {
 	marks sync.Map // callID → recoverable failure mark (the ND-1 seam)
 }
 
-func newContractHarness(t *testing.T, script []*schema.Message, opts contractHarnessOpts) *contractHarness {
+func newContractHarness(t *testing.T, script []*schema.AgenticMessage, opts contractHarnessOpts) *contractHarness {
 	t.Helper()
 	ctx := context.Background()
 
@@ -659,22 +655,22 @@ func newContractHarness(t *testing.T, script []*schema.Message, opts contractHar
 
 	h.model = &contractCaptureModel{script: script, failures: opts.failures}
 	h.barrier = &contractBarrier{
-		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
-		holder:                       h.holder,
+		TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{},
+		holder:                            h.holder,
 		emit: func(context.Context, *contractNotice) error {
 			h.emits.Add(1)
 			return nil
 		},
 	}
 
-	handlers := []adk.ChatModelAgentMiddleware{}
+	handlers := []adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage]{}
 	if !opts.noBarrier {
 		handlers = append(handlers, h.barrier)
 	}
 	if opts.prodNudge {
 		handlers = append(handlers, newNudgeMiddleware(1<<20))
 	}
-	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+	agent, err := adk.NewTypedChatModelAgent[*schema.AgenticMessage](ctx, &adk.TypedChatModelAgentConfig[*schema.AgenticMessage]{
 		Name:             "contract-agent",
 		Description:      "ND-0 contract probe",
 		Model:            observeChatModel(h.model),
@@ -687,7 +683,7 @@ func newContractHarness(t *testing.T, script []*schema.Message, opts contractHar
 		t.Fatalf("new agent: %v", err)
 	}
 
-	runnerCfg := adk.RunnerConfig{Agent: agent, EnableStreaming: opts.streaming}
+	runnerCfg := adk.TypedRunnerConfig[*schema.AgenticMessage]{Agent: agent, EnableStreaming: opts.streaming}
 	var checkpointStore *VersionedCheckpointStore
 	if opts.checkpoints {
 		checkpointStore, err = NewVersionedCheckpointStore(backend.Blobs(), "contract-engine")
@@ -696,7 +692,7 @@ func newContractHarness(t *testing.T, script []*schema.Message, opts contractHar
 		}
 		runnerCfg.CheckPointStore = NewEinoCheckpointAdapter(checkpointStore)
 	}
-	runner := adk.NewRunner(ctx, runnerCfg)
+	runner := adk.NewTypedRunner(runnerCfg)
 
 	specs := make([]domain.ToolSpec, 0, len(allTools))
 	byName := map[string]tools.Tool{}
@@ -765,17 +761,17 @@ func (h *contractHarness) setHold(callID string) {
 	h.journal.mu.Unlock()
 }
 
-func contractToolCall(id, text string) schema.ToolCall {
-	return schema.ToolCall{ID: id, Function: schema.FunctionCall{Name: contractToolName, Arguments: fmt.Sprintf(`{"text":%q}`, text)}}
+func contractToolCall(id, text string) *schema.FunctionToolCall {
+	return &schema.FunctionToolCall{CallID: id, Name: contractToolName, Arguments: fmt.Sprintf(`{"text":%q}`, text)}
 }
 
 // toolResults returns every tool-result message in the input — the batch
 // that just settled sits at the tail right before the injected reminder
 // user message, so a pure tail scan is unreliable.
-func toolResults(input []*schema.Message) []*schema.Message {
-	var out []*schema.Message
+func toolResults(input []*schema.AgenticMessage) []*schema.AgenticMessage {
+	var out []*schema.AgenticMessage
 	for _, msg := range input {
-		if msg != nil && msg.Role == schema.Tool && msg.ToolCallID != "" {
+		if msg != nil && agenticIsToolResult(msg) {
 			out = append(out, msg)
 		}
 	}
@@ -791,9 +787,9 @@ func toolResults(input []*schema.Message) []*schema.Message {
 // out until the result is durable.
 func runDurabilityBarrier(t *testing.T, enhanced bool) {
 	c1 := "call-c1"
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "first")}),
-		schema.AssistantMessage("final answer", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(contractToolCall(c1, "first")),
+		testAssistant("final answer"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{enhanced: enhanced, streaming: true, emitNotices: true})
 
@@ -858,12 +854,12 @@ func runDurabilityBarrier(t *testing.T, enhanced bool) {
 	input2 := h.model.entry(1).input
 	seen := map[string]int{}
 	for _, m := range toolResults(input2) {
-		seen[m.ToolCallID]++
+		seen[agenticToolResults(m)[0].CallID]++
 	}
 	// The trailing tool results are contiguous before the reminder; the
 	// reminder is a UserMessage appended after them.
-	if last := input2[len(input2)-1]; last.Role != schema.User || last.Content != "contract-nudge-1" {
-		t.Fatalf("injected reminder missing from tail: role=%s content=%q", last.Role, last.Content)
+	if last := input2[len(input2)-1]; last.Role != schema.AgenticRoleTypeUser || agenticMessageText(last) != "contract-nudge-1" {
+		t.Fatalf("injected reminder missing from tail: role=%s content=%q", last.Role, agenticMessageText(last))
 	}
 	if seen[c1] != 1 || len(seen) != 1 {
 		t.Fatalf("next input results by call id = %v, want exactly one %s", seen, c1)
@@ -897,9 +893,9 @@ func TestNudgeContract(t *testing.T) {
 	// specified barrier rather than a failure.
 	t.Run("BaselineNoBarrierMayEnterBeforeDurability", func(t *testing.T) {
 		c1, c2 := "call-b1", "call-b2"
-		script := []*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "x"), contractToolCall(c2, "y")}),
-			schema.AssistantMessage("done", nil),
+		script := []*schema.AgenticMessage{
+			testToolCalls(contractToolCall(c1, "x"), contractToolCall(c2, "y")),
+			testAssistant("done"),
 		}
 		h := newContractHarness(t, script, contractHarnessOpts{streaming: true, noBarrier: true})
 		releaseC1Append := h.setPause("tool.finished:" + c1)
@@ -942,9 +938,9 @@ func TestNudgeContract(t *testing.T) {
 	// and adapters see the exact requested ids.
 	t.Run("GeneratePathRegisteredBeforeResults", func(t *testing.T) {
 		c1, c2 := "call-g1", "call-g2"
-		script := []*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "p"), contractToolCall(c2, "q")}),
-			schema.AssistantMessage("gen done", nil),
+		script := []*schema.AgenticMessage{
+			testToolCalls(contractToolCall(c1, "p"), contractToolCall(c2, "q")),
+			testAssistant("gen done"),
 		}
 		h := newContractHarness(t, script, contractHarnessOpts{streaming: false, emitNotices: true})
 		runID, err := h.svc.Run(context.Background(), "sess-gen", "generate path")
@@ -969,7 +965,7 @@ func TestNudgeContract(t *testing.T) {
 		}
 		seen := map[string]int{}
 		for _, m := range toolResults(h.model.entry(1).input) {
-			seen[m.ToolCallID]++
+			seen[agenticToolResults(m)[0].CallID]++
 		}
 		if seen[c1] != 1 || seen[c2] != 1 {
 			t.Fatalf("generate-path next input results = %v", seen)
@@ -981,9 +977,9 @@ func TestNudgeContract(t *testing.T) {
 	// joins to c1's finished event and never to c2's.
 	t.Run("FailureMetadataCorrelatesByCallID", func(t *testing.T) {
 		c1, c2 := "call-f1", "call-f2"
-		script := []*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "fail"), contractToolCall(c2, "fine")}),
-			schema.AssistantMessage("handled", nil),
+		script := []*schema.AgenticMessage{
+			testToolCalls(contractToolCall(c1, "fail"), contractToolCall(c2, "fine")),
+			testAssistant("handled"),
 		}
 		h := newContractHarness(t, script, contractHarnessOpts{streaming: true})
 		h.tool.run = func(ctx context.Context, args json.RawMessage) (string, error) {
@@ -1027,9 +1023,9 @@ func TestNudgeContract(t *testing.T) {
 	// waiter leaks.
 	t.Run("JournalAppendFailureAbortsBarrier", func(t *testing.T) {
 		c1 := "call-j1"
-		script := []*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "x")}),
-			schema.AssistantMessage("never", nil),
+		script := []*schema.AgenticMessage{
+			testToolCalls(contractToolCall(c1, "x")),
+			testAssistant("never"),
 		}
 		h := newContractHarness(t, script, contractHarnessOpts{streaming: true})
 		sentinel := errors.New("contract journal write failed")
@@ -1055,9 +1051,9 @@ func TestNudgeContract(t *testing.T) {
 	// with a cancellation error — no leaked wait, no hang.
 	t.Run("CancelWhileAwaitingSeal", func(t *testing.T) {
 		c1 := "call-x1"
-		script := []*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "x")}),
-			schema.AssistantMessage("never", nil),
+		script := []*schema.AgenticMessage{
+			testToolCalls(contractToolCall(c1, "x")),
+			testAssistant("never"),
 		}
 		h := newContractHarness(t, script, contractHarnessOpts{streaming: true})
 		// The append lands but the seal is withheld, so the wrapper waits.
@@ -1088,15 +1084,15 @@ func TestNudgeContract(t *testing.T) {
 	t.Run("ProviderRetrySeesIdenticalPreparedInput", func(t *testing.T) {
 		c1 := "call-r1"
 		injected := errors.New("injected provider failure")
-		script := []*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{contractToolCall(c1, "go")}),
-			schema.AssistantMessage("recovered", nil),
+		script := []*schema.AgenticMessage{
+			testToolCalls(contractToolCall(c1, "go")),
+			testAssistant("recovered"),
 		}
 		h := newContractHarness(t, script, contractHarnessOpts{
 			streaming:   true,
 			emitNotices: true,
 			failures:    map[int]error{1: injected}, // second entry = first attempt of turn 2
-			retry: &adk.ModelRetryConfig{
+			retry: &adk.TypedModelRetryConfig[*schema.AgenticMessage]{
 				MaxRetries:  1,
 				BackoffFunc: func(context.Context, int) time.Duration { return 0 },
 			},
@@ -1114,8 +1110,8 @@ func TestNudgeContract(t *testing.T) {
 		if !reflect.DeepEqual(attempt1, attempt2) {
 			t.Fatalf("retry attempt inputs differ:\nattempt1=%v\nattempt2=%v", attempt1, attempt2)
 		}
-		if last := attempt2[len(attempt2)-1]; last.Content != "contract-nudge-1" {
-			t.Fatalf("retried input tail lacks reminder: %q", last.Content)
+		if last := attempt2[len(attempt2)-1]; agenticMessageText(last) != "contract-nudge-1" {
+			t.Fatalf("retried input tail lacks reminder: %q", agenticMessageText(last))
 		}
 		if got := h.emits.Load(); got != 1 {
 			t.Fatalf("scheduling emissions = %d, want 1 (deduped across retries)", got)
@@ -1136,12 +1132,9 @@ func TestNudgeContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve write_note: %v", err)
 		}
-		script := []*schema.Message{
-			schema.AssistantMessage("", []schema.ToolCall{{
-				ID:       callID,
-				Function: schema.FunctionCall{Name: tools.WriteNoteName, Arguments: `{"content":"buy milk"}`},
-			}}),
-			schema.AssistantMessage("Done: the note has been handled.", nil),
+		script := []*schema.AgenticMessage{
+			testToolCalls(testCall(callID, tools.WriteNoteName, `{"content":"buy milk"}`)),
+			testAssistant("Done: the note has been handled."),
 		}
 		h := newContractHarness(t, script, contractHarnessOpts{streaming: true, checkpoints: true, emitNotices: true, extraTools: ts})
 
@@ -1196,31 +1189,31 @@ func TestNudgeContract(t *testing.T) {
 		feed := compactFeed(16) // ~1k tokens, far above the 200-token trigger
 		// The feed's tool results are durable history: pre-seal every call id.
 		for _, msg := range feed {
-			if msg != nil && msg.Role == schema.Tool && msg.ToolCallID != "" {
-				st.Register(msg.ToolCallID)
+			if msg != nil && agenticIsToolResult(msg) {
+				st.Register(agenticToolResults(msg)[0].CallID)
 			}
 		}
 		for _, msg := range feed {
-			if msg != nil && msg.Role == schema.Tool && msg.ToolCallID != "" {
-				st.Complete(msg.ToolCallID)
+			if msg != nil && agenticIsToolResult(msg) {
+				st.Complete(agenticToolResults(msg)[0].CallID)
 			}
 		}
 
 		emits := atomic.Int32{}
 		barrier := &contractBarrier{
-			BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
-			holder:                       holder,
+			TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{},
+			holder:                            holder,
 			emit: func(context.Context, *contractNotice) error {
 				emits.Add(1)
 				return nil
 			},
 		}
 		mainModel := &contractCaptureModel{
-			script:   []*schema.Message{schema.AssistantMessage("FINAL-9x", nil)},
+			script:   []*schema.AgenticMessage{testAssistant("FINAL-9x")},
 			failures: map[int]error{},
 		}
 		summaryModel := &contractCaptureModel{
-			script:   []*schema.Message{schema.AssistantMessage("CONTRACT-SUMMARY-9x", nil)},
+			script:   []*schema.AgenticMessage{testAssistant("CONTRACT-SUMMARY-9x")},
 			failures: map[int]error{},
 		}
 		compHandlers, err := buildCompactionHandlers(ctx, mainModel, summaryModel,
@@ -1230,9 +1223,9 @@ func TestNudgeContract(t *testing.T) {
 			t.Fatalf("build compaction handlers: %v", err)
 		}
 		// Production order: compaction handlers first, barrier innermost.
-		handlers := append(append([]adk.ChatModelAgentMiddleware{}, compHandlers...), barrier)
+		handlers := append(append([]adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage]{}, compHandlers...), barrier)
 
-		agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		agent, err := adk.NewTypedChatModelAgent[*schema.AgenticMessage](ctx, &adk.TypedChatModelAgentConfig[*schema.AgenticMessage]{
 			Name:          "contract-compaction",
 			Description:   "ND-0 compaction ordering probe",
 			Model:         observeChatModel(mainModel),
@@ -1242,7 +1235,7 @@ func TestNudgeContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("new agent: %v", err)
 		}
-		runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: true})
+		runner := adk.NewTypedRunner(adk.TypedRunnerConfig[*schema.AgenticMessage]{Agent: agent, EnableStreaming: true})
 		final := drainFinalText(t, runner.Run(ctx, feed))
 		if final != "FINAL-9x" {
 			t.Fatalf("final answer = %q, want FINAL-9x", final)
@@ -1265,7 +1258,7 @@ func TestNudgeContract(t *testing.T) {
 		// The wrapper observed the final post-rewrite request: the summary
 		// content is inside what the wrapper prepared.
 		barrier.mu.Lock()
-		prepared := append([][]*schema.Message(nil), barrier.prepared...)
+		prepared := append([][]*schema.AgenticMessage(nil), barrier.prepared...)
 		barrier.mu.Unlock()
 		if len(prepared) == 0 {
 			t.Fatal("wrapper never observed an input")

@@ -88,10 +88,10 @@ func TestBuildRunContextKeepsCurrentAndRecentHistory(t *testing.T) {
 	if len(msgs) != 4 {
 		t.Fatalf("message count = %d, want preamble + two history + current", len(msgs))
 	}
-	if msgs[0].Role != "system" || msgs[0].Content != "preamble" {
+	if msgs[0].Role != "system" || agenticMessageText(msgs[0]) != "preamble" {
 		t.Fatalf("preamble = %+v", msgs[0])
 	}
-	if msgs[1].Content != "recent question" || msgs[2].Content != "recent answer" || msgs[3].Content != "current" {
+	if agenticMessageText(msgs[1]) != "recent question" || agenticMessageText(msgs[2]) != "recent answer" || agenticMessageText(msgs[3]) != "current" {
 		t.Fatalf("bounded context contents = %+v", msgs)
 	}
 }
@@ -114,10 +114,12 @@ func TestBuildRunContextKeepsPairedToolTurns(t *testing.T) {
 	if len(msgs) != 6 {
 		t.Fatalf("message count = %d, want preamble + user + assistant-call + tool + assistant + current", len(msgs))
 	}
-	if msgs[2].Role != "assistant" || len(msgs[2].ToolCalls) != 1 || msgs[2].ToolCalls[0].ID != "c1" {
+	calls := agenticToolCalls(msgs[2])
+	if string(msgs[2].Role) != "assistant" || len(calls) != 1 || calls[0].CallID != "c1" {
 		t.Fatalf("assistant tool call = %+v", msgs[2])
 	}
-	if msgs[3].Role != "tool" || msgs[3].ToolCallID != "c1" || msgs[3].Content != "hi" {
+	results := agenticToolResults(msgs[3])
+	if len(results) != 1 || results[0].CallID != "c1" || agenticMessageText(msgs[3]) != "hi" {
 		t.Fatalf("tool result = %+v", msgs[3])
 	}
 }
@@ -153,7 +155,7 @@ func TestBuildRunContextEnforcesByteBudget(t *testing.T) {
 	if stats.Bytes != base+latest || stats.DroppedHistoryMessages != 1 {
 		t.Fatalf("context stats = %+v, want latest history only", stats)
 	}
-	if len(msgs) != 3 || msgs[1].Content != "latest" || msgs[2].Content != "current" {
+	if len(msgs) != 3 || agenticMessageText(msgs[1]) != "latest" || agenticMessageText(msgs[2]) != "current" {
 		t.Fatalf("byte-bounded context = %+v", msgs)
 	}
 }
@@ -161,7 +163,7 @@ func TestBuildRunContextEnforcesByteBudget(t *testing.T) {
 func TestBuildRunContextReservesAuthoritativeInstructionBytes(t *testing.T) {
 	base := messageCost("preamble", "system") + messageCost("current", string(domain.RoleUser))
 	latest := messageCost("latest", string(domain.RoleAssistant))
-	instruction := projectedContextBytes([]*schema.Message{schema.SystemMessage("admitted instruction")})
+	instruction := projectedContextBytes([]*schema.AgenticMessage{testSystem("admitted instruction")})
 	stored := []domain.Message{
 		{Role: domain.RoleUser, Content: "old"},
 		{Role: domain.RoleAssistant, Content: "latest"},
@@ -178,7 +180,7 @@ func TestBuildRunContextReservesAuthoritativeInstructionBytes(t *testing.T) {
 	if stats.IncludedHistoryMessages != 1 || stats.DroppedHistoryMessages != 1 {
 		t.Fatalf("history selection ignored reserved instruction: %+v", stats)
 	}
-	if len(msgs) != 3 || msgs[1].Content != "latest" {
+	if len(msgs) != 3 || agenticMessageText(msgs[1]) != "latest" {
 		t.Fatalf("reserved context = %+v", msgs)
 	}
 }
@@ -248,7 +250,7 @@ func TestServiceRunProjectsGenericContextHostIntoModelInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorder := &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("ok", nil))}
+	recorder := &recordingChatModel{inner: NewScriptedModel(testAssistant("ok"))}
 	eng, err := NewEngine(ctx, recorder, ts, EngineConfig{
 		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 4096,
 	})
@@ -267,12 +269,15 @@ func TestServiceRunProjectsGenericContextHostIntoModelInput(t *testing.T) {
 	input := recorder.lastInput()
 	found := false
 	for _, message := range input {
-		if message.Role == schema.System && strings.Contains(message.Content, "generic source body") {
+		if message.Role == schema.AgenticRoleTypeSystem && strings.Contains(agenticMessageText(message), "generic source body") {
 			t.Fatalf("Context Source metadata elevated candidate authority: %+v", message)
 		}
-		for _, part := range message.UserInputMultiContent {
-			if strings.Contains(part.Text, "generic source body") && strings.Contains(part.Text, "fixture.docs/guide") {
-				if message.Role != schema.User {
+		for _, block := range message.ContentBlocks {
+			if block == nil || block.UserInputText == nil {
+				continue
+			}
+			if strings.Contains(block.UserInputText.Text, "generic source body") && strings.Contains(block.UserInputText.Text, "fixture.docs/guide") {
+				if message.Role != schema.AgenticRoleTypeUser {
 					t.Fatalf("Context Source candidate role = %s, want user data", message.Role)
 				}
 				found = true
@@ -299,7 +304,7 @@ func TestServiceRunFailsWhenRequiredContextVersionIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	eng, err := NewEngine(ctx, &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("must not run", nil))}, ts, EngineConfig{
+	eng, err := NewEngine(ctx, &recordingChatModel{inner: NewScriptedModel(testAssistant("must not run"))}, ts, EngineConfig{
 		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 4096,
 	})
 	if err != nil {
@@ -343,7 +348,7 @@ func TestRunMessagesFailsRequiredSourceWhenBaseInputConsumesBudget(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("must not run", nil)), ts, EngineConfig{
+	eng, err := NewEngine(ctx, NewScriptedModel(testAssistant("must not run")), ts, EngineConfig{
 		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: projectedContextBytes(base) + reserved,
 	})
 	if err != nil {
@@ -456,7 +461,7 @@ func TestServiceRunPassesEnsuredWorkspaceIdentityToContextHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	eng, err := NewEngine(ctx, &recordingChatModel{inner: NewScriptedModel(schema.AssistantMessage("ok", nil))}, ts, EngineConfig{
+	eng, err := NewEngine(ctx, &recordingChatModel{inner: NewScriptedModel(testAssistant("ok"))}, ts, EngineConfig{
 		ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 4096,
 	})
 	if err != nil {
@@ -511,7 +516,7 @@ func TestServiceRunReturnsContextViewAndBoundedSummaryThroughCommittedObserverPa
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := NewScriptedModel(schema.AssistantMessage("SCX terminal summary token sk-test-12345678901234567890", nil))
+	model := NewScriptedModel(testAssistant("SCX terminal summary token sk-test-12345678901234567890"))
 	eng, err := NewEngine(ctx, model, ts, EngineConfig{ContextHost: contextHost, StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 4096})
 	if err != nil {
 		t.Fatal(err)
@@ -570,28 +575,28 @@ func TestBuildRunContextProjectsImageAttachments(t *testing.T) {
 	}
 	for _, index := range []int{1, 3} {
 		msg := msgs[index]
-		if msg.Role != schema.User {
+		if msg.Role != schema.AgenticRoleTypeUser {
 			t.Fatalf("message %d role = %s, want user", index, msg.Role)
 		}
-		if len(msg.UserInputMultiContent) != 2 {
-			t.Fatalf("message %d parts = %d, want 2 (text + image)", index, len(msg.UserInputMultiContent))
+		if len(msg.ContentBlocks) != 2 {
+			t.Fatalf("message %d parts = %d, want 2 (text + image)", index, len(msg.ContentBlocks))
 		}
-		textPart, imagePart := msg.UserInputMultiContent[0], msg.UserInputMultiContent[1]
-		if textPart.Type != schema.ChatMessagePartTypeText || textPart.Text == "" {
+		textPart, imagePart := msg.ContentBlocks[0], msg.ContentBlocks[1]
+		if textPart.UserInputText == nil || textPart.UserInputText.Text == "" {
 			t.Fatalf("message %d text part = %+v", index, textPart)
 		}
-		if imagePart.Type != schema.ChatMessagePartTypeImageURL || imagePart.Image == nil {
+		if imagePart.Type != schema.ContentBlockTypeUserInputImage || imagePart.UserInputImage == nil {
 			t.Fatalf("message %d image part = %+v", index, imagePart)
 		}
-		if imagePart.Image.MIMEType != "image/png" || imagePart.Image.Base64Data == nil || *imagePart.Image.Base64Data == "" {
-			t.Fatalf("message %d image payload = %+v", index, imagePart.Image)
+		if imagePart.UserInputImage.MIMEType != "image/png" || imagePart.UserInputImage.Base64Data == "" {
+			t.Fatalf("message %d image payload = %+v", index, imagePart.UserInputImage)
 		}
-		if msgs[index].Content != "" {
-			t.Fatalf("message %d Content = %q, want empty (content lives in parts)", index, msgs[index].Content)
+		if len(msg.ContentBlocks) == 0 {
+			t.Fatalf("message %d lost its content blocks", index)
 		}
 	}
 	// The plain assistant row stays text-only.
-	if msgs[2].Content != "sure" || len(msgs[2].UserInputMultiContent) != 0 {
+	if agenticAssistantText(msgs[2]) != "sure" {
 		t.Fatalf("assistant row = %+v", msgs[2])
 	}
 	// Image bytes must not count toward the text byte budget.
@@ -610,11 +615,11 @@ func TestBuildRunContextProjectsFileContextSnapshotsAsText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 4 || len(msgs[1].UserInputMultiContent) != 2 {
+	if len(msgs) != 4 || len(msgs[1].ContentBlocks) != 2 {
 		t.Fatalf("file context projection = %+v", msgs)
 	}
-	part := msgs[1].UserInputMultiContent[1]
-	if part.Type != schema.ChatMessagePartTypeText || !strings.Contains(part.Text, "[project file: main.go]") || !strings.Contains(part.Text, string(body)) {
+	part := msgs[1].ContentBlocks[1]
+	if part.UserInputText == nil || !strings.Contains(part.UserInputText.Text, "[project file: main.go]") || !strings.Contains(part.UserInputText.Text, string(body)) {
 		t.Fatalf("file text part = %+v", part)
 	}
 	if stats.Bytes < len(body) {

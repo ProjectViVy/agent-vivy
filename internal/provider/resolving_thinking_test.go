@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
@@ -34,7 +35,7 @@ func thinkingBody(t *testing.T, mode domain.ThinkingMode, modelID string) map[st
 	live := LiveSpec{Provider: vendor.Name, Model: modelID, APIKey: "spec-key", BaseURL: srv.URL, Ready: true}
 	cm := NewResolvingChatModel(routedHost(t, testProfile(t, vendor)), catalog, staticSpecSource{live: live})
 	ctx := domain.WithThinkingMode(context.Background(), mode)
-	if _, err := cm.Generate(ctx, []*schema.Message{schema.UserMessage("hi")}); err != nil {
+	if _, err := cm.Generate(ctx, []*schema.AgenticMessage{testUser("hi")}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	var body map[string]any
@@ -105,7 +106,7 @@ func TestDecideThinkingRuleTable(t *testing.T) {
 		{"anthropic on sends the budget", AdapterAnthropicMessages, false, true, domain.ThinkingModeOn, true, "", ""},
 		{"anthropic auto sends nothing", AdapterAnthropicMessages, false, true, domain.ThinkingModeAuto, false, "", ""},
 		{"anthropic without metadata", AdapterAnthropicMessages, false, false, domain.ThinkingModeOn, false, "", ""},
-		{"deferred adapter sends nothing", AdapterOpenAIResponses, false, true, domain.ThinkingModeOn, false, "", ""},
+		{"retired adapter sends nothing", "openai-responses", false, true, domain.ThinkingModeOn, false, "", ""},
 		{"unknown adapter sends nothing", "gemini-generate-content", false, true, domain.ThinkingModeOn, false, "", ""},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -117,14 +118,16 @@ func TestDecideThinkingRuleTable(t *testing.T) {
 					testCase.wantClaude, testCase.wantDeepSeek, testCase.wantEffort)
 			}
 			options := got.options()
+			// The agentic generation carries request shaping as request-body
+			// extra fields: one option for the Anthropic thinking object plus
+			// one for the required larger max_tokens, and a single option
+			// carrying every openai-completions extra field together.
 			want := 0
 			if got.claudeBudget > 0 {
-				want += 2 // thinking object + the required larger max_tokens
+				want += 2
 			}
-			for _, present := range []bool{got.deepSeekFlag != "", got.reasoningEffort != ""} {
-				if present {
-					want++
-				}
+			if got.deepSeekFlag != "" || got.reasoningEffort != "" {
+				want++
 			}
 			if len(options) != want {
 				t.Fatalf("options() = %d options, want %d", len(options), want)
@@ -154,7 +157,7 @@ func openAIBody(t *testing.T, vendor Vendor, modelID string, mode domain.Thinkin
 	live := LiveSpec{Provider: proxied.Name, Model: modelID, APIKey: "spec-key", BaseURL: srv.URL, Ready: true}
 	cm := NewResolvingChatModel(routedHost(t, testProfile(t, proxied)), NewCatalog(proxied), staticSpecSource{live: live})
 	ctx := domain.WithThinkingMode(context.Background(), mode)
-	if _, err := cm.Generate(ctx, []*schema.Message{schema.UserMessage("hi")}); err != nil {
+	if _, err := cm.Generate(ctx, []*schema.AgenticMessage{testUser("hi")}); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	var body map[string]any
@@ -233,12 +236,8 @@ func TestResolvingModelWithToolsInjectsThinking(t *testing.T) {
 	vendor := testClaudeVendor(srv.URL)
 	live := LiveSpec{Provider: vendor.Name, Model: "claude-sonnet-4-5", APIKey: "spec-key", BaseURL: srv.URL, Ready: true}
 	cm := NewResolvingChatModel(routedHost(t, testProfile(t, vendor)), NewCatalog(vendor), staticSpecSource{live: live})
-	bound, err := cm.WithTools([]*schema.ToolInfo{{Name: "echo"}})
-	if err != nil {
-		t.Fatalf("with tools: %v", err)
-	}
 	ctx := domain.WithThinkingMode(context.Background(), domain.ThinkingModeOn)
-	if _, err := bound.Generate(ctx, []*schema.Message{schema.UserMessage("hi")}); err != nil {
+	if _, err := cm.Generate(ctx, []*schema.AgenticMessage{testUser("hi")}, model.WithTools([]*schema.ToolInfo{{Name: "echo"}})); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	var body map[string]any

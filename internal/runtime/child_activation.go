@@ -291,7 +291,7 @@ func sameStrings(left, right []string) bool {
 	return true
 }
 
-func (s *Service) runMessagesForChild(ctx context.Context, task string, pending []domain.ChildMailboxMessage, eng *Engine) ([]*schema.Message, tools.Selection, ContextStats, []domain.ChildMailboxMessage, error) {
+func (s *Service) runMessagesForChild(ctx context.Context, task string, pending []domain.ChildMailboxMessage, eng *Engine) ([]*schema.AgenticMessage, tools.Selection, ContextStats, []domain.ChildMailboxMessage, error) {
 	selection := eng.SelectTools()
 	reservedPromptBytes, err := promptInstructionReservation(ctx)
 	if err != nil {
@@ -301,14 +301,14 @@ func (s *Service) runMessagesForChild(ctx context.Context, task string, pending 
 	if eng.cfg.MaxContextBytes > 0 && eng.cfg.MaxContextBytes < limit {
 		limit = eng.cfg.MaxContextBytes
 	}
-	messages := []*schema.Message{schema.UserMessage(task)}
+	messages := []*schema.AgenticMessage{agenticUserMessage(task)}
 	if projectedContextBytes(messages)+reservedPromptBytes > limit {
 		return nil, selection, ContextStats{}, nil, fmt.Errorf("%w: child task and instruction require more than %d bytes", ErrContextBudgetExceeded, limit)
 	}
 	included := make([]domain.ChildMailboxMessage, 0, len(pending))
 	for _, item := range pending {
 		content := fmt.Sprintf("Direct message from parent (%s):\n%s", item.ID, string(item.Body))
-		candidate := append(append([]*schema.Message(nil), messages...), schema.UserMessage(content))
+		candidate := append(append([]*schema.AgenticMessage(nil), messages...), agenticUserMessage(content))
 		if projectedContextBytes(candidate)+reservedPromptBytes > limit {
 			break
 		}

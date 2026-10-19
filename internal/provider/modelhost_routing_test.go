@@ -17,7 +17,7 @@ import (
 
 func routedHost(t *testing.T, profiles ...providerprofile.Profile) *modelhost.Host {
 	t.Helper()
-	host, err := modelhost.New(profiles, Capabilities())
+	host, err := modelhost.New(profiles, AdapterFamilies())
 	if err != nil {
 		t.Fatalf("modelhost.New: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestEveryModelCallUsesModelHost(t *testing.T) {
 	model := NewResolvingChatModel(nil, NewCatalog(vendor), staticSpecSource{live: LiveSpec{
 		Provider: vendor.Name, Model: "gpt-4o", APIKey: "secret", Ready: true,
 	}})
-	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+	_, err := model.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")})
 	if !errors.Is(err, modelhost.ErrHostRequired) {
 		t.Fatalf("Generate() error = %v, want ErrHostRequired", err)
 	}
@@ -40,7 +40,7 @@ func TestUncompiledProfileFailsBeforeCredentialState(t *testing.T) {
 	model := NewResolvingChatModel(routedHost(t), NewCatalog(vendor), staticSpecSource{live: LiveSpec{
 		Provider: vendor.Name, Model: "gpt-4o", Ready: false,
 	}})
-	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+	_, err := model.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")})
 	if !errors.Is(err, modelhost.ErrProfileNotFound) {
 		t.Fatalf("Generate() error = %v, want ErrProfileNotFound before credential evaluation", err)
 	}
@@ -54,7 +54,7 @@ func TestModelHostRejectsUncompiledAdapterFamily(t *testing.T) {
 	model := NewResolvingChatModel(routedHost(t), NewCatalog(vendor), staticSpecSource{live: LiveSpec{
 		Provider: vendor.Name, Model: "claude-sonnet-4-5", APIKey: "secret", Ready: true,
 	}})
-	_, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")})
+	_, err := model.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")})
 	if !errors.Is(err, modelhost.ErrProfileNotFound) {
 		t.Fatalf("Generate() error = %v, want ErrProfileNotFound", err)
 	}
@@ -65,23 +65,19 @@ func TestModelHostRejectsUncompiledAdapterFamily(t *testing.T) {
 func TestModelHostRejectsUnsealedProfileFamily(t *testing.T) {
 	profile := testProfile(t, testOpenAIVendor("https://network-must-not-run.invalid/v1"))
 	profile.AdapterFamily = "gemini-generate-content"
-	if _, err := modelhost.New([]providerprofile.Profile{profile}, Capabilities()); err == nil {
+	if _, err := modelhost.New([]providerprofile.Profile{profile}, AdapterFamilies()); err == nil {
 		t.Fatal("a Profile naming an unsealed adapter family must not compile")
 	}
 }
 
-// The deferred family is sealed, so a Profile for it compiles and reports its
-// state; constructing a model through it still fails closed.
-func TestModelHostReportsDeferredFamilyAsUnavailable(t *testing.T) {
+// A Profile for a family this build does not seal cannot compile at all, so a
+// retired family can never become executable through data.
+func TestModelHostRejectsRetiredFamilyProfile(t *testing.T) {
 	profile := testProfile(t, testDeepSeekVendor("https://api.deepseek.com"))
-	profile.ID = AdapterOpenAIResponses
-	profile.AdapterFamily = AdapterOpenAIResponses
-	host := routedHost(t, profile)
-	if _, err := host.ResolveExecutable(AdapterOpenAIResponses); !errors.Is(err, modelhost.ErrAdapterUnavailable) {
-		t.Fatalf("ResolveExecutable() error = %v, want ErrAdapterUnavailable", err)
-	}
-	if got := host.Statuses(AdapterOpenAIResponses, true)[0].State; got != modelhost.ProfileDeferredIndefinite {
-		t.Fatalf("deferred Profile state = %q, want DEFERRED-INDEFINITE", got)
+	profile.ID = "openai-responses"
+	profile.AdapterFamily = "openai-responses"
+	if _, err := modelhost.New([]providerprofile.Profile{profile}, AdapterFamilies()); err == nil {
+		t.Fatal("a Profile naming a retired adapter family must not compile")
 	}
 }
 
@@ -106,7 +102,7 @@ func TestModelHostPreservesOpenAIGatewayRawModelID(t *testing.T) {
 		Provider: vendor.Name, Model: "anthropic/claude-sonnet-4", BaseURL: server.URL,
 		APIKey: "secret", Ready: true,
 	}})
-	if _, err := model.Generate(context.Background(), []*schema.Message{schema.UserMessage("hi")}); err != nil {
+	if _, err := model.Generate(context.Background(), []*schema.AgenticMessage{testUser("hi")}); err != nil {
 		t.Fatalf("Generate() error = %v", err)
 	}
 	if outbound.Model != "anthropic/claude-sonnet-4" {

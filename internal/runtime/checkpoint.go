@@ -24,6 +24,11 @@ var (
 	// by a different eino build; eino's checkpoint format carries no
 	// compatibility promise, so reads refuse it outright.
 	ErrCheckpointEngineVersionMismatch = errors.New("runtime: checkpoint was written by a different engine version")
+	// ErrCheckpointGenerationMismatch means the checkpoint was written by the
+	// other model generation. The two generations persist different message
+	// types in the ADK state, so a paused run cannot cross the boundary and is
+	// closed through the same lost-continuation path as an engine change.
+	ErrCheckpointGenerationMismatch = errors.New("runtime: checkpoint was written by the other model generation")
 	// ErrCheckpointPromptMismatch means the durable opaque checkpoint is not
 	// bound to the immutable prompt snapshot that the caller supplied for the
 	// run. It is deliberately fail-closed: no new model/tool continuation may
@@ -33,6 +38,15 @@ var (
 
 const einoModulePath = "github.com/cloudwego/eino"
 
+// The model generation a checkpoint was written under. The journal schema is
+// unchanged across the migration; only the persisted ADK message type moved,
+// which is exactly what makes a cross-generation resume unsafe. An envelope
+// with no generation field predates the migration and is therefore "chat".
+const (
+	checkpointGenerationChat    = "chat"
+	checkpointGenerationAgentic = "agentic"
+)
+
 // checkpointEnvelope is the Vivy header wrapped around the opaque eino
 // checkpoint bytes. On-disk layout: 4-byte big-endian header length,
 // header JSON, then the raw payload.
@@ -40,6 +54,7 @@ type checkpointEnvelope struct {
 	EngineVersion  string                    `json:"engine_version"`
 	ChecksumSHA256 string                    `json:"checksum_sha256"`
 	CreatedAt      int64                     `json:"created_at"`
+	Generation     string                    `json:"generation,omitempty"`
 	Prompt         *checkpointPromptIdentity `json:"prompt,omitempty"`
 }
 
@@ -107,6 +122,15 @@ func (s *VersionedCheckpointStore) Get(ctx context.Context, id string) ([]byte, 
 	if env.EngineVersion != s.engineVersion {
 		return nil, false, fmt.Errorf("%w: stored %q, current %q", ErrCheckpointEngineVersionMismatch, env.EngineVersion, s.engineVersion)
 	}
+	// A pre-migration envelope carries no generation field; it was written by
+	// the text generation. Anything else must name the current generation.
+	generation := env.Generation
+	if generation == "" {
+		generation = checkpointGenerationChat
+	}
+	if generation != checkpointGenerationAgentic {
+		return nil, false, fmt.Errorf("%w: stored %q, current %q", ErrCheckpointGenerationMismatch, generation, checkpointGenerationAgentic)
+	}
 	if err := verifyCheckpointPrompt(ctx, id, env.Prompt); err != nil {
 		return nil, false, err
 	}
@@ -128,6 +152,7 @@ func encodeCheckpointEnvelope(engineVersion string, payload []byte, prompt *chec
 		EngineVersion:  engineVersion,
 		ChecksumSHA256: hex.EncodeToString(sum[:]),
 		CreatedAt:      time.Now().UnixMilli(),
+		Generation:     checkpointGenerationAgentic,
 		Prompt:         prompt,
 	}
 	header, err := json.Marshal(env)

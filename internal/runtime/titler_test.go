@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
@@ -41,7 +40,7 @@ func newTitleService(t *testing.T, gen TitleGenerator) (*Service, *sqlite.Backen
 	if err != nil {
 		t.Fatalf("resolve tools: %v", err)
 	}
-	eng, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("first answer", nil)), ts, EngineConfig{
+	eng, err := NewEngine(ctx, NewScriptedModel(testAssistant("first answer")), ts, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
@@ -56,7 +55,7 @@ func newTitleService(t *testing.T, gen TitleGenerator) (*Service, *sqlite.Backen
 
 // newTitleServiceWithModel wires the titler harness over a custom model so a
 // test can drive runs that fail before completion.
-func newTitleServiceWithModel(t *testing.T, gen TitleGenerator, m model.ToolCallingChatModel) (*Service, *sqlite.Backend) {
+func newTitleServiceWithModel(t *testing.T, gen TitleGenerator, m model.AgenticModel) (*Service, *sqlite.Backend) {
 	t.Helper()
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "titler.db"))

@@ -15,18 +15,18 @@ import (
 // from the dynamic search catalog too, so a model-side call can only be a
 // hallucinated name; governedTool then rejects it with tool_not_active.
 type suppressedToolVisibilityMiddleware struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 	names map[string]struct{}
 }
 
-func newSuppressedToolVisibilityMiddleware(names map[string]struct{}) adk.ChatModelAgentMiddleware {
+func newSuppressedToolVisibilityMiddleware(names map[string]struct{}) adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
 	return &suppressedToolVisibilityMiddleware{
-		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
-		names:                        names,
+		TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{},
+		names:                             names,
 	}
 }
 
-func (m *suppressedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+func (m *suppressedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.AgenticMessage], _ *adk.TypedModelContext[*schema.AgenticMessage]) (context.Context, *adk.TypedChatModelAgentState[*schema.AgenticMessage], error) {
 	if state == nil {
 		return ctx, state, nil
 	}
@@ -50,20 +50,20 @@ func (m *suppressedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context
 // model generation — mirroring the mounted-visibility rehydration pattern,
 // which is required because Eino persists the previous rewrite.
 type activatedToolVisibilityMiddleware struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 	deferred      map[string]*schema.ToolInfo
 	deferredOrder []string
 }
 
-func newActivatedToolVisibilityMiddleware(deferred map[string]*schema.ToolInfo, order []string) adk.ChatModelAgentMiddleware {
+func newActivatedToolVisibilityMiddleware(deferred map[string]*schema.ToolInfo, order []string) adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
 	return &activatedToolVisibilityMiddleware{
-		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
-		deferred:                     deferred,
-		deferredOrder:                append([]string(nil), order...),
+		TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{},
+		deferred:                          deferred,
+		deferredOrder:                     append([]string(nil), order...),
 	}
 }
 
-func (m *activatedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+func (m *activatedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.AgenticMessage], _ *adk.TypedModelContext[*schema.AgenticMessage]) (context.Context, *adk.TypedChatModelAgentState[*schema.AgenticMessage], error) {
 	if state == nil {
 		return ctx, state, nil
 	}
@@ -99,20 +99,20 @@ func (m *activatedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.
 // important because Eino persists the previous rewrite and cannot otherwise
 // discover a ToolInfo added after the first model call.
 type mountedToolVisibilityMiddleware struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 	hidden      map[string]*schema.ToolInfo
 	hiddenOrder []string
 }
 
-func newMountedToolVisibilityMiddleware(hidden map[string]*schema.ToolInfo, order []string) adk.ChatModelAgentMiddleware {
+func newMountedToolVisibilityMiddleware(hidden map[string]*schema.ToolInfo, order []string) adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
 	return &mountedToolVisibilityMiddleware{
-		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
-		hidden:                       hidden,
-		hiddenOrder:                  append([]string(nil), order...),
+		TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{},
+		hidden:                            hidden,
+		hiddenOrder:                       append([]string(nil), order...),
 	}
 }
 
-func (m *mountedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.ChatModelAgentState, _ *adk.ModelContext) (context.Context, *adk.ChatModelAgentState, error) {
+func (m *mountedToolVisibilityMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.AgenticMessage], _ *adk.TypedModelContext[*schema.AgenticMessage]) (context.Context, *adk.TypedChatModelAgentState[*schema.AgenticMessage], error) {
 	if state == nil {
 		return ctx, state, nil
 	}

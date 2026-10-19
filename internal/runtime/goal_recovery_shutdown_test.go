@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
@@ -21,7 +19,7 @@ func TestGoalWakeRacingShutdownDoesNotAdmit(t *testing.T) {
 	const sessionID domain.SessionID = "sess-goal-shutdown-race"
 	createLifecycleGoal(t, backend, sessionID, 2)
 	workspace := &precommitBarrierWorkspaceAllocator{entered: make(chan struct{}), release: make(chan struct{}), path: t.TempDir()}
-	svc := newGoalLifecycleService(t, backend, NewScriptedModel(schema.AssistantMessage("unexpected", nil)), workspace, backend, nil)
+	svc := newGoalLifecycleService(t, backend, NewScriptedModel(testAssistant("unexpected")), workspace, backend, nil)
 	defer func() { workspace.releaseBarrier(); waitLifecycleIdle(t, svc) }()
 	svc.WakeGoal(sessionID)
 	select {
@@ -157,7 +155,7 @@ func TestGoalRecoveryKeepsPendingQuestionDisarmed(t *testing.T) {
 	if question.Status != domain.QuestionPending {
 		t.Fatalf("question = %+v", question)
 	}
-	resumedEngine, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("Recovered answer.", nil)), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
+	resumedEngine, err := NewEngine(ctx, NewScriptedModel(testAssistant("Recovered answer.")), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new resumed engine: %v", err)
 	}
@@ -232,7 +230,7 @@ func TestGoalRecoveryHumanQuestionDoesNotStartGoalRound(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record Goal created by human run: %v", err)
 	}
-	resumedEngine, err := NewEngine(ctx, NewScriptedModel(schema.AssistantMessage("The answer is noted.", nil)), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
+	resumedEngine, err := NewEngine(ctx, NewScriptedModel(testAssistant("The answer is noted.")), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new resumed engine: %v", err)
 	}
@@ -280,7 +278,7 @@ func TestGoalRecoveryPreservesWorkerLostChild(t *testing.T) {
 	if err := backend.CreateRun(ctx, child); err != nil {
 		t.Fatalf("create child: %v", err)
 	}
-	svc := newGoalLifecycleService(t, backend, NewScriptedModel(schema.AssistantMessage("must not execute", nil)), nil, backend, nil)
+	svc := newGoalLifecycleService(t, backend, NewScriptedModel(testAssistant("must not execute")), nil, backend, nil)
 	if err := svc.Recover(ctx); err != nil {
 		t.Fatalf("recover: %v", err)
 	}

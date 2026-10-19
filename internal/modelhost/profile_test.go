@@ -24,37 +24,37 @@ func TestNewRejectsDuplicateProfileIDs(t *testing.T) {
 	_, err := New([]providerprofile.Profile{
 		testProfile("duplicate", "openai-compatible"),
 		testProfile("duplicate", "openai-compatible"),
-	}, Capabilities{"openai-compatible": CapabilitySupported})
+	}, []string{"openai-compatible"})
 	if err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("New() error = %v, want duplicate profile", err)
 	}
 }
 
 func TestNewRejectsUnsupportedAdapterFamily(t *testing.T) {
-	_, err := New([]providerprofile.Profile{testProfile("unknown", "not-pinned")}, Capabilities{
-		"openai-compatible": CapabilitySupported,
+	_, err := New([]providerprofile.Profile{testProfile("unknown", "not-pinned")}, []string{
+		"openai-compatible",
 	})
 	if err == nil || !strings.Contains(err.Error(), "unsupported adapter family") {
 		t.Fatalf("New() error = %v, want unsupported adapter family", err)
 	}
 }
 
-func TestResolveExecutableRejectsDeferredAdapter(t *testing.T) {
-	host, err := New([]providerprofile.Profile{testProfile("future", "native-future")}, Capabilities{
-		"native-future": CapabilityDeferredIndefinite,
+func TestResolveExecutableRejectsUnknownProfile(t *testing.T) {
+	host, err := New([]providerprofile.Profile{testProfile("openai", "openai-compatible")}, []string{
+		"openai-compatible",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	_, err = host.ResolveExecutable("future")
-	if !errors.Is(err, ErrAdapterUnavailable) {
-		t.Fatalf("ResolveExecutable() error = %v, want ErrAdapterUnavailable", err)
+	_, err = host.ResolveExecutable("native-future")
+	if !errors.Is(err, ErrProfileNotFound) {
+		t.Fatalf("ResolveExecutable() error = %v, want ErrProfileNotFound", err)
 	}
 }
 
 func TestProfilesReturnsDefensiveDeclarativeCopy(t *testing.T) {
-	host, err := New([]providerprofile.Profile{testProfile("openai", "openai-compatible")}, Capabilities{
-		"openai-compatible": CapabilitySupported,
+	host, err := New([]providerprofile.Profile{testProfile("openai", "openai-compatible")}, []string{
+		"openai-compatible",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -77,10 +77,8 @@ func TestProfileStatusesProjectCompiledRuntimeTruthWithoutSecrets(t *testing.T) 
 		testProfile("active", "openai-compatible"),
 		testProfile("compiled", "openai-compatible"),
 		testProfile("broken", "openai-compatible"),
-		testProfile("future", "native-future"),
-	}, Capabilities{
-		"openai-compatible": CapabilitySupported,
-		"native-future":     CapabilityDeferredIndefinite,
+	}, []string{
+		"openai-compatible",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -96,7 +94,6 @@ func TestProfileStatusesProjectCompiledRuntimeTruthWithoutSecrets(t *testing.T) 
 		"active":   ProfileReady,
 		"compiled": ProfileCompiled,
 		"broken":   ProfileUnavailable,
-		"future":   ProfileDeferredIndefinite,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Statuses() states = %#v, want %#v", got, want)

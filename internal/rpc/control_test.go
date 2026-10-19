@@ -2423,11 +2423,11 @@ func TestProviderRegistryUpsertPatchPreservesStoredFields(t *testing.T) {
 	}
 }
 
-func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testing.T) {
+func TestProviderProfileStatusIsRedactedAndUnknownSelectionIsRejected(t *testing.T) {
 	profiles := func() []modelhost.ProfileStatus {
 		return []modelhost.ProfileStatus{
 			{ID: "deepseek", AdapterFamily: "openai-compatible", EndpointClass: "native", ModelIDs: []string{"deepseek-flash"}, State: modelhost.ProfileReady},
-			{ID: "future", AdapterFamily: "native-future", EndpointClass: "native", ModelIDs: []string{"future-1"}, State: modelhost.ProfileDeferredIndefinite},
+			{ID: "future", AdapterFamily: "native-future", EndpointClass: "native", ModelIDs: []string{"future-1"}, State: modelhost.ProfileCompiled},
 		}
 	}
 	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
@@ -2455,7 +2455,7 @@ func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testin
 		t.Fatal(rpcErr)
 	}
 	view := result.(providersResult)
-	if len(view.Profiles) != 2 || view.Profiles[1].State != modelhost.ProfileDeferredIndefinite {
+	if len(view.Profiles) != 2 || view.Profiles[1].State != modelhost.ProfileCompiled {
 		t.Fatalf("profile status view = %#v", view.Profiles)
 	}
 	body, err := json.Marshal(view.Profiles)
@@ -2469,12 +2469,12 @@ func TestProviderProfileStatusIsRedactedAndDeferredSelectionIsRejected(t *testin
 	if _, rpcErr := callControl(t, env.handler, "settings/model/select", map[string]any{
 		"provider": "future", "model": "future-1", "base_url": "https://fake.invalid/v1",
 	}); rpcErr == nil || rpcErr.Code != InvalidParams {
-		t.Fatalf("deferred model selection error = %v, want InvalidParams", rpcErr)
+		t.Fatalf("uncompiled model selection error = %v, want InvalidParams", rpcErr)
 	}
 	if _, rpcErr := callControl(t, env.handler, "settings/update", map[string]any{
 		"provider": "future", "default_model": "future-1", "base_url": "https://fake.invalid/v1",
 	}); rpcErr == nil || rpcErr.Code != InvalidParams {
-		t.Fatalf("deferred settings update error = %v, want InvalidParams", rpcErr)
+		t.Fatalf("uncompiled settings update error = %v, want InvalidParams", rpcErr)
 	}
 }
 
@@ -2820,7 +2820,7 @@ func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
 	view := result.(providersResult)
 
 	seen := make(map[string]int, len(view.Catalog))
-	endpoints, deferred := 0, 0
+	endpoints := 0
 	for _, entry := range view.Catalog {
 		if entry.Vendor == "" || entry.DisplayName == "" || len(entry.Endpoints) == 0 {
 			t.Fatalf("catalog entry incomplete: %+v", entry)
@@ -2828,18 +2828,14 @@ func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
 		seen[entry.Vendor]++
 		for _, endpoint := range entry.Endpoints {
 			endpoints++
-			if endpoint.Adapter == "" || endpoint.BaseURL == "" || endpoint.State == "" || endpoint.DefaultModel == "" {
+			// Every catalog row is sealed and executable: an unsealed family
+			// cannot reach this projection at all, so there is no per-endpoint
+			// capability gate left on the wire.
+			if endpoint.Adapter == "" || endpoint.BaseURL == "" || endpoint.DefaultModel == "" {
 				t.Fatalf("catalog endpoint incomplete: %+v", endpoint)
 			}
-			if endpoint.Adapter == provider.AdapterOpenAIResponses {
-				deferred++
-				if endpoint.Executable || endpoint.State != string(modelhost.CapabilityDeferredIndefinite) {
-					t.Fatalf("the deferred adapter must be visible and not executable: %+v", endpoint)
-				}
-				continue
-			}
-			if !endpoint.Executable || endpoint.State != string(modelhost.CapabilitySupported) {
-				t.Fatalf("a supported adapter must be executable: %+v", endpoint)
+			if !provider.IsSealedAdapter(endpoint.Adapter) {
+				t.Fatalf("catalog endpoint %q is not a sealed adapter", endpoint.Adapter)
 			}
 		}
 	}
@@ -2848,9 +2844,6 @@ func TestProvidersCatalogServesEmbeddedData(t *testing.T) {
 	}
 	if len(view.Catalog) != 3 || endpoints != 4 {
 		t.Fatalf("catalog = %d vendors / %d endpoints, want 3/4", len(view.Catalog), endpoints)
-	}
-	if deferred != 0 {
-		t.Fatalf("no embedded vendor declares the deferred adapter, got %d endpoint rows", deferred)
 	}
 
 	raw, err := json.Marshal(view.Catalog)
@@ -2908,8 +2901,10 @@ func TestSelectModelUsesCatalogAndPreservesUnrelatedSettings(t *testing.T) {
 		t.Fatalf("embedded catalog missing: %+v", view.Catalog)
 	}
 	catalogEndpoint := view.Catalog[0].Endpoints[0]
+	// Every catalog row belongs to a sealed, executable adapter, so there is no
+	// per-endpoint executable flag any more.
 	if view.Catalog[0].Vendor != "openai" || catalogEndpoint.Adapter != provider.AdapterOpenAICompletions ||
-		!catalogEndpoint.Executable || len(catalogEndpoint.Models) != 2 {
+		len(catalogEndpoint.Models) != 2 {
 		t.Fatalf("catalog entry = %+v", view.Catalog[0])
 	}
 	loaded, err := settings.Load(settingsPath)

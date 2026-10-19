@@ -62,7 +62,7 @@ func TestMountedToolVisibilityMiddlewareFiltersAndRehydrates(t *testing.T) {
 		[]string{"hidden_tool"},
 	).(*mountedToolVisibilityMiddleware)
 
-	state := &adk.ChatModelAgentState{ToolInfos: surfaceInfos("fixed_core", "hidden_tool", "foreign")}
+	state := &adk.TypedChatModelAgentState[*schema.AgenticMessage]{ToolInfos: surfaceInfos("fixed_core", "hidden_tool", "foreign")}
 	_, got, err := mw.BeforeModelRewriteState(context.Background(), state, nil)
 	if err != nil {
 		t.Fatalf("pre-mount rewrite: %v", err)
@@ -77,7 +77,7 @@ func TestMountedToolVisibilityMiddlewareFiltersAndRehydrates(t *testing.T) {
 	mounts := tools.NewMountedTools()
 	mounts.Mount("hidden_tool")
 	ctx := tools.WithMountedTools(context.Background(), mounts)
-	state = &adk.ChatModelAgentState{ToolInfos: surfaceInfos("fixed_core", "foreign")}
+	state = &adk.TypedChatModelAgentState[*schema.AgenticMessage]{ToolInfos: surfaceInfos("fixed_core", "foreign")}
 	_, got, err = mw.BeforeModelRewriteState(ctx, state, nil)
 	if err != nil {
 		t.Fatalf("post-mount rewrite: %v", err)
@@ -105,7 +105,7 @@ func TestMountedToolVisibilityMiddlewareToleratesNilStateAndInfo(t *testing.T) {
 		map[string]*schema.ToolInfo{"hidden_tool": {Name: "hidden_tool"}},
 		[]string{"hidden_tool"},
 	).(*mountedToolVisibilityMiddleware)
-	state := &adk.ChatModelAgentState{ToolInfos: []*schema.ToolInfo{nil, {Name: "fixed_core"}, {Name: "hidden_tool"}}}
+	state := &adk.TypedChatModelAgentState[*schema.AgenticMessage]{ToolInfos: []*schema.ToolInfo{nil, {Name: "fixed_core"}, {Name: "hidden_tool"}}}
 	_, got, err := mw.BeforeModelRewriteState(context.Background(), state, nil)
 	if err != nil {
 		t.Fatalf("rewrite state: %v", err)

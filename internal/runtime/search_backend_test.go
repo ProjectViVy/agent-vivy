@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
-
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
@@ -279,15 +277,9 @@ func TestServiceGrepToolEndToEnd(t *testing.T) {
 		t.Fatalf("checkpoint store: %v", err)
 	}
 	eng, err := NewEngine(ctx, NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-grep-e2e",
-			Function: schema.FunctionCall{Name: tools.GrepName, Arguments: `{"pattern":"vivy_nothing_here"}`},
-		}}),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID:       "call-glob-e2e",
-			Function: schema.FunctionCall{Name: tools.GlobName, Arguments: `{"pattern":"**/*.txt"}`},
-		}}),
-		schema.AssistantMessage("Done: grep and glob ran readonly.", nil),
+		testToolCalls(testCall("call-grep-e2e", tools.GrepName, `{"pattern":"vivy_nothing_here"}`)),
+		testToolCalls(testCall("call-glob-e2e", tools.GlobName, `{"pattern":"**/*.txt"}`)),
+		testAssistant("Done: grep and glob ran readonly."),
 	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

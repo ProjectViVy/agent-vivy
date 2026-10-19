@@ -24,14 +24,14 @@ import (
 // first handler as the outermost WrapModel layer, so placing this handler last
 // makes the budget check observe the final post-compaction/tool projection.
 type promptMiddleware struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 	maxBytes int
 }
 
-func newPromptMiddleware(maxBytes int) adk.ChatModelAgentMiddleware {
+func newPromptMiddleware(maxBytes int) adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
 	return &promptMiddleware{
-		BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{},
-		maxBytes:                     maxBytes,
+		TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{},
+		maxBytes:                          maxBytes,
 	}
 }
 
@@ -76,11 +76,11 @@ func (m *promptMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.ChatMode
 	return ctx, &next, nil
 }
 
-// WrapModel sees the exact []schema.Message produced by GenModelInput,
+// WrapModel sees the exact []schema.AgenticMessage produced by GenModelInput,
 // including the authoritative system instruction and any transient native
 // middleware injections. It therefore guards the actual call boundary rather
 // than an earlier history approximation.
-func (m *promptMiddleware) WrapModel(ctx context.Context, next model.BaseModel[*schema.Message], _ *adk.ModelContext) (model.BaseModel[*schema.Message], error) {
+func (m *promptMiddleware) WrapModel(ctx context.Context, next model.BaseModel[*schema.AgenticMessage], _ *adk.TypedModelContext[*schema.AgenticMessage]) (model.BaseModel[*schema.AgenticMessage], error) {
 	if next == nil {
 		return nil, errors.New("runtime: prompt middleware received nil model")
 	}
@@ -91,7 +91,7 @@ func (m *promptMiddleware) WrapModel(ctx context.Context, next model.BaseModel[*
 // formatting. SessionValues are useful to native middleware, but an admitted
 // mask body is data and must preserve literal braces such as {system} and
 // {{persona}} all the way to the provider.
-func literalGenModelInput(_ context.Context, instruction string, input *adk.AgentInput) ([]*schema.Message, error) {
+func literalGenModelInput(_ context.Context, instruction string, input *adk.TypedAgentInput[*schema.AgenticMessage]) ([]*schema.AgenticMessage, error) {
 	capacity := 0
 	if input != nil {
 		capacity = len(input.Messages)
@@ -99,9 +99,9 @@ func literalGenModelInput(_ context.Context, instruction string, input *adk.Agen
 	if instruction != "" {
 		capacity++
 	}
-	msgs := make([]*schema.Message, 0, capacity)
+	msgs := make([]*schema.AgenticMessage, 0, capacity)
 	if instruction != "" {
-		msgs = append(msgs, schema.SystemMessage(instruction))
+		msgs = append(msgs, agenticSystemMessage(instruction))
 	}
 	if input != nil {
 		msgs = append(msgs, input.Messages...)
@@ -110,25 +110,25 @@ func literalGenModelInput(_ context.Context, instruction string, input *adk.Agen
 }
 
 type promptBudgetModel struct {
-	inner    model.BaseModel[*schema.Message]
+	inner    model.BaseModel[*schema.AgenticMessage]
 	maxBytes int
 }
 
-func (m *promptBudgetModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+func (m *promptBudgetModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
 	if err := m.check(ctx, input); err != nil {
 		return nil, err
 	}
 	return m.inner.Generate(ctx, input, opts...)
 }
 
-func (m *promptBudgetModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+func (m *promptBudgetModel) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
 	if err := m.check(ctx, input); err != nil {
 		return nil, err
 	}
 	return m.inner.Stream(ctx, input, opts...)
 }
 
-func (m *promptBudgetModel) check(ctx context.Context, input []*schema.Message) error {
+func (m *promptBudgetModel) check(ctx context.Context, input []*schema.AgenticMessage) error {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -178,11 +178,11 @@ func promptInstructionReservation(ctx context.Context) (int, error) {
 		if instruction == "" {
 			return 0, nil
 		}
-		return projectedContextBytes([]*schema.Message{schema.SystemMessage(instruction)}), nil
+		return projectedContextBytes([]*schema.AgenticMessage{agenticSystemMessage(instruction)}), nil
 	}
 	instruction, err := promptInstruction(snapshot)
 	if err != nil {
 		return 0, err
 	}
-	return projectedContextBytes([]*schema.Message{schema.SystemMessage(instruction)}), nil
+	return projectedContextBytes([]*schema.AgenticMessage{agenticSystemMessage(instruction)}), nil
 }

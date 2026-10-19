@@ -7,13 +7,11 @@ import (
 )
 
 func TestDigestModelRequestFingerprintsPreambleAndTools(t *testing.T) {
-	msgs := []*schema.Message{
-		schema.SystemMessage("preamble"),
-		schema.UserMessage("hi"),
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID: "c1", Function: schema.FunctionCall{Name: "echo_info", Arguments: `{"text":"x"}`},
-		}}),
-		schema.ToolMessage("x", "c1"),
+	msgs := []*schema.AgenticMessage{
+		testSystem("preamble"),
+		testUser("hi"),
+		testToolCalls(testCall("c1", "echo_info", `{"text":"x"}`)),
+		testToolResult("c1", "", "x"),
 	}
 	got := digestModelRequest(msgs, []string{"echo_info"})
 	if got.PreambleSHA256 != sha256Hex([]byte("preamble")) || got.PreambleBytes != len("preamble") {
@@ -31,13 +29,12 @@ func TestDigestModelRequestFingerprintsPreambleAndTools(t *testing.T) {
 }
 
 func TestDigestModelRequestIncludesTextMultiContent(t *testing.T) {
-	msg := &schema.Message{Role: schema.User, UserInputMultiContent: []schema.MessageInputPart{
-		{Type: schema.ChatMessagePartTypeText, Text: "inspect"},
-		{Type: schema.ChatMessagePartTypeText, Text: "\n\n[project file: main.go]\npackage main"},
-		{Type: schema.ChatMessagePartTypeImageURL, Image: &schema.MessageInputImage{}},
-	}}
+	msg := agenticUserBlocks([]*schema.ContentBlock{
+		agenticTextBlock("inspect"),
+		agenticTextBlock("\n\n[project file: main.go]\npackage main"),
+	})
 	want := []byte("inspect\n\n[project file: main.go]\npackage main")
-	got := digestModelRequest([]*schema.Message{msg}, nil)
+	got := digestModelRequest([]*schema.AgenticMessage{msg}, nil)
 	if len(got.Messages) != 1 || got.Messages[0].ByteLen != len(want) || got.Messages[0].ContentSHA256 != sha256Hex(want) {
 		t.Fatalf("multicontent digest = %+v", got.Messages)
 	}

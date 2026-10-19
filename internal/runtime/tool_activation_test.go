@@ -19,7 +19,7 @@ func TestActivatedToolVisibilityMiddleware(t *testing.T) {
 	if !ok {
 		t.Fatalf("middleware type = %T", mw)
 	}
-	state := &adk.ChatModelAgentState{}
+	state := &adk.TypedChatModelAgentState[*schema.AgenticMessage]{}
 	if _, _, err := inner.BeforeModelRewriteState(context.Background(), state, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestActivatedToolVisibilityMiddleware(t *testing.T) {
 	}
 	// Deactivation strips it from a later generation's projection.
 	activation.Deactivate("lazy.tool")
-	state = &adk.ChatModelAgentState{}
+	state = &adk.TypedChatModelAgentState[*schema.AgenticMessage]{}
 	if _, _, err := inner.BeforeModelRewriteState(ctx, state, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestActivatedToolVisibilityMiddleware(t *testing.T) {
 func TestSuppressedToolVisibilityMiddleware(t *testing.T) {
 	mw := newSuppressedToolVisibilityMiddleware(map[string]struct{}{"secret.tool": {}})
 	inner := mw.(*suppressedToolVisibilityMiddleware)
-	state := &adk.ChatModelAgentState{ToolInfos: []*schema.ToolInfo{
+	state := &adk.TypedChatModelAgentState[*schema.AgenticMessage]{ToolInfos: []*schema.ToolInfo{
 		{Name: "open.tool"}, {Name: "secret.tool"}, nil,
 	}}
 	if _, _, err := inner.BeforeModelRewriteState(context.Background(), state, nil); err != nil {

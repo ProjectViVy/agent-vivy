@@ -66,10 +66,8 @@ func TestPlanGuidanceRemovedAfterExitOnScriptedServicePath(t *testing.T) {
 		t.Fatalf("resolve test tool: %v", err)
 	}
 	script := &recordingChatModel{inner: NewScriptedModel(
-		schema.AssistantMessage("", []schema.ToolCall{{
-			ID: "leave-plan", Function: schema.FunctionCall{Name: tools.EchoInfoName, Arguments: `{"text":"leave Plan"}`},
-		}}),
-		schema.AssistantMessage("Plan has ended.", nil),
+		testToolCalls(testCall("leave-plan", tools.EchoInfoName, `{"text":"leave Plan"}`)),
+		testAssistant("Plan has ended."),
 	)}
 	engine, err := NewEngine(ctx, script, toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
@@ -88,7 +86,7 @@ func TestPlanGuidanceRemovedAfterExitOnScriptedServicePath(t *testing.T) {
 	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
 	script.mu.Lock()
-	inputs := append([][]*schema.Message(nil), script.inputs...)
+	inputs := append([][]*schema.AgenticMessage(nil), script.inputs...)
 	script.mu.Unlock()
 	if len(inputs) != 2 {
 		t.Fatalf("model calls = %d, want initial call and one post-exit call", len(inputs))
@@ -96,10 +94,7 @@ func TestPlanGuidanceRemovedAfterExitOnScriptedServicePath(t *testing.T) {
 	for i, input := range inputs {
 		var content strings.Builder
 		for _, message := range input {
-			content.WriteString(message.Content)
-			for _, part := range message.MultiContent {
-				content.WriteString(part.Text)
-			}
+			content.WriteString(agenticMessageText(message))
 		}
 		count := strings.Count(content.String(), planGuidanceText)
 		want := 1

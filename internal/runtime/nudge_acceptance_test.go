@@ -53,7 +53,7 @@ type acceptanceOpts struct {
 // write_file/read_file/bash tools, plus any extra governed tools. The
 // journal decorator wraps the real sqlite backend so tests can pause or
 // fail specific appends; with a nil state holder it feeds nothing.
-func newAcceptanceHarness(t *testing.T, script []*schema.Message, opts acceptanceOpts) *acceptanceHarness {
+func newAcceptanceHarness(t *testing.T, script []*schema.AgenticMessage, opts acceptanceOpts) *acceptanceHarness {
 	t.Helper()
 	ctx := context.Background()
 	root := t.TempDir()
@@ -165,8 +165,8 @@ func acceptanceFinished(t *testing.T, events []domain.RunEvent, callID string) p
 	return payloadToolFinished{}
 }
 
-func acceptanceCall(name, id, args string) schema.ToolCall {
-	return schema.ToolCall{ID: id, Function: schema.FunctionCall{Name: name, Arguments: args}}
+func acceptanceCall(name, id, args string) *schema.FunctionToolCall {
+	return &schema.FunctionToolCall{CallID: id, Name: name, Arguments: args}
 }
 
 // noNudges asserts the whole run stayed nudge-free end to end.
@@ -187,17 +187,11 @@ func noNudges(t *testing.T, h *acceptanceHarness) {
 // file -> Run completes.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptanceMissingFileCorrection(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.WriteFileName, "call-a0", `{"path":"ok.txt","content":"hello file"}`),
-		}),
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.ReadFileName, "call-a1", `{"path":"missing.txt"}`),
-		}),
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.ReadFileName, "call-a2", `{"path":"ok.txt"}`),
-		}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(tools.WriteFileName, "call-a0", `{"path":"ok.txt","content":"hello file"}`)),
+		testToolCalls(acceptanceCall(tools.ReadFileName, "call-a1", `{"path":"missing.txt"}`)),
+		testToolCalls(acceptanceCall(tools.ReadFileName, "call-a2", `{"path":"ok.txt"}`)),
+		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:      domain.ApprovalPolicyAuto,
@@ -231,14 +225,10 @@ func TestNudgeAcceptanceMissingFileCorrection(t *testing.T) {
 // the command -> completion.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptanceCommandRetry(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.BashName, "call-b1", `{"command":"exit 1"}`),
-		}),
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.BashName, "call-b2", `{"command":"echo fixed"}`),
-		}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(tools.BashName, "call-b1", `{"command":"exit 1"}`)),
+		testToolCalls(acceptanceCall(tools.BashName, "call-b2", `{"command":"echo fixed"}`)),
+		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:      domain.ApprovalPolicyAuto,
@@ -384,14 +374,10 @@ func TestNudgeAcceptanceRemoteToolIsError(t *testing.T) {
 	root := t.TempDir()
 	governed := mountIsErrorWorld(t, root)
 	callID := "call-c1"
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(governed.spec.Name, callID, `{}`),
-		}),
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.BashName, "call-c2", `{"command":"echo corrected"}`),
-		}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(governed.spec.Name, callID, `{}`)),
+		testToolCalls(acceptanceCall(tools.BashName, "call-c2", `{"command":"echo corrected"}`)),
+		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:      domain.ApprovalPolicyAuto,
@@ -423,16 +409,14 @@ func TestNudgeAcceptanceRemoteToolIsError(t *testing.T) {
 // journaled results, one failed terminal.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptanceBoundedLoopStop(t *testing.T) {
-	call := func(i int) *schema.Message {
-		return schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, fmt.Sprintf("call-d%d", i), `{"text":"same"}`),
-		})
+	call := func(i int) *schema.AgenticMessage {
+		return testToolCalls(acceptanceCall(contractToolName, fmt.Sprintf("call-d%d", i), `{"text":"same"}`))
 	}
-	script := make([]*schema.Message, 0, 7)
+	script := make([]*schema.AgenticMessage, 0, 7)
 	for i := 1; i <= 6; i++ {
 		script = append(script, call(i))
 	}
-	script = append(script, schema.AssistantMessage("unreachable", nil))
+	script = append(script, testAssistant("unreachable"))
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:     domain.ApprovalPolicyAuto,
 		extraTools: []tools.Tool{failingContractTool()},
@@ -476,12 +460,10 @@ func TestNudgeAcceptanceBoundedLoopStop(t *testing.T) {
 // calls -> refusal reminder, zero filesystem mutation.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptanceRefusedWriteNoMutation(t *testing.T) {
-	call := func(i int) *schema.Message {
-		return schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.WriteFileName, fmt.Sprintf("call-e%d", i), `{"path":"denied.txt","content":"nope"}`),
-		})
+	call := func(i int) *schema.AgenticMessage {
+		return testToolCalls(acceptanceCall(tools.WriteFileName, fmt.Sprintf("call-e%d", i), `{"path":"denied.txt","content":"nope"}`))
 	}
-	script := []*schema.Message{call(1), call(2), call(3), schema.AssistantMessage("done", nil)}
+	script := []*schema.AgenticMessage{call(1), call(2), call(3), testAssistant("done")}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{policy: domain.ApprovalPolicyNever})
 	h.openSession(t, "sess-acc-e", domain.ApprovalPolicyNever)
 	runID, err := h.svc.Run(context.Background(), "sess-acc-e", "write denied.txt")
@@ -505,7 +487,7 @@ func TestNudgeAcceptanceRefusedWriteNoMutation(t *testing.T) {
 		t.Fatalf("tool.nudge events = %+v, want one at count 3", nudges)
 	}
 	reminders := nudgeMessages(h.model.entry(3).input)
-	if len(reminders) != 1 || !strings.Contains(reminders[0].Content, "Do not bypass") {
+	if len(reminders) != 1 || !strings.Contains(agenticMessageText(reminders[0]), "Do not bypass") {
 		t.Fatalf("post-denial input lacks the refusal reminder: %v", nudgeMessages(h.model.entry(3).input))
 	}
 	// The refusal was honored: no workspace file exists.
@@ -519,11 +501,9 @@ func TestNudgeAcceptanceRefusedWriteNoMutation(t *testing.T) {
 // model request, no deadlock; the same holds for run cancellation.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptanceJournalFailureWhileWaiting(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, "call-f1", `{"text":"x"}`),
-		}),
-		schema.AssistantMessage("unreachable", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(contractToolName, "call-f1", `{"text":"x"}`)),
+		testAssistant("unreachable"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:     domain.ApprovalPolicyAuto,
@@ -545,11 +525,9 @@ func TestNudgeAcceptanceJournalFailureWhileWaiting(t *testing.T) {
 }
 
 func TestNudgeAcceptanceCancelWhileWaiting(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, "call-fx1", `{"text":"x"}`),
-		}),
-		schema.AssistantMessage("unreachable", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(contractToolName, "call-fx1", `{"text":"x"}`)),
+		testAssistant("unreachable"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:     domain.ApprovalPolicyAuto,
@@ -592,16 +570,13 @@ func TestNudgeAcceptanceRequestOrder(t *testing.T) {
 	failing := newContractTool(func(context.Context, json.RawMessage) (string, error) {
 		return "", &tools.ArgError{Field: "text", Reason: "must be a string"}
 	})
-	batch := func(a, b string) *schema.Message {
-		return schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, a, `{"text":"same"}`),
-			acceptanceCall(contractToolName, b, `{"text":"same"}`),
-		})
+	batch := func(a, b string) *schema.AgenticMessage {
+		return testToolCalls(acceptanceCall(contractToolName, a, `{"text":"same"}`), acceptanceCall(contractToolName, b, `{"text":"same"}`))
 	}
-	script := []*schema.Message{
+	script := []*schema.AgenticMessage{
 		batch("call-g1", "call-g2"),
 		batch("call-g3", "call-g4"),
-		schema.AssistantMessage("done", nil),
+		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:     domain.ApprovalPolicyAuto,
@@ -645,17 +620,13 @@ func TestNudgeAcceptanceRequestOrder(t *testing.T) {
 // a later triple-failure still schedules exactly once.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptanceResumeNoStaleNotice(t *testing.T) {
-	call := func(i int) *schema.Message {
-		return schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, fmt.Sprintf("call-h%d", i), `{"text":"same"}`),
-		})
+	call := func(i int) *schema.AgenticMessage {
+		return testToolCalls(acceptanceCall(contractToolName, fmt.Sprintf("call-h%d", i), `{"text":"same"}`))
 	}
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.WriteFileName, "call-h0", `{"path":"gate.txt","content":"g"}`),
-		}),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(tools.WriteFileName, "call-h0", `{"path":"gate.txt","content":"g"}`)),
 		call(1), call(2), call(3),
-		schema.AssistantMessage("done", nil),
+		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:      domain.ApprovalPolicyAsk,
@@ -694,11 +665,9 @@ func TestNudgeAcceptanceResumeNoStaleNotice(t *testing.T) {
 // with effects unknown, never automatically replayed.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptancePartialEffectNoReplay(t *testing.T) {
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(tools.BashName, "call-i1", `{"command":"echo marker > partial.marker && exit 2"}`),
-		}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(tools.BashName, "call-i1", `{"command":"echo marker > partial.marker && exit 2"}`)),
+		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:      domain.ApprovalPolicyAuto,
@@ -762,17 +731,11 @@ func TestNudgeAcceptanceLegacyAndNewPayloads(t *testing.T) {
 		t.Fatalf("legacy nudge decode = %+v", legacyNudge)
 	}
 
-	script := []*schema.Message{
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, "call-j1", `{"text":"x"}`),
-		}),
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, "call-j2", `{"text":"x"}`),
-		}),
-		schema.AssistantMessage("", []schema.ToolCall{
-			acceptanceCall(contractToolName, "call-j3", `{"text":"x"}`),
-		}),
-		schema.AssistantMessage("done", nil),
+	script := []*schema.AgenticMessage{
+		testToolCalls(acceptanceCall(contractToolName, "call-j1", `{"text":"x"}`)),
+		testToolCalls(acceptanceCall(contractToolName, "call-j2", `{"text":"x"}`)),
+		testToolCalls(acceptanceCall(contractToolName, "call-j3", `{"text":"x"}`)),
+		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
 		policy:     domain.ApprovalPolicyAuto,

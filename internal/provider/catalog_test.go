@@ -25,16 +25,24 @@ func TestCatalogForResolvesDefaultEndpoint(t *testing.T) {
 	}
 }
 
-// A deferred adapter is sealed but unimplemented: reaching it must fail
-// closed with an explanation instead of silently using another adapter.
-func TestCatalogRefusesDeferredAdapter(t *testing.T) {
-	vendor := testVendor("openai", "OpenAI", "OPENAI_API_KEY", AdapterOpenAIResponses, "https://api.openai.com/v1", "gpt-5", []Model{{ID: "gpt-5"}})
+// A retired adapter family is not sealed: reaching it through data must fail
+// closed instead of silently using another adapter.
+func TestCatalogRefusesRetiredAdapter(t *testing.T) {
+	vendor := testVendor("openai", "OpenAI", "OPENAI_API_KEY", "openai-responses", "https://api.openai.com/v1", "gpt-5", []Model{{ID: "gpt-5"}})
 	_, err := NewCatalog(vendor).For("openai")
 	if err == nil {
 		t.Fatal("the openai-responses adapter must not be executable")
 	}
-	if !strings.Contains(err.Error(), AdapterOpenAIResponses) {
-		t.Fatalf("error %q must name the deferred adapter", err)
+	if !strings.Contains(err.Error(), "openai-responses") {
+		t.Fatalf("error %q must name the retired adapter", err)
+	}
+}
+
+// The sealed table has no openai-responses member, so no vendor can declare it
+// without failing the startup reconcile either.
+func TestRetiredAdapterIsNotInTheSealedSet(t *testing.T) {
+	if IsSealedAdapter("openai-responses") {
+		t.Fatal("openai-responses must not be sealed")
 	}
 }
 
@@ -52,23 +60,17 @@ func TestCatalogAdapterResolvesSealedFamily(t *testing.T) {
 	}
 }
 
-// A deferred family is sealed but unimplemented, and a family that is not in
-// the table is unknown: the two failures are distinct and neither falls back to
-// a substitute.
-func TestCatalogAdapterRefusesDeferredAndUnknownFamilies(t *testing.T) {
-	_, err := NewCatalog().Adapter(AdapterOpenAIResponses)
-	if !errors.Is(err, ErrAdapterDeferred) {
-		t.Fatalf("Adapter(openai-responses) error = %v, want ErrAdapterDeferred", err)
-	}
-	if errors.Is(err, ErrAdapterUnknown) {
-		t.Fatal("a deferred family must not be reported as unknown")
-	}
-	if !strings.Contains(err.Error(), AdapterOpenAIResponses) {
-		t.Fatalf("error %q must name the deferred adapter", err)
-	}
-	_, err = NewCatalog().Adapter("nope")
-	if !errors.Is(err, ErrAdapterUnknown) {
-		t.Fatalf("Adapter(nope) error = %v, want ErrAdapterUnknown", err)
+// A family that is not in the sealed table fails closed as unknown, whether
+// it is a retired family or one this build never spoke.
+func TestCatalogAdapterRefusesUnknownFamilies(t *testing.T) {
+	for _, family := range []string{"openai-responses", "nope"} {
+		_, err := NewCatalog().Adapter(family)
+		if !errors.Is(err, ErrAdapterUnknown) {
+			t.Fatalf("Adapter(%q) error = %v, want ErrAdapterUnknown", family, err)
+		}
+		if !strings.Contains(err.Error(), family) {
+			t.Fatalf("error %q must name %q", err, family)
+		}
 	}
 }
 
@@ -171,7 +173,7 @@ func TestCatalogEndpointForVendorFallsBackToDefault(t *testing.T) {
 	if variant.Adapter != AdapterAnthropicMessages || variant.BaseURL != "https://api.deepseek.com/anthropic" {
 		t.Fatalf("proxy variant = %+v, want the declared anthropic endpoint", variant)
 	}
-	if _, _, err := catalog.EndpointForVendor("deepseek", AdapterOpenAIResponses, ""); err == nil {
+	if _, _, err := catalog.EndpointForVendor("deepseek", "openai-responses", ""); err == nil {
 		t.Fatal("a vendor with no endpoint for the requested adapter must fail")
 	}
 	if _, _, err := catalog.EndpointForVendor("nope", "", ""); err == nil {

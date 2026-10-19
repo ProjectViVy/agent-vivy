@@ -19,43 +19,41 @@ import {
   type CustomProviderInput,
 } from './custom-providers';
 
-/** 合成目录：一厂商两端点（deepseek）、可执行 + deferred（openai）、第三方网关。 */
+/** 合成目录：一厂商两端点（deepseek）、单端点（openai）、第三方网关。 */
 const CATALOG: ProviderCatalogEntry[] = [
   {
     vendor: 'deepseek',
     display_name: 'DeepSeek',
     endpoints: [
-      { adapter: 'openai-completions', base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash', models: ['deepseek-flash'], executable: true, state: 'SUPPORTED' },
-      { adapter: 'anthropic-messages', base_url: 'https://api.deepseek.com/anthropic', default_model: 'deepseek-flash', models: ['deepseek-flash'], executable: true, state: 'SUPPORTED' },
+      { adapter: 'openai-completions', base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash', models: ['deepseek-flash'] },
+      { adapter: 'anthropic-messages', base_url: 'https://api.deepseek.com/anthropic', default_model: 'deepseek-flash', models: ['deepseek-flash'] },
     ],
   },
   {
     vendor: 'openai',
     display_name: 'OpenAI',
     endpoints: [
-      { adapter: 'openai-completions', base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', models: ['gpt-4o'], executable: true, state: 'SUPPORTED' },
-      { adapter: 'openai-responses', base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', models: ['gpt-4o'], executable: false, state: 'DEFERRED-INDEFINITE' },
+      { adapter: 'openai-completions', base_url: 'https://api.openai.com/v1', default_model: 'gpt-4o', models: ['gpt-4o'] },
     ],
   },
   {
     vendor: 'anthropic',
     display_name: 'Anthropic',
     endpoints: [
-      { adapter: 'anthropic-messages', base_url: 'https://api.anthropic.com', default_model: 'claude-sonnet-4-5', models: ['claude-sonnet-4-5'], executable: true, state: 'SUPPORTED' },
+      { adapter: 'anthropic-messages', base_url: 'https://api.anthropic.com', default_model: 'claude-sonnet-4-5', models: ['claude-sonnet-4-5'] },
     ],
   },
   {
     vendor: 'my-gateway',
     display_name: 'My Gateway',
     endpoints: [
-      { adapter: 'openai-completions', base_url: 'https://gw.example.com/v1', default_model: 'my-model', models: ['my-model'], executable: true, state: 'SUPPORTED' },
+      { adapter: 'openai-completions', base_url: 'https://gw.example.com/v1', default_model: 'my-model', models: ['my-model'] },
     ],
   },
 ];
 
 const PROFILES: ProviderProfileStatus[] = [
   { id: 'openai-completions', adapter_family: 'openai-completions', endpoint_class: 'native', model_ids: [], state: 'READY' },
-  { id: 'openai-responses', adapter_family: 'openai-responses', endpoint_class: 'native', model_ids: [], state: 'DEFERRED-INDEFINITE' },
   { id: 'anthropic-messages', adapter_family: 'anthropic-messages', endpoint_class: 'native', model_ids: [], state: 'COMPILED' },
 ];
 
@@ -87,8 +85,9 @@ function input(over: Partial<CustomProviderInput> = {}): CustomProviderInput {
 describe('注册表条目校验（wire 取值）', () => {
   it('bundle 接受密封适配器 id 与旧运行束名，拒绝其它取值', () => {
     expect(isProviderRegistryBundle('openai-completions')).toBe(true);
-    expect(isProviderRegistryBundle('openai-responses')).toBe(true);
     expect(isProviderRegistryBundle('anthropic-messages')).toBe(true);
+    // openai-responses 已随 agentic 迁移删除，不再是被密封的写侧取值。
+    expect(isProviderRegistryBundle('openai-responses')).toBe(false);
     expect(isProviderRegistryBundle('deepseek')).toBe(true);
     expect(isProviderRegistryBundle('unsupported')).toBe(false);
     expect(isProviderRegistryBundle(undefined)).toBe(false);
@@ -158,7 +157,7 @@ describe('hasBaseUrlConflict 端点冲突', () => {
 describe('allProviderEntries 合并（目录端点在前，注册表在后）', () => {
   it('一个端点一行：目录 6 行 + 注册表行，DeepSeek 两行共用一个显示名', () => {
     const merged = allProviderEntries(CATALOG, [wireEntry()], PROFILES);
-    expect(merged.filter((entry) => !entry.custom)).toHaveLength(6);
+    expect(merged.filter((entry) => !entry.custom)).toHaveLength(5);
     const deepseek = merged.filter((entry) => entry.vendor === 'deepseek');
     expect(deepseek.map((entry) => entry.adapter)).toEqual(['openai-completions', 'anthropic-messages']);
     expect(new Set(deepseek.map((entry) => entry.displayName)).size).toBe(1);
@@ -177,9 +176,14 @@ describe('allProviderEntries 合并（目录端点在前，注册表在后）', 
     expect(merged.find((entry) => entry.vendor === 'deepseek' && entry.adapter === 'openai-completions')?.executable).toBe(true);
   });
 
-  it('deferred 端点行不可执行（无 Profile 也保持端点声明的基线）', () => {
-    const merged = allProviderEntries(CATALOG, [], []);
-    expect(merged.find((entry) => entry.adapter === 'openai-responses')).toMatchObject({ executable: false, capabilityState: 'DEFERRED-INDEFINITE' });
+  it('可执行性只由编译 Profile 决定', () => {
+    const merged = allProviderEntries(CATALOG, [], PROFILES);
+    expect(merged.every((entry) => entry.executable)).toBe(true);
+    const unavailable = allProviderEntries(CATALOG, [], [{
+      id: 'openai-completions', adapter_family: 'openai-completions', endpoint_class: 'native',
+      model_ids: [], state: 'UNAVAILABLE',
+    }]);
+    expect(unavailable.find((entry) => entry.adapter === 'openai-completions')?.executable).toBe(false);
   });
 });
 

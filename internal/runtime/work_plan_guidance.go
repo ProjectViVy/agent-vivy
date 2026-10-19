@@ -13,18 +13,18 @@ import (
 )
 
 type workPlanGuidanceMiddleware struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 }
 
-func newWorkPlanGuidanceMiddleware() adk.ChatModelAgentMiddleware {
-	return &workPlanGuidanceMiddleware{BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{}}
+func newWorkPlanGuidanceMiddleware() adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
+	return &workPlanGuidanceMiddleware{TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{}}
 }
 
 func (m *workPlanGuidanceMiddleware) BeforeModelRewriteState(
 	ctx context.Context,
-	state *adk.ChatModelAgentState,
-	modelContext *adk.ModelContext,
-) (context.Context, *adk.ChatModelAgentState, error) {
+	state *adk.TypedChatModelAgentState[*schema.AgenticMessage],
+	modelContext *adk.TypedModelContext[*schema.AgenticMessage],
+) (context.Context, *adk.TypedChatModelAgentState[*schema.AgenticMessage], error) {
 	_ = modelContext
 	if state == nil {
 		return ctx, state, nil
@@ -47,32 +47,36 @@ func (m *workPlanGuidanceMiddleware) BeforeModelRewriteState(
 	return ctx, state, nil
 }
 
-func reconcilePlanGuidance(messages []*schema.Message, active bool) []*schema.Message {
-	filtered := make([]*schema.Message, 0, len(messages)+1)
+// reconcilePlanGuidance keeps exactly one plan-guidance block in the system
+// preamble and removes it when no plan is active. The guidance is plain text
+// inside a system message, so the rewrite works on the message's projected
+// text and rebuilds a single text block that keeps the message role.
+func reconcilePlanGuidance(messages []*schema.AgenticMessage, active bool) []*schema.AgenticMessage {
+	filtered := make([]*schema.AgenticMessage, 0, len(messages)+1)
 	hasGuidance := false
 	for _, message := range messages {
 		if message == nil {
 			filtered = append(filtered, nil)
 			continue
 		}
-		if message.Role == schema.System && strings.Contains(message.Content, planGuidanceText) {
-			content := message.Content
-			if !active || hasGuidance {
-				content = strings.ReplaceAll(content, planGuidanceText, "")
-			} else {
-				first := strings.Index(content, planGuidanceText)
-				afterFirst := first + len(planGuidanceText)
-				content = content[:afterFirst] + strings.ReplaceAll(content[afterFirst:], planGuidanceText, "")
-				hasGuidance = true
-			}
-			if content != message.Content {
-				content = strings.TrimSpace(content)
-				if content == "" {
-					continue
+		if message.Role == schema.AgenticRoleTypeSystem {
+			content := agenticMessageText(message)
+			if strings.Contains(content, planGuidanceText) {
+				if !active || hasGuidance {
+					content = strings.ReplaceAll(content, planGuidanceText, "")
+				} else {
+					first := strings.Index(content, planGuidanceText)
+					afterFirst := first + len(planGuidanceText)
+					content = content[:afterFirst] + strings.ReplaceAll(content[afterFirst:], planGuidanceText, "")
+					hasGuidance = true
 				}
-				copy := *message
-				copy.Content = content
-				message = &copy
+				if content != agenticMessageText(message) {
+					content = strings.TrimSpace(content)
+					if content == "" {
+						continue
+					}
+					message = agenticSystemMessage(content)
+				}
 			}
 		}
 		filtered = append(filtered, message)
@@ -81,12 +85,12 @@ func reconcilePlanGuidance(messages []*schema.Message, active bool) []*schema.Me
 		return filtered
 	}
 	insertAt := 0
-	for insertAt < len(filtered) && filtered[insertAt] != nil && filtered[insertAt].Role == schema.System {
+	for insertAt < len(filtered) && filtered[insertAt] != nil && filtered[insertAt].Role == schema.AgenticRoleTypeSystem {
 		insertAt++
 	}
 	filtered = append(filtered, nil)
 	copy(filtered[insertAt+1:], filtered[insertAt:])
-	filtered[insertAt] = schema.SystemMessage(planGuidanceText)
+	filtered[insertAt] = agenticSystemMessage(planGuidanceText)
 	return filtered
 }
 

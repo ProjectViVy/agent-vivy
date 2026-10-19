@@ -18,8 +18,8 @@ const (
 
 type Provider struct{ host *modelhost.Host }
 
-func Compose(profiles []providerprofile.Profile, capabilities modelhost.Capabilities) (*Provider, error) {
-	host, err := modelhost.New(profiles, capabilities)
+func Compose(profiles []providerprofile.Profile, executableAdapters []string) (*Provider, error) {
+	host, err := modelhost.New(profiles, executableAdapters)
 	if err != nil {
 		return nil, err
 	}

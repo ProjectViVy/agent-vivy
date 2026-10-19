@@ -4,8 +4,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"agent-vivy/internal/modelhost"
 )
 
 const validVendorYAML = `
@@ -381,13 +379,6 @@ func TestLoadEmbeddedKeepsTheDeferredResponsesCapabilityVisible(t *testing.T) {
 		}
 	}
 	for _, adapter := range AdapterFamilies() {
-		state, _ := AdapterState(adapter)
-		if state == modelhost.CapabilityDeferredIndefinite {
-			if declared[adapter] {
-				t.Fatalf("deferred adapter %q must not be declared by a vendor", adapter)
-			}
-			continue
-		}
 		if !declared[adapter] {
 			t.Fatalf("supported adapter %q has no endpoint in the data", adapter)
 		}

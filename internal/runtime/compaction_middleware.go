@@ -21,9 +21,11 @@ import (
 // compaction middleware wiring (research AGENT-LOOP-PORT-COMPARISON §4.3-E2):
 // official Eino `reduction` (deterministic clear of old tool turns) runs
 // first, then official `summarization` (LLM summary) when the feed is still
-// over the trigger. A tiny let-us-own ContextMonitor records the token count
-// before any rewrite so the official hooks can report before/after sizes in
-// a Vivy context.compacted event through the run's governance sink.
+// over the trigger. Both are the typed (agentic-generation) variants, so the
+// whole chain stays on schema.AgenticMessage. A tiny let-us-own ContextMonitor
+// records the token count before any rewrite so the official hooks can report
+// before/after sizes in a Vivy context.compacted event through the run's
+// governance sink.
 
 // compactionBeforeKey carries the pre-rewrite token count computed by
 // ContextMonitor into the reduction/summarization hooks of the same turn.
@@ -47,14 +49,14 @@ func compactionBeforeFrom(ctx context.Context) (compactionBefore, bool) {
 // reduction/summarization rewrite runs, so post-process hooks can report
 // before/after sizes. It must be registered before the official middlewares.
 type contextMonitor struct {
-	*adk.BaseChatModelAgentMiddleware
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]
 }
 
-func newContextMonitor() adk.ChatModelAgentMiddleware {
-	return &contextMonitor{BaseChatModelAgentMiddleware: &adk.BaseChatModelAgentMiddleware{}}
+func newContextMonitor() adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage] {
+	return &contextMonitor{TypedBaseChatModelAgentMiddleware: &adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]{}}
 }
 
-func (m *contextMonitor) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.Message], mc *adk.TypedModelContext[*schema.Message]) (context.Context, *adk.TypedChatModelAgentState[*schema.Message], error) {
+func (m *contextMonitor) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.AgenticMessage], mc *adk.TypedModelContext[*schema.AgenticMessage]) (context.Context, *adk.TypedChatModelAgentState[*schema.AgenticMessage], error) {
 	tokens, err := countMessageTokens(state.Messages, state.ToolInfos)
 	if err != nil {
 		return nil, nil, err
@@ -63,26 +65,16 @@ func (m *contextMonitor) BeforeModelRewriteState(ctx context.Context, state *adk
 }
 
 // countMessageTokens is the shared Vivy token estimate (1 token ≈ 4 bytes),
-// applied to the in-run message list exactly like compaction.Measure.
-func countMessageTokens(msgs []*schema.Message, tools []*schema.ToolInfo) (int, error) {
+// applied to the in-run agentic message list exactly like compaction.Measure.
+func countMessageTokens(msgs []*schema.AgenticMessage, tools []*schema.ToolInfo) (int, error) {
 	total := 0
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
-		switch msg.Role {
-		case schema.Assistant:
-			total += len(msg.Content) + len(msg.ReasoningContent) + 16
-			for _, tc := range msg.ToolCalls {
-				total += len(tc.ID) + len(tc.Function.Name) + len(tc.Function.Arguments)
-			}
-		default:
-			total += len(msg.Content) + 16
-			for _, part := range msg.UserInputMultiContent {
-				if part.Type == schema.ChatMessagePartTypeText {
-					total += len(part.Text)
-				}
-			}
+		total += len(agenticMessageText(msg)) + len(agenticReasoningText(msg)) + 16
+		for _, call := range agenticToolCalls(msg) {
+			total += len(call.CallID) + len(call.Name) + len(call.Arguments)
 		}
 	}
 	for _, tl := range tools {
@@ -129,11 +121,11 @@ func safeOffloadCallID(callID string) string {
 	return callID
 }
 
-// buildCompactionHandlers assembles the official Eino middlewares with Vivy
-// bridges. When the engine has no run context (e.g. Checkpoints nil in unit
-// tests), the event hooks are inert: they only fire when the run ctx carries
-// a governance sink, which the service always installs.
-func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*schema.Message], summaryModel model.BaseModel[*schema.Message], policy CompactionPolicy, feedBudgetBytes int, offload *EinoFilesystemBackend) ([]adk.ChatModelAgentMiddleware, error) {
+// buildCompactionHandlers assembles the official Eino typed middlewares with
+// Vivy bridges. When the engine has no run context (e.g. Checkpoints nil in
+// unit tests), the event hooks are inert: they only fire when the run ctx
+// carries a governance sink, which the service always installs.
+func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*schema.AgenticMessage], summaryModel model.BaseModel[*schema.AgenticMessage], policy CompactionPolicy, feedBudgetBytes int, offload *EinoFilesystemBackend) ([]adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage], error) {
 	triggerTokens := policy.TriggerTokens(bytesToTokens(feedBudgetBytes))
 	if triggerTokens <= 0 {
 		triggerTokens = policy.TriggerTokens(0)
@@ -150,7 +142,7 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 		offloadBackend = offload
 	}
 
-	reducer, err := reduction.New(ctx, &reduction.Config{
+	reducer, err := reduction.NewTyped(ctx, &reduction.TypedConfig[*schema.AgenticMessage]{
 		// Vivy's tooladapter already bounds every single result
 		// (MaxToolResultBytes); the Eino truncation/offload phase would
 		// double-truncate, so keep only the deterministic clear phase.
@@ -164,11 +156,11 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 		// can recover the content later in the same run.
 		GenClearOffloadFilePath: genClearOffloadPath,
 		ReadFileToolName:        tools.ReadFileName,
-		TokenCounter: func(_ context.Context, msgs []*schema.Message, tools []*schema.ToolInfo) (int64, error) {
+		TokenCounter: func(_ context.Context, msgs []*schema.AgenticMessage, tools []*schema.ToolInfo) (int64, error) {
 			n, err := countMessageTokens(msgs, tools)
 			return int64(n), err
 		},
-		ClearPostProcess: func(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.Message]) context.Context {
+		ClearPostProcess: func(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.AgenticMessage]) context.Context {
 			before, ok := compactionBeforeFrom(ctx)
 			after, _ := countMessageTokens(state.Messages, state.ToolInfos)
 			if !ok {
@@ -198,23 +190,23 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 	// failover wrapper journal their own v3 request / v2 usage / finish
 	// records with source "summary".
 	summModel := observeSummaryModel(chatModel, false)
-	var failover *summarization.FailoverConfig
+	var failover *summarization.TypedFailoverConfig[*schema.AgenticMessage]
 	if summaryModel != nil {
 		summModel = observeSummaryModel(summaryModel, false)
-		failover = &summarization.FailoverConfig{
+		failover = &summarization.TypedFailoverConfig[*schema.AgenticMessage]{
 			MaxRetries: intPtr(1),
-			BackoffFunc: func(context.Context, int, *schema.Message, error) time.Duration {
+			BackoffFunc: func(context.Context, int, *schema.AgenticMessage, error) time.Duration {
 				return 0
 			},
-			GetFailoverModel: func(_ context.Context, fc *summarization.FailoverContext) (model.BaseModel[*schema.Message], []*schema.Message, error) {
+			GetFailoverModel: func(_ context.Context, fc *summarization.TypedFailoverContext[*schema.AgenticMessage]) (model.BaseModel[*schema.AgenticMessage], []*schema.AgenticMessage, error) {
 				// Mirror the middleware's default input: the original
 				// leading system messages are dropped (the summary
 				// instruction is re-supplied) and the rest is sandwiched
 				// between the middleware's system/user instructions.
-				input := make([]*schema.Message, 0, len(fc.OriginalMessages)+2)
+				input := make([]*schema.AgenticMessage, 0, len(fc.OriginalMessages)+2)
 				input = append(input, fc.SystemInstruction)
 				rest := fc.OriginalMessages
-				for len(rest) > 0 && rest[0] != nil && rest[0].Role == schema.System {
+				for len(rest) > 0 && rest[0] != nil && rest[0].Role == schema.AgenticRoleTypeSystem {
 					rest = rest[1:]
 				}
 				input = append(input, rest...)
@@ -224,24 +216,24 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 		}
 	}
 
-	summ, err := summarization.New(ctx, &summarization.Config{
+	summ, err := summarization.NewTyped(ctx, &summarization.TypedConfig[*schema.AgenticMessage]{
 		Model: summModel,
 		Trigger: &summarization.TriggerCondition{
 			ContextTokens: triggerTokens,
 		},
-		TokenCounter: func(_ context.Context, input *summarization.TokenCounterInput) (int, error) {
+		TokenCounter: func(_ context.Context, input *summarization.TypedTokenCounterInput[*schema.AgenticMessage]) (int, error) {
 			return countMessageTokens(input.Messages, input.Tools)
 		},
 		// The summary generation is a real provider call; surface it as a
 		// CustomizedAction event so the mapper can account model.usage
 		// (research P3 bridge ii: MaxModelCalls is not bypassed).
 		EmitInternalEvents: true,
-		Retry: &summarization.RetryConfig{
+		Retry: &summarization.TypedRetryConfig[*schema.AgenticMessage]{
 			MaxRetries: intPtr(0),
 		},
 		Failover: failover,
 		Finalize: preserveProjectFileContextsFinalize,
-		Callback: func(ctx context.Context, before, after adk.TypedChatModelAgentState[*schema.Message]) error {
+		Callback: func(ctx context.Context, before, after adk.TypedChatModelAgentState[*schema.AgenticMessage]) error {
 			beforeTokens, _ := countMessageTokens(before.Messages, before.ToolInfos)
 			afterTokens, _ := countMessageTokens(after.Messages, after.ToolInfos)
 			dropped := len(before.Messages) - len(after.Messages)
@@ -255,7 +247,7 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 	if err != nil {
 		return nil, fmt.Errorf("runtime: summarization middleware: %w", err)
 	}
-	return []adk.ChatModelAgentMiddleware{newContextMonitor(), reducer, summ}, nil
+	return []adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage]{newContextMonitor(), reducer, summ}, nil
 }
 
 // preserveProjectFileContextsFinalize applies Eino's canonical summary
@@ -263,25 +255,28 @@ func buildCompactionHandlers(ctx context.Context, chatModel model.BaseModel[*sch
 // original state. Summaries are intentionally lossy; captured source text is
 // not. Keeping those bounded messages makes the snapshot available to later
 // model calls in the same agent run.
-func preserveProjectFileContextsFinalize(ctx context.Context, original []*schema.Message, summary *schema.Message) ([]*schema.Message, error) {
+func preserveProjectFileContextsFinalize(ctx context.Context, original []*schema.AgenticMessage, summary *schema.AgenticMessage) ([]*schema.AgenticMessage, error) {
 	finalized, err := summarization.DefaultFinalize(ctx, original, summary)
 	if err != nil {
 		return nil, err
 	}
 	for _, msg := range original {
-		if schemaMessageHasProjectFileContext(msg) {
+		if agenticMessageHasProjectFileContext(msg) {
 			finalized = append(finalized, msg)
 		}
 	}
 	return finalized, nil
 }
 
-func schemaMessageHasProjectFileContext(msg *schema.Message) bool {
-	if msg == nil || msg.Role != schema.User {
+func agenticMessageHasProjectFileContext(msg *schema.AgenticMessage) bool {
+	if msg == nil || msg.Role != schema.AgenticRoleTypeUser {
 		return false
 	}
-	for _, part := range msg.UserInputMultiContent {
-		if part.Type == schema.ChatMessagePartTypeText && strings.HasPrefix(part.Text, "\n\n[project file: ") {
+	for _, block := range msg.ContentBlocks {
+		if block == nil || block.UserInputText == nil {
+			continue
+		}
+		if strings.HasPrefix(block.UserInputText.Text, "\n\n[project file: ") {
 			return true
 		}
 	}
