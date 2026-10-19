@@ -58,7 +58,7 @@
   - `plugins/exp/nudge/policy_test.go`, `templates_test.go`, `descriptor_test.go` — moved/adapted behavior tests.
   - `recipes/exp-nudge.vivy.yml` — `apiVersion: vivy.generation/v1`, `profile: exp-nudge`, `modules:` at minimum `vivy/loop`, `vivy/model`, `vivy/tool-host`, `vivy/storage`, `vivy/checkpoint`, `vivy/credential`, `vivy/sandbox`, `vivy/exp-nudge` (mirrors `minimal.vivy.yml` plus the experiment, so the selected build is a real runnable species form).
 - Modify:
-  - `recipes/default.vivy.yml`, `headless.vivy.yml`, `diva.vivy.yml`, `vivy-code.vivy.yml`, `scx.vivy.yml` — add `vivy/exp-nudge` only after owner confirmation of the selection policy (index open item 1); `minimal.vivy.yml`, `lite.vivy.yml`, `masks-*.vivy.yml` stay unselected.
+  - `recipes/default.vivy.yml`, `headless.vivy.yml`, `diva.vivy.yml`, `vivy-code.vivy.yml`, `scx.vivy.yml` — **do not add** `vivy/exp-nudge` (owner decision 2026-10-19: not installed for now; revisit later). `minimal.vivy.yml`, `lite.vivy.yml`, `masks-*.vivy.yml` also stay unselected.
   - `sdk/internal/cmd/generate-default/main.go` — add the `expnudge.New().Descriptor()` external entry and import (only if the default Recipe selects the package; the generator must compile, so this lands with the Recipe change).
   - `docs/architecture/NUDGE-DESIGN.md` — a one-line ownership note pointing at this package; full revision is N03.
 - Do not touch: `internal/runtime/*` behavior (N02/N03), generated `zz_default.go` by hand, `schemas/`.
@@ -78,7 +78,7 @@
 - [ ] 5. Prove purity and ownership with tests/CI assertions: `go list -deps ./plugins/exp/nudge` shows no Eino; `TestPluginWindowCannotImportInternal`/`TestEinoImportsQuarantined` still pass; no `hash/` import; no `os`, `net`, `plugin`, `reflect`-based registry.
 - [ ] 6. Move the behavior tests from core (window/threshold/tie-break/refusal/corrective/retry-identity/stop) and adapt only their package reference and fixtures; keep assertion values identical. Add a distinct-field test proving `("a","b")` and `("ab","")` identities differ, the exact-tuple replacement for the FNV separator test.
 - [ ] 7. Add `recipes/exp-nudge.vivy.yml` and the matching T1 catalog registration (`sdk/internal/cmd/generate-default` externals if default selects it). Validate Recipe schema/known-fields via the existing compiler in a focused test; do not edit generated output by hand.
-- [ ] 8. Apply the owner-confirmed selection policy to the official Recipes; if confirmation is absent, ship only `recipes/exp-nudge.vivy.yml` and record the deferred default-family selection as an explicit blocker for N03 evidence (do not silently drop coaching from the default species).
+- [ ] 8. Ship only `recipes/exp-nudge.vivy.yml`; do not add the package to any shipped default-family or lite/masks Recipe (owner decision 2026-10-19: not installed for now, revisit later). Record the deferred default-family selection as an explicit, deliberate N03 acceptance fact (the committed default artifact must show no nudge import, constructor or `tool.nudge` producer), not as a blocker or a silent behavior retirement.
 - [ ] 9. Record focused commands/results (toolchain absent here — state that honestly):
   - `go test ./plugins/exp/nudge/...`
   - `go vet ./plugins/exp/nudge/...`
@@ -99,7 +99,7 @@ Produced for N02: `expnudge.New` (Module) and `expnudge.Factory` (`loopexp.Nudge
 | `go test ./plugins/exp/nudge/...` | Moved behavior tests pass unchanged in value; purity tests pass. |
 | `go list -deps ./plugins/exp/nudge` | No `github.com/cloudwego/eino*`, no `agent-vivy/internal/*`, no `hash/`. |
 | `go test ./sdk/internal/... -run 'Source|Recipe'` | T1 record and Recipe compile validation pass. |
-| `go run ./sdk/internal/cmd/generate-default ...` then `git diff --exit-code internal/generated/assembly/zz_default.go` | Unchanged unless the default Recipe was confirmed to select the package. |
+| `go run ./sdk/internal/cmd/generate-default ...` then `git diff --exit-code internal/generated/assembly/zz_default.go` | Unchanged (the default Recipe does not select the package). |
 | `git diff --check` | Clean. |
 
 ## Acceptance, rollback and handoff

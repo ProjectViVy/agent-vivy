@@ -290,8 +290,11 @@ Unselected species then rely on the existing `MaxToolTurns`/Eino `MaxIterations`
 cap — an explicit owner-approved product consequence. Warming is opt-in (owner
 decision 2026-10-19): the shipped default-family Recipes do not select
 `vivy/exp-warming`, so the default species has no warming behavior; only the
-explicit experimental Recipes select it. C11 is the target contract delivered by
-the epics, not by #91.
+explicit experimental Recipes select it. Nudge is likewise not installed for now
+(owner decision 2026-10-19, provisional and revisited later): the default-family
+and lite/masks Recipes do not select `vivy/exp-nudge`, so the default species
+relies on `MaxToolTurns` for loop protection and has no coaching. C11 is the
+target contract delivered by the epics, not by #91.
 
 Verified seam gap: sdk/port/observer is bounded post-commit observation and
 sdk/port/pretool only constrains pre-tool execution. Neither supplies these

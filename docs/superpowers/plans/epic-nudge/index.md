@@ -132,13 +132,16 @@ iteration and recovery.
   `not_compiled`/`NOT_COMPILED` vocabulary (`internal/modules/masks/service.go:225`,
   `sdk/generation/manifest.go:95`) instead of accepting and ignoring input. N03 adds a
   negative guard test that no such control/setting key exists.
-- Recipe policy decision (needs owner confirmation at N00 readiness): the baseline
-  installs coaching unconditionally, so every shipped Recipe currently has it. The
-  recommendation is to select `vivy/exp-nudge` explicitly in `default.vivy.yml`,
-  `headless.vivy.yml`, `diva.vivy.yml`, `vivy-code.vivy.yml`, `scx.vivy.yml` and to omit
-  it in `minimal.vivy.yml`, `lite.vivy.yml`, `masks-*.vivy.yml`, so unselected omission
-  is exercised by supported Recipes without silently retiring behavior from the shipped
-  species.
+- Recipe policy decision — **owner decided 2026-10-19: do not install it now.** The
+  baseline installs coaching unconditionally, but the owner chose to leave the shipped
+  default-family Recipes (`default`, `headless`, `diva`, `vivy-code`, `scx`) and the
+  lite/masks Recipes unselected for now, and to revisit the default later. Only the
+  explicit `recipes/exp-nudge.vivy.yml` (and the combined
+  `recipes/exp-loop-features.vivy.yml` once the integration owner adds it) select
+  `vivy/exp-nudge`. Consequence: the default species has no coaching and no per-tuple
+  loop stop, relying on the existing `MaxToolTurns`/Eino `MaxIterations` cap. This is a
+  recorded, deliberately deferred product choice, not an omission; N00/N01 must not add
+  module lines to the shipped Recipes.
 
 ## Durability and recovery contract (must survive extraction)
 
@@ -175,8 +178,11 @@ iteration and recovery.
 
 ## Open items (recorded, not blocking planning)
 
-1. Recipe selection policy above (default family selects the package) needs owner
-   confirmation; it changes whether the shipped species keeps coaching by default.
+1. **Recipe selection — owner decided 2026-10-19: not installed for now.** The shipped
+   default-family and lite/masks Recipes do not select `vivy/exp-nudge`; only the
+   experimental Recipes do. The default species therefore loses coaching and per-tuple
+   loop detection for now (turn cap only). This is provisional and intentionally
+   re-opened later; recording it as a decision, not an open question.
 2. **Loop hard stop ownership — owner decided 2026-10-19: package-owned.** The count-6
    stop and the ten-step window move together into `vivy/exp-nudge`; N00 adds the `Stop`
    decision to the pure contract, N01 returns it, N02 maps it once to the existing

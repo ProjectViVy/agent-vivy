@@ -32,3 +32,12 @@ the Story package and the epic packages; the branch is updated accordingly.
 5. **D07 file/task text is not executable at baseline A.** The paths and
    commands in D07 describe the re-intake work; the Story has no baseline-A
    deletion action and must not be implemented against the 10-07 tree.
+6. **Nudge is not installed for now (provisional).** Owner: do not add
+   `vivy/exp-nudge` to the shipped default-family Recipes or the lite/masks
+   Recipes; only `recipes/exp-nudge.vivy.yml` and the combined
+   `recipes/exp-loop-features.vivy.yml` select it. The default species therefore
+   has no coaching and no per-tuple loop stop, relying on the existing
+   `MaxToolTurns`/Eino `MaxIterations` cap. This is a deliberately deferred
+   product choice to revisit later, not an omission; the epic records it as a
+   decision and the default artifact's none-case evidence must show no nudge
+   import, constructor or `tool.nudge` producer.

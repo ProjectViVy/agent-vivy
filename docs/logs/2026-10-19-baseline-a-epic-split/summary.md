@@ -36,8 +36,9 @@ is a path-level comparison against this tree, not a behavior audit.
 
 See [owner-decisions.md](owner-decisions.md): the loop hard stop moves with
 E-NUDGE, warming becomes opt-in (not selected by the default-family Recipes),
-D07 is retained as the re-intake checkpoint for bundle/toolkit, and the
-post-baseline re-intake remains a later gated track.
+nudge is not installed for now (provisional, revisit later), D07 is retained as
+the re-intake checkpoint for bundle/toolkit, and the post-baseline re-intake
+remains a later gated track.
 
 ## Explicitly not done
 
