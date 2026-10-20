@@ -26,7 +26,7 @@ func TestStartMissingBinaryRecordsFailedToRun(t *testing.T) {
 	runner, backend := newEvalRunner(t, filepath.Join(t.TempDir(), "missing.exe"))
 	ctx := context.Background()
 	seedProductionSession(t, backend)
-	gen, err := runner.Studio.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "cand"})
+	gen, err := runner.Studio.CreateGeneration(ctx, domain.Generation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestEvalAirGapDoesNotTouchProduction(t *testing.T) {
 	runner, backend := newEvalRunner(t, exe)
 	ctx := context.Background()
 	seedProductionSession(t, backend)
-	gen, err := runner.Studio.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "cand"})
+	gen, err := runner.Studio.CreateGeneration(ctx, domain.Generation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,8 +69,8 @@ func TestEvalUsesFileArtifactNotParentExe(t *testing.T) {
 	ctx := context.Background()
 	seedProductionSession(t, backend)
 	gen, err := runner.Studio.CreateGeneration(ctx, domain.Generation{
-		ArtifactSHA256: "packed",
-		SourceRef:      "file:" + exe,
+
+		SourceRef: "file:" + exe,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,8 +91,8 @@ func TestEvalMissingFileArtifactDoesNotFallBack(t *testing.T) {
 	ctx := context.Background()
 	seedProductionSession(t, backend)
 	gen, err := runner.Studio.CreateGeneration(ctx, domain.Generation{
-		ArtifactSHA256: "missing",
-		SourceRef:      "file:" + filepath.Join(t.TempDir(), "no-such-vivy.exe"),
+
+		SourceRef: "file:" + filepath.Join(t.TempDir(), "no-such-vivy.exe"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func buildVivy(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		goBin += ".exe"
 	}
-	cmd := exec.Command(goBin, "build", "-o", exe, "./cmd/vivy")
+	cmd := exec.Command(goBin, "build", "-tags", "vivy_headless", "-o", exe, "./cmd/vivy")
 	cmd.Dir = filepath.Join("..", "..")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

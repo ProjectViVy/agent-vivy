@@ -82,13 +82,13 @@ func TestInspectRejectsMalformedEmbeddedManifest(t *testing.T) {
 func TestInspectAfterPromoteUsesCandidate(t *testing.T) {
 	svc, _ := newStudio(t)
 	ctx := context.Background()
-	from, err := svc.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "retained-core-from"})
+	from, err := svc.CreateGeneration(ctx, domain.Generation{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	to, err := svc.CreateGeneration(ctx, domain.Generation{
-		ParentID: from.ID, ArtifactSHA256: "retained-core-to",
-		Recipe: domain.AssemblyRecipe{Loop: "eino", World: "sandbox", Tools: []string{"echo_info"}},
+		ParentID: from.ID,
+		Recipe:   domain.AssemblyRecipe{Loop: "eino", World: "sandbox", Tools: []string{"echo_info"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -137,11 +137,11 @@ func TestInspectCompiledIdentitySurvivesQueuedPromotion(t *testing.T) {
 	t.Cleanup(func() { generation.EmbeddedManifestBase64 = previous })
 	svc, _ := newStudio(t)
 	ctx := context.Background()
-	from, err := svc.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "retained-core-from"})
+	from, err := svc.CreateGeneration(ctx, domain.Generation{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID, ArtifactSHA256: "retained-core-to"})
+	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

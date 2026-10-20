@@ -21,9 +21,9 @@ func (b *Backend) CreateGeneration(ctx context.Context, g domain.Generation) err
 		return fmt.Errorf("storage: encode generation recipe: %w", err)
 	}
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO generations (id, parent_id, artifact_sha256, source_ref, recipe_json, phase, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		g.ID, g.ParentID, g.ArtifactSHA256, g.SourceRef, recipe, string(g.Phase), g.CreatedAt); err != nil {
+		`INSERT INTO generations (id, parent_id, source_ref, recipe_json, phase, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		g.ID, g.ParentID, g.SourceRef, recipe, string(g.Phase), g.CreatedAt); err != nil {
 		return fmt.Errorf("storage: create generation %s: %w", g.ID, err)
 	}
 	return nil
@@ -31,7 +31,7 @@ func (b *Backend) CreateGeneration(ctx context.Context, g domain.Generation) err
 
 func (b *Backend) GetGeneration(ctx context.Context, id string) (domain.Generation, error) {
 	row := b.db.QueryRowContext(ctx,
-		`SELECT id, parent_id, artifact_sha256, source_ref, recipe_json, phase, created_at
+		`SELECT id, parent_id, source_ref, recipe_json, phase, created_at
 		 FROM generations WHERE id = ?`, id)
 	g, err := scanGeneration(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -45,7 +45,7 @@ func (b *Backend) GetGeneration(ctx context.Context, id string) (domain.Generati
 
 func (b *Backend) ListGenerations(ctx context.Context) ([]domain.Generation, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT id, parent_id, artifact_sha256, source_ref, recipe_json, phase, created_at
+		`SELECT id, parent_id, source_ref, recipe_json, phase, created_at
 		 FROM generations ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list generations: %w", err)
@@ -249,7 +249,7 @@ func scanGeneration(row generationScanner) (domain.Generation, error) {
 	var g domain.Generation
 	var phase string
 	var recipe []byte
-	if err := row.Scan(&g.ID, &g.ParentID, &g.ArtifactSHA256, &g.SourceRef, &recipe, &phase, &g.CreatedAt); err != nil {
+	if err := row.Scan(&g.ID, &g.ParentID, &g.SourceRef, &recipe, &phase, &g.CreatedAt); err != nil {
 		return domain.Generation{}, err
 	}
 	if len(recipe) > 0 {

@@ -290,7 +290,7 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
 export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; recipe: Recipe; policy_profile: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
 export interface Recipe { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] }
 export type GenerationPhase = 'built' | 'eval_pending' | 'evaluated' | 'promoted' | 'released' | 'rejected';
-export interface Generation { id: string; parent_id?: string; artifact_sha256: string; source_ref?: string; recipe: Recipe; phase: GenerationPhase; created_at: number }
+export interface Generation { id: string; parent_id?: string; source_ref?: string; recipe: Recipe; phase: GenerationPhase; created_at: number }
 export type EvalVerdict = 'better' | 'worse' | 'mixed' | 'failed_to_run';
 export interface EvalRun { id: string; candidate_id: string; baseline_id?: string; suite: string; verdict: EvalVerdict; journal_ref?: string; created_at: number }
 export interface Promotion { id: string; from_id: string; to_id: string; eval_id?: string; actor: string; phase: string; applies_at: string; created_at: number }
@@ -493,7 +493,7 @@ export const respondReview = (reviewId: string, response: { action: 'approve' | 
 export const inspectSpecies = () => request<SpeciesInspect>('species/inspect');
 export const listGenerations = () => request<{ generations: Generation[] }>('generations/list');
 export const getGeneration = (id: string) => request<Generation>('generations/get', { id });
-export const createGeneration = (params: { id?: string; parent_id?: string; artifact_sha256: string; source_ref?: string; recipe: Recipe }) => request<Generation>('generations/create', params);
+export const createGeneration = (params: { id?: string; parent_id?: string; source_ref?: string; recipe: Recipe }) => request<Generation>('generations/create', params);
 export const rejectGeneration = (id: string) => request<Generation>('generations/reject', { id });
 export const listEvals = () => request<{ evals: EvalRun[] }>('evals/list');
 export const recordEval = (params: { candidate_id: string; baseline_id?: string; suite: string; verdict: EvalVerdict; journal_ref?: string }) => request<EvalRun>('evals/record', params);

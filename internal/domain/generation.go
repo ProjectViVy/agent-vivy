@@ -42,13 +42,12 @@ func (p GenerationPhase) Valid() bool {
 
 // Generation is one packed species body.
 type Generation struct {
-	ID             string
-	ParentID       string
-	ArtifactSHA256 string
-	SourceRef      string
-	Recipe         AssemblyRecipe
-	Phase          GenerationPhase
-	CreatedAt      int64
+	ID        string
+	ParentID  string
+	SourceRef string
+	Recipe    AssemblyRecipe
+	Phase     GenerationPhase
+	CreatedAt int64
 }
 
 type EvalVerdict string

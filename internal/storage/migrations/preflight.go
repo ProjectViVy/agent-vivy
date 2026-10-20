@@ -62,6 +62,11 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		if len(applied) > 35 {
 			return fmt.Errorf("%w: unlisted post-baseline source", ErrUnsupportedSourceFormat)
 		}
+		if tables["generations"] {
+			if err := validateGenerationShape(ctx, db, dialect, false); err != nil {
+				return err
+			}
+		}
 		if len(applied) >= 31 {
 			if err := validateOperationShape(ctx, db, dialect, false); err != nil {
 				return err
@@ -70,6 +75,9 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		return ErrUpgradeRequired
 	}
 	// A migration number alone is never evidence of the converted target.
+	if err := validateGenerationShape(ctx, db, dialect, true); err != nil {
+		return err
+	}
 	return validateOperationShape(ctx, db, dialect, true)
 }
 
@@ -248,4 +256,29 @@ func sourceColumnExists(ctx context.Context, db *sql.DB, dialect Dialect, table,
 		return false, fmt.Errorf("storage migrations: inspect source column: %w", err)
 	}
 	return count == 1, nil
+}
+
+// Final runtime admits only the hash-free Generation target. Historical formats
+// reach it through ApplyManifest on the explicit disposable-copy upgrade path.
+func validateGenerationShape(ctx context.Context, db *sql.DB, dialect Dialect, current bool) error {
+	for _, column := range []string{"id", "parent_id", "source_ref", "recipe_json", "phase", "created_at"} {
+		exists, err := sourceColumnExists(ctx, db, dialect, "generations", column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("%w: missing Generation column %s", ErrUnsupportedSourceFormat, column)
+		}
+	}
+	exists, err := sourceColumnExists(ctx, db, dialect, "generations", "artifact_sha256")
+	if err != nil {
+		return err
+	}
+	if current && exists {
+		return fmt.Errorf("%w: retired Generation artifact hash column", ErrUnsupportedSourceFormat)
+	}
+	if !current && !exists {
+		return fmt.Errorf("%w: missing legacy Generation artifact column", ErrUnsupportedSourceFormat)
+	}
+	return nil
 }

@@ -1258,7 +1258,6 @@ export type FaceGenerationPhase = "built" | "eval_pending" | "evaluated" | "prom
 export interface FaceGeneration {
   readonly id: string;
   readonly parent_id?: string;
-  readonly artifact_sha256: string;
   readonly source_ref?: string;
   readonly recipe: FaceRecipe;
   readonly phase: FaceGenerationPhase;
@@ -1741,7 +1740,6 @@ export interface FaceTrajectorySession {
 export interface FaceGenerationInput {
   readonly id?: string;
   readonly parent_id?: string;
-  readonly artifact_sha256: string;
   readonly source_ref?: string;
   readonly recipe: {
     readonly loop?: string;
