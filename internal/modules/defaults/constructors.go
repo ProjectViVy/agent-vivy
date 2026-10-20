@@ -24,7 +24,7 @@ func NewProviderProfiles() module.Module { return ownerModule{id: "vivy/provider
 type ownerModule struct{ id string }
 
 func (m ownerModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: m.id, Version: "1.0.0"}, Source: module.Source{Ref: "repo:internal", SHA256: "0000000000000000000000000000000000000000000000000000000000000000"}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: m.id, Version: "1.0.0"}, Source: module.Source{Ref: "repo:internal"}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }
 func (ownerModule) Construct(context.Context, module.Host) (module.Instance, error) {
 	return ownerInstance{}, nil

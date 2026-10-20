@@ -14,7 +14,7 @@ A Vivy plugin is a public T2 Module source that:
 2. provides one or more public Ports from `VIVY-PORT-CATALOG.md`;
 3. is named explicitly by a Generation Recipe;
 4. is validated and compiled into a new immutable Generation;
-5. appears with exact version, source hash, Ports, Grants, and dependencies in
+5. appears with exact version, source reference, Ports, Grants, and dependencies in
    Generation Inspect.
 
 It is not a runtime-loaded shared library, remote URL, Skill document, MCP
@@ -59,7 +59,7 @@ drops them, not what team owns them:
 
 Capability that **every** Generation selects is "universal" and stays in
 `internal/` — it is kernel inventory, not a plugin. The test is selection:
-if no real Recipe would ever drop it, making it a Module buys digest and
+if no real Recipe would ever drop it, making it a Module adds source-pin and
 descriptor maintenance for zero variation. Extract only when a concrete
 Recipe boundary is identified.
 
@@ -81,7 +81,6 @@ module:
   version: 1.0.0
 source:
   ref: git:acme/search@0123456
-  sha256: 9f4a000000000000000000000000000000000000000000000000000000000000
 provides:
   - port: std/tool@v1
   - port: std/ui-extension@v1
@@ -103,9 +102,8 @@ lifecycle:
 Trust does not appear in this document. The Source Catalog identifies the
 source; the Recipe selects the source and approves effective Grants.
 
-`Describe` and parsing the Descriptor perform no side effects. Source hashes
-are calculated from a canonical file set with normalized paths and explicit
-exclusions for build output and local scratch.
+`Describe` and parsing the Descriptor perform no side effects. Sources enter through explicit Recipe references and catalog-owned roots;
+Descriptors cannot select their own Trust or generated bindings.
 
 ## 4. No universal Plugin interface
 
@@ -144,7 +142,6 @@ modules:
   - id: vivy/default-body
   - id: acme/search
     source: git:acme/search@0123456
-    sha256: 9f4a000000000000000000000000000000000000000000000000000000000000
     grants:
       net.client:
         schemes: [https]
@@ -221,8 +218,8 @@ sandboxed widget.
 
 The build still enforces provenance:
 
-- UI source and dependency lock hashes enter the Generation inputs;
-- the built UI artifact hash enters the Manifest;
+- UI sources and native dependency pins remain explicit build inputs;
+- the UI projection carries the pack-owned Generation ID;
 - `std/ui-root@v1` remains exclusive;
 - extension order and replacement relationships are explicit;
 - remote code download and T3 UI injection are forbidden.
@@ -341,19 +338,19 @@ calculate or compare source-tree SHA-256, and it does not execute a Provider:
 focused conformance remains a separate release/CI gate.
 
 `pack` compiles the complete Recipe graph, creates typed generated wiring,
-derives source hashes from the exact selected source trees, builds backend and
-UI contributions, binds complete checked-in conformance results only when
-they match a selected Provider and derived source hash, embeds the immutable
+resolves explicit selected source/ref/root bindings, builds backend and
+UI contributions, includes complete checked-in behavior results for selected
+Providers with their executable suite references, embeds the immutable
 Manifest, and emits no artifact on failure. It never relabels a result onto
 an unattested third-party Provider. `pack` does not run test suites; the
 executable result-reproduction gate, Generation matrix, and focused suites
 must pass before their immutable result bundle is advanced.
 
 `inspect-artifact` displays Module/Port graph, Trust assignment, effective
-Grants, source and artifact hashes, lifecycle order, Middleware/UI composition,
+Grants, source references, Generation identity, lifecycle order, Middleware/UI composition,
 runtime capability state, compiler version, evidence-derived public Port
 support, selected-Provider conformance results, and catalog schema, path,
-canonical digest, default and packaged locales, compiler-derived completeness,
+default and packaged locales, compiler-derived completeness,
 and evidence identifiers. It validates the executable's embedded Manifest
 without executing the artifact.
 
@@ -403,7 +400,7 @@ Module passes its focused Conformance Suite, the complete Recipe passes
 Generation conformance, Inspect proves provenance and authority, failure-path
 tests pass, `just ci` is green, and the iteration log records human acceptance.
 
-Localization completion also requires deterministic catalog hashing and
+Localization completion also requires deterministic catalog generation and
 Manifest evidence. No runtime or v0 fallback may substitute for a failed
 catalog contract.
 

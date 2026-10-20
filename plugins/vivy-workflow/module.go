@@ -17,7 +17,6 @@ const (
 	ProviderID      = "vivy.workflow-ui.sidebar"
 	UIExtensionPort = "std/ui-extension@v1"
 	SourceRef       = "repo:plugins/vivy-workflow"
-	SourceSHA256    = "a0fcd1ea3fc3c57e68b4004e098ef8d9a40b92107b684c1841e9b7254547999d"
 )
 
 type owner struct{}
@@ -32,7 +31,7 @@ func (owner) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: ModuleID, Version: "0.1.0"},
-		Source:     module.Source{Ref: SourceRef, SHA256: SourceSHA256},
+		Source:     module.Source{Ref: SourceRef},
 		Provides:   []module.PortRef{{Port: UIExtensionPort, ID: ProviderID}},
 		I18N:       &module.I18N{Catalog: "i18n/catalog.json", DefaultLocale: "en", Locales: []string{"en", "zh"}},
 		Lifecycle:  module.Lifecycle{Scope: module.ScopeGeneration},

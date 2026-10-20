@@ -73,7 +73,7 @@ func TestRunProviderSuiteRejectsMissingEvidencePath(t *testing.T) {
 	for _, name := range RequiredProviderChecks() {
 		checks[name] = func(context.Context) error { return nil }
 	}
-	for _, evidence := range []string{"", "missing-anchor.go", "../outside.go#Test", "/absolute.go#Test"} {
+	for _, evidence := range []string{"", "missing-anchor.go", "../outside.go#Test", "/absolute.go#Test", "C:/absolute.go#Test", "C:\\absolute.go#Test"} {
 		if _, err := RunProviderSuite(context.Background(), definition, "fixture/channel", evidence, checks); err == nil {
 			t.Fatalf("invalid evidence path accepted: %q", evidence)
 		}

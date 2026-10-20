@@ -2,8 +2,6 @@ package sdk
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,7 +42,6 @@ const (
 type compiledCatalog struct {
 	SchemaVersion string
 	Path          string
-	Digest        string
 	DefaultLocale string
 	Locales       []string
 	Completeness  map[string]localeState
@@ -149,11 +146,9 @@ func loadCatalog(moduleRoot string, descriptor module.Descriptor) (compiledCatal
 	if err != nil {
 		return compiledCatalog{}, fmt.Errorf("sdk: canonicalize i18n catalog for %s: %w", descriptor.Module.ID, err)
 	}
-	digestBytes := sha256.Sum256(canonical)
 	return compiledCatalog{
 		SchemaVersion: document.APIVersion,
 		Path:          descriptor.I18N.Catalog,
-		Digest:        hex.EncodeToString(digestBytes[:]),
 		DefaultLocale: "en",
 		Locales:       append([]string(nil), locales...),
 		Completeness:  completeness,

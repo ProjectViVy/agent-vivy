@@ -73,7 +73,7 @@ type RuntimeAssembly struct {
 // binary built from this Assembly carries the same form identity, while a
 // packed build replaces this file and derives its sealed identity from the
 // embedded Generation Manifest instead.
-const HeadlessGenerationID = "vivy-headless/1"
+const HeadlessGenerationID = "authoring-default"
 
 func BuildDefault() RuntimeAssembly {
 	return RuntimeAssembly{

@@ -17,8 +17,7 @@ import (
 )
 
 // stagedUIAssemblyFile is the generated entry consumed by the checked-in Vite
-// configuration. Its content is the same projection Pack seals; only the
-// self-referential asset identity differs.
+// configuration. It uses the same projection as Pack with an authoring identity.
 const stagedUIAssemblyFile = "assembly.ts"
 
 // StageUIReport is the machine-readable outcome of one staging run.
@@ -35,13 +34,12 @@ type StageUIReport struct {
 // It is the unsealed twin of Pack's UI input: the same Recipe, the same
 // Assembly generator, and the same flat source staging, so a Module entry path
 // means the same thing in the inner loop and in a sealed Generation. It builds
-// no Go artifact, runs no Vite build, and claims no asset identity: the
-// self-referential asset hashes stay at the compiler's masked placeholder
-// because only Pack can bind them.
+// no Go artifact and runs no Vite build; its authoring identity stays stable
+// until Pack supplies a fresh build-owned identity.
 //
 // A Recipe that selects no UI Module still writes the canonical empty
 // Assembly, so a UI-less profile remains buildable instead of failing.
-func StageUI(repoRoot, recipePath, outputDir string) (StageUIReport, error) {
+func StageUI(repoRoot, recipePath, outputDir string, generationIDs ...string) (StageUIReport, error) {
 	root, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return StageUIReport{}, err
@@ -107,7 +105,7 @@ func StageUI(repoRoot, recipePath, outputDir string) (StageUIReport, error) {
 		if err := json.Unmarshal(compiled.Canonical, &projection); err != nil {
 			return StageUIReport{}, fmt.Errorf("sdk: decode i18n catalog projection for %s: %w", resolved.Descriptor.Module.ID, err)
 		}
-		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, Digest: compiled.Digest, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, CompilationState: string(compiled.State), Evidence: []string{string(compiled.State)}, Units: projection.Units})
+		catalogs = append(catalogs, assemblyv1.CatalogManifest{Module: resolved.Descriptor.Module.ID, APIVersion: compiled.SchemaVersion, SchemaVersion: compiled.SchemaVersion, Path: compiled.Path, DefaultLocale: compiled.DefaultLocale, Locales: compiled.Locales, Completeness: completeness, CompilationState: string(compiled.State), Evidence: []string{string(compiled.State)}, Units: projection.Units})
 	}
 
 	uiInput := assemblyv1.UIAssemblyInput{SDKVersion: assemblyv1.UIAssemblySDKVersion, Catalogs: catalogs}
@@ -115,18 +113,19 @@ func StageUI(repoRoot, recipePath, outputDir string) (StageUIReport, error) {
 		uiInput = *recipe.UI
 		uiInput.Catalogs = catalogs
 	}
+	uiInput.GenerationID = "authoring-" + recipe.Profile
+	if len(generationIDs) > 1 {
+		return StageUIReport{}, fmt.Errorf("one Generation ID is required")
+	}
+	if len(generationIDs) == 1 {
+		uiInput.GenerationID = generationIDs[0]
+	}
 	if err := applyRecipeUIOrder(&uiInput, recipe.Order); err != nil {
 		return StageUIReport{}, fmt.Errorf("sdk: configure UI Assembly order: %w", err)
-	}
-	if err := bindUIContentHashes(&uiInput, plan, catalog); err != nil {
-		return StageUIReport{}, err
 	}
 	if err := bindUIBuildDependencies(&uiInput, root, plan, catalog); err != nil {
 		return StageUIReport{}, err
 	}
-	// Only Pack can bind the final asset identity, so the repository
-	// projection keeps the compiler's masked placeholder.
-	setUIAssetHashes(&uiInput, zeroDigest)
 	uiAssembly, err := assemblyv1.GenerateUIAssembly(uiInput)
 	if err != nil {
 		return StageUIReport{}, fmt.Errorf("sdk: generate UI Assembly: %w", err)

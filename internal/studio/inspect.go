@@ -13,6 +13,7 @@ const BuiltinGenerationID = "builtin"
 // LiveView is the running process's first-party identity. Paths and
 // secrets must not appear here.
 type LiveView struct {
+	GenerationID  string
 	Provider      string
 	PolicyProfile domain.PolicyProfile
 	Tools         []domain.ToolSpec
@@ -54,6 +55,9 @@ func (s *Service) Inspect(ctx context.Context, live LiveView) (Report, error) {
 	// A packed species carries the compiler-sealed Generation Manifest in the
 	// executable. Project only final identities from that manifest; never
 	// derive them from planned Recipe inputs or from browser-generated source.
+	if live.GenerationID != "" {
+		rep.GenerationID = live.GenerationID
+	}
 	sealedGenerationID := sealedIdentity()
 	if sealedGenerationID != "" {
 		rep.GenerationID = sealedGenerationID
@@ -62,7 +66,7 @@ func (s *Service) Inspect(ctx context.Context, live LiveView) (Report, error) {
 		rep.Tools = append(rep.Tools, ToolReport{Name: spec.Name, Readonly: spec.Readonly})
 		rep.Recipe.Tools = append(rep.Recipe.Tools, spec.Name)
 	}
-	if s == nil || s.store == nil {
+	if s == nil || s.store == nil || live.GenerationID != "" || sealedGenerationID != "" {
 		return rep, nil
 	}
 	promos, err := s.store.ListPromotions(ctx)

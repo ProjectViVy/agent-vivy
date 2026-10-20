@@ -58,7 +58,11 @@ func convert(ctx context.Context, opt Options, check func(string) error) (result
 	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
 		return result, errors.New("studio transition: target must not exist")
 	}
-	ro := url.URL{Scheme: "file", Path: filepath.ToSlash(source), RawQuery: "mode=ro"}
+	uriPath := filepath.ToSlash(source)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	ro := url.URL{Scheme: "file", Path: uriPath, RawQuery: "mode=ro"}
 	src, err := sql.Open("sqlite", ro.String())
 	if err != nil {
 		return result, err

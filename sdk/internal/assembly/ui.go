@@ -1,8 +1,6 @@
 package assembly
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -42,7 +40,6 @@ const (
 	UIAssemblyErrorMissingTarget      UIAssemblyErrorCode = "missing_target"
 	UIAssemblyErrorFloatingDependency UIAssemblyErrorCode = "floating_dependency"
 	UIAssemblyErrorRemoteEntry        UIAssemblyErrorCode = "remote_entry_url"
-	UIAssemblyErrorMissingHash        UIAssemblyErrorCode = "missing_hash"
 	UIAssemblyErrorInvalidPort        UIAssemblyErrorCode = "invalid_port"
 	UIAssemblyErrorDuplicateID        UIAssemblyErrorCode = "duplicate_id"
 	UIAssemblyErrorInvalidInput       UIAssemblyErrorCode = "invalid_input"
@@ -90,18 +87,8 @@ type UIModule struct {
 	Export     string `json:"export,omitempty" yaml:"export,omitempty"`
 	ExportName string `json:"exportName,omitempty" yaml:"exportName,omitempty"`
 
-	SourceHash   string `json:"sourceHash,omitempty" yaml:"sourceHash,omitempty"`
-	SourceSHA256 string `json:"sourceSha256,omitempty" yaml:"sourceSha256,omitempty"`
-
-	LockHash           string `json:"lockHash,omitempty" yaml:"lockHash,omitempty"`
-	DependencyLockHash string `json:"dependencyLockHash,omitempty" yaml:"dependencyLockHash,omitempty"`
-
-	AssetHash      string `json:"assetHash,omitempty" yaml:"assetHash,omitempty"`
-	FinalAssetHash string `json:"finalAssetHash,omitempty" yaml:"finalAssetHash,omitempty"`
-
-	// Dependencies are package.json dependency names and exact versions. A
-	// lock hash alone does not make a floating package range a safe source
-	// input, so ranges are rejected before imports are generated.
+	// Dependencies are package.json dependency names and exact versions.
+	// Floating ranges are rejected before imports are generated.
 	Dependencies        map[string]string `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
 	PackageDependencies map[string]string `json:"packageDependencies,omitempty" yaml:"packageDependencies,omitempty"`
 
@@ -114,7 +101,8 @@ type UIModule struct {
 // generator only reads these values: it does not walk plugin directories,
 // invoke a package manager, execute a shell command, or access the network.
 type UIAssemblyInput struct {
-	SDKVersion string `json:"sdkVersion" yaml:"sdkVersion"`
+	GenerationID string `json:"generationId" yaml:"generationId"`
+	SDKVersion   string `json:"sdkVersion" yaml:"sdkVersion"`
 
 	// Roots is normally zero or one item. Root is a convenience for callers
 	// constructing a single selected root without a slice.
@@ -127,17 +115,9 @@ type UIAssemblyInput struct {
 	// with different values is rejected as an ambiguous Recipe.
 	Order []string `json:"order,omitempty" yaml:"order,omitempty"`
 
-	// These maps allow a Recipe adapter to keep content-addressed inputs in a
-	// separate manifest table. Per-module fields take precedence. Entries for
-	// omitted Modules are intentionally ignored and never leak into output.
-	SourceHashes         map[string]string `json:"sourceHashes,omitempty" yaml:"sourceHashes,omitempty"`
-	DependencyLockHashes map[string]string `json:"dependencyLockHashes,omitempty" yaml:"dependencyLockHashes,omitempty"`
-	LockHashes           map[string]string `json:"lockHashes,omitempty" yaml:"lockHashes,omitempty"`
-	AssetHashes          map[string]string `json:"assetHashes,omitempty" yaml:"assetHashes,omitempty"`
-	FinalAssetHashes     map[string]string `json:"finalAssetHashes,omitempty" yaml:"finalAssetHashes,omitempty"`
 	// Catalogs is the validated, selected translation projection. It is an
 	// explicit compiler input so generated hosts never discover catalogs at
-	// runtime and catalog content participates in the sealed UI identity.
+	// runtime; the selected projection is recorded in the UI manifest.
 	Catalogs []CatalogManifest `json:"catalogs,omitempty" yaml:"catalogs,omitempty"`
 }
 
@@ -165,11 +145,6 @@ func cloneUIAssemblyInput(source *UIAssemblyInput) *UIAssemblyInput {
 	})
 	cloned.ExtensionOrder = append([]string(nil), source.ExtensionOrder...)
 	cloned.Order = append([]string(nil), source.Order...)
-	cloned.SourceHashes = cloneStringMap(source.SourceHashes)
-	cloned.DependencyLockHashes = cloneStringMap(source.DependencyLockHashes)
-	cloned.LockHashes = cloneStringMap(source.LockHashes)
-	cloned.AssetHashes = cloneStringMap(source.AssetHashes)
-	cloned.FinalAssetHashes = cloneStringMap(source.FinalAssetHashes)
 	cloned.Catalogs = cloneCatalogManifests(source.Catalogs)
 	return &cloned
 }
@@ -185,22 +160,19 @@ func cloneUIModule(source UIModule) UIModule {
 }
 
 // UIAssemblyManifest is the UI projection sealed into a Generation Manifest.
-// Maps are keyed by selected Provider ID, and every selected contribution has
-// one source, dependency-lock, SDK, and final asset identity.
+// It records selected Providers, SDK metadata and the shared Generation identity.
 type UIAssemblyManifest struct {
-	Root                 string              `json:"root,omitempty"`
-	Extensions           []string            `json:"extensions"`
-	Replacements         map[string][]string `json:"replacements,omitempty"`
-	SourceHashes         map[string]string   `json:"sourceHashes"`
-	DependencyLockHashes map[string]string   `json:"dependencyLockHashes"`
-	SDKPackage           string              `json:"sdkPackage"`
-	SDKVersion           string              `json:"sdkVersion"`
-	AssetHashes          map[string]string   `json:"assetHashes"`
-	Catalogs             []CatalogManifest   `json:"catalogs,omitempty"`
+	GenerationID string              `json:"generationId"`
+	Root         string              `json:"root,omitempty"`
+	Extensions   []string            `json:"extensions"`
+	Replacements map[string][]string `json:"replacements,omitempty"`
+	SDKPackage   string              `json:"sdkPackage"`
+	SDKVersion   string              `json:"sdkVersion"`
+	Catalogs     []CatalogManifest   `json:"catalogs,omitempty"`
 }
 
-// Canonical returns stable JSON suitable for inclusion in a content-addressed
-// Generation identity. encoding/json sorts map keys; all slices were
+// Canonical returns stable JSON for the Generation projection.
+// encoding/json sorts map keys; all slices were
 // normalized before this manifest is returned.
 func (manifest UIAssemblyManifest) Canonical() []byte {
 	raw, err := json.Marshal(manifest)
@@ -225,7 +197,6 @@ type UIAssembly struct {
 }
 
 var (
-	uiDigestPattern        = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	uiCatalogModulePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 	uiSemverPattern        = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 	uiDependencyName       = regexp.MustCompile(`^(?:@[^/\s]+/)?[^/\s]+$`)
@@ -234,17 +205,14 @@ var (
 )
 
 type normalizedUIModule struct {
-	ID         string
-	ModuleID   string
-	Port       string
-	Entry      string
-	Export     string
-	SourceHash string
-	LockHash   string
-	AssetHash  string
-	Before     []string
-	After      []string
-	Replaces   []string
+	ID       string
+	ModuleID string
+	Port     string
+	Entry    string
+	Export   string
+	Before   []string
+	After    []string
+	Replaces []string
 }
 
 // GenerateUIAssembly validates and renders a deterministic, static UI
@@ -285,13 +253,15 @@ func GenerateUIComposition(input UIAssemblyInput) ([]byte, error) {
 }
 
 // CompileUI is an alias used by Assembly adapters. It remains pure and
-// deterministic; compilation of TypeScript is a separate explicit build
-// step whose output hash is supplied back as AssetHash.
+// deterministic; TypeScript compilation remains a separate explicit build step.
 func CompileUI(input UIAssemblyInput) (UIAssembly, error) {
 	return GenerateUIAssembly(input)
 }
 
 func normalizeUIAssemblyInput(input UIAssemblyInput) (normalizedUIAssembly, error) {
+	if strings.TrimSpace(input.GenerationID) == "" {
+		return normalizedUIAssembly{}, uiAssemblyError(UIAssemblyErrorInvalidInput, "", "Generation ID is required")
+	}
 	pin, err := uiSDK.PinnedPackage()
 	if err != nil {
 		return normalizedUIAssembly{}, uiAssemblyError(UIAssemblyErrorInvalidInput, "", err.Error())
@@ -362,15 +332,16 @@ func normalizeUIAssemblyInput(input UIAssemblyInput) (normalizedUIAssembly, erro
 	if err != nil {
 		return normalizedUIAssembly{}, err
 	}
-	return normalizedUIAssembly{SDKPackage: pin.Name, SDKVersion: pin.Version, Root: roots, Extensions: orderedExtensions, Catalogs: catalogs}, nil
+	return normalizedUIAssembly{GenerationID: input.GenerationID, SDKPackage: pin.Name, SDKVersion: pin.Version, Root: roots, Extensions: orderedExtensions, Catalogs: catalogs}, nil
 }
 
 type normalizedUIAssembly struct {
-	SDKPackage string
-	SDKVersion string
-	Root       []normalizedUIModule
-	Extensions []normalizedUIModule
-	Catalogs   []CatalogManifest
+	GenerationID string
+	SDKPackage   string
+	SDKVersion   string
+	Root         []normalizedUIModule
+	Extensions   []normalizedUIModule
+	Catalogs     []CatalogManifest
 }
 
 func normalizeCatalogManifests(input []CatalogManifest) ([]CatalogManifest, error) {
@@ -409,9 +380,6 @@ func normalizeCatalogManifests(input []CatalogManifest) ([]CatalogManifest, erro
 		}
 		if !containsString(catalog.Locales, "en") {
 			return nil, uiAssemblyError(UIAssemblyErrorInvalidInput, catalog.Module, "catalog locales must include en")
-		}
-		if !uiDigestPattern.MatchString(catalog.Digest) || catalog.Digest != catalogProjectionDigest(*catalog) {
-			return nil, uiAssemblyError(UIAssemblyErrorMissingHash, catalog.Module, "catalog digest does not match its sealed translation projection")
 		}
 		if len(catalog.Units) == 0 {
 			return nil, uiAssemblyError(UIAssemblyErrorInvalidInput, catalog.Module, "catalog requires translation units")
@@ -520,19 +488,6 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
-func catalogProjectionDigest(catalog CatalogManifest) string {
-	payload := struct {
-		APIVersion string                 `json:"apiVersion"`
-		Units      map[string]CatalogUnit `json:"units"`
-	}{APIVersion: catalog.APIVersion, Units: catalog.Units}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(raw)
-	return hex.EncodeToString(digest[:])
-}
-
 func normalizeUIModule(contribution UIModule, expectedPort string, input UIAssemblyInput) (normalizedUIModule, error) {
 	id, err := chooseStringAlias("provider id", contribution.ID, contribution.ProviderID)
 	if err != nil {
@@ -578,46 +533,6 @@ func normalizeUIModule(contribution UIModule, expectedPort string, input UIAssem
 		return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorInvalidInput, id, fmt.Sprintf("export %q is not a TypeScript identifier", exportName))
 	}
 
-	sourceHash, err := chooseStringAlias("source hash", contribution.SourceHash, contribution.SourceSHA256)
-	if err != nil {
-		return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorConflictingAlias, id, err.Error())
-	}
-	if sourceHash == "" {
-		sourceHash, err = lookupHashAliases("source hash", []string{moduleID, id}, input.SourceHashes)
-		if err != nil {
-			return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorConflictingAlias, id, err.Error())
-		}
-	}
-	if err := validateUIHash(id, "source", sourceHash); err != nil {
-		return normalizedUIModule{}, err
-	}
-	lockHash, err := chooseStringAlias("dependency lock hash", contribution.LockHash, contribution.DependencyLockHash)
-	if err != nil {
-		return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorConflictingAlias, id, err.Error())
-	}
-	if lockHash == "" {
-		lockHash, err = lookupHashAliases("dependency lock hash", []string{moduleID, id}, input.DependencyLockHashes, input.LockHashes)
-		if err != nil {
-			return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorConflictingAlias, id, err.Error())
-		}
-	}
-	if err := validateUIHash(id, "dependency lock", lockHash); err != nil {
-		return normalizedUIModule{}, err
-	}
-	assetHash, err := chooseStringAlias("asset hash", contribution.AssetHash, contribution.FinalAssetHash)
-	if err != nil {
-		return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorConflictingAlias, id, err.Error())
-	}
-	if assetHash == "" {
-		assetHash, err = lookupHashAliases("asset hash", []string{moduleID, id}, input.AssetHashes, input.FinalAssetHashes)
-		if err != nil {
-			return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorConflictingAlias, id, err.Error())
-		}
-	}
-	if err := validateUIHash(id, "asset", assetHash); err != nil {
-		return normalizedUIModule{}, err
-	}
-
 	dependencies, err := mergeDependencies(contribution.Dependencies, contribution.PackageDependencies)
 	if err != nil {
 		return normalizedUIModule{}, uiAssemblyError(UIAssemblyErrorInvalidInput, id, err.Error())
@@ -649,17 +564,14 @@ func normalizeUIModule(contribution UIModule, expectedPort string, input UIAssem
 	}
 
 	return normalizedUIModule{
-		ID:         id,
-		ModuleID:   moduleID,
-		Port:       portName,
-		Entry:      entry,
-		Export:     exportName,
-		SourceHash: sourceHash,
-		LockHash:   lockHash,
-		AssetHash:  assetHash,
-		Before:     canonicalRelationValues(contribution.Before),
-		After:      canonicalRelationValues(contribution.After),
-		Replaces:   canonicalRelationValues(contribution.Replaces),
+		ID:       id,
+		ModuleID: moduleID,
+		Port:     portName,
+		Entry:    entry,
+		Export:   exportName,
+		Before:   canonicalRelationValues(contribution.Before),
+		After:    canonicalRelationValues(contribution.After),
+		Replaces: canonicalRelationValues(contribution.Replaces),
 	}, nil
 }
 
@@ -683,16 +595,6 @@ func validateUIEntry(id, entry string) error {
 	normalized := "./" + strings.TrimPrefix(clean, "./")
 	if entry != normalized {
 		return invalid(fmt.Sprintf("path is not normalized; want %q", normalized))
-	}
-	return nil
-}
-
-func validateUIHash(id, label, value string) error {
-	if value == "" {
-		return uiAssemblyError(UIAssemblyErrorMissingHash, id, label+" hash is required as an explicit input")
-	}
-	if !uiDigestPattern.MatchString(value) {
-		return uiAssemblyError(UIAssemblyErrorInvalidInput, id, fmt.Sprintf("%s hash must be 64 lowercase hexadecimal characters", label))
 	}
 	return nil
 }
@@ -873,23 +775,18 @@ func normalizedUIModuleSortKey(contribution normalizedUIModule) string {
 
 func buildUIAssemblyManifest(assembly normalizedUIAssembly) UIAssemblyManifest {
 	manifest := UIAssemblyManifest{
-		Extensions:           make([]string, 0, len(assembly.Extensions)),
-		Replacements:         make(map[string][]string),
-		SourceHashes:         make(map[string]string, len(assembly.Root)+len(assembly.Extensions)),
-		DependencyLockHashes: make(map[string]string, len(assembly.Root)+len(assembly.Extensions)),
-		SDKPackage:           assembly.SDKPackage,
-		SDKVersion:           assembly.SDKVersion,
-		AssetHashes:          make(map[string]string, len(assembly.Root)+len(assembly.Extensions)),
-		Catalogs:             cloneCatalogManifests(assembly.Catalogs),
+		GenerationID: assembly.GenerationID,
+		Extensions:   make([]string, 0, len(assembly.Extensions)),
+		Replacements: make(map[string][]string),
+		SDKPackage:   assembly.SDKPackage,
+		SDKVersion:   assembly.SDKVersion,
+		Catalogs:     cloneCatalogManifests(assembly.Catalogs),
 	}
 	all := append(append([]normalizedUIModule(nil), assembly.Root...), assembly.Extensions...)
 	if len(assembly.Root) == 1 {
 		manifest.Root = assembly.Root[0].ID
 	}
 	for _, contribution := range all {
-		manifest.SourceHashes[contribution.ID] = contribution.SourceHash
-		manifest.DependencyLockHashes[contribution.ID] = contribution.LockHash
-		manifest.AssetHashes[contribution.ID] = contribution.AssetHash
 		if len(contribution.Replaces) > 0 {
 			manifest.Replacements[contribution.ID] = append([]string(nil), contribution.Replaces...)
 		}
@@ -976,41 +873,8 @@ func chooseStringAlias(name, first, second string) (string, error) {
 func uiModulePresent(module UIModule) bool {
 	return module.ID != "" || module.ProviderID != "" || module.ModuleID != "" || module.Port != "" ||
 		module.Entry != "" || module.ImportPath != "" || module.Export != "" || module.ExportName != "" ||
-		module.SourceHash != "" || module.SourceSHA256 != "" || module.LockHash != "" || module.DependencyLockHash != "" ||
-		module.AssetHash != "" || module.FinalAssetHash != "" || len(module.Dependencies) > 0 || len(module.PackageDependencies) > 0 ||
+		len(module.Dependencies) > 0 || len(module.PackageDependencies) > 0 ||
 		len(module.Before) > 0 || len(module.After) > 0 || len(module.Replaces) > 0
-}
-
-func lookupHashAliases(name string, keys []string, values ...map[string]string) (string, error) {
-	type candidate struct {
-		alias string
-		value string
-	}
-	candidates := make([]candidate, 0, len(keys)*len(values))
-	for valueIndex, valuesMap := range values {
-		for keyIndex, key := range keys {
-			value := strings.TrimSpace(valuesMap[key])
-			if value == "" {
-				continue
-			}
-			candidates = append(candidates, candidate{
-				alias: fmt.Sprintf("%d:%d:%s", valueIndex, keyIndex, key),
-				value: value,
-			})
-		}
-	}
-	if len(candidates) == 0 {
-		return "", nil
-	}
-	sort.Slice(candidates, func(left, right int) bool {
-		return candidates[left].alias < candidates[right].alias
-	})
-	for _, candidate := range candidates[1:] {
-		if candidate.value != candidates[0].value {
-			return "", fmt.Errorf("conflicting %s aliases for %s", name, strings.Join(keys, ", "))
-		}
-	}
-	return candidates[0].value, nil
 }
 
 func mergeDependencies(first, second map[string]string) (map[string]string, error) {
@@ -1054,13 +918,4 @@ func equalStrings(first, second []string) bool {
 		}
 	}
 	return true
-}
-
-// HashUIAssemblySource is a convenience for build adapters that want to
-// content-address the generated projection before invoking the frontend
-// compiler. The final emitted asset hash must still be supplied explicitly as
-// AssetHash; a source hash is not an asset hash.
-func HashUIAssemblySource(source []byte) string {
-	digest := sha256.Sum256(source)
-	return hex.EncodeToString(digest[:])
 }

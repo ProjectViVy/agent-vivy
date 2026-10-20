@@ -17,7 +17,6 @@ const validCase = {
       module: { id: "fixture/minimal", version: "1.0.0" },
       source: {
         ref: "git:fixture/minimal@0123456",
-        sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       },
       provides: [],
       requires: [],

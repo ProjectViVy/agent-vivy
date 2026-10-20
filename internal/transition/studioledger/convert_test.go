@@ -123,7 +123,7 @@ func TestConvertCopiesActualArtifactAndPreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Artifacts) != 1 || result.Artifacts[artifact] == "" {
+	if len(result.Artifacts) != 1 || result.Artifacts[filepath.ToSlash(artifact)] == "" {
 		t.Fatalf("actual artifact mapping = %#v", result.Artifacts)
 	}
 	ledger, err := studiocore.OpenLedger(ctx, filepath.Join(target, "studio.db"))
@@ -135,14 +135,14 @@ func TestConvertCopiesActualArtifactAndPreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gen.ParentID != "gen-ref" || gen.SourceRef != "file:"+filepath.ToSlash(result.Artifacts[artifact]) || gen.Recipe.Face != "headless" {
+	if gen.ParentID != "gen-ref" || gen.SourceRef != "file:"+filepath.ToSlash(result.Artifacts[filepath.ToSlash(artifact)]) || gen.Recipe.Face != "headless" {
 		t.Fatalf("converted generation = %#v", gen)
 	}
 	ref, err := ledger.GetGeneration(ctx, "gen-ref")
 	if err != nil || ref.SourceRef != "git:owned-ref" {
 		t.Fatalf("selection ref = %#v, %v", ref, err)
 	}
-	for _, file := range []struct{ path, want string }{{result.Artifacts[artifact], "candidate bytes"}, {filepath.Join(target, "rollback", "ins", "vivy.exe"), "previous bytes"}} {
+	for _, file := range []struct{ path, want string }{{result.Artifacts[filepath.ToSlash(artifact)], "candidate bytes"}, {filepath.Join(target, "rollback", "ins", "vivy.exe"), "previous bytes"}} {
 		raw, err := os.ReadFile(file.path)
 		if err != nil || string(raw) != file.want {
 			t.Fatalf("copied %s = %q, %v", file.path, raw, err)
@@ -271,7 +271,7 @@ func TestConvertRefusesUnknownShapeBeforeTargetAndAllowsRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(result.Artifacts[artifact]) != "artifact-000001.exe" {
+	if filepath.Base(result.Artifacts[filepath.ToSlash(artifact)]) != "artifact-000001.exe" {
 		t.Fatalf("retry allocation = %#v", result)
 	}
 	after, _ := os.ReadFile(source)

@@ -51,10 +51,9 @@ type generateOptions struct {
 
 // WithFormIdentity declares the composition's own form identity in the
 // generated artifact: the emitted source carries the HeadlessGenerationID
-// constant and BuildDefault assigns it to RuntimeAssembly.GenerationID. Only
-// the repository's default (headless) composition passes it. Packed builds
-// never do, so their generated assembly keeps an empty GenerationID and the
-// runtime derives its identity from the linker-embedded sealed manifest.
+// constant and BuildDefault assigns it to RuntimeAssembly.GenerationID.
+// Authoring uses a stable profile identity; Pack supplies its fresh identity
+// to both this producer and the embedded Manifest.
 func WithFormIdentity(id string) GenerateOption {
 	return func(options *generateOptions) { options.formIdentity = id }
 }

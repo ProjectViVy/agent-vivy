@@ -570,6 +570,10 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 		name, channels, mcp string
 	}{
 		{"default", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
+		{"lite", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityNotCompiled)},
+		{"masks-selected", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-omitted", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
+		{"masks-backend-only", string(assemblyv1.CapabilityUnconfigured), string(assemblyv1.CapabilityUnconfigured)},
 		{"minimal", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityNotCompiled)},
 		{"headless", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
 		{"vivy-code", string(assemblyv1.CapabilityNotCompiled), string(assemblyv1.CapabilityUnconfigured)},
@@ -583,6 +587,7 @@ func TestPackAndInspectEveryShippedRecipe(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Logf("recipe=recipes/%s.vivy.yml target=executable generation=%s", name, artifact.Manifest.GenerationID)
 			inspected, err := InspectArtifact(output)
 			if err != nil {
 				t.Fatal(err)
@@ -859,36 +864,6 @@ func (provider) Invoke(context.Context, toolport.Host, json.RawMessage) (toolpor
 	}
 }
 
-func TestCanonicalResolvedModfileSealsSemanticsWithoutLocalPaths(t *testing.T) {
-	writeMod := func(name, localPath, version string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), name+".mod")
-		body := fmt.Sprintf("module example.com/test\n\ngo 1.26.4\n\nrequire example.com/dependency %s\nreplace example.com/dependency => %s\n", version, filepath.ToSlash(localPath))
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return path
-	}
-	first, err := canonicalResolvedModfile(".", writeMod("first", filepath.Join(t.TempDir(), "checkout-a"), "v1.2.3"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := canonicalResolvedModfile(".", writeMod("second", filepath.Join(t.TempDir(), "checkout-b"), "v1.2.3"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(first, second) {
-		t.Fatalf("machine-local replace paths changed canonical modfile:\n%s\n%s", first, second)
-	}
-	changed, err := canonicalResolvedModfile(".", writeMod("changed", filepath.Join(t.TempDir(), "checkout-c"), "v1.2.4"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(first, changed) {
-		t.Fatal("resolved dependency version did not change canonical modfile")
-	}
-}
-
 // DN-L: the shared library target must produce a sealed DLL/.so whose
 // embedded Manifest, ABI headers, and artifact identity all verify through
 // the same inspect path as the executable, and whose failures publish
@@ -900,6 +875,7 @@ func TestPackAndInspectSharedTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("recipe=recipes/diva.vivy.yml target=shared generation=%s", artifact.Manifest.GenerationID)
 	sharedName := artifactSharedName(runtime.GOOS)
 	if filepath.Base(artifact.Binary) != sharedName {
 		t.Fatalf("shared binary = %q, want %q", artifact.Binary, sharedName)

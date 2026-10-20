@@ -454,7 +454,6 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 		Live: studio.LiveView{
 			Provider:      "test",
 			PolicyProfile: domain.PolicyProfileDefault,
-			PolicyHash:    "policy-hash-test",
 			Tools:         liveTools,
 		},
 		Eval: eval.NewRunner(eval.Runner{
@@ -1010,7 +1009,16 @@ func TestSpeciesInspectBuiltinThenPromoted(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	promoted := decodeInspect(t, second)
-	if promoted.GenerationID != toGen.ID || promoted.ArtifactSHA256 != "to-sha" {
+	rawInspect, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"artifact_sha256", "ui_artifact_sha256", "policy_hash"} {
+		if strings.Contains(string(rawInspect), "\""+field+"\"") {
+			t.Fatalf("retired Inspect field: %s", field)
+		}
+	}
+	if promoted.GenerationID != toGen.ID {
 		t.Fatalf("promoted inspect = %+v, want generation %s", promoted, toGen.ID)
 	}
 	if promoted.Recipe.Loop != "eino" {

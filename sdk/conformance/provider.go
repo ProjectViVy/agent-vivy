@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -52,20 +51,15 @@ var requiredProviderChecks = []string{
 	CheckRealFailure,
 }
 
-var sourceSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
 // ConformanceResult is the immutable evidence unit embedded in a Generation
 // Manifest. Failure details are intentionally excluded so Secrets exercised by
 // negative-path checks cannot leak into Inspect output.
 type ConformanceResult struct {
 	Port       module.PortRef `json:"port"`
 	ProviderID string         `json:"providerId"`
-	// SourceSHA256 binds the result to the exact Provider source tree that was
-	// exercised. Pack rejects stale results for a different source digest.
-	SourceSHA256 string `json:"sourceSha256"`
-	Suite        string `json:"suite"`
-	Passed       bool   `json:"passed"`
-	EvidenceID   string `json:"evidenceId"`
+	Suite      string         `json:"suite"`
+	Passed     bool           `json:"passed"`
+	EvidenceID string         `json:"evidenceId"`
 }
 
 // Check executes one assertion owned by a focused Host conformance suite. A
@@ -81,18 +75,15 @@ func RequiredProviderChecks() []string {
 // order. Callers supply executable Provider, Host, compiler, and lifecycle
 // behavior through Check closures; this keeps the reusable harness independent
 // of Port-specific SDK interfaces.
-func RunProviderSuite(ctx context.Context, definition port.Definition, providerID, sourceSHA256, evidenceID string, checks map[string]Check) ([]ConformanceResult, error) {
+func RunProviderSuite(ctx context.Context, definition port.Definition, providerID, evidenceID string, checks map[string]Check) ([]ConformanceResult, error) {
 	if strings.TrimSpace(definition.Ref.Port) == "" {
 		return nil, fmt.Errorf("conformance: Port Definition is required")
 	}
 	if strings.TrimSpace(providerID) == "" {
 		return nil, fmt.Errorf("conformance: provider ID is required for %s", definition.Ref.Port)
 	}
-	if !sourceSHA256Pattern.MatchString(sourceSHA256) {
-		return nil, fmt.Errorf("conformance: Provider %s requires a lowercase SHA-256 source binding", providerID)
-	}
 	path, anchor, ok := strings.Cut(evidenceID, "#")
-	if !ok || strings.TrimSpace(path) == "" || strings.TrimSpace(anchor) == "" || filepath.IsAbs(path) || strings.Contains(path, "\\") || strings.Contains(path, "..") {
+	if !ok || strings.TrimSpace(path) == "" || strings.TrimSpace(anchor) == "" || filepath.IsAbs(path) || strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\\:") || strings.Contains(path, "..") {
 		return nil, fmt.Errorf("conformance: Provider %s requires a repository-relative evidence path and anchor", providerID)
 	}
 	required := make(map[string]struct{}, len(requiredProviderChecks))
@@ -117,12 +108,11 @@ func RunProviderSuite(ctx context.Context, definition port.Definition, providerI
 			checkErr = checks[name](ctx)
 		}
 		results = append(results, ConformanceResult{
-			Port:         definition.Ref,
-			ProviderID:   providerID,
-			SourceSHA256: sourceSHA256,
-			Suite:        name,
-			Passed:       checkErr == nil,
-			EvidenceID:   evidenceID,
+			Port:       definition.Ref,
+			ProviderID: providerID,
+			Suite:      name,
+			Passed:     checkErr == nil,
+			EvidenceID: evidenceID,
 		})
 	}
 	return results, nil
@@ -136,9 +126,6 @@ func CanonicalResults(results []ConformanceResult) ([]ConformanceResult, error) 
 	for _, result := range canonical {
 		if strings.TrimSpace(result.Port.Port) == "" || strings.TrimSpace(result.ProviderID) == "" || strings.TrimSpace(result.Suite) == "" || strings.TrimSpace(result.EvidenceID) == "" {
 			return nil, fmt.Errorf("conformance: result requires Port, provider, suite, and evidence ID")
-		}
-		if !sourceSHA256Pattern.MatchString(result.SourceSHA256) {
-			return nil, fmt.Errorf("conformance: result for %s Provider %s requires a lowercase SHA-256 source binding", result.Port.Port, result.ProviderID)
 		}
 		key := result.Port.Port + "\x00" + result.Port.ID + "\x00" + result.ProviderID + "\x00" + result.Suite
 		if _, ok := seen[key]; ok {

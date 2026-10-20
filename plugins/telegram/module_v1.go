@@ -58,5 +58,5 @@ func (c *boundChannel) Send(x context.Context, m channel.OutboundMessage) ([]str
 func (c *boundChannel) CapabilityTarget() any { return c.adapter }
 
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/telegram", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/telegram", SHA256: "b96eb4af5b0f844955f15bfdc21a4e3fc9a837e06e94a3642fd11b096a09ca95"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.telegram"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/telegram", Version: "0.1.0"}, Source: module.Source{Ref: "repo:plugins/telegram"}, Provides: []module.PortRef{{Port: "std/channel@v1", ID: "vivy.telegram"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/channel-host@v1"}, Provider: "vivy/channel-host"}}, RequestedGrants: []module.Grant{module.GrantChannelPoll, module.GrantSecretRead, module.GrantNetClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }

@@ -130,3 +130,47 @@ func assertNoSecretsOrPaths(t *testing.T, rep Report) {
 		}
 	}
 }
+
+func TestInspectCompiledIdentitySurvivesQueuedPromotion(t *testing.T) {
+	previous := generation.EmbeddedManifestBase64
+	generation.EmbeddedManifestBase64 = generation.FrameEmbeddedManifest([]byte(`{"generationId":"running-build","specificationVersion":"vivy.module/v1","compilerVersion":"test","sdkVersion":"v1","modules":[],"portEdges":[],"lifecycleOrder":[],"orderedContributions":{},"catalogs":[]}`))
+	t.Cleanup(func() { generation.EmbeddedManifestBase64 = previous })
+	svc, _ := newStudio(t)
+	ctx := context.Background()
+	from, err := svc.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "retained-core-from"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID, ArtifactSHA256: "retained-core-to"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RecordEval(ctx, domain.EvalRun{CandidateID: to.ID, BaselineID: from.ID, Suite: "test", Verdict: domain.EvalBetter}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Promote(ctx, from.ID, to.ID, "", domain.PromotionActorHuman); err != nil {
+		t.Fatal(err)
+	}
+	report, err := svc.Inspect(ctx, testLive())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GenerationID != "running-build" {
+		t.Fatalf("queued promotion changed running build identity to %q", report.GenerationID)
+	}
+}
+
+func TestInspectProjectsAuthoringIdentity(t *testing.T) {
+	previous := generation.EmbeddedManifestBase64
+	generation.EmbeddedManifestBase64 = ""
+	t.Cleanup(func() { generation.EmbeddedManifestBase64 = previous })
+	live := testLive()
+	live.GenerationID = "authoring-default"
+	report, err := (*Service)(nil).Inspect(context.Background(), live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GenerationID != live.GenerationID {
+		t.Fatalf("authoring identity=%q", report.GenerationID)
+	}
+}

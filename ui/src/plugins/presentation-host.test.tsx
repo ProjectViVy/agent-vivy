@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import { createHash } from 'node:crypto';
 import { StrictMode, act, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {
@@ -516,7 +515,7 @@ describe('PresentationHost', () => {
           host={host()}
           root={root(() => <BrokenRootComponent />)}
           extensions={[extension('fixture/broken-component', () => () => { events.push('cleanup'); throw new Error('component cleanup failed'); })]}
-          provenance={{ ...provenance, artifactSha256: 'artifact-fixture', uiArtifactSha256: 'ui-artifact-fixture' }}
+          provenance={provenance}
         />,
       );
     });
@@ -524,10 +523,10 @@ describe('PresentationHost', () => {
     const diagnostic = container.querySelector('[role="alert"]');
     expect(diagnostic?.textContent).toContain('fixture component failed');
     expect(diagnostic?.textContent).toContain('component cleanup failed');
-    expect(diagnostic?.getAttribute('data-vivy-presentation-provenance')).toContain('artifact-fixture');
+    expect(diagnostic?.getAttribute('data-vivy-presentation-provenance')).toContain('generation-fixture');
     expect(error).toHaveBeenCalledWith(
       expect.stringContaining('cleanup failed'),
-      expect.objectContaining({ provenance: expect.objectContaining({ uiArtifactSha256: 'ui-artifact-fixture' }) }),
+      expect.objectContaining({ provenance: expect.objectContaining({ generationId: 'generation-fixture' }) }),
     );
   });
 
@@ -609,7 +608,7 @@ describe('PresentationHost', () => {
         },
       },
     } as const;
-    const catalogs = [{ ...catalog, digest: catalogProjectionDigest(catalog) }] as const;
+    const catalogs = [catalog] as const;
     const selectedHost = createWebFaceHost(
       { navigate: vi.fn().mockResolvedValue(undefined), invalidate: vi.fn().mockResolvedValue(undefined) },
       { catalogs },
@@ -628,7 +627,7 @@ describe('PresentationHost', () => {
     expect(observed[2]).toContain('plugin.example/search-tools.missing');
   });
 
-  it('accepts a valid catalog when unit insertion order differs from its canonical digest order', () => {
+  it('accepts a valid catalog when unit insertion order differs', () => {
     const firstKey = 'plugin.example/search-tools.alpha';
     const secondKey = 'plugin.example/search-tools.beta';
     const canonicalCatalog = {
@@ -649,7 +648,6 @@ describe('PresentationHost', () => {
         [secondKey]: canonicalCatalog.units[secondKey],
         [firstKey]: canonicalCatalog.units[firstKey],
       },
-      digest: catalogProjectionDigest(canonicalCatalog),
     } as const;
     const selectedHost = createWebFaceHost(
       { navigate: vi.fn().mockResolvedValue(undefined), invalidate: vi.fn().mockResolvedValue(undefined) },
@@ -707,12 +705,12 @@ describe('PresentationHost', () => {
       compilationState: 'INCOMPLETE_LOCALE',
       units: { [key]: { description: 'Result count', placeholders: [], messages: { en: 'first' } } },
     } as const;
-    const catalog = { ...base, digest: catalogProjectionDigest(base) };
+    const catalog = base;
     const router = { navigate: vi.fn().mockResolvedValue(undefined), invalidate: vi.fn().mockResolvedValue(undefined) };
     expect(createWebFaceHost(router, { catalogs: [catalog] }).t(key)).toBe('first');
   });
 
-  it('fails closed for a valid-format catalog digest that does not match its body', () => {
+  it('rejects a retired digest field in an otherwise valid catalog', () => {
     const key = 'plugin.example/search-tools.results';
     const wrongDigest = [{
       apiVersion: 'vivy.i18n/v1',
@@ -737,7 +735,6 @@ describe('PresentationHost', () => {
       defaultLocale: 'en',
       locales: ['en', 'zh'],
       module: 'example/search-tools',
-      digest: 'f'.repeat(64),
       units: { [key]: { description: 'Result count', placeholders: ['count'], messages: { en: '{{count}} results' } } },
     } as const;
     const cases = [
@@ -780,7 +777,7 @@ describe('PresentationHost', () => {
     } as const;
     const selectedHost = createWebFaceHost(
       { navigate: (options) => actualRouter!.navigate(options as never), invalidate: () => actualRouter!.invalidate() },
-      { catalogs: [{ ...catalog, digest: catalogProjectionDigest(catalog) }] },
+      { catalogs: [catalog] },
     );
     const slot = () => container.querySelector('[data-testid="route-slot"]');
     function RouteSlotProbe({ host }: { readonly host: FullUIHost }) {
@@ -915,23 +912,3 @@ describe('PresentationHost', () => {
     expect(slot()?.querySelector('[data-testid="deep-link-route"]')).toBeNull();
   });
 });
-
-function catalogProjectionDigest(catalog: {
-  readonly apiVersion: string;
-  readonly units: Readonly<Record<string, {
-    readonly description: string;
-    readonly placeholders: readonly string[];
-    readonly messages: Readonly<Record<string, string>>;
-    readonly short?: Readonly<Record<string, string>>;
-    readonly long?: Readonly<Record<string, string>>;
-  }>>;
-}): string {
-  const units = Object.fromEntries(Object.entries(catalog.units).sort(([left], [right]) => left.localeCompare(right)).map(([key, unit]) => [key, {
-    description: unit.description,
-    placeholders: [...unit.placeholders],
-    messages: Object.fromEntries(Object.entries(unit.messages).sort(([left], [right]) => left.localeCompare(right))),
-    ...(unit.short ? { short: Object.fromEntries(Object.entries(unit.short).sort(([left], [right]) => left.localeCompare(right))) } : {}),
-    ...(unit.long ? { long: Object.fromEntries(Object.entries(unit.long).sort(([left], [right]) => left.localeCompare(right))) } : {}),
-  }]));
-  return createHash('sha256').update(JSON.stringify({ apiVersion: catalog.apiVersion, units })).digest('hex');
-}

@@ -131,14 +131,14 @@ func canonicalStrings(values []string) []string {
 
 func hasCompletePassingProviderSuite(results []providerconformance.ConformanceResult, portID string) bool {
 	type providerKey struct {
-		providerID, sourceSHA256 string
+		providerID string
 	}
 	groups := make(map[providerKey]map[string]bool)
 	for _, result := range results {
 		if result.Port.Port != portID {
 			continue
 		}
-		key := providerKey{providerID: result.ProviderID, sourceSHA256: result.SourceSHA256}
+		key := providerKey{providerID: result.ProviderID}
 		if groups[key] == nil {
 			groups[key] = make(map[string]bool)
 		}

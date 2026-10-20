@@ -2,8 +2,6 @@ package assembly
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,11 +43,10 @@ type CatalogManifest struct {
 	Module string `json:"module"`
 	// APIVersion and Units are the compiler-owned catalog projection consumed
 	// by the generated Web/TUI hosts. The metadata fields remain available to
-	// Inspect and the digest binds this exact canonical projection.
+	// Inspect alongside this exact canonical projection.
 	APIVersion       string                 `json:"apiVersion,omitempty"`
 	SchemaVersion    string                 `json:"schemaVersion"`
 	Path             string                 `json:"path"`
-	Digest           string                 `json:"digest"`
 	DefaultLocale    string                 `json:"defaultLocale"`
 	Locales          []string               `json:"locales"`
 	Completeness     map[string]string      `json:"completeness,omitempty"`
@@ -70,16 +67,16 @@ type CatalogUnit struct {
 }
 
 type SealInputs struct {
+	GenerationID         string
 	SpecificationVersion string
 	CompilerVersion      string
 	SDKVersion           string
 	CanonicalRecipe      []byte
-	DependencyLocks      map[string]string
-	UIArtifacts          map[string]string
+
 	// UI is the generated full-code UI projection. Keeping it in the sealed
 	// manifest (rather than only returning it from GenerateUIAssembly) binds
-	// root selection, extension order, replacement relationships, SDK pin, and
-	// all UI content identities to the Generation ID consumed by Inspect.
+	// root selection, extension order, replacement relationships, and SDK pin
+	// alongside the pack-owned Generation ID consumed by Inspect.
 	UI                    *UIAssemblyManifest
 	Catalogs              []CatalogManifest
 	CapabilityStates      map[string]CapabilityState
@@ -94,29 +91,25 @@ type SealInputs struct {
 
 // HostBuild is the optional vivy.go-host/v1 provenance object sealed into a
 // Generation Manifest when the pack target compiles an external Go desktop
-// host instead of agent-vivy's own executable. It participates in the
-// Generation ID exactly like the rest of the manifest.
+// host instead of agent-vivy's own executable. Its native source selection
+// is recorded alongside the pack-owned Generation ID.
 type HostBuild struct {
-	Schema                string          `json:"schema"`
-	ModulePath            string          `json:"modulePath"`
-	Package               string          `json:"package"`
-	Source                HostBuildSource `json:"source"`
-	Assets                HostBuildAssets `json:"assets"`
-	DependencyLockSHA256  string          `json:"dependencyLockSHA256"`
-	ConsumerModfileSHA256 string          `json:"consumerModfileSHA256"`
-	ConsumerSumSHA256     string          `json:"consumerSumSHA256"`
-	Tools                 HostBuildTools  `json:"tools"`
+	Schema     string          `json:"schema"`
+	ModulePath string          `json:"modulePath"`
+	Package    string          `json:"package"`
+	Source     HostBuildSource `json:"source"`
+	Assets     HostBuildAssets `json:"assets"`
+
+	Tools HostBuildTools `json:"tools"`
 }
 
 type HostBuildSource struct {
 	Repository string `json:"repository"`
 	Commit     string `json:"commit"`
-	TreeSHA256 string `json:"treeSHA256"`
 }
 
 type HostBuildAssets struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path string `json:"path"`
 }
 
 type HostBuildTools struct {
@@ -150,17 +143,6 @@ func ValidateHostBuild(build *HostBuild) error {
 	if !isSHA1(build.Source.Commit) {
 		return fmt.Errorf("hostBuild.source.commit must be a full commit SHA")
 	}
-	for label, value := range map[string]string{
-		"hostBuild.source.treeSHA256":     build.Source.TreeSHA256,
-		"hostBuild.assets.sha256":         build.Assets.SHA256,
-		"hostBuild.dependencyLockSHA256":  build.DependencyLockSHA256,
-		"hostBuild.consumerModfileSHA256": build.ConsumerModfileSHA256,
-		"hostBuild.consumerSumSHA256":     build.ConsumerSumSHA256,
-	} {
-		if !isSHA256(value) {
-			return fmt.Errorf("%s must be a sha256 hex digest", label)
-		}
-	}
 	if build.Assets.Path == "" {
 		return fmt.Errorf("hostBuild.assets.path is required")
 	}
@@ -170,8 +152,7 @@ func ValidateHostBuild(build *HostBuild) error {
 	return nil
 }
 
-func isSHA1(value string) bool   { return isHexDigest(value, 40) }
-func isSHA256(value string) bool { return isHexDigest(value, 64) }
+func isSHA1(value string) bool { return isHexDigest(value, 40) }
 
 func isHexDigest(value string, length int) bool {
 	if len(value) != length {
@@ -207,17 +188,15 @@ type ManifestModule struct {
 }
 
 type GenerationManifest struct {
-	GenerationID          string                                    `json:"generationId"`
-	SpecificationVersion  string                                    `json:"specificationVersion"`
-	CompilerVersion       string                                    `json:"compilerVersion"`
-	SDKVersion            string                                    `json:"sdkVersion"`
-	RecipeDigest          string                                    `json:"recipeDigest"`
-	Modules               []ManifestModule                          `json:"modules"`
-	PortEdges             []PortEdge                                `json:"portEdges"`
-	LifecycleOrder        []string                                  `json:"lifecycleOrder"`
-	OrderedContributions  map[string][]string                       `json:"orderedContributions"`
-	DependencyLocks       map[string]string                         `json:"dependencyLocks"`
-	UIArtifacts           map[string]string                         `json:"uiArtifacts"`
+	GenerationID         string              `json:"generationId"`
+	SpecificationVersion string              `json:"specificationVersion"`
+	CompilerVersion      string              `json:"compilerVersion"`
+	SDKVersion           string              `json:"sdkVersion"`
+	Modules              []ManifestModule    `json:"modules"`
+	PortEdges            []PortEdge          `json:"portEdges"`
+	LifecycleOrder       []string            `json:"lifecycleOrder"`
+	OrderedContributions map[string][]string `json:"orderedContributions"`
+
 	UI                    *UIAssemblyManifest                       `json:"ui,omitempty"`
 	Catalogs              []CatalogManifest                         `json:"catalogs"`
 	CapabilityStates      map[string]CapabilityState                `json:"capabilityStates,omitempty"`
@@ -256,7 +235,7 @@ func CanonicalRecipe(recipe Recipe) ([]byte, error) {
 }
 
 func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []byte, error) {
-	if inputs.SpecificationVersion == "" || inputs.CompilerVersion == "" || inputs.SDKVersion == "" {
+	if strings.TrimSpace(inputs.SpecificationVersion) == "" || strings.TrimSpace(inputs.CompilerVersion) == "" || strings.TrimSpace(inputs.SDKVersion) == "" {
 		return GenerationManifest{}, nil, fmt.Errorf("seal inputs require specification, compiler, and SDK versions")
 	}
 	if !json.Valid(inputs.CanonicalRecipe) {
@@ -266,17 +245,18 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 	if err != nil {
 		return GenerationManifest{}, nil, err
 	}
-	recipeDigest := sha256.Sum256(inputs.CanonicalRecipe)
+	if strings.TrimSpace(inputs.GenerationID) == "" {
+		return GenerationManifest{}, nil, fmt.Errorf("Generation ID is required")
+	}
 	manifest := GenerationManifest{
-		SpecificationVersion:  inputs.SpecificationVersion,
-		CompilerVersion:       inputs.CompilerVersion,
-		SDKVersion:            inputs.SDKVersion,
-		RecipeDigest:          hex.EncodeToString(recipeDigest[:]),
-		PortEdges:             append([]PortEdge(nil), plan.PortEdges...),
-		LifecycleOrder:        append([]string(nil), plan.LifecycleOrder...),
-		OrderedContributions:  cloneStringSliceMap(plan.OrderedContributions),
-		DependencyLocks:       cloneStringMap(inputs.DependencyLocks),
-		UIArtifacts:           cloneStringMap(inputs.UIArtifacts),
+		GenerationID:         inputs.GenerationID,
+		SpecificationVersion: inputs.SpecificationVersion,
+		CompilerVersion:      inputs.CompilerVersion,
+		SDKVersion:           inputs.SDKVersion,
+		PortEdges:            append([]PortEdge(nil), plan.PortEdges...),
+		LifecycleOrder:       append([]string(nil), plan.LifecycleOrder...),
+		OrderedContributions: cloneStringSliceMap(plan.OrderedContributions),
+
 		UI:                    cloneUIAssemblyManifest(inputs.UI),
 		Catalogs:              cloneCatalogManifests(inputs.Catalogs),
 		CapabilityStates:      cloneStringMap(inputs.CapabilityStates),
@@ -284,6 +264,9 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		RunObserverPolicies:   cloneRunObserverPolicies(inputs.RunObserverPolicies),
 		ConformanceResults:    conformanceResults,
 		HostBuild:             inputs.HostBuild,
+	}
+	if manifest.UI != nil && manifest.UI.GenerationID != manifest.GenerationID {
+		return GenerationManifest{}, nil, fmt.Errorf("UI Generation ID differs from Manifest")
 	}
 	manifest.PortSupport, err = generationconformance.CanonicalPortSupport(inputs.PortSupport)
 	if err != nil {
@@ -340,12 +323,6 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 		right := manifest.PortEdges[j]
 		return left.Port.Port+"\x00"+left.Provider+"\x00"+left.Consumer < right.Port.Port+"\x00"+right.Provider+"\x00"+right.Consumer
 	})
-	identityBytes, err := json.Marshal(manifest)
-	if err != nil {
-		return GenerationManifest{}, nil, err
-	}
-	identity := sha256.Sum256(identityBytes)
-	manifest.GenerationID = hex.EncodeToString(identity[:])
 	canonicalBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return GenerationManifest{}, nil, err
@@ -354,9 +331,8 @@ func SealManifest(plan AssemblyPlan, inputs SealInputs) (GenerationManifest, []b
 }
 
 // canonicalizeCatalogManifests makes the projection stable before it is used
-// in either the Generation Manifest or its UI mirror. It intentionally does
-// not rewrite the digest-bound translation body; body validation remains the
-// compiler-owned responsibility of normalizeCatalogManifests.
+// in either the Generation Manifest or its UI mirror. Catalog body validation
+// remains the compiler-owned responsibility of normalizeCatalogManifests.
 func canonicalizeCatalogManifests(source []CatalogManifest) []CatalogManifest {
 	cloned := cloneCatalogManifests(source)
 	for index := range cloned {
@@ -373,8 +349,8 @@ func canonicalizeCatalogManifests(source []CatalogManifest) []CatalogManifest {
 	return cloned
 }
 
-// InspectManifest parses a sealed manifest and recomputes its content address
-// before exposing any provenance or capability state.
+// InspectManifest validates manifest framing, schema and projection consistency
+// before exposing identity or capability state. Identity makes no content claim.
 func InspectManifest(raw []byte) (GenerationManifest, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -384,6 +360,9 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 	}
 	if err := requireManifestEOF(decoder); err != nil {
 		return GenerationManifest{}, fmt.Errorf("inspect Generation Manifest: %w", err)
+	}
+	if strings.TrimSpace(manifest.SpecificationVersion) == "" || strings.TrimSpace(manifest.CompilerVersion) == "" || strings.TrimSpace(manifest.SDKVersion) == "" {
+		return GenerationManifest{}, fmt.Errorf("Generation Manifest requires specification, compiler, and SDK versions")
 	}
 	if err := validateCapabilityStates(manifest.CapabilityStates); err != nil {
 		return GenerationManifest{}, err
@@ -400,21 +379,15 @@ func InspectManifest(raw []byte) (GenerationManifest, error) {
 	if err := ValidateHostBuild(manifest.HostBuild); err != nil {
 		return GenerationManifest{}, fmt.Errorf("inspect Generation Manifest hostBuild: %w", err)
 	}
+	if manifest.UI != nil && manifest.UI.GenerationID != manifest.GenerationID {
+		return GenerationManifest{}, fmt.Errorf("UI Generation ID differs from Manifest")
+	}
 	if err := validateInspectedCatalogs(manifest); err != nil {
 		return GenerationManifest{}, err
 	}
-	want := manifest.GenerationID
-	manifest.GenerationID = ""
-	identityBytes, err := json.Marshal(manifest)
-	if err != nil {
-		return GenerationManifest{}, err
+	if strings.TrimSpace(manifest.GenerationID) == "" {
+		return GenerationManifest{}, fmt.Errorf("Generation ID is required")
 	}
-	identity := sha256.Sum256(identityBytes)
-	got := hex.EncodeToString(identity[:])
-	if want == "" || got != want {
-		return GenerationManifest{}, fmt.Errorf("Generation Manifest identity mismatch")
-	}
-	manifest.GenerationID = want
 	return manifest, nil
 }
 
@@ -447,7 +420,7 @@ func validateCanonicalPortSupport(records []generationconformance.PortSupportRec
 // validateInspectedCatalogs protects the trust boundary used by studio
 // Inspect and embedded-manifest provenance. A syntactically valid JSON object
 // is not enough: every catalog body must still be the compiler-validated,
-// namespace-confined projection whose digest is sealed in the manifest.
+// namespace-confined projection in the manifest.
 func validateInspectedCatalogs(manifest GenerationManifest) error {
 	if len(manifest.Catalogs) > 0 {
 		if _, err := normalizeCatalogManifests(manifest.Catalogs); err != nil {
@@ -648,7 +621,6 @@ func cloneCatalogManifest(source CatalogManifest) CatalogManifest {
 		APIVersion:       source.APIVersion,
 		SchemaVersion:    source.SchemaVersion,
 		Path:             source.Path,
-		Digest:           source.Digest,
 		DefaultLocale:    source.DefaultLocale,
 		Locales:          append([]string(nil), source.Locales...),
 		Completeness:     cloneStringMap(source.Completeness),
@@ -663,15 +635,13 @@ func cloneUIAssemblyManifest(source *UIAssemblyManifest) *UIAssemblyManifest {
 		return nil
 	}
 	cloned := &UIAssemblyManifest{
-		Root:                 source.Root,
-		Extensions:           append([]string(nil), source.Extensions...),
-		Replacements:         cloneStringSliceMap(source.Replacements),
-		SourceHashes:         cloneStringMap(source.SourceHashes),
-		DependencyLockHashes: cloneStringMap(source.DependencyLockHashes),
-		SDKPackage:           source.SDKPackage,
-		SDKVersion:           source.SDKVersion,
-		AssetHashes:          cloneStringMap(source.AssetHashes),
-		Catalogs:             cloneCatalogManifests(source.Catalogs),
+		GenerationID: source.GenerationID,
+		Root:         source.Root,
+		Extensions:   append([]string(nil), source.Extensions...),
+		Replacements: cloneStringSliceMap(source.Replacements),
+		SDKPackage:   source.SDKPackage,
+		SDKVersion:   source.SDKVersion,
+		Catalogs:     cloneCatalogManifests(source.Catalogs),
 	}
 	return cloned
 }

@@ -223,7 +223,8 @@ status:
 kind: Generation
 spec:
   parent:     gen_...
-  artifact:   sha256:...
+  generation: <pack-owned opaque Generation ID>
+  artifact:   <owned artifact reference>
   recipe:     vivy.generation.yml
   source_ref: git:... | worktree:...
 status:

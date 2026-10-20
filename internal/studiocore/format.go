@@ -37,7 +37,11 @@ func inspectExistingLedger(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(abs), RawQuery: "mode=ro"}
+	uriPath := filepath.ToSlash(abs)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	u := url.URL{Scheme: "file", Path: uriPath, RawQuery: "mode=ro"}
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUnsupportedSourceFormat, err)
