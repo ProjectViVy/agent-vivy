@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -231,8 +232,8 @@ CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, 
 
 var upgradeSeq atomic.Uint64
 
-// TestMigrateUpgradesV14InPlace drives the production OpenSchema path over a
-// hand-built version-14 database: the upgrade must ALTER messages in place
+// TestMigrateUpgradesV14InPlace explicitly converts a disposable hand-built
+// version-14 fixture, then opens its target: conversion must ALTER messages
 // (legacy rows survive with empty provenance), normalize the legacy marker
 // sequence, and keep accepting provenance-bearing appends. Conformance always
 // bootstraps fresh schemas, so without this test the upgrade branch never
@@ -294,6 +295,16 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 		"msg-upg-legacy", "sess-upg", "run-upg", "user", int64(1), []byte("hello from v14"),
 		"", "", []byte{}); err != nil {
 		t.Fatalf("insert legacy message row: %v", err)
+	}
+	if err := migrations.Apply(ctx, setup, migrations.Postgres); !errors.Is(err, migrations.ErrUpgradeRequired) {
+		t.Fatalf("runtime old source = %v", err)
+	}
+	manifest, err := migrations.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.ApplyManifest(ctx, setup, migrations.Postgres, manifest); err != nil {
+		t.Fatalf("convert disposable fixture: %v", err)
 	}
 	_ = setup.Close()
 

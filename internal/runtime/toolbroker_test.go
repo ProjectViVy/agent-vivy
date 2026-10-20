@@ -157,7 +157,7 @@ type failingToolOperationCompletionStore struct {
 	err error
 }
 
-func (store failingToolOperationCompletionStore) CompleteToolOperation(context.Context, domain.RunID, string, string, string, string) (domain.ToolOperation, domain.RunEvent, error) {
+func (store failingToolOperationCompletionStore) CompleteToolOperation(context.Context, domain.RunID, string, string, domain.ToolOperationOutcome) (domain.ToolOperation, domain.RunEvent, error) {
 	return domain.ToolOperation{}, domain.RunEvent{}, store.err
 }
 

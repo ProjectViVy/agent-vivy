@@ -20,6 +20,7 @@ func (b *Backend) AdmitToolOperation(ctx context.Context, admission domain.ToolO
 	if admission.CreatedAt <= 0 {
 		admission.CreatedAt = time.Now().UnixMilli()
 	}
+	admission = storage.CloneToolOperationInputs(admission)
 	admission.UpdatedAt = admission.CreatedAt
 	admission.State = domain.ToolOperationAdmitted
 
@@ -34,7 +35,10 @@ func (b *Backend) AdmitToolOperation(ctx context.Context, admission domain.ToolO
 	if existing, found, err := postgresGetToolOperation(ctx, tx, admission.RunID, admission.OperationID); err != nil {
 		return domain.ToolOperation{}, false, domain.RunEvent{}, err
 	} else if found {
-		if !postgresSameToolOperationBinding(existing, admission) {
+		if err := storage.ValidateToolOperationSource(existing); err != nil {
+			return domain.ToolOperation{}, false, domain.RunEvent{}, err
+		}
+		if !storage.SameToolOperationBinding(existing, admission) {
 			return domain.ToolOperation{}, false, domain.RunEvent{}, storage.ErrToolOperationConflict
 		}
 		return existing, false, domain.RunEvent{}, nil
@@ -43,9 +47,9 @@ func (b *Backend) AdmitToolOperation(ctx context.Context, admission domain.ToolO
 		return domain.ToolOperation{}, false, domain.RunEvent{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO tool_operations
-		(run_id, operation_id, tool_name, request_digest, middleware_input_arguments, arguments_digest, effective_arguments, state, claim_owner, result, failure, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', '', ?, ?)`, admission.RunID, admission.OperationID, admission.ToolName,
-		admission.RequestDigest, admission.MiddlewareInputArguments, admission.ArgumentsDigest, admission.EffectiveArguments, string(admission.State), admission.CreatedAt, admission.UpdatedAt); err != nil {
+		(run_id, operation_id, tool_name, request_arguments, middleware_input_arguments, effective_arguments, state, claim_owner, result, failure, outcome_status, outcome_reason, outcome_effects, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, '', '', '', '', '', '', ?, ?)`, admission.RunID, admission.OperationID, admission.ToolName,
+		admission.RequestArguments, admission.MiddlewareInputArguments, admission.EffectiveArguments, string(admission.State), admission.CreatedAt, admission.UpdatedAt); err != nil {
 		return domain.ToolOperation{}, false, domain.RunEvent{}, fmt.Errorf("storage: insert tool operation admission: %w", err)
 	}
 	event, err := postgresAppendToolOperationEvent(ctx, tx, admission)
@@ -88,6 +92,9 @@ func (b *Backend) ClaimToolOperation(ctx context.Context, runID domain.RunID, op
 	if !found {
 		return domain.ToolOperation{}, false, domain.RunEvent{}, storage.ErrNotFound
 	}
+	if err := storage.ValidateToolOperationSource(op); err != nil {
+		return domain.ToolOperation{}, false, domain.RunEvent{}, err
+	}
 	if op.State != domain.ToolOperationAdmitted {
 		return op, false, domain.RunEvent{}, nil
 	}
@@ -111,7 +118,7 @@ func (b *Backend) ClaimToolOperation(ctx context.Context, runID domain.RunID, op
 	return op, true, event, nil
 }
 
-func (b *Backend) CompleteToolOperation(ctx context.Context, runID domain.RunID, operationID, owner, result, failure string) (domain.ToolOperation, domain.RunEvent, error) {
+func (b *Backend) CompleteToolOperation(ctx context.Context, runID domain.RunID, operationID, owner string, outcome domain.ToolOperationOutcome) (domain.ToolOperation, domain.RunEvent, error) {
 	if owner == "" {
 		return domain.ToolOperation{}, domain.RunEvent{}, errors.New("storage: tool operation completion owner is empty")
 	}
@@ -130,11 +137,20 @@ func (b *Backend) CompleteToolOperation(ctx context.Context, runID domain.RunID,
 	if !found {
 		return domain.ToolOperation{}, domain.RunEvent{}, storage.ErrNotFound
 	}
+	if err := storage.ValidateToolOperationSource(op); err != nil {
+		return domain.ToolOperation{}, domain.RunEvent{}, err
+	}
 	if op.State == domain.ToolOperationCompleted {
-		if op.Result != result || op.Failure != failure {
+		if op.ClaimOwner != owner || op.Outcome() != outcome {
 			return domain.ToolOperation{}, domain.RunEvent{}, storage.ErrToolOperationConflict
 		}
+		if err := storage.ValidateToolOperationOutcome(outcome); err != nil {
+			return domain.ToolOperation{}, domain.RunEvent{}, err
+		}
 		return op, domain.RunEvent{}, nil
+	}
+	if err := storage.ValidateToolOperationOutcome(outcome); err != nil {
+		return domain.ToolOperation{}, domain.RunEvent{}, err
 	}
 	if op.State != domain.ToolOperationClaimed || op.ClaimOwner != owner {
 		return domain.ToolOperation{}, domain.RunEvent{}, storage.ErrToolOperationConflict
@@ -143,11 +159,14 @@ func (b *Backend) CompleteToolOperation(ctx context.Context, runID domain.RunID,
 		return domain.ToolOperation{}, domain.RunEvent{}, err
 	}
 	op.State = domain.ToolOperationCompleted
-	op.Result = result
-	op.Failure = failure
+	op.Result = outcome.Result
+	op.Failure = outcome.Failure
+	op.OutcomeStatus = outcome.Status
+	op.OutcomeReason = outcome.Reason
+	op.OutcomeEffects = outcome.Effects
 	op.UpdatedAt = time.Now().UnixMilli()
-	if _, err := tx.ExecContext(ctx, `UPDATE tool_operations SET state = ?, result = ?, failure = ?, updated_at = ?
-		WHERE run_id = ? AND operation_id = ? AND state = ? AND claim_owner = ?`, string(op.State), result, failure, op.UpdatedAt,
+	if _, err := tx.ExecContext(ctx, `UPDATE tool_operations SET state = ?, result = ?, failure = ?, outcome_status = ?, outcome_reason = ?, outcome_effects = ?, updated_at = ?
+		WHERE run_id = ? AND operation_id = ? AND state = ? AND claim_owner = ?`, string(op.State), outcome.Result, outcome.Failure, outcome.Status, outcome.Reason, outcome.Effects, op.UpdatedAt,
 		runID, operationID, string(domain.ToolOperationClaimed), owner); err != nil {
 		return domain.ToolOperation{}, domain.RunEvent{}, fmt.Errorf("storage: complete tool operation: %w", err)
 	}
@@ -169,11 +188,12 @@ type postgresToolOperationQuery interface {
 func postgresGetToolOperation(ctx context.Context, q postgresToolOperationQuery, runID domain.RunID, operationID string) (domain.ToolOperation, bool, error) {
 	var op domain.ToolOperation
 	var state string
-	err := q.QueryRowContext(ctx, `SELECT run_id, operation_id, tool_name, request_digest, middleware_input_arguments, arguments_digest,
-		effective_arguments, state, claim_owner, result, failure, created_at, updated_at
+	var status, reason, effects sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT run_id, operation_id, tool_name, request_arguments, middleware_input_arguments,
+		effective_arguments, state, claim_owner, result, failure, outcome_status, outcome_reason, outcome_effects, created_at, updated_at
 		FROM tool_operations WHERE run_id = ? AND operation_id = ?`, runID, operationID).Scan(
-		&op.RunID, &op.OperationID, &op.ToolName, &op.RequestDigest, &op.MiddlewareInputArguments, &op.ArgumentsDigest,
-		&op.EffectiveArguments, &state, &op.ClaimOwner, &op.Result, &op.Failure, &op.CreatedAt, &op.UpdatedAt)
+		&op.RunID, &op.OperationID, &op.ToolName, &op.RequestArguments, &op.MiddlewareInputArguments,
+		&op.EffectiveArguments, &state, &op.ClaimOwner, &op.Result, &op.Failure, &status, &reason, &effects, &op.CreatedAt, &op.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ToolOperation{}, false, nil
 	}
@@ -181,15 +201,8 @@ func postgresGetToolOperation(ctx context.Context, q postgresToolOperationQuery,
 		return domain.ToolOperation{}, false, fmt.Errorf("storage: read tool operation: %w", err)
 	}
 	op.State = domain.ToolOperationState(state)
+	op.OutcomeStatus, op.OutcomeReason, op.OutcomeEffects = status.String, reason.String, effects.String
 	return op, true, nil
-}
-
-func postgresSameToolOperationBinding(existing, request domain.ToolOperation) bool {
-	return existing.RunID == request.RunID && existing.OperationID == request.OperationID &&
-		existing.ToolName == request.ToolName && existing.RequestDigest == request.RequestDigest &&
-		existing.ArgumentsDigest == request.ArgumentsDigest &&
-		string(existing.MiddlewareInputArguments) == string(request.MiddlewareInputArguments) &&
-		string(existing.EffectiveArguments) == string(request.EffectiveArguments)
 }
 
 func postgresLockToolOperationRun(ctx context.Context, tx *Tx, runID domain.RunID) error {

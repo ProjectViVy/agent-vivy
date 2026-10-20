@@ -7,37 +7,38 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-const toolApprovalProposalEnvelopeKind = "vivy.tool-approval-proposal/v1"
+const toolApprovalProposalEnvelopeKind = "vivy.tool-approval-proposal/v2"
 
 type toolApprovalProposalEnvelope struct {
-	Kind          string `json:"kind"`
-	ArgumentsHash string `json:"arguments_sha256"`
-	ProviderData  []byte `json:"provider_data,omitempty"`
+	Kind              string          `json:"kind"`
+	IntendedArguments json.RawMessage `json:"intended_arguments"`
+	ProviderData      []byte          `json:"provider_data,omitempty"`
 }
 
-func bindToolApprovalProposal(providerData json.RawMessage, argumentsHash string) (json.RawMessage, error) {
-	if argumentsHash == "" {
-		return nil, errors.New("runtime: empty tool approval arguments hash")
+func canonicalToolArguments(raw json.RawMessage) (json.RawMessage, error) {
+	value, err := decodeJSONWithNumbers(raw)
+	if err != nil {
+		return nil, &redactedToolError{cause: err, message: "runtime: invalid intended tool arguments"}
 	}
-	return json.Marshal(toolApprovalProposalEnvelope{
-		Kind:          toolApprovalProposalEnvelopeKind,
-		ArgumentsHash: argumentsHash,
-		ProviderData:  append([]byte(nil), providerData...),
-	})
+	return json.Marshal(value)
 }
-
-func unbindToolApprovalProposal(data json.RawMessage) (providerData json.RawMessage, argumentsHash string, err error) {
+func bindToolApprovalProposal(providerData json.RawMessage, intended json.RawMessage) (json.RawMessage, error) {
+	canonical, err := canonicalToolArguments(intended)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(toolApprovalProposalEnvelope{Kind: toolApprovalProposalEnvelopeKind, IntendedArguments: canonical, ProviderData: append([]byte(nil), providerData...)})
+}
+func unbindToolApprovalProposal(data json.RawMessage) (json.RawMessage, json.RawMessage, error) {
 	var envelope toolApprovalProposalEnvelope
-	if json.Unmarshal(data, &envelope) != nil || envelope.Kind != toolApprovalProposalEnvelopeKind {
-		// Legacy approvals stored provider data directly. Preserve that data for
-		// compatibility, but leave the hash empty so effectful execution fails
-		// closed instead of treating an unbound approval as authority.
-		return append(json.RawMessage(nil), data...), "", nil
+	if json.Unmarshal(data, &envelope) != nil || envelope.Kind != toolApprovalProposalEnvelopeKind || len(envelope.IntendedArguments) == 0 {
+		return nil, nil, errors.New("runtime: unsupported or unbound tool approval proposal")
 	}
-	if envelope.ArgumentsHash == "" {
-		return nil, "", errors.New("runtime: tool approval proposal has no arguments hash")
+	canonical, err := canonicalToolArguments(envelope.IntendedArguments)
+	if err != nil {
+		return nil, nil, err
 	}
-	return append(json.RawMessage(nil), envelope.ProviderData...), envelope.ArgumentsHash, nil
+	return append(json.RawMessage(nil), envelope.ProviderData...), canonical, nil
 }
 
 func redactedApprovalArguments(arguments map[string]any) map[string]any {

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
+	"agent-vivy/internal/storage/migrations"
 )
 
 func openBackend(t *testing.T) *Backend {
@@ -297,49 +299,31 @@ func TestReopenIsIdempotent(t *testing.T) {
 	_ = b.Close()
 }
 
-func TestReopenRepairsCronTableAfterMigration016WasRecorded(t *testing.T) {
+// Incomplete converted targets are refused; runtime never repairs a source.
+func TestReopenRefusesMissingCronTableAndNoncontiguousMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vivy.db")
 	ctx := context.Background()
-
 	b, err := Open(ctx, path)
 	if err != nil {
-		t.Fatalf("initial Open: %v", err)
+		t.Fatal(err)
 	}
-	if _, err := b.db.ExecContext(ctx, `DROP TABLE cron_jobs`); err != nil {
-		t.Fatalf("remove cron_jobs from legacy shape: %v", err)
-	}
-	if _, err := b.db.ExecContext(ctx,
-		`DELETE FROM schema_migrations WHERE version = 17`); err != nil {
-		t.Fatalf("remove repair marker: %v", err)
+	if _, err := b.db.ExecContext(ctx, `DROP TABLE cron_jobs; DELETE FROM schema_migrations WHERE version = 17`); err != nil {
+		t.Fatal(err)
 	}
 	if err := b.Close(); err != nil {
-		t.Fatalf("close legacy shape: %v", err)
+		t.Fatal(err)
 	}
-
-	b, err = Open(ctx, path)
+	if _, err := Open(ctx, path); !errors.Is(err, migrations.ErrUnsupportedSourceFormat) {
+		t.Fatalf("incomplete target=%v", err)
+	}
+	raw, err := sql.Open("sqlite", path)
 	if err != nil {
-		t.Fatalf("Open after migration016-only shape: %v", err)
+		t.Fatal(err)
 	}
-	defer func() { _ = b.Close() }()
-
-	if _, err := b.ListCronJobs(ctx); err != nil {
-		t.Fatalf("ListCronJobs after repair: %v", err)
-	}
+	defer raw.Close()
 	var n int
-	if err := b.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM schema_migrations WHERE version = 17`).Scan(&n); err != nil {
-		t.Fatalf("read repair marker: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("migration017 marker count = %d, want 1", n)
-	}
-	var name, checksum string
-	if err := b.db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 17`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read repair metadata: %v", err)
-	}
-	if name != "cron_repair" || len(checksum) != 64 {
-		t.Fatalf("migration017 metadata = %q/%q", name, checksum)
+	if err := raw.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='cron_jobs'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("runtime repaired refused source: %d, %v", n, err)
 	}
 }
 

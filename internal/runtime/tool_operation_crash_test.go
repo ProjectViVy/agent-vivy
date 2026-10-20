@@ -285,14 +285,14 @@ func invokeD15CrashWorkflow(ctx context.Context, service *Service, runID domain.
 				return "", err
 			}
 		}
-		result, err := coordinator.Execute(ctx, operation, func(context.Context) (string, error) {
+		result, err := coordinator.Execute(ctx, operation, func(context.Context) (domain.ToolOperationOutcome, error) {
 			if err := appendD15CrashEffect(effectPath); err != nil {
-				return "", err
+				return domain.ToolOperationOutcome{}, err
 			}
 			if pauseStage == d15CrashEffectBeforeCompletion {
 				signalAndBlockD15CrashWorker(nil, readyPath)
 			}
-			return "external-effect-result", nil
+			return successToolOutcome("external-effect-result"), nil
 		})
 		if err != nil {
 			return "", err

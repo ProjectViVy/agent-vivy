@@ -100,3 +100,46 @@ func normalizeEnhancedResult(result string, budget int) (*schema.ToolResult, err
 	}
 	return &schema.ToolResult{Parts: parts}, nil
 }
+
+// enhancedResultProjection reconstructs the ordinary mapper projection when
+// native Eino reuses an executed result without another middleware event.
+// Reuse the same normalization and native block types as the live adapter;
+// Eino's ToolResult-to-agentic block converter is private to compose.
+func enhancedResultProjection(result string, budget int) (string, []json.RawMessage, error) {
+	normalized, err := normalizeEnhancedResult(result, budget)
+	if err != nil {
+		return "", nil, err
+	}
+	value := func(pointer *string) string {
+		if pointer == nil {
+			return ""
+		}
+		return *pointer
+	}
+	var text strings.Builder
+	var parts []json.RawMessage
+	for _, part := range normalized.Parts {
+		block := schema.FunctionToolResultContentBlock{Type: schema.FunctionToolResultContentBlockType(part.Type)}
+		switch part.Type {
+		case schema.ToolPartTypeText:
+			text.WriteString(part.Text)
+			continue
+		case schema.ToolPartTypeImage:
+			block.Image = &schema.UserInputImage{URL: value(part.Image.URL), Base64Data: value(part.Image.Base64Data), MIMEType: part.Image.MIMEType}
+		case schema.ToolPartTypeAudio:
+			block.Audio = &schema.UserInputAudio{URL: value(part.Audio.URL), Base64Data: value(part.Audio.Base64Data), MIMEType: part.Audio.MIMEType}
+		case schema.ToolPartTypeVideo:
+			block.Video = &schema.UserInputVideo{URL: value(part.Video.URL), Base64Data: value(part.Video.Base64Data), MIMEType: part.Video.MIMEType}
+		case schema.ToolPartTypeFile:
+			block.File = &schema.UserInputFile{URL: value(part.File.URL), Base64Data: value(part.File.Base64Data), MIMEType: part.File.MIMEType}
+		default:
+			return "", nil, fmt.Errorf("runtime: unsupported enhanced projection part %q", part.Type)
+		}
+		encoded, err := json.Marshal(block)
+		if err != nil {
+			return "", nil, err
+		}
+		parts = append(parts, encoded)
+	}
+	return text.String(), parts, nil
+}

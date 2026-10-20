@@ -2,10 +2,9 @@ package sqlite
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -36,18 +35,13 @@ func toolOperationFixture(t *testing.T, path string) (*Backend, domain.RunID) {
 	return backend, runID
 }
 
-func operationDigest(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
-}
-
 func testToolOperation(runID domain.RunID, id string) domain.ToolOperation {
 	args := []byte(`{"text":"same arguments"}`)
 	return domain.ToolOperation{
 		RunID: runID, OperationID: id, ToolName: "write_note",
-		RequestDigest:            operationDigest("request:" + string(args)),
+		RequestArguments:         append([]byte(nil), args...),
 		MiddlewareInputArguments: append([]byte(nil), args...),
-		ArgumentsDigest:          operationDigest(string(args)), EffectiveArguments: args,
+		EffectiveArguments:       args,
 	}
 }
 
@@ -85,7 +79,6 @@ func TestToolOperationAdmissionIdentityAndConcurrentClaim(t *testing.T) {
 
 	conflict := testToolOperation(runID, "call-stable")
 	conflict.EffectiveArguments = []byte(`{"text":"changed"}`)
-	conflict.ArgumentsDigest = operationDigest(string(conflict.EffectiveArguments))
 	if _, _, _, err := store.AdmitToolOperation(ctx, conflict); !errors.Is(err, storage.ErrToolOperationConflict) {
 		t.Fatalf("same key with changed effective arguments = %v, want ErrToolOperationConflict", err)
 	}
@@ -159,16 +152,16 @@ func TestToolOperationCompletionFailureAndRestartRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install completion failure trigger: %v", err)
 	}
-	if _, _, err := store.CompleteToolOperation(ctx, runID, "call-complete", owner, "durable result", ""); err == nil {
+	if _, _, err := store.CompleteToolOperation(ctx, runID, "call-complete", owner, domain.ToolOperationOutcome{Result: "durable result", Status: "success", Effects: "unknown"}); err == nil {
 		t.Fatal("completion write failure was ignored")
 	}
-	if got, err := store.GetToolOperation(ctx, runID, "call-complete"); err != nil || got.State != domain.ToolOperationClaimed {
+	if got, err := store.GetToolOperation(ctx, runID, "call-complete"); err != nil || (got.State != domain.ToolOperationClaimed || got.Outcome() != (domain.ToolOperationOutcome{})) {
 		t.Fatalf("failed completion changed operation state: %+v err=%v", got, err)
 	}
 	if _, err := backend.db.ExecContext(ctx, `DROP TRIGGER fail_operation_completion`); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.CompleteToolOperation(ctx, runID, "call-complete", owner, "durable result", ""); err != nil {
+	if _, _, err := store.CompleteToolOperation(ctx, runID, "call-complete", owner, domain.ToolOperationOutcome{Result: "durable result", Status: "success", Effects: "unknown"}); err != nil {
 		t.Fatalf("CompleteToolOperation after trigger removal: %v", err)
 	}
 
@@ -216,5 +209,34 @@ func TestToolOperationCompletionFailureAndRestartRecovery(t *testing.T) {
 	}
 	if completedEvents != 1 {
 		t.Fatalf("durable completion events = %d, want exactly 1", completedEvents)
+	}
+}
+
+func TestToolOperationUnboundRowsCannotAuthorize(t *testing.T) {
+	backend, runID := toolOperationFixture(t, filepath.Join(t.TempDir(), "legacy.db"))
+	ctx := context.Background()
+	for _, state := range []string{"admitted", "claimed", "completed"} {
+		for _, input := range []any{nil, []byte{}} {
+			id := state + fmt.Sprintf("-%v", input)
+			_, err := backend.db.ExecContext(ctx, `INSERT INTO tool_operations (run_id,operation_id,tool_name,request_arguments,middleware_input_arguments,effective_arguments,state,claim_owner,result,failure,created_at,updated_at) VALUES (?,?,?, ?,?,?,?, 'legacy-owner','legacy-result','legacy-failure',11,12)`, runID, id, "write_note", input, []byte(`{}`), []byte(`{}`), state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, err := backend.GetToolOperation(ctx, runID, id)
+			if err != nil || op.State != domain.ToolOperationState(state) || op.Result != "legacy-result" || op.ClaimOwner != "legacy-owner" || op.CreatedAt != 11 || op.UpdatedAt != 12 {
+				t.Fatalf("diagnostic read=%+v %v", op, err)
+			}
+			admission := testToolOperation(runID, id)
+			admission.ToolName = "changed-tool"
+			if _, _, _, err := backend.AdmitToolOperation(ctx, admission); !errors.Is(err, storage.ErrSourceBindingUnavailable) {
+				t.Fatalf("unbound admission %s=%v", state, err)
+			}
+			if _, _, _, err := backend.ClaimToolOperation(ctx, runID, id, "new-owner"); !errors.Is(err, storage.ErrSourceBindingUnavailable) {
+				t.Fatalf("unbound claim %s=%v", state, err)
+			}
+			if _, _, err := backend.CompleteToolOperation(ctx, runID, id, "legacy-owner", domain.ToolOperationOutcome{Result: "legacy-result", Failure: "legacy-failure", Status: "fatal", Effects: "unknown"}); !errors.Is(err, storage.ErrSourceBindingUnavailable) {
+				t.Fatalf("unbound completion %s=%v", state, err)
+			}
+		}
 	}
 }
