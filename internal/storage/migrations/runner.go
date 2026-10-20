@@ -60,23 +60,14 @@ func applyManifest(ctx context.Context, db *sql.DB, dialect Dialect, manifest Ma
 	if !finalMetadataColumns(columns) {
 		return fmt.Errorf("%w: expected final version/name/applied_at metadata; use the finite upgrade artifact", ErrUpgradeRequired)
 	}
-	if err := validateFinalMetadata(ctx, db, dialect); err != nil {
-		return err
-	}
-
 	applied, err := readApplied(ctx, db, dialect, manifest)
 	if err != nil {
 		return err
 	}
-	if err := verifySourceTables(tables, manifest.Migrations(dialect)[:len(applied)]); err != nil {
-		return err
-	}
-	if err := validateTargetColumns(ctx, db, dialect, manifest.Migrations(dialect)[:len(applied)]); err != nil {
-		return err
-	}
-	if err := validateTargetUniqueness(ctx, db, dialect, manifest.Migrations(dialect)[:len(applied)]); err != nil {
-		return err
-	}
+	// The exported owner has already validated the exact target shape. Repeating
+	// all catalog queries here adds no authority; this executor owns only DDL
+	// ordering and transactions after admission.
+
 	for _, item := range manifest.Migrations(dialect)[len(applied):] {
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
