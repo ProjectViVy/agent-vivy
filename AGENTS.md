@@ -100,6 +100,11 @@ Replace or remove rules before appending more. Add rules for recurring decisions
 - Choose optional external skills by task difficulty and relevance. Use
   Superpowers for complex work, not routine edits; do not load workflows just
   because they are available. Follow applicable project-specific skills below.
+- Before environment diagnosis or CI/race/Postgres/Docker/Windows acceptance,
+  read `.agents/skills/vivy-advance-dev-env/SKILL.md`. Prefer a Linux-filesystem
+  WSL checkout for Go/Node verification and an independent Windows checkout for
+  native acceptance. Check the skill's restored-baseline boundary and actual
+  recipe availability; follow the owner's requested verification scope.
 
 ## Architecture decision order (mandatory)
 
