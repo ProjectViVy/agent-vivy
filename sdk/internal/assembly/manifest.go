@@ -352,6 +352,9 @@ func canonicalizeCatalogManifests(source []CatalogManifest) []CatalogManifest {
 // InspectManifest validates manifest framing, schema and projection consistency
 // before exposing identity or capability state. Identity makes no content claim.
 func InspectManifest(raw []byte) (GenerationManifest, error) {
+	if err := ValidateJSONDocument(raw, GenerationManifest{}); err != nil {
+		return GenerationManifest{}, fmt.Errorf("inspect Generation Manifest: %w", err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var manifest GenerationManifest

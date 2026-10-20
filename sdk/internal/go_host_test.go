@@ -298,6 +298,7 @@ func TestPackGoHostSealedExternalArtifact(t *testing.T) {
 		t.Fatal("manifest missing hostBuild")
 	}
 	hostHead, _ := gitHead(hostDir)
+	t.Logf("go-host native source=%s commit=%s", manifest.HostBuild.Source.Repository, hostHead)
 	build := manifest.HostBuild
 	if build.Schema != assemblyv1.HostBuildSchema || build.ModulePath != "example.com/vivy-go-host" || build.Package != "./cmd/gohost" || build.Source.Commit != hostHead {
 		t.Fatalf("hostBuild provenance wrong: %+v", build)

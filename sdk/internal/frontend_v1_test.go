@@ -796,6 +796,7 @@ func TestPackSelectedToolWorlds(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			t.Logf("fixture=%s target=executable generation=%s", test.name, artifact.Manifest.GenerationID)
 			if _, err := InspectArtifact(artifact.Directory); err != nil {
 				t.Fatal(err)
 			}
