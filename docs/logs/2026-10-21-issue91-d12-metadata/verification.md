@@ -61,3 +61,11 @@ Finite artifact correction is1a8e7506acee43f1ed3afc69f877ebb068f5ccf7 on the
 separate artifact branch, never merged into this runtime. Its initial3193abdc
 PG suite passed159 cases with zero skips; final shape-review fixes and actual
 target bridge are undergoing fresh real-PG execution.
+
+Exact runtime1a4f578e independent Linux gates: wiring16 Node+105 Go passed with
+zero skips; kernel vet+1756 executed Go cases passed, minimal Pack/Inspect/boot1
+passed separately. The unchanged optional ripgrep case skipped (not passing
+evidence). Real PostgreSQL118 executed cases passed with zero skips. During
+initial gate capture one stale log-only file remained after mixed index
+alignment; it was restored to HEAD before completion, with tested source and
+pinned Laputa unchanged. No product-code worktree drift is accepted.
