@@ -23,3 +23,11 @@ No new registry, runtime parser negotiation, or migration runner is introduced.
   No Eino substitute or imports outside runtime/provider are introduced.
 - Review integration concern about quoted/renamed DDL was checked against the
   actual separately delivered converter: target runtime reopen passes.
+
+- Final code17e3cb24: wiring/kernel pass; optional unchanged Linux ripgrep case
+  skips. PG115, Linux BML113 and UI10 pass with zero skips.
+- Actual alternate-port split smoke passes with a disposable home; 3015-specific
+  required smoke remains unrun because a stable checkout owns the standard pair.
+- Converter independent review found reconstructable RecordsDigest not checked
+  and overly strict closed/acyclic graph assumptions; separate artifact owner
+  is correcting them before the fragment is considered verified.

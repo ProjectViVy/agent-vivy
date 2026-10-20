@@ -54,3 +54,53 @@ run `go mod edit -modfile=bridge.mod -require=github.com/ProjectViVy/agent-vivy/
 then `go test -modfile=bridge.mod ./... -run '^TestBridge' -count=1`. Remove the
 three temporary bridge files afterward. This intentionally uses a temporary
 modfile; production converter code has no BML/root dependency.
+
+## Final scoped runtime gates and real path
+
+Code candidate: `17e3cb242376418a9c40eeec16d77cd067a4c145`, independently checked
+at `/home/mastwet/work/vivy-issue91-data-features/agent-vivy` with its own clean
+Laputa pin. Later log-only commits do not change this tested source.
+
+| Check | Observed result |
+| --- | --- |
+| `just wiring-ci` | Pass: 16 Node guard cases and 105 Go cases; zero skips |
+| `just kernel-ci` | Vet + 1654 Go cases pass; minimal Pack/Inspect/boot case passes separately |
+| Kernel optional case | `TestBackendGrepRipgrepHonorsGitignore` skips because this Linux host lacks ripgrep; not counted as passing |
+| Independent Linux BML module test/vet | Pass: 113 executed cases; zero skips |
+| `just test-postgres` | Pass: 115 executed cases; zero skips, task-created postgres:16 container removed afterward |
+| Official affected source UI suite | Pass: view.test.tsx (9) + rules.test.tsx (1), no temporary include override |
+| UI typecheck/build | Pass using real Vite assets; existing large-chunk advisory remains |
+| Changed-source producer | All 23 Provider suites pass (69.586s); generated conformance_results.json retained through its producer |
+| SDK Module verification | `go run ./sdk verify ./plugins/vivy-memory` passes after existing source-hash producer refresh |
+
+The first kernel attempt passed owner tests but failed minimal Pack because the
+changed Memory UI source still had its previous declared pin. Refreshing via
+`sdk/internal/cmd/source-hash`, reproducing conformance, and staging UI through
+the SDK fixes the failure; no generated Assembly was hand edited.
+
+Real split smoke used task-owned ports **8788/3016**, the existing
+`VIVY_BACKEND_ADDR` proxy override and an explicit disposable VIVY_USER_HOME.
+Standard 8787/3015 were already owned by the independent stable checkout;
+those processes were not stopped or reused as candidate evidence. The mandated
+**3015-specific smoke remains unrun** and is not claimed by the alternative-port
+smoke. No embedded UI, tenant store or provider/model request was used.
+
+Observed browser interactions:
+
+1. Default governance refuses an effectful MEMRULES save and retains the draft.
+2. Restart only the disposable test pair with its existing `full_auto` profile;
+   the normal authenticated ActionHost policy path permits the test write.
+3. Read default handbook, edit and save -> authoritative file-backed text shown.
+4. Edit a draft, externally change only this task's synthetic handbook, save ->
+   conflict displayed and draft retained.
+5. Refresh -> external text shown; edit/retry -> final text saved successfully.
+6. Add a synthetic memory -> visible live list row. Read-only inspection of this
+   disposable memory DB confirms schema2, one opaque record, no retired JSON
+   fields and no memory_apply_journal.
+
+Screenshots: memrules-conflict.png, memrules-saved.png and memory-created.png.
+The test pair and synthetic home are task scratch, not a retained tenant.
+Full-product `just ci`, D02 Face protocol gates and race are not claimed: this
+cut changes BML persistence/management payloads and the Memory UI, with no
+runtime/Face orchestration changes. Application metadata parity/conversion still
+waits for D03 integration; the passing unchanged PG suite does not accept it.
