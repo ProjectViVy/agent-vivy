@@ -160,8 +160,9 @@ Resume replays the committed snapshot, never re-resolves:
   (`internal/runtime/payloads.go:9-22`; built at `service.go:719-728`). The
   digest binds the run to the exact `run_prompt_snapshots` row containing the
   persona's `Source`/`Revision`/`Digest` — audit can reconstruct *which
-  persona revision authored which run* without the payload becoming a second
-  transcript (the `AuditRecord` design rule, `internal/runtime/audit.go:11-22`).
+  persona revision authored which run* from the canonical Journal. Do not add
+  a second transcript or log private prompt/tool payloads; there is no separate
+  digest-only event audit stream.
 - Admission-time rejections propagate as typed `maskcontract` errors
   (`CodeSnapshotCorrupt`, `CodeMaskUnavailable`) and are recorded as run
   failures through the same terminal-event path as other pre-model failures.

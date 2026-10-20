@@ -736,7 +736,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 			Credentials: credentialResolver,
 		})
 	}
-	runHooks := []runtime.RunHook{runtime.AuditHook{Sink: runtime.SlogAuditSink{Logger: logger}}}
+	var runHooks []runtime.RunHook
 	if channelHost != nil {
 		runHooks = append(runHooks, channelHost)
 	}
