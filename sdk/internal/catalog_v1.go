@@ -89,7 +89,7 @@ func loadCatalog(moduleRoot string, descriptor module.Descriptor) (compiledCatal
 	if !utf8.Valid(raw) {
 		return compiledCatalog{}, fmt.Errorf("sdk: i18n catalog for %s is not valid UTF-8", descriptor.Module.ID)
 	}
-	if err := assemblyv1.ValidateJSONDocument(raw, catalogDocument{}); err != nil {
+	if err := assemblyv1.ValidateJSONDocument(raw, nil); err != nil {
 		return compiledCatalog{}, fmt.Errorf("sdk: i18n catalog for %s: %w", descriptor.Module.ID, err)
 	}
 

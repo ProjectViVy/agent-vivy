@@ -209,7 +209,12 @@ Every artifact embeds an immutable Manifest containing:
 - Eino/EinoExt packages and APIs used by scoped internal adapters;
 - focused and Generation conformance results.
 
-Inspect is read-only. It MUST distinguish:
+Inspect is read-only and never executes an inspected artifact. Before projection,
+it MUST reject malformed UTF-8/JSON, duplicate properties (including escaped names)
+and noncanonical casing of owned schema fields. Dynamic map keys retain their
+case-sensitive meaning.
+
+It MUST distinguish:
 
 - not compiled;
 - compiled but unconfigured;

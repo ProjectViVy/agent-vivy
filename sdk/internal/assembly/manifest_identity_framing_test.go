@@ -12,6 +12,7 @@ func TestInspectManifestRejectsDuplicateJSONFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string][]byte{
+		"invalid UTF-8":         bytes.Replace(raw, []byte("authoring-test"), []byte{0xff}, 1),
 		"identity":              append([]byte(`{"generationId":"foreign",`), raw[1:]...),
 		"case-variant identity": append([]byte(`{"GenerationID":"foreign",`), raw[1:]...),
 		"case-variant version":  append([]byte(`{"SpecificationVersion":"foreign",`), raw[1:]...),

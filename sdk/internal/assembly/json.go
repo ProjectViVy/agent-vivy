@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 )
 
 // ValidateJSONDocument rejects duplicate names and noncanonical struct fields
-// before typed decoding. Dynamic map keys remain case-sensitive.
+// before typed decoding. A nil shape retains framing-only validation; callers
+// keep their existing typed field diagnostics. Dynamic map keys preserve case.
 func ValidateJSONDocument(raw []byte, shape any) error {
+	if !utf8.Valid(raw) {
+		return fmt.Errorf("JSON document must be valid UTF-8")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	var walk func(reflect.Type) error
 	walk = func(expected reflect.Type) error {
