@@ -48,12 +48,13 @@ func TestWorkflowDefinitionUpgradeFrom034(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw sqlite: %v", err)
 	}
+	t.Cleanup(func() { _ = raw.Close() })
 	manifest, err := migrations.Embedded()
 	if err != nil {
 		t.Fatalf("manifest: %v", err)
 	}
 	if _, err := raw.ExecContext(ctx, `CREATE TABLE schema_migrations (
-		version BIGINT PRIMARY KEY, name TEXT NOT NULL, applied_at BIGINT NOT NULL)`); err != nil {
+		version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
 		t.Fatalf("create schema_migrations: %v", err)
 	}
 	var applied int64

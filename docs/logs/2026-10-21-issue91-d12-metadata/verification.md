@@ -22,3 +22,10 @@ Historical source normalization/preservation assertions move with the frozen
 finite artifact. Runtime Postgres CI requires TestMigrateRefusesV14BeforeWrites
 instead of the removed in-place legacy-normalization case; real converter PG
 checks remain separately required. No released SQL rewrite or production read.
+
+The first native SQLite owner run exposed two test fixtures that declared final
+SQLite metadata with BIGINT rather than the owned INTEGER primary key. The
+strict guard correctly refused them. Corrected only those fixture declarations
+and registered immediate raw-handle cleanup. Both focused owner cases then pass
+(15.352s); the earlier whole native SQLite run otherwise passed until these two
+fixture failures. Independent Linux whole-owner verification remains required.
