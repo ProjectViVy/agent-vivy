@@ -46,3 +46,8 @@ entries now share admission, and only package-private test helpers construct
 synthetic prefixes. Required UNIQUE constraints and partial indexes derive from
 the same embedded SQL and are inspected in both dialects. Exact SQL literals
 remain distinct. Native migration suite passes after these corrections.
+
+Linux conformance reproduction exposed one remaining removed-field reference
+in the App Work fixture. Replaced its obsolete in-place-upgrade expectation
+with final converted-store open/Work coverage and a separate byte-preserving
+App refusal case for old23 metadata. No checksum producer is restored.
