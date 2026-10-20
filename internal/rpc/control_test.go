@@ -797,7 +797,7 @@ func TestControlShellStartIsGovernedAndStrict(t *testing.T) {
 	}
 	historyJSON, _ := json.Marshal(history)
 	if !strings.Contains(string(historyJSON), `"tool_name":"bash"`) ||
-		!strings.Contains(string(historyJSON), "bash script [redacted") ||
+		!strings.Contains(string(historyJSON), "bash (script redacted)") ||
 		strings.Contains(string(historyJSON), "printf rpc_shell_ok") {
 		t.Fatalf("sanitized shell history = %s", historyJSON)
 	}

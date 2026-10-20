@@ -35,3 +35,37 @@ production UI build passed. No full-product release CI is claimed.
 
 D03 became available as committed c065a82b during this cut; it will be integrated
 sequentially before the shared Generation schema retirement. No root edits were copied.
+
+## Sequential integration follow-up
+
+D03 c065a82b is integrated as398fe41b; the only conformance conflict was its
+retired sourceSha256 values, so all executed outcomes were retained unchanged.
+The integrated wiring gate passes, and kernel vet plus1711 executed cases
+pass (one explicitly skipped ripgrep case); minimal Pack/Inspect/boot also passes.
+Affected d02-ci and d02-web-ci pass, including102 Web tests and both actual
+selected-UI/lite artifact checks. Prior failed attempts remain failures.
+
+All nine executable Recipe cases pass (default, lite, minimal, headless,
+vivy-code, scx, masks-selected, masks-omitted, masks-backend-only), as does
+DIVA shared. Go-host tests hit the verification copy's old Git index naming
+a deleted sourcehash file; the dedicated Linux checkout has now been fetched
+and reset to the exact committed integration candidate via a native bundle.
+The final full SDK run will use that exact checkout.
+
+Historical App/settings/embedded/CODE retries passed. The external public API
+fixture first failed on default proxy checksum-network timeout; direct fetching
+was stopped after a hang. It then passed3.872s with process-scoped
+GOPROXY=https://goproxy.cn,direct and unchanged GOSUMDB=sum.golang.org.
+
+Actual native entry points `go generate ./internal/generated/assembly` and
+`pnpm --dir ui run stage:ui` each ran twice with explicit authoring-default:
+all77 emitted files were byte-identical on pass2. A first pnpm attempt lacked
+Go on subprocess PATH; adding the installed toolchain fixed invocation only.
+Native shell privacy integration passes after reconciling its stale pre-D03
+expected label with 'bash (script redacted)'; the raw-script negative check stays.
+
+Real split Vite3015 browser: Lifecycle displays authoring-default with no hash
+rows, refresh preserves it, and backend-confirmed English-to-Chinese language
+change renders the compiled catalog after reload. Screenshots accompany this log.
+Home/config are disposable /tmp/vivy-d06-browser, never tenant data; both owned
+split processes stopped after the walkthrough.

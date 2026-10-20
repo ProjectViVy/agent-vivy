@@ -217,7 +217,7 @@ func GenerateRuntimeAssembly(plan AssemblyPlan, packageName string, options ...G
 	}
 	source.WriteString("\tDiagnosticObservers []toolworld.DiagnosticObserver\n\tDiagnosticObserverWorldIDs []string\n\tLanguageServerStatuses []toolworld.LanguageServerStatusProvider\n\tToolWorldGrants map[string][]module.GrantBinding\n\tChannelGrants map[string][]module.GrantBinding\n\tGenerationID string\n\tManifest generation.Manifest\n\tgeneration *module.Generation\n}\n\n")
 	if opts.formIdentity != "" {
-		fmt.Fprintf(&source, "// HeadlessGenerationID is the declared identity of this composition's\n// form. It is part of the generated artifact, not invented at runtime: every\n// binary built from this Assembly carries the same form identity, while a\n// packed build replaces this file and derives its sealed identity from the\n// embedded Generation Manifest instead.\nconst HeadlessGenerationID = %q\n\n", opts.formIdentity)
+		fmt.Fprintf(&source, "// HeadlessGenerationID is the authoring or pack-owned identity of this\n// composition. Packed builds share it unchanged with their embedded manifest.\nconst HeadlessGenerationID = %q\n\n", opts.formIdentity)
 	}
 	source.WriteString("func BuildDefault() RuntimeAssembly {\n")
 	var moduleIDs, channelNames, toolIDs, actionIDs, worldIDs, providerProfileIDs, contextSourceIDs, skillSourceIDs, runObserverIDs []string
