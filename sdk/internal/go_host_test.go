@@ -75,13 +75,13 @@ func writeGoHostLock(t *testing.T, dir string, mutate func(map[string]any)) stri
 	lock := map[string]any{
 		"schema":  "diva.go-host-inputs/v1",
 		"release": false,
-		"host":    map[string]any{"modulePath": "example.com/vivy-go-host", "repository": "https://example.invalid/go-host", "commit": strings.Repeat("a", 40), "treeSHA256": strings.Repeat("b", 64)},
+		"host":    map[string]any{"modulePath": "example.com/vivy-go-host", "repository": "https://example.invalid/go-host", "commit": strings.Repeat("a", 40)},
 		"sources": map[string]any{
-			"vivy":   map[string]any{"repository": "https://github.com/ProjectViVy/agent-vivy", "commit": strings.Repeat("c", 40), "treeSHA256": strings.Repeat("d", 64)},
-			"laputa": map[string]any{"repository": "https://github.com/ProjectViVy/laputa", "commit": strings.Repeat("e", 40), "treeSHA256": strings.Repeat("f", 64)},
+			"vivy":   map[string]any{"repository": "https://github.com/ProjectViVy/agent-vivy", "commit": strings.Repeat("c", 40)},
+			"laputa": map[string]any{"repository": "https://github.com/ProjectViVy/laputa", "commit": strings.Repeat("e", 40)},
 			"inofy":  map[string]any{"module": "github.com/ProjectViVy/inofy", "version": "v0.0.0-20260930141905-71e2c9bbe47d", "commit": "71e2c9bbe47d"},
 		},
-		"recipe": map[string]any{"path": "recipes/diva.vivy.yml", "sha256": strings.Repeat("0", 64)},
+		"recipe": map[string]any{"path": "recipes/diva.vivy.yml"},
 		"tools":  map[string]any{"go": "go1.26.4"},
 	}
 	if mutate != nil {
@@ -190,8 +190,7 @@ func TestParsePackGoHostHappyPath(t *testing.T) {
 
 // goHostUniverse builds the minimal sealed universe the go-host pack target
 // consumes: a git-committed host fixture, and a lock computed from the live
-// agent-vivy and laputa worktrees (release is off, so local dirt is sealed,
-// not rejected).
+// agent-vivy and laputa worktrees (release is off, so local dirt is allowed).
 func goHostUniverse(t *testing.T) (packOptions, string) {
 	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -231,17 +230,9 @@ func goHostUniverse(t *testing.T) (packOptions, string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tree, err := hashSourceTree(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return goHostLockSource{Repository: "https://example.invalid/repo", Commit: head, TreeSHA256: tree}
+		return goHostLockSource{Repository: gitRemoteURL(dir), Commit: head}
 	}
 	recipe := filepath.Join(repoRoot, "recipes", "diva.vivy.yml")
-	recipeRaw, err := os.ReadFile(recipe)
-	if err != nil {
-		t.Fatal(err)
-	}
 	host := sourcePin(hostDir)
 	vivy := sourcePin(repoRoot)
 	laputa := sourcePin(laputaRoot)
@@ -250,13 +241,13 @@ func goHostUniverse(t *testing.T) (packOptions, string) {
 	lock := map[string]any{
 		"schema":  "diva.go-host-inputs/v1",
 		"release": false,
-		"host":    map[string]any{"modulePath": "example.com/vivy-go-host", "repository": "https://example.invalid/go-host", "commit": host.Commit, "treeSHA256": host.TreeSHA256},
+		"host":    map[string]any{"modulePath": "example.com/vivy-go-host", "repository": "https://example.invalid/go-host", "commit": host.Commit},
 		"sources": map[string]any{
-			"vivy":   map[string]any{"repository": vivy.Repository, "commit": vivy.Commit, "treeSHA256": vivy.TreeSHA256},
-			"laputa": map[string]any{"repository": laputa.Repository, "commit": laputa.Commit, "treeSHA256": laputa.TreeSHA256},
+			"vivy":   map[string]any{"repository": vivy.Repository, "commit": vivy.Commit},
+			"laputa": map[string]any{"repository": laputa.Repository, "commit": laputa.Commit},
 			"inofy":  map[string]any{"module": "github.com/ProjectViVy/inofy", "version": "v0.0.0-20260930141905-71e2c9bbe47d", "commit": "71e2c9bbe47d"},
 		},
-		"recipe": map[string]any{"path": "recipes/diva.vivy.yml", "sha256": sha256Hex(recipeRaw)},
+		"recipe": map[string]any{"path": "recipes/diva.vivy.yml"},
 		"tools":  map[string]any{"go": "go1.26.4"},
 	}
 	raw, err := json.Marshal(lock)
@@ -322,12 +313,8 @@ func TestPackGoHostSealedExternalArtifact(t *testing.T) {
 		t.Fatal("embedded manifest does not match generation.json")
 	}
 	frontend := filepath.Join(opts.Output, "frontend")
-	digest, err := hashUIArtifactTree(frontend)
-	if err != nil {
-		t.Fatalf("frontend tree missing: %v", err)
-	}
-	if digest != build.Assets.SHA256 {
-		t.Fatalf("frontend digest %s, hostBuild seals %s", digest, build.Assets.SHA256)
+	if _, err := os.Stat(filepath.Join(frontend, "index.html")); err != nil {
+		t.Fatalf("frontend index missing: %v", err)
 	}
 	report, err := os.ReadFile(filepath.Join(opts.Output, "build-report.json"))
 	if err != nil {
@@ -340,28 +327,12 @@ func TestPackGoHostSealedExternalArtifact(t *testing.T) {
 	if decoded["schema"] != "vivy.go-host-report/v1" || decoded["generationId"] != manifest.GenerationID {
 		t.Fatalf("build report identity wrong: %s", report)
 	}
-	checksums, err := os.ReadFile(filepath.Join(opts.Output, "checksums.sha256"))
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(opts.Output, "checksums.sha256")); !os.IsNotExist(err) {
+		t.Fatalf("retired checksum artifact exists or stat failed: %v", err)
 	}
-	seen := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(string(checksums)), "\n") {
-		parts := strings.Fields(line)
-		if len(parts) != 2 {
-			t.Fatalf("malformed checksum line %q", line)
-		}
-		body, err := os.ReadFile(filepath.Join(opts.Output, filepath.FromSlash(parts[1])))
-		if err != nil {
-			t.Fatalf("checksum references missing file %s", parts[1])
-		}
-		if sha256Hex(body) != parts[0] {
-			t.Fatalf("checksum mismatch for %s", parts[1])
-		}
-		seen[parts[1]] = true
-	}
-	for _, required := range []string{binaryName, "generation.json", "frontend/index.html"} {
-		if !seen[required] {
-			t.Fatalf("checksums missing %s", required)
+	for _, field := range []string{"treeSHA256", "consumerModfileSHA256", "consumerSumSHA256", "dependencyLockSHA256"} {
+		if bytes.Contains(raw, []byte(field)) || bytes.Contains(report, []byte(field)) {
+			t.Fatalf("retired field %s remains in host artifact", field)
 		}
 	}
 	inspected, err := InspectArtifact(opts.Output)
@@ -394,42 +365,25 @@ func mutateGoHostLock(t *testing.T, lockPath string, mutate func(map[string]any)
 	}
 }
 
-// A lock whose pinned source tree digest no longer matches the real tree must
-// stop the pack before any build input is staged.
-func TestPackGoHostRejectsSourceHashMismatch(t *testing.T) {
+// Native source pins still reject a different commit before staging.
+func TestPackGoHostRejectsSourceCommitMismatch(t *testing.T) {
 	opts, _ := goHostUniverse(t)
 	mutateGoHostLock(t, opts.HostLock, func(doc map[string]any) {
-		doc["sources"].(map[string]any)["vivy"].(map[string]any)["treeSHA256"] = strings.Repeat("0", 64)
+		doc["sources"].(map[string]any)["vivy"].(map[string]any)["commit"] = strings.Repeat("0", 40)
 	})
-	if _, err := Pack(context.Background(), opts); err == nil {
-		t.Fatal("pack accepted a stale source tree digest")
-	} else if !strings.Contains(err.Error(), "treeSHA256") && !strings.Contains(err.Error(), "tree") {
-		t.Fatalf("wrong rejection reason: %v", err)
+	if _, err := Pack(context.Background(), opts); err == nil || !strings.Contains(err.Error(), "source commit") {
+		t.Fatalf("source commit mismatch not rejected: %v", err)
 	}
 }
 
-// Recipe bytes sealed into the lock cannot drift after the lock is written.
-func TestPackGoHostRejectsRecipeDrift(t *testing.T) {
+// Recipe identity is its explicit path, independent of its file bytes.
+func TestPackGoHostRejectsRecipePathMismatch(t *testing.T) {
 	opts, _ := goHostUniverse(t)
-	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	recipe := filepath.Join(repoRoot, "recipes", "diva.vivy.yml")
-	original, err := os.ReadFile(recipe)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.WriteFile(recipe, original, 0o644); err != nil {
-			t.Fatalf("restore recipe: %v", err)
-		}
-	}()
-	if err := os.WriteFile(recipe, append(append([]byte{}, original...), []byte("\n# drift\n")...), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Pack(context.Background(), opts); err == nil {
-		t.Fatal("pack accepted a recipe that drifted after the lock was written")
+	mutateGoHostLock(t, opts.HostLock, func(doc map[string]any) {
+		doc["recipe"].(map[string]any)["path"] = "recipes/minimal.vivy.yml"
+	})
+	if _, err := Pack(context.Background(), opts); err == nil || !strings.Contains(err.Error(), "Recipe path") {
+		t.Fatalf("Recipe path mismatch not rejected: %v", err)
 	}
 }
 
@@ -447,9 +401,8 @@ func TestPackGoHostRejectsDirtyRelease(t *testing.T) {
 	}
 }
 
-// The sealed artifact must reject tampering at Inspect time: a changed
-// frontend byte, a rewritten sidecar manifest, or a binary without the
-// matching embedded manifest each fail independently.
+// Inspect validates the sidecar against the framed executable manifest.
+// Frontend bytes carry no Vivy-computed content claim.
 func TestInspectGoHostRejectsTamperedArtifact(t *testing.T) {
 	opts, _ := goHostUniverse(t)
 	if _, err := Pack(context.Background(), opts); err != nil {
@@ -474,8 +427,8 @@ func TestInspectGoHostRejectsTamperedArtifact(t *testing.T) {
 		if err := os.WriteFile(target, body, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := InspectArtifact(dir); err == nil {
-			t.Fatal("inspect accepted a tampered frontend byte")
+		if _, err := InspectArtifact(dir); err != nil {
+			t.Fatalf("frontend bytes incorrectly treated as an identity claim: %v", err)
 		}
 	})
 	t.Run("sidecar manifest", func(t *testing.T) {
@@ -530,33 +483,39 @@ func TestInspectGoHostRejectsTamperedArtifact(t *testing.T) {
 	})
 }
 
-// The same normalized inputs must produce the same Generation ID and manifest
-// from any checkout location; raw binary bytes may still differ by build path
-// or toolchain metadata, which the build report records instead of promising
-// bit-identical executables.
-func TestPackGoHostReproducibleGenerationID(t *testing.T) {
+// Each pack allocates a fresh opaque identity even when authoring inputs
+// supply an existing Generation ID.
+func TestPackGoHostAllocatesFreshGenerationID(t *testing.T) {
 	first, _ := goHostUniverse(t)
 	second, _ := goHostUniverse(t)
-	if _, err := Pack(context.Background(), first); err != nil {
+	first.GenerationID, second.GenerationID = "authoring-go-host", "authoring-go-host"
+	firstArtifact, err := Pack(context.Background(), first)
+	if err != nil {
 		t.Fatalf("first pack: %v", err)
 	}
-	if _, err := Pack(context.Background(), second); err != nil {
+	secondArtifact, err := Pack(context.Background(), second)
+	if err != nil {
 		t.Fatalf("second pack: %v", err)
 	}
-	read := func(dir, name string) []byte {
-		body, err := os.ReadFile(filepath.Join(dir, name))
+	ids := []string{firstArtifact.Manifest.GenerationID, secondArtifact.Manifest.GenerationID}
+	if ids[0] == "" || ids[1] == "" || ids[0] == ids[1] || ids[0] == first.GenerationID || ids[1] == second.GenerationID {
+		t.Fatalf("pack did not allocate distinct identities: %q", ids)
+	}
+	for _, artifact := range []Artifact{firstArtifact, secondArtifact} {
+		ui, err := os.ReadFile(filepath.Join(artifact.Directory, "ui-assembly.ts"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		return body
-	}
-	manifestA := read(first.Output, "generation.json")
-	manifestB := read(second.Output, "generation.json")
-	if !bytes.Equal(manifestA, manifestB) {
-		t.Fatal("identical normalized inputs produced different Generation Manifests")
-	}
-	if !bytes.Equal(read(first.Output, "zz_assembly.go"), read(second.Output, "zz_assembly.go")) {
-		t.Fatal("identical normalized inputs produced different generated Assembly")
+		if !bytes.Contains(ui, []byte(artifact.Manifest.GenerationID)) {
+			t.Fatal("UI and manifest Generation identity differ")
+		}
+		inspected, err := InspectArtifact(artifact.Directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inspected.Manifest.GenerationID != artifact.Manifest.GenerationID {
+			t.Fatal("Inspect and manifest Generation identity differ")
+		}
 	}
 }
 
@@ -572,13 +531,12 @@ func TestPackGoHostRejectsOutputReuse(t *testing.T) {
 }
 
 // The tracked lock must not pin its own DIVA commit: packing succeeds without
-// host.commit/host.treeSHA256 and hostBuild seals the live resolved identity.
+// host.commit and hostBuild records the live resolved identity.
 func TestPackGoHostResolvesUnpinnedHostIdentity(t *testing.T) {
 	opts, hostDir := goHostUniverse(t)
 	mutateGoHostLock(t, opts.HostLock, func(doc map[string]any) {
 		host := doc["host"].(map[string]any)
 		delete(host, "commit")
-		delete(host, "treeSHA256")
 	})
 	if _, err := Pack(context.Background(), opts); err != nil {
 		t.Fatalf("pack go-host with unpinned host identity: %v", err)
@@ -597,5 +555,84 @@ func TestPackGoHostResolvesUnpinnedHostIdentity(t *testing.T) {
 	}
 	if manifest.HostBuild == nil || manifest.HostBuild.Source.Commit != head {
 		t.Fatalf("hostBuild source identity wrong: %+v", manifest.HostBuild)
+	}
+}
+
+// Build input declarations retain native source identity without tree or
+// dependency-lock digests.
+func TestParseGoHostLockAcceptsNativeIdentity(t *testing.T) {
+	lockPath := writeGoHostLock(t, t.TempDir(), nil)
+	if _, err := parseGoHostLock(lockPath); err != nil {
+		t.Fatalf("native source identity rejected: %v", err)
+	}
+}
+
+func TestParseGoHostLockRejectsInvalidNativeIdentity(t *testing.T) {
+	for name, mutate := range map[string]func(map[string]any){
+		"commit": func(doc map[string]any) {
+			doc["sources"].(map[string]any)["vivy"].(map[string]any)["commit"] = "floating"
+		},
+		"Recipe traversal": func(doc map[string]any) { doc["recipe"].(map[string]any)["path"] = "../escape.yml" },
+		"Recipe absolute":  func(doc map[string]any) { doc["recipe"].(map[string]any)["path"] = "/escape.yml" },
+		"Recipe absent":    func(doc map[string]any) { delete(doc, "recipe") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseGoHostLock(writeGoHostLock(t, t.TempDir(), mutate)); err == nil {
+				t.Fatal("invalid native identity accepted")
+			}
+		})
+	}
+}
+
+// Keep remote identity and release cleanliness checks independent of a full
+// product build so each refusal proves the intended owner.
+func TestVerifyGoHostLockNativeIdentity(t *testing.T) {
+	repo := func() string {
+		dir := t.TempDir()
+		for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", "https://example.invalid/source"}, {"-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"}} {
+			if _, err := gitOutput(dir, args...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	vivy, laputa, host := repo(), repo(), repo()
+	pin := func(dir string) goHostLockSource {
+		head, err := gitHead(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return goHostLockSource{Repository: gitRemoteURL(dir), Commit: head}
+	}
+	var lock goHostLock
+	lock.Sources.Vivy, lock.Sources.Laputa = pin(vivy), pin(laputa)
+	lock.Host.Repository = gitRemoteURL(host)
+	inputs := goHostInputs{Dir: host, LockDoc: lock}
+	if err := verifyGoHostLock(inputs, vivy, laputa); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("remote", func(t *testing.T) {
+		bad := inputs
+		bad.LockDoc.Sources.Vivy.Repository = "https://example.invalid/other"
+		if err := verifyGoHostLock(bad, vivy, laputa); err == nil || !strings.Contains(err.Error(), "source repository") {
+			t.Fatalf("remote mismatch not rejected: %v", err)
+		}
+	})
+	t.Run("commit", func(t *testing.T) {
+		bad := inputs
+		bad.LockDoc.Sources.Vivy.Commit = strings.Repeat("0", 40)
+		if err := verifyGoHostLock(bad, vivy, laputa); err == nil || !strings.Contains(err.Error(), "source commit") {
+			t.Fatalf("commit mismatch not rejected: %v", err)
+		}
+	})
+	if err := os.WriteFile(filepath.Join(host, "untracked"), []byte("development bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyGoHostLock(inputs, vivy, laputa); err != nil {
+		t.Fatalf("development input rejected: %v", err)
+	}
+	inputs.LockDoc.Release = true
+	if err := verifyGoHostLock(inputs, vivy, laputa); err == nil || !strings.Contains(err.Error(), "dirty host") {
+		t.Fatalf("dirty release not rejected by host owner: %v", err)
 	}
 }
