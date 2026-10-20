@@ -3,16 +3,15 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"agent-vivy/internal/domain"
-	"agent-vivy/internal/storage"
+
 	"agent-vivy/internal/testsupport"
 )
 
-func projectorRun(t *testing.T, svc *Service, sessionID domain.SessionID, runID domain.RunID, content string, completed payloadModelCompletedV2) {
+func projectorRun(t *testing.T, svc *Service, sessionID domain.SessionID, runID domain.RunID, content string, completed payloadModelCompletedV3) {
 	t.Helper()
 	ctx := context.Background()
 	if err := svc.deps.Sessions.CreateSession(ctx, domain.Session{ID: sessionID, Title: "projection", CreatedAt: 1}); err != nil {
@@ -29,8 +28,8 @@ func projectorRun(t *testing.T, svc *Service, sessionID domain.SessionID, runID 
 	)
 }
 
-func v2Completion(content string) payloadModelCompletedV2 {
-	return payloadModelCompletedV2{ContentSHA256: sha256Hex([]byte(content)), ByteLen: len([]byte(content))}
+func v2Completion(content string) payloadModelCompletedV3 {
+	return payloadModelCompletedV3{ByteLen: len([]byte(content))}
 }
 
 func TestMessageProjectorReplaysAndRepairsMissingProjection(t *testing.T) {
@@ -112,26 +111,15 @@ func TestMessageProjectorAdoptsLegacyAssistantRow(t *testing.T) {
 	}
 }
 
-func TestMessageProjectorRejectsV2HashMismatch(t *testing.T) {
+func TestMessageProjectorRejectsByteMismatch(t *testing.T) {
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
-	ctx := context.Background()
-	sessionID := domain.SessionID("sess-projector-mismatch")
-	runID := domain.RunID("run-projector-mismatch")
-	projectorRun(t, svc, sessionID, runID, "actual answer", v2Completion("actual anSwer"))
-
-	err := svc.ReconcileSessionMessages(ctx, sessionID)
-	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
-		t.Fatalf("hash mismatch reconcile error = %v, want digest mismatch", err)
+	projectorRun(t, svc, "s-count", "r-count", "actual", payloadModelCompletedV3{ByteLen: 1})
+	if err := svc.ReconcileSessionMessages(context.Background(), "s-count"); err == nil {
+		t.Fatal("accepted wrong byte count")
 	}
-	if errors.Is(err, storage.ErrProjectionConflict) {
-		t.Fatalf("hash mismatch must fail before projection conflict: %v", err)
-	}
-	got, listErr := backend.ListMessages(ctx, sessionID)
-	if listErr != nil {
-		t.Fatalf("list after mismatch: %v", listErr)
-	}
-	if len(got) != 0 {
-		t.Fatalf("hash mismatch partially projected rows: %+v", got)
+	got, err := backend.ListMessages(context.Background(), "s-count")
+	if err != nil || len(got) != 0 {
+		t.Fatalf("partial projection: %+v %v", got, err)
 	}
 }
 
@@ -140,8 +128,8 @@ func TestMessageProjectorRejectsNonCanonicalV2Metadata(t *testing.T) {
 		name    string
 		payload map[string]any
 	}{
-		{name: "uppercase digest", payload: map[string]any{"content_sha256": strings.ToUpper(sha256Hex([]byte("answer"))), "byte_len": len("answer")}},
-		{name: "unknown field", payload: map[string]any{"content_sha256": sha256Hex([]byte("answer")), "byte_len": len("answer"), "extra": true}},
+		{name: "null byte count", payload: map[string]any{"byte_len": nil}},
+		{name: "unknown field", payload: map[string]any{"content_sha256": "ignored historical digest", "byte_len": len("answer"), "extra": true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, backend, _ := newTestService(t, testsupport.NewEchoModel())

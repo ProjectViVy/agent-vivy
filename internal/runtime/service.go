@@ -3109,11 +3109,11 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if o.source != modelCallSourceSummary {
 		meta.ContextViewID = o.m.contextViewID
 	}
-	request := digestModelRequest(in.Messages, toolInfoNames(in.Tools))
+	request := describeModelRequest(in.Messages, toolInfoNames(in.Tools))
 	if meta.ContextViewID != "" {
 		request.ContextView = meta.ContextViewID
 	}
-	event := o.m.build(domain.EventModelRequest, payloadModelRequestV3{
+	event := o.m.build(domain.EventModelRequest, payloadModelRequestV4{
 		payloadModelRequest: request,
 		CallID:              meta.CallID,
 		Mode:                in.Mode,
@@ -3121,7 +3121,7 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 		Model:               o.model,
 		Source:              o.source,
 	})
-	// The v3 request consumes the event quota and carries the run's
+	// The v4 request consumes the event quota and carries the run's
 	// model-call charge up front; the mapped model.completed/
 	// tool.requested batch for this call consumes the accounting credit
 	// noteObservedCallStart leaves behind.

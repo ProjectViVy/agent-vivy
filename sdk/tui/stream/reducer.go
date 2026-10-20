@@ -60,9 +60,9 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 			return p.failProtocol(notice.ProtocolError, nextID)
 		}
 		if notice.Completion == nil {
-			return p.failProtocol("model.completed v2: missing validated metadata", nextID)
+			return p.failProtocol("model.completed v3: missing validated metadata", nextID)
 		}
-		if err := VerifyModelCompletedV2Metadata(*notice.Completion, p.streamingAnswerContent()); err != nil {
+		if err := VerifyModelCompletedV3Metadata(*notice.Completion, p.streamingAnswerContent()); err != nil {
 			return p.failProtocol(err.Error(), nextID)
 		}
 		p.FinishStreaming()

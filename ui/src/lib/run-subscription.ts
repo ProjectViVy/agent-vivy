@@ -6,7 +6,7 @@ export type RunEvent = RunLogEvent;
 export interface RunSubscription { close(): void; lastSeq(): number }
 const TERMINAL = new Set(['run.completed', 'run.failed', 'run.cancelled']);
 
-export function subscribeRun(runId: string, afterSeq: number, onEvent: (event: RunEvent) => void, onError?: (message: string) => void): RunSubscription {
+export function subscribeRun(runId: string, afterSeq: number, onEvent: (event: RunEvent) => void, onError?: (message: string, retryable?: boolean) => void): RunSubscription {
   let closed = false;
   let cursor = afterSeq;
   let subscriptionId = '';
@@ -36,14 +36,14 @@ export function subscribeRun(runId: string, afterSeq: number, onEvent: (event: R
         if (TERMINAL.has(envelope.event.type)) close();
       });
       removeStreamError = client.onNotification('run/stream_error', (params) => {
-        const envelope = params as { subscription_id?: string; message?: string };
+        const envelope = params as { subscription_id?: string; message?: string; retryable?: boolean };
         if (envelope.subscription_id !== subscriptionId) return;
         const failedSubscription = subscriptionId;
         subscriptionId = '';
         clearListeners();
         if (client && failedSubscription) void client.call('run/unsubscribe', { subscription_id: failedSubscription }).catch(() => undefined);
-        onError?.(envelope.message || t('errors.runReplayFailed'));
-        reconnect();
+        onError?.(envelope.message || t('errors.runReplayFailed'), envelope.retryable);
+        if (envelope.retryable === false) close(); else reconnect();
       });
       removeClose = client.onClose(() => { clearListeners(); resetRpcClient(); reconnect(); });
       const response = await client.call<{ subscription_id: string }>('run/subscribe', { run_id: runId, after_seq: cursor });

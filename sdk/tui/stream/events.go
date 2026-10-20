@@ -5,11 +5,8 @@ package stream
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"strings"
 	"unicode/utf8"
 )
@@ -38,8 +35,8 @@ type Notice struct {
 	Line           string
 	Delta          string
 	HasCompleted   bool
-	// Completion contains the structurally validated v2 metadata. It is nil
-	// for malformed v2 notices. The stream consumer still verifies it against
+	// Completion contains the structurally validated v3 metadata. It is nil
+	// for malformed v3 notices. The stream consumer still verifies it against
 	// the deltas it has applied before accepting the completion boundary.
 	Completion *ModelCompletionMetadata
 	// ProtocolError is a fail-closed event decoding/verification error. It is
@@ -57,86 +54,66 @@ type Notice struct {
 	QueueReason string
 }
 
-// ModelCompletionMetadata is the metadata-only model.completed v2 payload.
+// ModelCompletionMetadata is the metadata-only model.completed v3 payload.
 // The body itself is reconstructed from the preceding model.delta events.
 type ModelCompletionMetadata struct {
-	ContentSHA256 string
-	ByteLen       int
+	ByteLen int
 }
 
-// ParseModelCompletedV2 validates the metadata-only completion shape. V2 is
-// deliberately strict: both fields are required, the digest is lower-case
-// hexadecimal SHA-256, byte_len is a non-negative integer, and no body or
+// ParseModelCompletedV3 validates the metadata-only completion shape. V3 is
+// deliberately strict: byte_len is required and must be a non-negative integer; no body or
 // unknown fields are accepted.
-func ParseModelCompletedV2(raw json.RawMessage) (ModelCompletionMetadata, error) {
+func ParseModelCompletedV3(raw json.RawMessage) (ModelCompletionMetadata, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		if err == nil {
 			err = fmt.Errorf("payload must be an object")
 		}
-		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: invalid payload: %w", err)
+		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v3: invalid payload: %w", err)
 	}
 	for key := range fields {
-		if key != "content_sha256" && key != "byte_len" {
-			return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: unknown field %q", key)
+		if key != "byte_len" {
+			return ModelCompletionMetadata{}, fmt.Errorf("model.completed v3: unknown field %q", key)
 		}
-	}
-	rawDigest, ok := fields["content_sha256"]
-	if !ok {
-		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: missing content_sha256")
-	}
-	var digest string
-	if err := json.Unmarshal(rawDigest, &digest); err != nil {
-		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: content_sha256 must be a string")
-	}
-	if len(digest) != sha256.Size*2 || strings.ToLower(digest) != digest {
-		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: content_sha256 must be 64 lower-case hexadecimal characters")
-	}
-	if _, err := hex.DecodeString(digest); err != nil {
-		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: content_sha256 must be 64 lower-case hexadecimal characters")
 	}
 	rawByteLen, ok := fields["byte_len"]
 	if !ok {
-		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: missing byte_len")
+		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v3: missing byte_len")
 	}
 	var byteLen int
-	if err := json.Unmarshal(rawByteLen, &byteLen); err != nil || byteLen < 0 {
-		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v2: byte_len must be a non-negative integer")
+	if err := json.Unmarshal(rawByteLen, &byteLen); err != nil || string(rawByteLen) == "null" || byteLen < 0 {
+		return ModelCompletionMetadata{}, fmt.Errorf("model.completed v3: byte_len must be a non-negative integer")
 	}
-	return ModelCompletionMetadata{ContentSHA256: digest, ByteLen: byteLen}, nil
+	return ModelCompletionMetadata{ByteLen: byteLen}, nil
 }
 
-// VerifyModelCompletedV2 verifies a v2 payload against the exact UTF-8 bytes
+// VerifyModelCompletedV3 verifies a v3 payload against the exact UTF-8 bytes
 // reconstructed by a consumer. The error does not include assistant text.
-func VerifyModelCompletedV2(raw json.RawMessage, content string) error {
-	metadata, err := ParseModelCompletedV2(raw)
+func VerifyModelCompletedV3(raw json.RawMessage, content string) error {
+	metadata, err := ParseModelCompletedV3(raw)
 	if err != nil {
 		return err
 	}
-	return VerifyModelCompletedV2Metadata(metadata, content)
+	return VerifyModelCompletedV3Metadata(metadata, content)
 }
 
-// VerifyModelCompletedV2Metadata verifies already parsed completion metadata
+// VerifyModelCompletedV3Metadata verifies already parsed completion metadata
 // against content. len([]byte(content)) is intentional: the contract counts
 // UTF-8 bytes, not runes or display cells.
-func VerifyModelCompletedV2Metadata(metadata ModelCompletionMetadata, content string) error {
+func VerifyModelCompletedV3Metadata(metadata ModelCompletionMetadata, content string) error {
 	if !utf8.ValidString(content) {
-		return fmt.Errorf("model.completed v2: reconstructed content is not valid UTF-8")
+		return fmt.Errorf("model.completed v3: reconstructed content is not valid UTF-8")
 	}
 	actualBytes := []byte(content)
 	if metadata.ByteLen != len(actualBytes) {
-		return fmt.Errorf("model.completed v2: byte_len mismatch")
-	}
-	sum := sha256.Sum256(actualBytes)
-	if metadata.ContentSHA256 != hex.EncodeToString(sum[:]) {
-		return fmt.Errorf("model.completed v2: content_sha256 mismatch")
+		return fmt.Errorf("model.completed v3: byte_len mismatch")
 	}
 	return nil
 }
 
 // ParseModelDelta validates a model.delta payload and returns its text. It
 // mirrors the v1 schema so a malformed delta cannot disappear as an empty
-// chunk and accidentally make an empty v2 completion appear valid.
+// chunk and accidentally make an empty v3 completion appear valid.
 func ParseModelDelta(raw json.RawMessage) (string, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
@@ -155,7 +132,7 @@ func ParseModelDelta(raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("model.delta: missing delta")
 	}
 	var delta string
-	if err := json.Unmarshal(rawDelta, &delta); err != nil {
+	if err := json.Unmarshal(rawDelta, &delta); err != nil || string(rawDelta) == "null" {
 		return "", fmt.Errorf("model.delta: delta must be a string")
 	}
 	if !utf8.ValidString(delta) {
@@ -165,60 +142,46 @@ func ParseModelDelta(raw json.RawMessage) (string, error) {
 }
 
 // ModelCompletionTracker accumulates one model round's model.delta bytes and
-// verifies the following model.completed v2 boundary. A model.request starts
+// verifies the following model.completed v3 boundary. A model.request starts
 // a fresh round; a successful completion also clears the accumulator.
 // Consumers must call it only for sequence-accepted events.
 type ModelCompletionTracker struct {
-	digest  hash.Hash
 	byteLen int
 }
 
 // Reset starts an empty model round. The zero value is ready for use too.
 func (t *ModelCompletionTracker) Reset() {
-	t.digest = sha256.New()
 	t.byteLen = 0
 }
 
 // BeginRound is an explicit alias used by event consumers at model.request.
 func (t *ModelCompletionTracker) BeginRound() { t.Reset() }
 
-func (t *ModelCompletionTracker) ensure() {
-	if t.digest == nil {
-		t.Reset()
-	}
-}
-
 // AddDelta appends one exact assistant text chunk to the current round.
 func (t *ModelCompletionTracker) AddDelta(delta string) error {
 	if !utf8.ValidString(delta) {
 		return fmt.Errorf("model.delta: delta is not valid UTF-8")
 	}
-	t.ensure()
-	n, _ := t.digest.Write([]byte(delta))
-	t.byteLen += n
+	t.byteLen += len(delta)
 	return nil
 }
 
 // VerifyMetadata checks the current round without changing it.
 func (t *ModelCompletionTracker) VerifyMetadata(metadata ModelCompletionMetadata) error {
-	t.ensure()
 	if metadata.ByteLen != t.byteLen {
-		return fmt.Errorf("model.completed v2: byte_len mismatch")
-	}
-	if metadata.ContentSHA256 != hex.EncodeToString(t.digest.Sum(nil)) {
-		return fmt.Errorf("model.completed v2: content_sha256 mismatch")
+		return fmt.Errorf("model.completed v3: byte_len mismatch")
 	}
 	return nil
 }
 
-// Complete consumes a model.completed event. Only the v2 metadata-only shape
+// Complete consumes a model.completed event. Only the v3 metadata-only shape
 // is accepted: the body is the already streamed delta sequence, verified here
-// against the tracked digest. Any other payload version is a protocol error.
+// against the tracked byte count. Any other payload version is a protocol error.
 func (t *ModelCompletionTracker) Complete(payloadVersion int, raw json.RawMessage) error {
-	if payloadVersion != 2 {
+	if payloadVersion != 3 {
 		return fmt.Errorf("unsupported model.completed payload version %d", payloadVersion)
 	}
-	metadata, err := ParseModelCompletedV2(raw)
+	metadata, err := ParseModelCompletedV3(raw)
 	if err != nil {
 		return err
 	}
@@ -234,7 +197,7 @@ func (t *ModelCompletionTracker) Complete(payloadVersion int, raw json.RawMessag
 // text is still parsed separately when the caller needs to print it.
 func (t *ModelCompletionTracker) ObserveEvent(event Event) error {
 	switch event.Type {
-	case "model.request":
+	case "model.request", "tool.requested":
 		t.BeginRound()
 		return nil
 	case "model.delta":
@@ -258,13 +221,13 @@ func (t *ModelCompletionTracker) ObserveNotice(notice Notice) error {
 		return fmt.Errorf("%s", notice.ProtocolError)
 	}
 	switch notice.Kind {
-	case "model_request":
+	case "model_request", "tool_requested":
 		t.BeginRound()
 	case "delta":
 		return t.AddDelta(notice.Delta)
 	case "model_completed":
 		if notice.Completion == nil {
-			return fmt.Errorf("model.completed v2: missing validated metadata")
+			return fmt.Errorf("model.completed v3: missing validated metadata")
 		}
 		if err := t.VerifyMetadata(*notice.Completion); err != nil {
 			return err
@@ -294,6 +257,7 @@ type GatePrompt struct {
 type StreamError struct {
 	SubscriptionID string
 	Message        string
+	Permanent      bool
 }
 
 // DecodeStreamError validates a run/stream_error notification.
@@ -301,11 +265,12 @@ func DecodeStreamError(params json.RawMessage) (StreamError, bool) {
 	var envelope struct {
 		SubscriptionID string `json:"subscription_id"`
 		Message        string `json:"message"`
+		Retryable      *bool  `json:"retryable"`
 	}
 	if err := json.Unmarshal(params, &envelope); err != nil || envelope.SubscriptionID == "" {
 		return StreamError{}, false
 	}
-	return StreamError{SubscriptionID: envelope.SubscriptionID, Message: envelope.Message}, true
+	return StreamError{SubscriptionID: envelope.SubscriptionID, Message: envelope.Message, Permanent: envelope.Retryable != nil && !*envelope.Retryable}, true
 }
 
 // Decode validates and decodes the control-plane run/event envelope.
@@ -368,10 +333,10 @@ func Interpret(event Event) Notice {
 	case "model.completed":
 		base.Kind = "model_completed"
 		base.HasCompleted = true
-		if event.PayloadVersion != 2 {
+		if event.PayloadVersion != 3 {
 			return protocolFailure(base, fmt.Errorf("unsupported model.completed payload version %d", event.PayloadVersion))
 		}
-		metadata, err := ParseModelCompletedV2(event.Payload)
+		metadata, err := ParseModelCompletedV3(event.Payload)
 		if err != nil {
 			return protocolFailure(base, err)
 		}

@@ -22,6 +22,7 @@ type fakeEnv struct {
 	calls              []string
 	handler            func(method string, params json.RawMessage)
 	deliverOnSubscribe bool
+	nextSeq            int
 }
 
 func (*fakeEnv) ModuleID() string { return "vivy/headless" }
@@ -75,13 +76,15 @@ func (e *fakeEnv) deliver(typ string, payload string) {
 func (e *fakeEnv) deliverVersion(typ string, payload string, payloadVersion int) {
 	e.mu.Lock()
 	handler := e.handler
+	e.nextSeq++
+	seq := e.nextSeq
 	e.mu.Unlock()
 	if handler == nil {
 		return
 	}
 	event := map[string]any{
 		"run_id":  "run_1",
-		"seq":     1,
+		"seq":     seq,
 		"type":    typ,
 		"payload": json.RawMessage(payload),
 	}
@@ -142,7 +145,7 @@ func TestCompletedRunStreamsAndReturnsStatus(t *testing.T) {
 	}
 	env.deliverVersion("model.delta", `{"delta":"hel"}`, 2)
 	env.deliverVersion("model.delta", `{"delta":"lo"}`, 2)
-	env.deliverVersion("model.completed", `{"content_sha256":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824","byte_len":5}`, 2)
+	env.deliverVersion("model.completed", `{"byte_len":5}`, 3)
 	env.deliver("run.completed", `{}`)
 
 	select {

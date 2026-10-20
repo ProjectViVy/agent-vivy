@@ -61,7 +61,7 @@ func (s JSONLSink) AssistantDelta(text string) {
 }
 
 // AssistantMessageEnd is a no-op: message_end is emitted by JournalEvent's
-// model.completed mapping (the event carries the integrity digest).
+// model.completed mapping (the event carries the model-step byte count).
 func (s JSONLSink) AssistantMessageEnd() {}
 func (s JSONLSink) ToolStarted(name string) {
 	s.emit(map[string]any{"type": "tool_execution_start", "vivy": "tool.started", "tool_name": name})

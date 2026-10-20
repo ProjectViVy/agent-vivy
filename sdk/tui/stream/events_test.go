@@ -79,7 +79,7 @@ func TestInterpretRejectsUnknownCompletionPayloadVersion(t *testing.T) {
 	notice := Interpret(Event{
 		Type:           "model.completed",
 		PayloadVersion: 9,
-		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":5}`),
+		Payload:        json.RawMessage(`{"byte_len":5}`),
 	})
 	if notice.Kind != "done" || !notice.Done || !notice.Failed {
 		t.Fatalf("unknown completion version was accepted: %+v", notice)
@@ -89,17 +89,17 @@ func TestInterpretRejectsUnknownCompletionPayloadVersion(t *testing.T) {
 	}
 }
 
-func TestInterpretV2CompletionIsDeltaBoundary(t *testing.T) {
+func TestInterpretV3CompletionIsDeltaBoundary(t *testing.T) {
 	notice := Interpret(Event{
 		Type:           "model.completed",
-		PayloadVersion: 2,
-		Payload:        json.RawMessage(`{"content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":5}`),
+		PayloadVersion: 3,
+		Payload:        json.RawMessage(`{"byte_len":5}`),
 	})
 	if notice.Kind != "model_completed" || !notice.HasCompleted || notice.Completion == nil {
-		t.Fatalf("v2 completion notice = %+v", notice)
+		t.Fatalf("v3 completion notice = %+v", notice)
 	}
-	if notice.PayloadVersion != 2 {
-		t.Fatalf("v2 completion payload version = %d", notice.PayloadVersion)
+	if notice.PayloadVersion != 3 {
+		t.Fatalf("v3 completion payload version = %d", notice.PayloadVersion)
 	}
 }
 

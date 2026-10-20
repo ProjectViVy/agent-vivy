@@ -1515,9 +1515,8 @@ func TestPackedLiveWireProjectsAuthoritativeCompletionAndToolCallIdentity(t *tes
 
 	env.deliver(t, "run_1", "model.delta", map[string]string{"delta": "completed only"})
 	env.deliverVersion(t, "run_1", "model.completed", map[string]any{
-		"content_sha256": "28c5b3c0dd996e8ae746418d101da408a39e99916457849e52cc71214704cd6f",
-		"byte_len":       14,
-	}, 2)
+		"byte_len": 14,
+	}, 3)
 	env.deliver(t, "run_1", "tool.requested", map[string]any{"tool_call_id": "call_1", "tool_name": "read_file", "args": map[string]string{"path": "a"}})
 	env.deliver(t, "run_1", "tool.requested", map[string]any{"tool_call_id": "call_2", "tool_name": "read_file", "args": map[string]string{"path": "b"}})
 	env.deliver(t, "run_1", "tool.finished", map[string]string{"tool_call_id": "call_1", "tool_name": "read_file", "result": "a done"})

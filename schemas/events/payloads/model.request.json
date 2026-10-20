@@ -2,19 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/model.request.json",
   "title": "model.request payload",
-  "description": "Digest of the exact message list handed to the model for one invocation (ADR-010, OBS-02/D2). Full text lives on the message projection and prior journal events; this event only records reconstructable fingerprints. v3 is emitted by the observed model-call boundary before the provider is invoked and joins call_id with its usage samples and call.finished closure.",
+  "description": "Model request v4 observation: byte counts, selected tools and call lifecycle identity. No prompt content or content digest is published.",
   "type": "object",
   "properties": {
     "selected_tools": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
-      "description": "Tool names bound for this model call (v3: actual bound tools; v1/v2: run selection)."
-    },
-    "preamble_sha256": {
-      "type": "string",
-      "minLength": 64,
-      "maxLength": 64,
-      "description": "Hex SHA-256 of the leading system preamble."
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Tool names bound for this model call (v4: actual bound tools)."
     },
     "preamble_bytes": {
       "type": "integer",
@@ -27,18 +24,28 @@
         "properties": {
           "role": {
             "type": "string",
-            "enum": ["system", "user", "assistant", "tool"]
+            "enum": [
+              "system",
+              "user",
+              "assistant",
+              "tool"
+            ]
           },
-          "tool_name": { "type": "string" },
-          "tool_call_id": { "type": "string" },
-          "content_sha256": {
-            "type": "string",
-            "minLength": 64,
-            "maxLength": 64
+          "tool_name": {
+            "type": "string"
           },
-          "byte_len": { "type": "integer", "minimum": 0 }
+          "tool_call_id": {
+            "type": "string"
+          },
+          "byte_len": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
-        "required": ["role", "content_sha256", "byte_len"],
+        "required": [
+          "role",
+          "byte_len"
+        ],
         "additionalProperties": false
       }
     },
@@ -50,44 +57,45 @@
     "call_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Opaque per-invocation identity shared by this call's model.usage samples and model.call.finished closure (v3)."
+      "description": "Opaque per-invocation identity shared by this call's model.usage samples and model.call.finished closure (v4)."
     },
     "mode": {
       "type": "string",
-      "enum": ["generate", "stream"],
-      "description": "Invocation mode observed at the model boundary (v3)."
+      "enum": [
+        "generate",
+        "stream"
+      ],
+      "description": "Invocation mode observed at the model boundary (v4)."
     },
     "provider": {
       "type": "string",
       "minLength": 1,
-      "description": "Provider identity resolved for this call (v3)."
+      "description": "Provider identity resolved for this call (v4)."
     },
     "model": {
       "type": "string",
       "minLength": 1,
-      "description": "Model identity resolved for this call (v3)."
+      "description": "Model identity resolved for this call (v4)."
     },
     "source": {
       "type": "string",
-      "enum": ["main", "child", "summary"],
-      "description": "Route attribution: chat main leg, child run leg, or compaction summary call (v3)."
+      "enum": [
+        "main",
+        "child",
+        "summary"
+      ],
+      "description": "Route attribution: chat main leg, child run leg, or compaction summary call (v4)."
     }
   },
-  "required": ["selected_tools", "preamble_sha256", "preamble_bytes", "messages"],
-  "additionalProperties": false,
-  "oneOf": [
-    {
-      "title": "v1 legacy request digest",
-      "not": { "anyOf": [{ "required": ["context_view"] }, { "required": ["call_id"] }] }
-    },
-    {
-      "title": "v2 Context View digest",
-      "required": ["context_view"],
-      "not": { "required": ["call_id"] }
-    },
-    {
-      "title": "v3 observed model-call request",
-      "required": ["call_id", "mode", "provider", "model", "source"]
-    }
-  ]
+  "required": [
+    "selected_tools",
+    "preamble_bytes",
+    "messages",
+    "call_id",
+    "mode",
+    "provider",
+    "model",
+    "source"
+  ],
+  "additionalProperties": false
 }

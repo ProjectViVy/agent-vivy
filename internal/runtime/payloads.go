@@ -8,7 +8,7 @@ import (
 
 // Event payload structs. Field names and shapes mirror
 // schemas/events/payloads/*.json (A3) field for field. Most payloads remain
-// v1; model.completed v2 commits its preceding bounded delta sequence.
+// v1; model.completed v3 marks its preceding bounded delta sequence.
 
 type payloadRunStarted struct {
 	Provider       string `json:"provider"`
@@ -125,34 +125,30 @@ type payloadProviderStall struct {
 	ElapsedMs int64 `json:"elapsed_ms"`
 }
 
-// payloadModelCompletedV2 commits the preceding bounded model.delta sequence.
-// It is the only accepted model.completed payload shape; the pre-2026-09-05
-// content-bearing form is no longer readable.
-type payloadModelCompletedV2 struct {
-	ContentSHA256 string `json:"content_sha256"`
-	ByteLen       int    `json:"byte_len"`
+// payloadModelCompletedV3 marks the preceding bounded model.delta sequence.
+// Historical v2 metadata is normalized on read; new events contain only byte_len.
+type payloadModelCompletedV3 struct {
+	ByteLen int `json:"byte_len"`
 }
 
 type payloadModelRequest struct {
-	SelectedTools  []string                     `json:"selected_tools"`
-	PreambleSHA256 string                       `json:"preamble_sha256"`
-	PreambleBytes  int                          `json:"preamble_bytes"`
-	Messages       []payloadModelRequestMessage `json:"messages"`
-	ContextView    string                       `json:"context_view,omitempty"`
+	SelectedTools []string                     `json:"selected_tools"`
+	PreambleBytes int                          `json:"preamble_bytes"`
+	Messages      []payloadModelRequestMessage `json:"messages"`
+	ContextView   string                       `json:"context_view,omitempty"`
 }
 
 type payloadModelRequestMessage struct {
-	Role          string `json:"role"`
-	ToolName      string `json:"tool_name,omitempty"`
-	ToolCallID    string `json:"tool_call_id,omitempty"`
-	ContentSHA256 string `json:"content_sha256"`
-	ByteLen       int    `json:"byte_len"`
+	Role       string `json:"role"`
+	ToolName   string `json:"tool_name,omitempty"`
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	ByteLen    int    `json:"byte_len"`
 }
 
-// payloadModelRequestV3 is the per-invocation request record: the v2
-// Context View digest plus call lifecycle identity (OBS-02/D2). CallID
+// payloadModelRequestV4 is the per-invocation request record: private
+// Context View identity plus call lifecycle identity (OBS-02/D2). CallID
 // joins the request with its usage samples and call.finished closure.
-type payloadModelRequestV3 struct {
+type payloadModelRequestV4 struct {
 	payloadModelRequest
 	CallID   string `json:"call_id"`
 	Mode     string `json:"mode"`

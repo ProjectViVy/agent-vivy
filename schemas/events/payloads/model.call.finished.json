@@ -8,7 +8,7 @@
     "call_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Identity shared with the call's v3 model.request and v2 model.usage samples."
+      "description": "Identity shared with the call's v4 model.request and v2 model.usage samples."
     },
     "mode": {
       "type": "string",

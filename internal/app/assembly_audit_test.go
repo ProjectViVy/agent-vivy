@@ -80,6 +80,14 @@ func TestAppRunsWithoutDigestAudit(t *testing.T) {
 	var result string
 	finished := 0
 	for _, event := range events {
+		if event.Type == domain.EventModelRequest {
+			if event.PayloadVersion != 4 || bytes.Contains(event.Payload, []byte("sha256")) || bytes.Contains(event.Payload, []byte(nonce)) {
+				t.Fatalf("request observation leaks content/digest or has old version: %s", event.Payload)
+			}
+		}
+		if event.Type == domain.EventModelCompleted && (event.PayloadVersion != 3 || string(event.Payload) != `{"byte_len":27}`) {
+			t.Fatalf("unexpected completion: %+v", event)
+		}
 		if event.Type != domain.EventToolFinished {
 			continue
 		}

@@ -273,10 +273,12 @@ func TestServiceRunHappyPath(t *testing.T) {
 		}
 		wantVersion := 1
 		switch ev.Type {
-		case domain.EventModelCompleted, domain.EventRunCompleted, domain.EventModelUsage:
+		case domain.EventRunCompleted, domain.EventModelUsage:
 			wantVersion = 2
-		case domain.EventModelRequest:
+		case domain.EventModelCompleted:
 			wantVersion = 3
+		case domain.EventModelRequest:
+			wantVersion = 4
 		}
 		if ev.PayloadVersion != wantVersion {
 			t.Fatalf("event %d (%s) payload version = %d, want %d", i, ev.Type, ev.PayloadVersion, wantVersion)
@@ -286,13 +288,13 @@ func TestServiceRunHappyPath(t *testing.T) {
 	// Middle shape: observed request + delta* + the call's finish record,
 	// then metadata-only model.completed before the terminal. Reassembly is
 	// byte-for-byte and independently checked against the completion
-	// digest/length.
+	// byte count.
 	var deltas strings.Builder
-	var completed payloadModelCompletedV2
+	var completed payloadModelCompletedV3
 	for _, ev := range events[1 : len(events)-1] {
 		switch ev.Type {
 		case domain.EventModelRequest:
-			// Request digest is recorded before the model stream.
+			// Request metadata is recorded before the model stream.
 		case domain.EventModelDelta:
 			deltas.WriteString(payloadDeltaOf(t, ev.Payload))
 		case domain.EventModelCompleted:
@@ -307,8 +309,8 @@ func TestServiceRunHappyPath(t *testing.T) {
 	if deltas.String() != want {
 		t.Fatalf("reassembled deltas = %q, want %q", deltas.String(), want)
 	}
-	if completed.ContentSHA256 != sha256Hex([]byte(want)) || completed.ByteLen != len([]byte(want)) {
-		t.Fatalf("model.completed metadata = %+v, want sha/bytes for %q", completed, want)
+	if completed.ByteLen != len([]byte(want)) {
+		t.Fatalf("model.completed metadata = %+v, want byte count for %q", completed, want)
 	}
 
 	// The conversation log mirrors the user turn and the assistant reply.
@@ -344,7 +346,7 @@ func TestServiceRunBindsToolsOnKeywordlessRequest(t *testing.T) {
 	}
 	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
-	var req payloadModelRequestV3
+	var req payloadModelRequestV4
 	found := false
 	for _, ev := range replayAll(t, backend, runID) {
 		if ev.Type == domain.EventModelRequest {
@@ -1418,11 +1420,11 @@ func TestMapperTurnEndFlushesModelCompleted(t *testing.T) {
 	if len(events) != 1 || events[0].Type != domain.EventModelCompleted {
 		t.Fatalf("expected flushed model.completed, got %+v", events)
 	}
-	if events[0].PayloadVersion != 2 {
-		t.Fatalf("flushed model.completed payload version = %d, want 2", events[0].PayloadVersion)
+	if events[0].PayloadVersion != 3 {
+		t.Fatalf("flushed model.completed payload version = %d, want 3", events[0].PayloadVersion)
 	}
 	completed := payloadCompletedOf(t, events[0].Payload)
-	if completed.ContentSHA256 != sha256Hex([]byte("partial")) || completed.ByteLen != len([]byte("partial")) {
+	if completed.ByteLen != len([]byte("partial")) {
 		t.Fatalf("model.completed payload wrong: %+v", completed)
 	}
 	if again := m.onTurnEnd(); len(again) != 0 {
@@ -1456,7 +1458,7 @@ func TestMapperFlushesAssistantTextBeforeToolAndFencesNextRound(t *testing.T) {
 		t.Fatalf("next round delta = %q, want final", payloadDeltaOf(t, next[0].Payload))
 	}
 	completed := payloadCompletedOf(t, next[1].Payload)
-	if completed.ContentSHA256 != sha256Hex([]byte("final")) || completed.ByteLen != len([]byte("final")) {
+	if completed.ByteLen != len([]byte("final")) {
 		t.Fatalf("next round completion = %+v", completed)
 	}
 }
@@ -1879,9 +1881,9 @@ func payloadDeltaOf(t *testing.T, b []byte) string {
 	return p.Delta
 }
 
-func payloadCompletedOf(t *testing.T, b []byte) payloadModelCompletedV2 {
+func payloadCompletedOf(t *testing.T, b []byte) payloadModelCompletedV3 {
 	t.Helper()
-	var p payloadModelCompletedV2
+	var p payloadModelCompletedV3
 	mustUnmarshal(t, b, &p)
 	return p
 }
@@ -1947,7 +1949,7 @@ func (m *recordingChatModel) lastInput() []*schema.AgenticMessage {
 	return m.inputs[len(m.inputs)-1]
 }
 
-func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
+func TestServiceFeedsToolTraceAndRequestMetadata(t *testing.T) {
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "tool-feed.db"))
 	if err != nil {
@@ -2030,17 +2032,16 @@ func TestServiceFeedsToolTraceAndRequestDigest(t *testing.T) {
 	if !found {
 		t.Fatal("second run missing model.request")
 	}
-	// The v3 request digests the exact invocation input the model received
-	// (feed), which includes the injected preamble/history rows the
-	// surrogate request never saw. rebuilt is still asserted above for the
-	// feed itself; here the digest must equal the actual feed digest.
+	// The v4 request describes the actual model invocation, including injected
+	// preamble/history rows. The feed itself is asserted above; request metadata
+	// must preserve roles, byte counts and tool-call correlation without content.
 	gotBody := stripSystemRequestRows(req.Messages)
-	wantBody := stripSystemRequestRows(digestModelRequest(feed, nil).Messages)
+	wantBody := stripSystemRequestRows(describeModelRequest(feed, nil).Messages)
 	if len(gotBody) != len(wantBody) {
 		t.Fatalf("model.request body = %+v, want %+v", gotBody, wantBody)
 	}
 	for i := range wantBody {
-		if gotBody[i].Role != wantBody[i].Role || gotBody[i].ContentSHA256 != wantBody[i].ContentSHA256 || gotBody[i].ToolCallID != wantBody[i].ToolCallID {
+		if gotBody[i].Role != wantBody[i].Role || gotBody[i].ByteLen != wantBody[i].ByteLen || gotBody[i].ToolCallID != wantBody[i].ToolCallID {
 			t.Fatalf("model.request body[%d] = %+v, want %+v", i, gotBody[i], wantBody[i])
 		}
 	}

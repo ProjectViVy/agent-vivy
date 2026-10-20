@@ -32,9 +32,9 @@ func TestModelCallPayloadSchemas(t *testing.T) {
 		t.Fatalf("lifecycle = %d requests, %d samples, %d finishes", len(k.requests), len(k.samples), len(k.finished))
 	}
 
-	t.Run("actual v3 request validates", func(t *testing.T) {
-		if k.requests[0].PayloadVersion != 3 {
-			t.Fatalf("request version = %d, want 3", k.requests[0].PayloadVersion)
+	t.Run("actual v4 request validates", func(t *testing.T) {
+		if k.requests[0].PayloadVersion != 4 {
+			t.Fatalf("request version = %d, want 4", k.requests[0].PayloadVersion)
 		}
 		validatePayloadSchema(t, "model.request", k.requests[0].Payload)
 	})
@@ -55,15 +55,13 @@ func TestModelCallPayloadSchemas(t *testing.T) {
 
 	// Serialized fixtures: legacy v1/v2 requests, a Context-View-less v3
 	// request (summary route), v1 usage, and finish variants.
-	digest := sha256Hex([]byte("x"))
+
 	fixtures := []struct {
 		name    string
 		event   string
 		payload string
 	}{
-		{"request v1 legacy", "model.request", `{"selected_tools":["a"],"preamble_sha256":"` + digest + `","preamble_bytes":1,"messages":[]}`},
-		{"request v2 context view", "model.request", `{"selected_tools":[],"preamble_sha256":"` + digest + `","preamble_bytes":0,"messages":[],"context_view":"view"}`},
-		{"request v3 summary without view", "model.request", `{"selected_tools":[],"preamble_sha256":"` + digest + `","preamble_bytes":0,"messages":[],"call_id":"c1","mode":"generate","provider":"p","model":"m","source":"summary"}`},
+		{"request v3 summary without view", "model.request", `{"selected_tools":[],"preamble_bytes":0,"messages":[],"call_id":"c1","mode":"generate","provider":"p","model":"m","source":"summary"}`},
 		{"usage v1 legacy", "model.usage", `{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}`},
 		{"usage v2 full", "model.usage", `{"call_id":"c1","provider":"p","model":"m","source":"main","usage_kind":"cumulative","prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"reasoning_tokens":2,"cached_tokens":4,"normalization_partial":true,"settlement":true}`},
 		{"finish failed with error", "model.call.finished", `{"call_id":"c1","mode":"stream","provider":"p","model":"m","source":"child","status":"failed","error":{"name":"ProviderError","message":"boom"},"response_complete":false}`},
@@ -80,9 +78,9 @@ func TestModelCallPayloadSchemas(t *testing.T) {
 		event   string
 		payload string
 	}{
-		{"request v3 missing source", "model.request", `{"selected_tools":[],"preamble_sha256":"` + digest + `","preamble_bytes":0,"messages":[],"call_id":"c1","mode":"stream","provider":"p","model":"m"}`},
-		{"request unknown field", "model.request", `{"selected_tools":[],"preamble_sha256":"` + digest + `","preamble_bytes":0,"messages":[],"call_id":"c1","mode":"stream","provider":"p","model":"m","source":"main","bogus":1}`},
-		{"request bad mode enum", "model.request", `{"selected_tools":[],"preamble_sha256":"` + digest + `","preamble_bytes":0,"messages":[],"call_id":"c1","mode":"stream2","provider":"p","model":"m","source":"main"}`},
+		{"request v3 missing source", "model.request", `{"selected_tools":[],"preamble_bytes":0,"messages":[],"call_id":"c1","mode":"stream","provider":"p","model":"m"}`},
+		{"request unknown field", "model.request", `{"selected_tools":[],"preamble_bytes":0,"messages":[],"call_id":"c1","mode":"stream","provider":"p","model":"m","source":"main","bogus":1}`},
+		{"request bad mode enum", "model.request", `{"selected_tools":[],"preamble_bytes":0,"messages":[],"call_id":"c1","mode":"stream2","provider":"p","model":"m","source":"main"}`},
 		{"usage v2 missing usage_kind", "model.usage", `{"call_id":"c1","provider":"p","model":"m","source":"main","prompt_tokens":1,"completion_tokens":2,"total_tokens":3}`},
 		{"usage bad source enum", "model.usage", `{"call_id":"c1","provider":"p","model":"m","source":"x","usage_kind":"cumulative","prompt_tokens":1,"completion_tokens":2,"total_tokens":3}`},
 		{"finish bad status enum", "model.call.finished", `{"call_id":"c1","mode":"stream","provider":"p","model":"m","source":"main","status":"done","response_complete":true}`},

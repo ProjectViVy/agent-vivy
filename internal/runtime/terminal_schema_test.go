@@ -36,22 +36,26 @@ func TestObserverProjectionPayloadSchemasPreserveLegacyAndValidateV2(t *testing.
 
 	t.Run("model.request legacy v1", func(t *testing.T) {
 		event := m.build(domain.EventModelRequest, payloadModelRequest{
-			SelectedTools: []string{}, PreambleSHA256: string(make([]byte, 64)), Messages: []payloadModelRequestMessage{},
+			SelectedTools: []string{}, Messages: []payloadModelRequestMessage{},
 		})
 		if event.PayloadVersion != 1 {
 			t.Fatalf("legacy request payload version = %d, want 1", event.PayloadVersion)
 		}
-		validatePayloadSchema(t, "model.request", event.Payload)
+		if payloadSchemaError(t, "model.request", event.Payload) == nil {
+			t.Fatal("historical request accepted as live v4")
+		}
 	})
 
 	t.Run("model.request Context View v2", func(t *testing.T) {
 		event := m.build(domain.EventModelRequest, payloadModelRequest{
-			SelectedTools: []string{}, PreambleSHA256: string(make([]byte, 64)), Messages: []payloadModelRequestMessage{}, ContextView: "view",
+			SelectedTools: []string{}, Messages: []payloadModelRequestMessage{}, ContextView: "view",
 		})
 		if event.PayloadVersion != 2 {
 			t.Fatalf("Context View request payload version = %d, want 2", event.PayloadVersion)
 		}
-		validatePayloadSchema(t, "model.request", event.Payload)
+		if payloadSchemaError(t, "model.request", event.Payload) == nil {
+			t.Fatal("historical request accepted as live v4")
+		}
 	})
 }
 

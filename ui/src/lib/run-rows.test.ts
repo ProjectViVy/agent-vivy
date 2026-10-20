@@ -3,7 +3,7 @@ import type { Message, RunLogEvent } from './api';
 import { UNTRUSTED_RESULT_HEADER, buildTranscriptRows, foldContinuityRows, foldRunEvents, recentRunIds } from './run-rows';
 
 function event(seq: number, type: string, payload: Record<string, unknown>, createdAt = seq): RunLogEvent {
-  return { run_id: 'run-1', seq, type, created_at: createdAt, payload_version: 2, payload };
+  return { run_id: 'run-1', seq, type, created_at: createdAt, payload_version: type === 'model.completed' ? 3 : type === 'model.request' ? 4 : 1, payload };
 }
 
 function message(partial: Partial<Message> & { id: string }): Message {
@@ -18,7 +18,7 @@ const TOOL_TURN: RunLogEvent[] = [
   event(5, 'tool.started', { tool_call_id: 'c1', tool_name: 'read_file' }),
   event(6, 'tool.finished', { tool_call_id: 'c1', tool_name: 'read_file', result: `${UNTRUSTED_RESULT_HEADER}\nfile body` }),
   event(7, 'model.delta', { delta: '完成了。' }),
-  event(8, 'model.completed', { byte_len: 4, content_sha256: 'x' }),
+  event(8, 'model.completed', { byte_len: 12 }),
 ];
 
 describe('foldRunEvents', () => {

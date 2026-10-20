@@ -38,7 +38,7 @@ func TestMapperEmitsReasoningAndUsageEvents(t *testing.T) {
 		t.Fatalf("assistant delta = %q, want final answer", got)
 	}
 	completed := payloadCompletedOf(t, events[3].Payload)
-	if completed.ContentSHA256 != sha256Hex([]byte("final answer")) || completed.ByteLen != len([]byte("final answer")) {
+	if completed.ByteLen != len([]byte("final answer")) {
 		t.Fatalf("assistant completion = %+v", completed)
 	}
 }
@@ -95,8 +95,8 @@ func TestMapperSplitsOversizedDeltasWithoutLosingText(t *testing.T) {
 }
 
 // A provider may deliver a complete assistant message through the non-stream
-// mapper path. It still has to use bounded v1 deltas plus the v2 completion
-// digest, never put the whole response in model.completed.
+// mapper path. It still has to use bounded v1 deltas plus the v3 completion
+// byte count, never put the whole response in model.completed.
 func TestMapperBoundsLargeNonStreamingAssistantPayload(t *testing.T) {
 	const budget = 256
 	content := strings.Repeat("large non-stream answer ", 5000)
@@ -124,19 +124,19 @@ func TestMapperBoundsLargeNonStreamingAssistantPayload(t *testing.T) {
 		t.Fatalf("reassembled non-stream content length = %d, want %d", len(got.String()), len(content))
 	}
 	completedEvent := events[len(events)-1]
-	if completedEvent.PayloadVersion != 2 || len(completedEvent.Payload) > budget {
-		t.Fatalf("completion version/bytes = %d/%d, want v2 <= %d", completedEvent.PayloadVersion, len(completedEvent.Payload), budget)
+	if completedEvent.PayloadVersion != 3 || len(completedEvent.Payload) > budget {
+		t.Fatalf("completion version/bytes = %d/%d, want v3 <= %d", completedEvent.PayloadVersion, len(completedEvent.Payload), budget)
 	}
 	completed := payloadCompletedOf(t, completedEvent.Payload)
-	if completed.ContentSHA256 != sha256Hex([]byte(content)) || completed.ByteLen != len([]byte(content)) {
+	if completed.ByteLen != len([]byte(content)) {
 		t.Fatalf("large non-stream completion = %+v", completed)
 	}
 }
 
-func TestMapperV2CompletionFitsMinimumConfiguredPayloadBudget(t *testing.T) {
+func TestMapperV3CompletionFitsMinimumConfiguredPayloadBudget(t *testing.T) {
 	event := newEventMapper("run-min-completion", 128).completedEvent(strings.Repeat("界", 1000))
-	if event.PayloadVersion != 2 || len(event.Payload) > 128 {
-		t.Fatalf("completion version/bytes = %d/%d, want v2 <= 128", event.PayloadVersion, len(event.Payload))
+	if event.PayloadVersion != 3 || len(event.Payload) > 128 {
+		t.Fatalf("completion version/bytes = %d/%d, want v3 <= 128", event.PayloadVersion, len(event.Payload))
 	}
 }
 
@@ -174,7 +174,7 @@ func TestMapperNonStreamingToolCallFlushesPreamble(t *testing.T) {
 		t.Fatalf("post-tool delta = %q", got)
 	}
 	completed := payloadCompletedOf(t, next[1].Payload)
-	if completed.ContentSHA256 != sha256Hex([]byte("after tool")) || completed.ByteLen != len([]byte("after tool")) {
+	if completed.ByteLen != len([]byte("after tool")) {
 		t.Fatalf("post-tool completion = %+v", completed)
 	}
 }
@@ -273,7 +273,7 @@ func TestMapperStreamingToolCallFlushesPreambleAndFencesNextRound(t *testing.T) 
 		t.Fatalf("next-round delta = %q, want after tool", got)
 	}
 	completed := payloadCompletedOf(t, next[1].Payload)
-	if completed.ContentSHA256 != sha256Hex([]byte("after tool")) || completed.ByteLen != len([]byte("after tool")) {
+	if completed.ByteLen != len([]byte("after tool")) {
 		t.Fatalf("next-round completion = %+v", completed)
 	}
 }
