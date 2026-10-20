@@ -288,6 +288,9 @@ func (h *Home) writableStore(ctx context.Context) (*Store, error) {
 // initialization, failing when the file is absent or bound to another
 // workspace (TypedMemoryStore::open_existing_database).
 func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store, error) {
+	if _, _, err := inspectStore(ctx, path, workspaceID); err != nil {
+		return nil, err
+	}
 	if !isFile(path) {
 		return nil, invalidBackupErr()
 	}
@@ -393,8 +396,7 @@ func (h *Home) AddRecord(ctx context.Context, kind Kind, content string, evidenc
 		return StoredRecord{}, err
 	}
 	now := time.Now().UTC()
-	digest := MemoryContentDigest([]byte(content))
-	id := fmt.Sprintf("memory-%d-%s", now.UnixMicro(), digest.Value[:12])
+	id := opaqueID("memory")
 	record := longTermRecord(id, content, evidence, now)
 	metadata, err := store.Metadata(ctx)
 	if err != nil {
@@ -442,7 +444,6 @@ func (h *Home) UpdateRecord(ctx context.Context, id, content string, baseRevisio
 	record.EffectiveAt = now
 	record.Provenance.Source = ProvenanceSourceUserInput
 	record.Provenance.SourceID = "memory_update"
-	record.Provenance.ContentDigest = MemoryContentDigest([]byte(record.Content))
 	record.Provenance.CapturedAt = now
 	record.Provenance.Correlation = correlation("memory_update", id)
 	metadata, err := store.Metadata(ctx)
@@ -486,15 +487,14 @@ func (h *Home) RemoveRecord(ctx context.Context, id, reason string, baseRevision
 	}
 	now := time.Now().UTC()
 	tombstone := Record{
-		ID:      fmt.Sprintf("memory-tombstone-%d", now.UnixMicro()),
+		ID:      opaqueID("memory"),
 		Kind:    KindLongTerm,
 		Content: "",
 		Provenance: Provenance{
-			Source:        ProvenanceSourceUserInput,
-			SourceID:      "memory_remove",
-			ContentDigest: MemoryContentDigest(nil),
-			CapturedAt:    now,
-			Correlation:   correlation("memory_remove", id),
+			Source:      ProvenanceSourceUserInput,
+			SourceID:    "memory_remove",
+			CapturedAt:  now,
+			Correlation: correlation("memory_remove", id),
 		},
 		EvidenceRefs:  []EvidenceRef{},
 		ConfidenceBPS: MaxConfidenceBPS,
@@ -506,7 +506,6 @@ func (h *Home) RemoveRecord(ctx context.Context, id, reason string, baseRevision
 		Supersedes:    []string{id},
 		Tombstone: &Tombstone{
 			TargetRecordID: id,
-			ReasonDigest:   MemoryContentDigest([]byte(reason)),
 			ActorID:        "user",
 			CreatedAt:      now,
 		},
@@ -577,10 +576,9 @@ func (h *Home) AppendHistory(ctx context.Context, input AppendHistoryInput) (Sto
 		Kind:    KindHistory,
 		Content: content,
 		Provenance: Provenance{
-			Source:        ProvenanceSourceSessionSync,
-			SourceID:      sourceID,
-			ContentDigest: MemoryContentDigest([]byte(content)),
-			CapturedAt:    at,
+			Source:     ProvenanceSourceSessionSync,
+			SourceID:   sourceID,
+			CapturedAt: at,
 			Correlation: AuditCorrelation{
 				RequestID: "history_append-" + id,
 				TurnID:    "history_append",
@@ -638,6 +636,12 @@ func (h *Home) ReadMemRules() (MemRulesDocument, error) {
 
 // WriteMemRules atomically replaces MEMRULES.MD with normalized content.
 func (h *Home) WriteMemRules(content string) (MemRulesDocument, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.writeMemRules(content)
+}
+
+func (h *Home) writeMemRules(content string) (MemRulesDocument, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	if strings.TrimSpace(content) == "" {
 		return MemRulesDocument{}, homeInvalid("MEMRULES content is empty")
@@ -726,11 +730,10 @@ func longTermRecord(id, content string, evidence []EvidenceRef, now time.Time) R
 		Kind:    KindLongTerm,
 		Content: content,
 		Provenance: Provenance{
-			Source:        ProvenanceSourceUserInput,
-			SourceID:      "memory_add",
-			ContentDigest: MemoryContentDigest([]byte(content)),
-			CapturedAt:    now,
-			Correlation:   correlation("memory_add", id),
+			Source:      ProvenanceSourceUserInput,
+			SourceID:    "memory_add",
+			CapturedAt:  now,
+			Correlation: correlation("memory_add", id),
 		},
 		EvidenceRefs:  evidence,
 		ConfidenceBPS: MaxConfidenceBPS,

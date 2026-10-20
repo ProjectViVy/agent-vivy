@@ -72,7 +72,7 @@ func TestOpenCreatesDatabaseWithAllTables(t *testing.T) {
 	tables := openStoreTables(t, want)
 	for _, name := range []string{
 		"schema_meta", "memory_records", "memory_supersedes",
-		"memory_apply_journal", "memory_fts",
+		"memory_fts",
 	} {
 		if _, ok := tables[name]; !ok {
 			t.Errorf("missing table %s; found %v", name, tables)
@@ -98,8 +98,8 @@ func TestOpenInitializesMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
-	if m.SchemaVersion != 1 {
-		t.Errorf("SchemaVersion = %d, want 1", m.SchemaVersion)
+	if m.SchemaVersion != 2 {
+		t.Errorf("SchemaVersion = %d, want 2", m.SchemaVersion)
 	}
 	if m.StoreRevision != 0 {
 		t.Errorf("StoreRevision = %d, want 0", m.StoreRevision)
@@ -131,7 +131,7 @@ func TestReopenExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
-	if m.SchemaVersion != 1 || m.WorkspaceID != "ws-1" {
+	if m.SchemaVersion != 2 || m.WorkspaceID != "ws-1" {
 		t.Errorf("metadata after reopen = %+v", m)
 	}
 }
@@ -180,11 +180,11 @@ func TestOpenUnsupportedSchema(t *testing.T) {
 	}
 
 	_, err = Open(context.Background(), dir, "ws-1")
-	if code := storeErrCode(t, err); code != ErrUnsupportedSchema {
+	if code := storeErrCode(t, err); code != ErrUnsupportedSourceFormat {
 		t.Fatalf("Open on schema 99: code = %q, want %q", code, ErrUnsupportedSchema)
 	}
 	_, err = OpenExisting(context.Background(), dir, "ws-1")
-	if code := storeErrCode(t, err); code != ErrUnsupportedSchema {
+	if code := storeErrCode(t, err); code != ErrUnsupportedSourceFormat {
 		t.Fatalf("OpenExisting on schema 99: code = %q, want %q", code, ErrUnsupportedSchema)
 	}
 }
@@ -216,7 +216,7 @@ func TestOpenExistingReadsExistingStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Metadata: %v", err)
 	}
-	if m.WorkspaceID != "ws-1" || m.SchemaVersion != 1 {
+	if m.WorkspaceID != "ws-1" || m.SchemaVersion != 2 {
 		t.Errorf("metadata = %+v", m)
 	}
 }
@@ -264,10 +264,9 @@ func storeRecord(id, workspace, content string) Record {
 		Kind:    KindLongTerm,
 		Content: content,
 		Provenance: Provenance{
-			Source:        ProvenanceSourceUserInput,
-			SourceID:      "user-1",
-			ContentDigest: MemoryContentDigest([]byte(content)),
-			CapturedAt:    now,
+			Source:     ProvenanceSourceUserInput,
+			SourceID:   "user-1",
+			CapturedAt: now,
 			Correlation: AuditCorrelation{
 				RequestID: "request-1",
 				TurnID:    "turn-1",
@@ -287,11 +286,9 @@ func storeRecord(id, workspace, content string) Record {
 
 func tombstoneRecord(id, workspace, target string) Record {
 	rec := storeRecord(id, workspace, "")
-	rec.Provenance.ContentDigest = MemoryContentDigest(nil)
 	rec.Supersedes = []string{target}
 	rec.Tombstone = &Tombstone{
 		TargetRecordID: target,
-		ReasonDigest:   MemoryContentDigest([]byte("removed")),
 		ActorID:        "user-1",
 		CreatedAt:      time.Now().UTC().Add(-time.Minute),
 	}
@@ -430,7 +427,7 @@ func TestPutWorkspaceMismatchAndInvalidRecord(t *testing.T) {
 	}
 
 	invalid := storeRecord("bad", "workspace-1", "secret sentinel content")
-	invalid.Provenance.ContentDigest = MemoryContentDigest([]byte("different"))
+	invalid.Provenance.SourceID = ""
 	_, err = s.Put(ctx, invalid, 0, nil)
 	if code := storeErrCode(t, err); code != ErrInvalidRecord {
 		t.Fatalf("invalid record: code = %q", code)
@@ -560,7 +557,6 @@ func TestCapacityLimitsEnforced(t *testing.T) {
 		t.Fatalf("reset content_bytes: %v", err)
 	}
 	oversized := storeRecord("oversized", "workspace-1", strings.Repeat("x", int(MaxMemoryContentBytes)+1))
-	oversized.Provenance.ContentDigest = MemoryContentDigest([]byte(oversized.Content))
 	_, err = s.Put(ctx, oversized, 0, nil)
 	if code := storeErrCode(t, err); code != ErrCapacityExceeded {
 		t.Fatalf("oversized record: code = %q", code)
@@ -662,7 +658,7 @@ func TestImportRecords(t *testing.T) {
 
 	// One invalid record aborts the batch.
 	invalid := storeRecord("i-4", "workspace-1", "fourth")
-	invalid.Provenance.ContentDigest = MemoryContentDigest([]byte("tampered"))
+	invalid.Provenance.SourceID = ""
 	_, err = s.ImportRecords(ctx, []Record{invalid, storeRecord("i-5", "workspace-1", "fifth")}, 2)
 	if code := storeErrCode(t, err); code != ErrInvalidRecord {
 		t.Fatalf("invalid import: code = %q", code)
@@ -781,17 +777,15 @@ func TestCanonicalJSONMatchesSerdeBytes(t *testing.T) {
 	// field order, no HTML escaping, chrono "Z" timestamps with AutoSi
 	// fractional groups, and U+2028 preserved verbatim.
 	content := "a<b>&\"q\"\u2028end"
-	reasonDigest := MemoryContentDigest([]byte("rm"))
 	expires := time.Date(2026, 7, 30, 0, 0, 0, 123_456_000, time.UTC)
 	rec := Record{
 		ID:      "t-1",
 		Kind:    KindJournal,
 		Content: content,
 		Provenance: Provenance{
-			Source:        ProvenanceSourceUserInput,
-			SourceID:      "u-1",
-			ContentDigest: MemoryContentDigest([]byte(content)),
-			CapturedAt:    time.Date(2026, 7, 29, 12, 0, 1, 123_000_000, time.UTC),
+			Source:     ProvenanceSourceUserInput,
+			SourceID:   "u-1",
+			CapturedAt: time.Date(2026, 7, 29, 12, 0, 1, 123_000_000, time.UTC),
 			Correlation: AuditCorrelation{
 				RequestID: "r-1", TurnID: "tn-1", SessionID: "s-1", TraceID: strptr("tr-1"),
 			},
@@ -811,7 +805,6 @@ func TestCanonicalJSONMatchesSerdeBytes(t *testing.T) {
 		Supersedes:    []string{"old-1"},
 		Tombstone: &Tombstone{
 			TargetRecordID: "old-1",
-			ReasonDigest:   reasonDigest,
 			ActorID:        "u-1",
 			CreatedAt:      time.Date(2026, 7, 29, 13, 0, 0, 500_000_000, time.UTC),
 		},
@@ -819,15 +812,14 @@ func TestCanonicalJSONMatchesSerdeBytes(t *testing.T) {
 
 	want := `{"id":"t-1","kind":"journal","content":"a<b>&\"q\"` + "\u2028" + `end",` +
 		`"provenance":{"source":"user_input","source_id":"u-1",` +
-		`"content_digest":{"algorithm":"sha256","value":"` + MemoryContentDigest([]byte(content)).Value + `"},` +
 		`"captured_at":"2026-07-29T12:00:01.123Z",` +
 		`"correlation":{"request_id":"r-1","turn_id":"tn-1","session_id":"s-1","trace_id":"tr-1"}},` +
-		`"evidence_refs":[{"id":"e-1","source":"file","uri":"file://x","excerpt":"ex<c","hash":null,"created_at":"2026-07-29T12:00:03.999999999Z"}],` +
+		`"evidence_refs":[{"id":"e-1","source":"file","uri":"file://x","excerpt":"ex<c","created_at":"2026-07-29T12:00:03.999999999Z"}],` +
 		`"confidence_bps":9000,"sensitivity":"internal","trust":"user_asserted",` +
 		`"scope":{"tenant_id":"ten-1","workspace_id":"ws-1","session_id":"sess-1"},` +
 		`"created_at":"2026-07-29T12:00:01.123456789Z","effective_at":"2026-07-29T12:00:02Z","expires_at":"2026-07-30T00:00:00.123456Z",` +
 		`"supersedes":["old-1"],` +
-		`"tombstone":{"target_record_id":"old-1","reason_digest":{"algorithm":"sha256","value":"` + reasonDigest.Value + `"},"actor_id":"u-1","created_at":"2026-07-29T13:00:00.500Z"}}`
+		`"tombstone":{"target_record_id":"old-1","actor_id":"u-1","created_at":"2026-07-29T13:00:00.500Z"}}`
 
 	got, err := marshalCanonical(rec)
 	if err != nil {

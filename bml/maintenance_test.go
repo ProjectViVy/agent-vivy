@@ -2,7 +2,6 @@ package bml
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -175,7 +174,7 @@ func TestIntegrityEmptyStore(t *testing.T) {
 		t.Fatalf("Integrity: %v", err)
 	}
 	want := StoreIntegrity{
-		SchemaVersion: 1, StoreRevision: 0, RecordCount: 0,
+		SchemaVersion: 2, StoreRevision: 0, RecordCount: 0,
 		TombstoneCount: 0, ContentBytes: 0, FTSRowCount: 0,
 		SupersedesEdgeCount: 0, CorruptRecordIDs: nil, OrphanFTSRows: 0,
 	}
@@ -200,7 +199,7 @@ func TestIntegrityCounts(t *testing.T) {
 		t.Fatalf("Integrity: %v", err)
 	}
 	want := StoreIntegrity{
-		SchemaVersion:       1,
+		SchemaVersion:       2,
 		StoreRevision:       3,
 		RecordCount:         3,
 		TombstoneCount:      1,
@@ -362,226 +361,3 @@ func TestRestoreRejectsMissingAndGarbageBackup(t *testing.T) {
 }
 
 // --- canonical workspace identity (typed_store.rs :220, :233, :256, :345)
-
-func TestCanonicalWorkspaceID(t *testing.T) {
-	dir := t.TempDir()
-	id := CanonicalWorkspaceID(dir)
-	if !strings.HasPrefix(id, "workspace-") || len(id) != 42 {
-		t.Fatalf("canonical id = %q (len %d)", id, len(id))
-	}
-	if got := CanonicalWorkspaceID(dir + string(filepath.Separator) + "."); got != id {
-		t.Fatalf("equivalent path id = %q, want %q", got, id)
-	}
-	if got := CanonicalWorkspaceID(t.TempDir()); got == id {
-		t.Fatalf("distinct dirs share identity %q", id)
-	}
-	if got := LegacyPathWorkspaceID(dir); got != dir {
-		t.Fatalf("legacy id = %q, want raw path %q", got, dir)
-	}
-}
-
-func TestOpenCanonicalCreatesFreshStore(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	s, err := OpenCanonical(ctx, dir)
-	if err != nil {
-		t.Fatalf("OpenCanonical: %v", err)
-	}
-	defer s.Close()
-	m, err := s.Metadata(ctx)
-	if err != nil {
-		t.Fatalf("Metadata: %v", err)
-	}
-	if m.WorkspaceID != CanonicalWorkspaceID(dir) {
-		t.Fatalf("workspace = %q, want canonical %q", m.WorkspaceID, CanonicalWorkspaceID(dir))
-	}
-}
-
-func TestOpenCanonicalMigratesLegacyIdentity(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	legacy := LegacyPathWorkspaceID(dir)
-	canonical := CanonicalWorkspaceID(dir)
-
-	s, err := Open(ctx, dir, legacy)
-	if err != nil {
-		t.Fatalf("Open legacy: %v", err)
-	}
-	mustPut(t, s, storeRecord("rec-1", legacy, "kept content"), 0)
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	migrated, err := OpenCanonical(ctx, dir)
-	if err != nil {
-		t.Fatalf("OpenCanonical: %v", err)
-	}
-	m, err := migrated.Metadata(ctx)
-	if err != nil {
-		t.Fatalf("Metadata: %v", err)
-	}
-	if m.WorkspaceID != canonical {
-		t.Fatalf("workspace = %q, want canonical %q", m.WorkspaceID, canonical)
-	}
-	rec, err := migrated.Get(ctx, "rec-1")
-	if err != nil || rec == nil {
-		t.Fatalf("Get rec-1 = %v, %v; want present", rec, err)
-	}
-	if rec.Record.Scope.WorkspaceID != canonical {
-		t.Fatalf("record workspace = %q, want %q", rec.Record.Scope.WorkspaceID, canonical)
-	}
-	if rec.Record.Content != "kept content" {
-		t.Fatalf("record content = %q, want preserved", rec.Record.Content)
-	}
-	integrity, err := migrated.Integrity(ctx)
-	if err != nil {
-		t.Fatalf("Integrity: %v", err)
-	}
-	if len(integrity.CorruptRecordIDs) != 0 || integrity.OrphanFTSRows != 0 {
-		t.Fatalf("post-migration integrity not clean: %+v", integrity)
-	}
-
-	migrationDir := filepath.Join(dir, "migrations", "workspace-identity-v1")
-	backupPath := filepath.Join(migrationDir, "memory-before.sqlite3")
-	if _, err := os.Stat(backupPath); err != nil {
-		t.Fatalf("verified backup missing: %v", err)
-	}
-	raw, err := os.ReadFile(filepath.Join(migrationDir, "manifest.json"))
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	var manifest WorkspaceIdentityMigrationManifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		t.Fatalf("parse manifest: %v", err)
-	}
-	if manifest.State != MigrationStateApplied || manifest.Version != 1 ||
-		manifest.LegacyWorkspaceID != legacy ||
-		manifest.CanonicalWorkspaceID != canonical ||
-		manifest.BackupPath != backupPath ||
-		manifest.StoreRevision != 1 || manifest.RecordCount != 1 {
-		t.Fatalf("manifest = %+v", manifest)
-	}
-
-	// Rollback restores the legacy identity and record scopes.
-	if err := migrated.Close(); err != nil {
-		t.Fatalf("Close migrated: %v", err)
-	}
-	rolled, err := RollbackCanonicalIdentity(ctx, dir)
-	if err != nil {
-		t.Fatalf("RollbackCanonicalIdentity: %v", err)
-	}
-	if rolled.State != MigrationStateRolledBack {
-		t.Fatalf("rolled state = %q", rolled.State)
-	}
-	reopened, err := OpenExisting(ctx, dir, legacy)
-	if err != nil {
-		t.Fatalf("OpenExisting legacy: %v", err)
-	}
-	defer reopened.Close()
-	rec, err = reopened.Get(ctx, "rec-1")
-	if err != nil || rec == nil {
-		t.Fatalf("Get rec-1 post rollback = %v, %v", rec, err)
-	}
-	if rec.Record.Scope.WorkspaceID != legacy {
-		t.Fatalf("post-rollback workspace = %q, want %q", rec.Record.Scope.WorkspaceID, legacy)
-	}
-}
-
-func TestOpenExistingCanonicalRejectsForeignIdentity(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	s, err := Open(ctx, dir, "ws-unrelated")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	_, err = OpenExistingCanonical(ctx, dir)
-	if code := storeErrCode(t, err); code != ErrDatabaseWorkspaceMismatch {
-		t.Fatalf("foreign identity: code = %q", code)
-	}
-	// No migration artifacts are left behind on rejection.
-	if _, err := os.Stat(filepath.Join(dir, "migrations")); !os.IsNotExist(err) {
-		t.Fatalf("migration dir exists after rejection: %v", err)
-	}
-}
-
-func TestMigrationRejectsForeignRecord(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	legacy := LegacyPathWorkspaceID(dir)
-
-	s, err := Open(ctx, dir, legacy)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	mustPut(t, s, storeRecord("rec-1", legacy, "body"), 0)
-
-	// A record whose JSON scope is bound to a different workspace than the
-	// recognized legacy identity must abort the migration.
-	stored, err := s.Get(ctx, "rec-1")
-	if err != nil || stored == nil {
-		t.Fatalf("Get rec-1: %v, %v", stored, err)
-	}
-	foreign := stored.Record
-	foreign.Scope.WorkspaceID = "ws-else"
-	raw, err := marshalCanonical(foreign)
-	if err != nil {
-		t.Fatalf("marshal tampered: %v", err)
-	}
-	if _, err := s.db.ExecContext(ctx,
-		"UPDATE memory_records SET record_json = ? WHERE memory_id = ?", string(raw), "rec-1"); err != nil {
-		t.Fatalf("tamper record_json: %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	_, err = OpenExistingCanonical(ctx, dir)
-	if code := storeErrCode(t, err); code != ErrIdentityMigrationRejected {
-		t.Fatalf("foreign record: code = %q", code)
-	}
-	// The store is still bound to the legacy identity afterwards.
-	reopened, err := OpenExisting(ctx, dir, legacy)
-	if err != nil {
-		t.Fatalf("store no longer opens as legacy: %v", err)
-	}
-	defer reopened.Close()
-}
-
-func TestRollbackCanonicalIdentityRejectsNonApplied(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	// No manifest at all.
-	if _, err := RollbackCanonicalIdentity(ctx, dir); err == nil {
-		t.Fatal("rollback without manifest: expected error")
-	} else if code := storeErrCode(t, err); code != ErrIO {
-		t.Fatalf("missing manifest: code = %q", code)
-	}
-
-	migrationDir := filepath.Join(dir, "migrations", "workspace-identity-v1")
-	if err := os.MkdirAll(migrationDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	manifest := WorkspaceIdentityMigrationManifest{
-		Version:              1,
-		State:                MigrationStatePrepared,
-		LegacyWorkspaceID:    LegacyPathWorkspaceID(dir),
-		CanonicalWorkspaceID: CanonicalWorkspaceID(dir),
-		BackupPath:           filepath.Join(migrationDir, "memory-before.sqlite3"),
-		StoreRevision:        0,
-		RecordCount:          0,
-	}
-	raw, _ := json.MarshalIndent(manifest, "", "  ")
-	if err := os.WriteFile(filepath.Join(migrationDir, "manifest.json"), raw, 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-	if _, err := RollbackCanonicalIdentity(ctx, dir); err == nil {
-		t.Fatal("rollback on prepared state: expected error")
-	} else if code := storeErrCode(t, err); code != ErrIdentityMigrationRejected {
-		t.Fatalf("prepared manifest: code = %q", code)
-	}
-}

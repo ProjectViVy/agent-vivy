@@ -4,8 +4,6 @@ package bml
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -218,34 +216,6 @@ func (t Trust) debugName() string {
 	}
 }
 
-// DigestAlgorithm identifies the algorithm used to bind content to a decision.
-type DigestAlgorithm string
-
-const (
-	DigestAlgorithmSHA256  DigestAlgorithm = "sha256"
-	DigestAlgorithmUnknown DigestAlgorithm = "unknown"
-)
-
-func (a *DigestAlgorithm) UnmarshalJSON(data []byte) error {
-	v, err := enumString(data)
-	if err != nil {
-		return err
-	}
-	if v == string(DigestAlgorithmSHA256) {
-		*a = DigestAlgorithmSHA256
-	} else {
-		*a = DigestAlgorithmUnknown
-	}
-	return nil
-}
-
-// ContentDigest is a non-secret digest of the exact content covered by a
-// decision.
-type ContentDigest struct {
-	Algorithm DigestAlgorithm `json:"algorithm"`
-	Value     string          `json:"value"`
-}
-
 // AuditCorrelation carries the identifiers used to correlate governance
 // activity with runtime audit data.
 type AuditCorrelation struct {
@@ -302,7 +272,6 @@ type EvidenceRef struct {
 	Source    EvidenceSource `json:"source"`
 	URI       string         `json:"uri"`
 	Excerpt   *string        `json:"excerpt"`
-	Hash      *string        `json:"hash"`
 	CreatedAt time.Time      `json:"created_at"`
 }
 
@@ -313,7 +282,6 @@ func (e EvidenceRef) MarshalJSON() ([]byte, error) {
 		Source    EvidenceSource `json:"source"`
 		URI       string         `json:"uri"`
 		Excerpt   *string        `json:"excerpt"`
-		Hash      *string        `json:"hash"`
 		CreatedAt string         `json:"created_at"`
 	}
 	return marshalCanonical(wire{
@@ -321,13 +289,15 @@ func (e EvidenceRef) MarshalJSON() ([]byte, error) {
 		Source:    e.Source,
 		URI:       e.URI,
 		Excerpt:   e.Excerpt,
-		Hash:      e.Hash,
 		CreatedAt: chronoSerdeTime(e.CreatedAt),
 	})
 }
 
 // UnmarshalJSON normalizes CreatedAt to UTC (chrono DateTime<Utc> semantics).
 func (e *EvidenceRef) UnmarshalJSON(data []byte) error {
+	if err := rejectRetiredFields(data, "hash"); err != nil {
+		return err
+	}
 	type plain EvidenceRef
 	var p plain
 	if err := json.Unmarshal(data, &p); err != nil {
@@ -356,33 +326,33 @@ type Scope struct {
 // Provenance is the immutable origin information for normalized Memory
 // content.
 type Provenance struct {
-	Source        ProvenanceSource `json:"source"`
-	SourceID      string           `json:"source_id"`
-	ContentDigest ContentDigest    `json:"content_digest"`
-	CapturedAt    time.Time        `json:"captured_at"`
-	Correlation   AuditCorrelation `json:"correlation"`
+	Source      ProvenanceSource `json:"source"`
+	SourceID    string           `json:"source_id"`
+	CapturedAt  time.Time        `json:"captured_at"`
+	Correlation AuditCorrelation `json:"correlation"`
 }
 
 // MarshalJSON emits CapturedAt in chrono serde form.
 func (p Provenance) MarshalJSON() ([]byte, error) {
 	type wire struct {
-		Source        ProvenanceSource `json:"source"`
-		SourceID      string           `json:"source_id"`
-		ContentDigest ContentDigest    `json:"content_digest"`
-		CapturedAt    string           `json:"captured_at"`
-		Correlation   AuditCorrelation `json:"correlation"`
+		Source      ProvenanceSource `json:"source"`
+		SourceID    string           `json:"source_id"`
+		CapturedAt  string           `json:"captured_at"`
+		Correlation AuditCorrelation `json:"correlation"`
 	}
 	return marshalCanonical(wire{
-		Source:        p.Source,
-		SourceID:      p.SourceID,
-		ContentDigest: p.ContentDigest,
-		CapturedAt:    chronoSerdeTime(p.CapturedAt),
-		Correlation:   p.Correlation,
+		Source:      p.Source,
+		SourceID:    p.SourceID,
+		CapturedAt:  chronoSerdeTime(p.CapturedAt),
+		Correlation: p.Correlation,
 	})
 }
 
 // UnmarshalJSON normalizes CapturedAt to UTC.
 func (p *Provenance) UnmarshalJSON(data []byte) error {
+	if err := rejectRetiredFields(data, "content_digest"); err != nil {
+		return err
+	}
 	type plain Provenance
 	var q plain
 	if err := json.Unmarshal(data, &q); err != nil {
@@ -396,23 +366,20 @@ func (p *Provenance) UnmarshalJSON(data []byte) error {
 // Tombstone is a content-free marker that removes a previous record from
 // active use.
 type Tombstone struct {
-	TargetRecordID string        `json:"target_record_id"`
-	ReasonDigest   ContentDigest `json:"reason_digest"`
-	ActorID        string        `json:"actor_id"`
-	CreatedAt      time.Time     `json:"created_at"`
+	TargetRecordID string    `json:"target_record_id"`
+	ActorID        string    `json:"actor_id"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // MarshalJSON emits CreatedAt in chrono serde form.
 func (t Tombstone) MarshalJSON() ([]byte, error) {
 	type wire struct {
-		TargetRecordID string        `json:"target_record_id"`
-		ReasonDigest   ContentDigest `json:"reason_digest"`
-		ActorID        string        `json:"actor_id"`
-		CreatedAt      string        `json:"created_at"`
+		TargetRecordID string `json:"target_record_id"`
+		ActorID        string `json:"actor_id"`
+		CreatedAt      string `json:"created_at"`
 	}
 	return marshalCanonical(wire{
 		TargetRecordID: t.TargetRecordID,
-		ReasonDigest:   t.ReasonDigest,
 		ActorID:        t.ActorID,
 		CreatedAt:      chronoSerdeTime(t.CreatedAt),
 	})
@@ -420,6 +387,9 @@ func (t Tombstone) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON normalizes CreatedAt to UTC.
 func (t *Tombstone) UnmarshalJSON(data []byte) error {
+	if err := rejectRetiredFields(data, "reason_digest"); err != nil {
+		return err
+	}
 	type plain Tombstone
 	var p plain
 	if err := json.Unmarshal(data, &p); err != nil {
@@ -525,8 +495,6 @@ var validationMessages = map[string]string{
 	"unknown_provenance_source":  "unknown provenance source",
 	"unknown_sensitivity":        "unknown sensitivity",
 	"unknown_trust":              "unknown trust",
-	"unknown_digest_algorithm":   "unknown digest algorithm",
-	"content_digest_mismatch":    "record content does not match its provenance digest",
 	"confidence_out_of_range":    "confidence basis points exceed 10000",
 	"created_in_future":          "record creation time exceeds the allowed clock skew",
 	"effective_before_creation":  "effective time is earlier than creation time",
@@ -601,12 +569,6 @@ func (r *Record) ValidateAt(now time.Time, skew time.Duration) *ValidationError 
 	}
 	if err := validateCorrelation(r.Provenance.Correlation); err != nil {
 		return err
-	}
-	if err := validateDigest(r.Provenance.ContentDigest); err != nil {
-		return err
-	}
-	if r.Tombstone == nil && r.Provenance.ContentDigest != MemoryContentDigest([]byte(r.Content)) {
-		return &ValidationError{Code: "content_digest_mismatch"}
 	}
 	if r.Kind == KindUnknown {
 		return &ValidationError{Code: "unknown_record_kind"}
@@ -685,16 +647,6 @@ func (r *Record) ValidateWorkspace(workspaceID string) *ValidationError {
 	return nil
 }
 
-// MemoryContentDigest computes the canonical SHA-256 digest used by Memory
-// adapters (memory_content_digest in Diva core).
-func MemoryContentDigest(content []byte) ContentDigest {
-	sum := sha256.Sum256(content)
-	return ContentDigest{
-		Algorithm: DigestAlgorithmSHA256,
-		Value:     hex.EncodeToString(sum[:]),
-	}
-}
-
 // EscapeMemoryForPrompt wraps untrusted content in a non-executable,
 // length-delimited prompt block.
 func EscapeMemoryForPrompt(r *Record) string {
@@ -740,8 +692,6 @@ type IntegrityFinding struct {
 
 // IntegrityReport is the comparison and migration integrity summary.
 type IntegrityReport struct {
-	SourceDigest          ContentDigest      `json:"source_digest"`
-	NormalizedDigest      ContentDigest      `json:"normalized_digest"`
 	SourceRecordCount     uint64             `json:"source_record_count"`
 	NormalizedRecordCount uint64             `json:"normalized_record_count"`
 	DuplicateRecordIDs    []string           `json:"duplicate_record_ids"`
@@ -819,7 +769,7 @@ func validateTombstone(t Tombstone) *ValidationError {
 	if err := required("tombstone.actor_id", t.ActorID); err != nil {
 		return err
 	}
-	return validateDigest(t.ReasonDigest)
+	return nil
 }
 
 func validateCorrelation(c AuditCorrelation) *ValidationError {
@@ -830,13 +780,6 @@ func validateCorrelation(c AuditCorrelation) *ValidationError {
 		return err
 	}
 	return required("correlation.session_id", c.SessionID)
-}
-
-func validateDigest(d ContentDigest) *ValidationError {
-	if d.Algorithm == DigestAlgorithmUnknown {
-		return &ValidationError{Code: "unknown_digest_algorithm"}
-	}
-	return required("digest.value", d.Value)
 }
 
 func required(field, value string) *ValidationError {

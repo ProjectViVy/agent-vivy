@@ -13,5 +13,5 @@ func (h *Home) CompareAndWriteMemRules(content, expectedContent string, expected
 	if current.Content != expectedContent || (current.Source == MemRulesSourceFile) != expectedExists {
 		return MemRulesDocument{}, &HomeError{code: HomeCodeRevisionConflict, message: "memory rules changed; read the handbook again"}
 	}
-	return h.WriteMemRules(content)
+	return h.writeMemRules(content)
 }

@@ -6,7 +6,6 @@ package bml
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -14,18 +13,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
-)
-
-const (
-	// migrationDirName holds the workspace-identity-v1 migration artifacts
-	// (verified backup + manifest) beside the database, mirroring
-	// {workspace_root}/.laputa/migrations/workspace-identity-v1 in Diva.
-	migrationDirName = "workspace-identity-v1"
-	migrationBackup  = "memory-before.sqlite3"
-	migrationFile    = "manifest.json"
 )
 
 // StoreIntegrity is the payload-free integrity summary
@@ -41,28 +30,6 @@ type StoreIntegrity struct {
 	SupersedesEdgeCount int64    `json:"supersedes_edge_count"`
 	CorruptRecordIDs    []string `json:"corrupt_record_ids"`
 	OrphanFTSRows       int64    `json:"orphan_fts_rows"`
-}
-
-// WorkspaceIdentityMigrationState is the durable migration phase; the
-// JSON spellings are serde snake_case.
-type WorkspaceIdentityMigrationState string
-
-const (
-	MigrationStatePrepared   WorkspaceIdentityMigrationState = "prepared"
-	MigrationStateApplied    WorkspaceIdentityMigrationState = "applied"
-	MigrationStateRolledBack WorkspaceIdentityMigrationState = "rolled_back"
-)
-
-// WorkspaceIdentityMigrationManifest is the payload-free recovery record
-// for the canonical workspace identity upgrade.
-type WorkspaceIdentityMigrationManifest struct {
-	Version              int32                           `json:"version"`
-	State                WorkspaceIdentityMigrationState `json:"state"`
-	LegacyWorkspaceID    string                          `json:"legacy_workspace_id"`
-	CanonicalWorkspaceID string                          `json:"canonical_workspace_id"`
-	BackupPath           string                          `json:"backup_path"`
-	StoreRevision        int64                           `json:"store_revision"`
-	RecordCount          int64                           `json:"record_count"`
 }
 
 // GCSessionScoped physically deletes every record scoped to sessionID,
@@ -261,294 +228,38 @@ func (s *Store) Restore(ctx context.Context, backup string) (*Store, error) {
 	return openPath(ctx, s.path, s.workspaceID)
 }
 
-// CanonicalWorkspaceID derives the stable workspace identity from a
-// filesystem path: "workspace-" plus the first 32 hex characters of
-// sha256(normalized path) (42 chars total). Port of
-// agent_diva_core::workspace_identity::canonical_workspace_id.
-func CanonicalWorkspaceID(path string) string {
-	normalized := path
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		normalized = resolved
-	} else {
-		normalized = normalizeWorkspacePath(path)
-	}
-	sum := sha256.Sum256([]byte(normalized))
-	return fmt.Sprintf("workspace-%x", sum)[:42]
-}
-
-// LegacyPathWorkspaceID is the previous typed-store identity: the raw
-// path string. Exposed only so the migration layer can recognize and
-// upgrade an existing store; new records must use CanonicalWorkspaceID.
-func LegacyPathWorkspaceID(path string) string { return path }
-
-// normalizeWorkspacePath is the non-IO fallback when the path cannot be
-// canonicalized: absolute + clean components, separators to '/', Windows
-// verbatim prefixes stripped, trailing '/' trimmed, lowercased on
-// Windows.
-func normalizeWorkspacePath(path string) string {
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		absolute = path
-	}
-	value := strings.ReplaceAll(absolute, "\\", "/")
-	if rest, ok := strings.CutPrefix(value, "//?/UNC/"); ok {
-		value = "//" + rest
-	} else if rest, ok := strings.CutPrefix(value, "//?/"); ok {
-		value = rest
-	}
-	for len(value) > 1 && strings.HasSuffix(value, "/") {
-		value = value[:len(value)-1]
-	}
-	if runtime.GOOS == "windows" {
-		value = strings.ToLower(value)
-	}
-	return value
-}
-
-// OpenCanonical opens the store at dir under its canonical identity,
-// upgrading the one recognized legacy path identity through a verified,
-// content-preserving backup. When no database exists it creates a fresh
-// store bound to the canonical identity.
+// OpenCanonical opens the persisted workspace owner or allocates one for a fresh home.
 func OpenCanonical(ctx context.Context, dir string) (*Store, error) {
-	if isFile(filepath.Join(dir, storeFileName)) {
+	path := filepath.Join(dir, storeFileName)
+	if _, err := os.Stat(path); err == nil {
 		return OpenExistingCanonical(ctx, dir)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, ioErr(path, err)
 	}
-	return Open(ctx, dir, CanonicalWorkspaceID(dir))
+	return Open(ctx, dir, opaqueID("workspace"))
 }
 
-// OpenExistingCanonical opens an existing store at dir under its
-// canonical identity, permitting only the recognized identity-only
-// legacy upgrade. Missing stores remain fail-closed.
+// OpenExistingCanonical reads the owner from the validated store. Relocation
+// preserves that owner; callers requiring a particular owner use OpenExisting.
 func OpenExistingCanonical(ctx context.Context, dir string) (*Store, error) {
 	path := filepath.Join(dir, storeFileName)
-	if !isFile(path) {
+	owner, _, err := inspectStore(ctx, path, "")
+	if err != nil {
+		return nil, err
+	}
+	if owner == "" {
 		return nil, invalidBackupErr()
 	}
-	canonical := CanonicalWorkspaceID(dir)
-	store, err := openPath(ctx, path, canonical)
-	if err == nil {
-		return store, nil
-	}
-	var se *StoreError
-	if errors.As(err, &se) && se.Code == ErrDatabaseWorkspaceMismatch &&
-		se.Actual == LegacyPathWorkspaceID(dir) {
-		return migrateLegacyWorkspaceIdentity(ctx, dir, se.Actual, canonical)
-	}
-	return nil, err
-}
-
-// migrateLegacyWorkspaceIdentity rewrites a legacy-path-bound store to
-// the canonical identity behind a verified backup + manifest.
-func migrateLegacyWorkspaceIdentity(ctx context.Context, dir, legacy, canonical string) (*Store, error) {
-	path := filepath.Join(dir, storeFileName)
-	store, err := openPath(ctx, path, legacy)
-	if err != nil {
-		return nil, err
-	}
-	migrationDir := filepath.Join(dir, "migrations", migrationDirName)
-	if err := os.MkdirAll(migrationDir, 0o755); err != nil {
-		_ = store.Close()
-		return nil, ioErr(migrationDir, err)
-	}
-	backup := filepath.Join(migrationDir, migrationBackup)
-	manifestPath := filepath.Join(migrationDir, migrationFile)
-	if !isFile(backup) {
-		if err := store.Backup(ctx, backup); err != nil {
-			_ = store.Close()
-			return nil, err
-		}
-	} else {
-		// An earlier attempt already left a backup; it must still validate
-		// as a store bound to the legacy identity.
-		validation, err := openPath(ctx, backup, legacy)
-		if err != nil {
-			_ = store.Close()
-			return nil, err
-		}
-		_ = validation.Close()
-	}
-	integrity, err := store.Integrity(ctx)
-	if err != nil {
-		_ = store.Close()
-		return nil, err
-	}
-	manifest := WorkspaceIdentityMigrationManifest{
-		Version:              1,
-		State:                MigrationStatePrepared,
-		LegacyWorkspaceID:    legacy,
-		CanonicalWorkspaceID: canonical,
-		BackupPath:           backup,
-		StoreRevision:        integrity.StoreRevision,
-		RecordCount:          integrity.RecordCount,
-	}
-	if err := atomicWriteJSON(manifestPath, &manifest); err != nil {
-		_ = store.Close()
-		return nil, identityManifestErr(err)
-	}
-
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		_ = store.Close()
-		return nil, persistenceErr(store.path, err)
-	}
-	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx,
-		"SELECT memory_id, record_json FROM memory_records")
-	if err != nil {
-		_ = store.Close()
-		return nil, persistenceErr(store.path, err)
-	}
-	type migrationRow struct {
-		id   string
-		json string
-	}
-	var pending []migrationRow
-	for rows.Next() {
-		var row migrationRow
-		if err := rows.Scan(&row.id, &row.json); err != nil {
-			rows.Close()
-			_ = store.Close()
-			return nil, persistenceErr(store.path, err)
-		}
-		pending = append(pending, row)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		_ = store.Close()
-		return nil, persistenceErr(store.path, err)
-	}
-	rows.Close()
-	for _, row := range pending {
-		var record Record
-		if err := json.Unmarshal([]byte(row.json), &record); err != nil {
-			_ = store.Close()
-			return nil, corruptRecordErr()
-		}
-		if record.Scope.WorkspaceID != legacy {
-			_ = store.Close()
-			return nil, identityMigrationRejectedErr()
-		}
-		record.Scope.WorkspaceID = canonical
-		migratedJSON, err := marshalCanonical(record)
-		if err != nil {
-			_ = store.Close()
-			return nil, corruptRecordErr()
-		}
-		if _, err := tx.ExecContext(ctx,
-			"UPDATE memory_records SET workspace_id = ?, record_json = ? WHERE memory_id = ?",
-			canonical, string(migratedJSON), row.id); err != nil {
-			_ = store.Close()
-			return nil, persistenceErr(store.path, err)
-		}
-	}
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE memory_fts SET workspace_id = ?", canonical); err != nil {
-		_ = store.Close()
-		return nil, persistenceErr(store.path, err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE schema_meta SET workspace_id = ? WHERE component = ?",
-		canonical, component); err != nil {
-		_ = store.Close()
-		return nil, persistenceErr(store.path, err)
-	}
-	if err := tx.Commit(); err != nil {
-		_ = store.Close()
-		return nil, persistenceErr(store.path, err)
-	}
-	_ = store.Close()
-
-	migrated, err := openPath(ctx, path, canonical)
-	if err != nil {
-		return nil, err
-	}
-	migratedIntegrity, err := migrated.Integrity(ctx)
-	if err != nil {
-		_ = migrated.Close()
-		return nil, err
-	}
-	if migratedIntegrity.StoreRevision != manifest.StoreRevision ||
-		migratedIntegrity.RecordCount != manifest.RecordCount ||
-		len(migratedIntegrity.CorruptRecordIDs) != 0 ||
-		migratedIntegrity.OrphanFTSRows != 0 {
-		_ = migrated.Close()
-		return nil, corruptRecordErr()
-	}
-	manifest.State = MigrationStateApplied
-	if err := atomicWriteJSON(manifestPath, &manifest); err != nil {
-		_ = migrated.Close()
-		return nil, identityManifestErr(err)
-	}
-	return migrated, nil
-}
-
-// RollbackCanonicalIdentity restores the verified pre-migration database
-// recorded in the manifest. It rejects unless the manifest is version 1,
-// state applied, and both identities and the backup path match dir.
-func RollbackCanonicalIdentity(ctx context.Context, dir string) (WorkspaceIdentityMigrationManifest, error) {
-	migrationDir := filepath.Join(dir, "migrations", migrationDirName)
-	manifestPath := filepath.Join(migrationDir, migrationFile)
-	raw, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return WorkspaceIdentityMigrationManifest{}, ioErr(manifestPath, err)
-	}
-	var manifest WorkspaceIdentityMigrationManifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return WorkspaceIdentityMigrationManifest{}, identityManifestErr(err)
-	}
-	if manifest.Version != 1 ||
-		manifest.State != MigrationStateApplied ||
-		manifest.CanonicalWorkspaceID != CanonicalWorkspaceID(dir) ||
-		manifest.LegacyWorkspaceID != LegacyPathWorkspaceID(dir) ||
-		manifest.BackupPath != filepath.Join(migrationDir, migrationBackup) {
-		return WorkspaceIdentityMigrationManifest{}, identityMigrationRejectedErr()
-	}
-	database := filepath.Join(dir, storeFileName)
-	current, err := openPath(ctx, database, manifest.CanonicalWorkspaceID)
-	if err != nil {
-		return WorkspaceIdentityMigrationManifest{}, err
-	}
-	currentIntegrity, err := current.Integrity(ctx)
-	if err != nil {
-		_ = current.Close()
-		return WorkspaceIdentityMigrationManifest{}, err
-	}
-	if currentIntegrity.StoreRevision != manifest.StoreRevision ||
-		currentIntegrity.RecordCount != manifest.RecordCount {
-		_ = current.Close()
-		return WorkspaceIdentityMigrationManifest{}, identityMigrationRejectedErr()
-	}
-	_ = current.Close()
-
-	backupValidation, err := openPath(ctx, manifest.BackupPath, manifest.LegacyWorkspaceID)
-	if err != nil {
-		return WorkspaceIdentityMigrationManifest{}, err
-	}
-	backupIntegrity, err := backupValidation.Integrity(ctx)
-	if err != nil {
-		_ = backupValidation.Close()
-		return WorkspaceIdentityMigrationManifest{}, err
-	}
-	_ = backupValidation.Close()
-	if backupIntegrity.StoreRevision != manifest.StoreRevision ||
-		backupIntegrity.RecordCount != manifest.RecordCount ||
-		len(backupIntegrity.CorruptRecordIDs) != 0 {
-		return WorkspaceIdentityMigrationManifest{}, invalidBackupErr()
-	}
-	if err := copyFile(manifest.BackupPath, database); err != nil {
-		return WorkspaceIdentityMigrationManifest{}, ioErr(database, err)
-	}
-	manifest.State = MigrationStateRolledBack
-	if err := atomicWriteJSON(manifestPath, &manifest); err != nil {
-		return WorkspaceIdentityMigrationManifest{}, identityManifestErr(err)
-	}
-	return manifest, nil
+	return openPath(ctx, path, owner)
 }
 
 // openPath opens (or initializes) a store at an explicit database file
 // path — the Rust open_path used by migration and restore, which open
 // files outside the {dir}/memory.sqlite3 convention.
 func openPath(ctx context.Context, path, workspaceID string) (*Store, error) {
+	if _, _, err := inspectStore(ctx, path, workspaceID); err != nil {
+		return nil, err
+	}
 	if parent := filepath.Dir(path); parent != "" && parent != "." {
 		if err := os.MkdirAll(parent, 0o755); err != nil {
 			return nil, ioErr(parent, err)
@@ -600,20 +311,5 @@ func invalidBackupErr() *StoreError {
 	return &StoreError{
 		Code:    ErrInvalidBackup,
 		Message: "backup is not a valid Embedded Laputa database",
-	}
-}
-
-func identityMigrationRejectedErr() *StoreError {
-	return &StoreError{
-		Code:    ErrIdentityMigrationRejected,
-		Message: "workspace identity migration only accepts the recognized legacy path identity",
-	}
-}
-
-func identityManifestErr(err error) *StoreError {
-	return &StoreError{
-		Code:    ErrIdentityManifest,
-		Message: fmt.Sprintf("workspace identity migration manifest failed: %v", err),
-		Err:     err,
 	}
 }

@@ -29,11 +29,10 @@ func newSessionRecord(t *testing.T, id, sessionID string) Record {
 		Kind:    KindSessionCheckpoint,
 		Content: "checkpoint state",
 		Provenance: Provenance{
-			Source:        ProvenanceSourceSessionSync,
-			SourceID:      "session_checkpoint",
-			ContentDigest: MemoryContentDigest([]byte("checkpoint state")),
-			CapturedAt:    now,
-			Correlation:   correlation("session_checkpoint", sessionID),
+			Source:      ProvenanceSourceSessionSync,
+			SourceID:    "session_checkpoint",
+			CapturedAt:  now,
+			Correlation: correlation("session_checkpoint", sessionID),
 		},
 		EvidenceRefs:  []EvidenceRef{},
 		ConfidenceBPS: MaxConfidenceBPS,
@@ -66,6 +65,7 @@ func TestHomePathsAndLazyStore(t *testing.T) {
 	root := t.TempDir()
 	config := filepath.Join(root, "config")
 	h := NewHome(config)
+	t.Cleanup(func() { _ = h.Close() })
 
 	if h.ConfigDir() != config {
 		t.Fatalf("config dir: %q", h.ConfigDir())
@@ -110,6 +110,7 @@ func TestHomePathsAndLazyStore(t *testing.T) {
 func TestHomeLongTermCRUDIsRevisionedAndTombstoned(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() { _ = h.Close() })
 
 	added, err := h.AddRecord(ctx, KindLongTerm, "first", nil)
 	if err != nil {
@@ -196,6 +197,7 @@ func TestHomeLongTermCRUDIsRevisionedAndTombstoned(t *testing.T) {
 func TestHomeKindForbiddenAndInvalidRequests(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() { _ = h.Close() })
 
 	if _, err := h.AddRecord(ctx, KindIdentity, "persona", nil); homeErrCode(t, err) != HomeCodeKindForbidden {
 		t.Fatalf("identity add code: %v", err)
@@ -221,6 +223,7 @@ func TestHomeKindForbiddenAndInvalidRequests(t *testing.T) {
 
 func TestHomeMemRulesDefaultThenFile(t *testing.T) {
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() { _ = h.Close() })
 
 	doc, err := h.ReadMemRules()
 	if err != nil {
@@ -264,6 +267,7 @@ func TestHomeMemRulesDefaultThenFile(t *testing.T) {
 func TestHomeStartupGCAndClearSessionCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() { _ = h.Close() })
 
 	putSessionRecord(t, h, "session-checkpoint-a", "gui:active")
 	putSessionRecord(t, h, "session-checkpoint-b", "gui:stale")
@@ -312,6 +316,7 @@ func TestHomeStartupGCAndClearSessionCheckpoint(t *testing.T) {
 func TestHomeListFiltersToVisibleLongTerm(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() { _ = h.Close() })
 
 	if _, err := h.AddRecord(ctx, KindLongTerm, "machine fact", nil); err != nil {
 		t.Fatalf("add: %v", err)
@@ -333,6 +338,7 @@ func TestHomeListFiltersToVisibleLongTerm(t *testing.T) {
 func TestHomeStartupIndexTracksAuthority(t *testing.T) {
 	ctx := context.Background()
 	h := NewHome(t.TempDir())
+	t.Cleanup(func() { _ = h.Close() })
 
 	pointer := memrulesPointer()
 	if got := h.StartupMarkdown(); got != pointer {
@@ -376,6 +382,7 @@ func TestHomeStartupIndexTracksAuthority(t *testing.T) {
 func TestHomeL1BudgetCapsIndexLines(t *testing.T) {
 	ctx := context.Background()
 	h := NewHomeWithL1Budget(t.TempDir(), 1)
+	t.Cleanup(func() { _ = h.Close() })
 	for _, content := range []string{"alpha", "beta"} {
 		if _, err := h.AddRecord(ctx, KindLongTerm, content, nil); err != nil {
 			t.Fatalf("add %q: %v", content, err)
@@ -391,6 +398,7 @@ func TestHomeStoreIdentityMismatchIsBmlUnavailable(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	h := NewHome(dir)
+	t.Cleanup(func() { _ = h.Close() })
 	// Pre-create a store bound to a different workspace identity.
 	other, err := Open(ctx, h.MemoryDir(), "other-workspace")
 	if err != nil {
@@ -417,6 +425,7 @@ func TestHomeOpenExistingDoesNotRunSchemaOnForeignFile(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	h := NewHome(dir)
+	t.Cleanup(func() { _ = h.Close() })
 	if err := os.MkdirAll(h.MemoryDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}

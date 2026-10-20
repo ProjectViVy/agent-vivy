@@ -36,11 +36,11 @@ func migrationErrCode(t *testing.T, err error, code MigrationErrorCode) {
 	}
 }
 
-func TestLegacyAdapterDeterministicAuthorityExplicit(t *testing.T) {
+func TestLegacyAdapterOpaqueIDsAuthorityExplicit(t *testing.T) {
 	first := AdaptLegacyMarkdown("MEMORY.md", "hello", KindLongTerm, migrationContext(), true)
 	second := AdaptLegacyMarkdown("MEMORY.md", "hello", KindLongTerm, migrationContext(), true)
-	if !reflect.DeepEqual(first, second) {
-		t.Fatal("adapt_legacy_markdown must be deterministic")
+	if first.Records[0].ID == second.Records[0].ID {
+		t.Fatal("new records must get opaque independent IDs")
 	}
 	if first.Records[0].Trust != TrustAppliedAuthority {
 		t.Fatalf("expected applied authority, got %q", first.Records[0].Trust)
@@ -120,11 +120,7 @@ func TestMigrationIdempotentConflictSafeReversible(t *testing.T) {
 		t.Fatal("source file must not be modified")
 	}
 
-	conflicting, err := migration.DryRun("gmh-21", []byte("changed"), nil, ts(0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = migration.Execute(conflicting)
+	_, err = migration.DryRun("gmh-21", []byte("changed"), nil, ts(0))
 	migrationErrCode(t, err, ErrMigrationConflict)
 
 	if err := migration.Rollback("gmh-21"); err != nil {
@@ -155,8 +151,11 @@ func TestFailedMigrationCleansOnlyOwnedArtifacts(t *testing.T) {
 	failure := MemoryMigrationTestFailureAfterRollbackManifest
 	_, err = migration.ExecuteWithFailure(plan, &failure)
 	migrationErrCode(t, err, ErrInjectedMigrationFailure)
-	if _, err := os.Stat(plan.Directory); !os.IsNotExist(err) {
-		t.Fatal("failed migration must remove its artifact directory")
+	if _, err := os.Stat(filepath.Join(plan.Directory, "manifest.json")); err != nil {
+		t.Fatal("failed migration must retain admitted allocations")
+	}
+	if _, err := migration.Execute(plan); err != nil {
+		t.Fatalf("retry: %v", err)
 	}
 	if data, err := os.ReadFile(filepath.Join(artifacts, "unrelated")); err != nil || string(data) != "keep" {
 		t.Fatal("failed migration must not touch unrelated files")
@@ -232,15 +231,14 @@ func TestMigrationManifestJSONProtocolStable(t *testing.T) {
 	if err := json.Unmarshal(encoded, &value); err != nil {
 		t.Fatal(err)
 	}
-	if value["schema_version"] != "1.0.0" {
+	if value["schema_version"] != "2.0.0" {
 		t.Fatalf("schema_version: %v", value["schema_version"])
 	}
 	if value["migration_id"] != "gmh-21" {
 		t.Fatalf("migration_id: %v", value["migration_id"])
 	}
-	digest, ok := value["input_digest"].(map[string]any)
-	if !ok || digest["algorithm"] != "sha256" {
-		t.Fatalf("input_digest: %v", value["input_digest"])
+	if value["input"] != "aW5wdXQ=" {
+		t.Fatalf("input not preserved: %v", value["input"])
 	}
 	if !reflect.DeepEqual(value["outputs"], []any{"records.json", "rollback.json", "manifest.json"}) {
 		t.Fatalf("outputs: %v", value["outputs"])

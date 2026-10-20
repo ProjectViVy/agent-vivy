@@ -5,21 +5,12 @@
 package bml
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 )
-
-const artifactSchemaVersion = "1.0.0"
-
-var artifactOutputs = []string{"records.json", "rollback.json", "manifest.json"}
 
 // MigrationErrorCode is a stable, machine-matchable failure code carrying
 // the LaputaError::code() string from the Rust contract.
@@ -221,7 +212,6 @@ type MemoryAdapterOutput struct {
 // AdaptLegacyMarkdown normalizes one legacy owner Markdown file
 // (adapt_legacy_markdown in memory_records.rs).
 func AdaptLegacyMarkdown(path, content string, kind Kind, context *MemoryAdapterContext, legacyOwnerSelected bool) MemoryAdapterOutput {
-	digest := MemoryContentDigest([]byte(content))
 	sourceID := strings.ReplaceAll(path, "\\", "/")
 	confidence := uint16(5_000)
 	trust := TrustUntrusted
@@ -230,15 +220,14 @@ func AdaptLegacyMarkdown(path, content string, kind Kind, context *MemoryAdapter
 		trust = TrustAppliedAuthority
 	}
 	record := Record{
-		ID:      deterministicRecordID("legacy", sourceID, digest),
+		ID:      opaqueID("memory"),
 		Kind:    kind,
 		Content: content,
 		Provenance: Provenance{
-			Source:        ProvenanceSourceLegacyMarkdownOwner,
-			SourceID:      sourceID,
-			ContentDigest: digest,
-			CapturedAt:    context.CapturedAt,
-			Correlation:   context.Correlation,
+			Source:      ProvenanceSourceLegacyMarkdownOwner,
+			SourceID:    sourceID,
+			CapturedAt:  context.CapturedAt,
+			Correlation: context.Correlation,
 		},
 		EvidenceRefs:  []EvidenceRef{},
 		ConfidenceBPS: confidence,
@@ -281,22 +270,20 @@ func AdaptLaputaSection(section *LaputaSection, rawSection any, context *MemoryA
 	if err != nil {
 		return nil, err
 	}
-	digest := MemoryContentDigest([]byte(content))
 	sourceID := string(section.Name)
 	createdAt := context.CapturedAt
 	if section.LastModified != nil {
 		createdAt = *section.LastModified
 	}
 	record := Record{
-		ID:      deterministicRecordID("laputa", sourceID, digest),
+		ID:      opaqueID("memory"),
 		Kind:    recordKindForSection(section.Name),
 		Content: content,
 		Provenance: Provenance{
-			Source:        ProvenanceSourceLaputaAppliedSection,
-			SourceID:      sourceID,
-			ContentDigest: digest,
-			CapturedAt:    context.CapturedAt,
-			Correlation:   context.Correlation,
+			Source:      ProvenanceSourceLaputaAppliedSection,
+			SourceID:    sourceID,
+			CapturedAt:  context.CapturedAt,
+			Correlation: context.Correlation,
 		},
 		EvidenceRefs:  []EvidenceRef{},
 		ConfidenceBPS: MaxConfidenceBPS,
@@ -341,10 +328,6 @@ func sectionContentString(content json.RawMessage) (string, error) {
 // without changing either side (compare_normalized_records in
 // memory_records.rs).
 func CompareNormalizedRecords(sourceBytes []byte, records []Record, findings []IntegrityFinding, now time.Time) (*IntegrityReport, error) {
-	normalizedBytes, err := recordsJSON(records)
-	if err != nil {
-		return nil, err
-	}
 	seen := make(map[string]bool, len(records))
 	duplicates := make(map[string]bool)
 	for _, record := range records {
@@ -394,8 +377,6 @@ func CompareNormalizedRecords(sourceBytes []byte, records []Record, findings []I
 		}
 	}
 	return &IntegrityReport{
-		SourceDigest:          MemoryContentDigest(sourceBytes),
-		NormalizedDigest:      MemoryContentDigest(normalizedBytes),
 		SourceRecordCount:     sourceRecordCount,
 		NormalizedRecordCount: uint64(len(records)),
 		DuplicateRecordIDs:    duplicateIDs,
@@ -404,268 +385,6 @@ func CompareNormalizedRecords(sourceBytes []byte, records []Record, findings []I
 		TombstoneRecordCount:  tombstoned,
 		Findings:              findings,
 	}, nil
-}
-
-// MemoryMigrationManifest is the versioned, isolated Memory migration
-// manifest.
-type MemoryMigrationManifest struct {
-	SchemaVersion string        `json:"schema_version"`
-	MigrationID   string        `json:"migration_id"`
-	InputDigest   ContentDigest `json:"input_digest"`
-	RecordsDigest ContentDigest `json:"records_digest"`
-	RecordCount   uint64        `json:"record_count"`
-	CreatedAt     time.Time     `json:"created_at"`
-	Outputs       []string      `json:"outputs"`
-}
-
-// MarshalJSON emits CreatedAt in chrono serde form and a nil Outputs as an
-// empty array.
-func (m MemoryMigrationManifest) MarshalJSON() ([]byte, error) {
-	type wire struct {
-		SchemaVersion string        `json:"schema_version"`
-		MigrationID   string        `json:"migration_id"`
-		InputDigest   ContentDigest `json:"input_digest"`
-		RecordsDigest ContentDigest `json:"records_digest"`
-		RecordCount   uint64        `json:"record_count"`
-		CreatedAt     string        `json:"created_at"`
-		Outputs       []string      `json:"outputs"`
-	}
-	outputs := m.Outputs
-	if outputs == nil {
-		outputs = []string{}
-	}
-	return marshalCanonical(wire{
-		SchemaVersion: m.SchemaVersion,
-		MigrationID:   m.MigrationID,
-		InputDigest:   m.InputDigest,
-		RecordsDigest: m.RecordsDigest,
-		RecordCount:   m.RecordCount,
-		CreatedAt:     chronoSerdeTime(m.CreatedAt),
-		Outputs:       outputs,
-	})
-}
-
-// UnmarshalJSON requires every serde field to be present and normalizes
-// CreatedAt to UTC.
-func (m *MemoryMigrationManifest) UnmarshalJSON(data []byte) error {
-	if err := requireJSONFields(data, "schema_version", "migration_id", "input_digest",
-		"records_digest", "record_count", "created_at", "outputs"); err != nil {
-		return err
-	}
-	type plain MemoryMigrationManifest
-	var p plain
-	if err := json.Unmarshal(data, &p); err != nil {
-		return err
-	}
-	p.CreatedAt = p.CreatedAt.UTC()
-	*m = MemoryMigrationManifest(p)
-	return nil
-}
-
-// MemoryRollbackManifest is the content-free rollback manifest listing only
-// files owned by one migration.
-type MemoryRollbackManifest struct {
-	SchemaVersion string   `json:"schema_version"`
-	MigrationID   string   `json:"migration_id"`
-	Outputs       []string `json:"outputs"`
-}
-
-// MarshalJSON emits a nil Outputs as an empty array.
-func (m MemoryRollbackManifest) MarshalJSON() ([]byte, error) {
-	type plain MemoryRollbackManifest
-	p := plain(m)
-	if p.Outputs == nil {
-		p.Outputs = []string{}
-	}
-	return marshalCanonical(p)
-}
-
-// UnmarshalJSON requires every serde field to be present.
-func (m *MemoryRollbackManifest) UnmarshalJSON(data []byte) error {
-	if err := requireJSONFields(data, "schema_version", "migration_id", "outputs"); err != nil {
-		return err
-	}
-	type plain MemoryRollbackManifest
-	var p plain
-	if err := json.Unmarshal(data, &p); err != nil {
-		return err
-	}
-	*m = MemoryRollbackManifest(p)
-	return nil
-}
-
-// MemoryMigrationPlan is the dry-run result that can be reviewed before any
-// artifact is written.
-type MemoryMigrationPlan struct {
-	Directory string
-	Manifest  MemoryMigrationManifest
-	Rollback  MemoryRollbackManifest
-	Records   []Record
-}
-
-// MemoryMigrationTestFailure is the test-only fault boundary used to prove
-// artifact cleanup.
-type MemoryMigrationTestFailure int
-
-const (
-	MemoryMigrationTestFailureAfterRecords MemoryMigrationTestFailure = iota + 1
-	MemoryMigrationTestFailureAfterRollbackManifest
-)
-
-// MemoryMigration writes isolated Memory v2 migration artifacts
-// (MemoryRecordMigration in memory_records.rs).
-type MemoryMigration struct {
-	artifactRoot string
-}
-
-// NewMemoryMigration creates a migration writer rooted at artifactRoot.
-func NewMemoryMigration(artifactRoot string) *MemoryMigration {
-	return &MemoryMigration{artifactRoot: artifactRoot}
-}
-
-// DryRun builds the migration plan without writing any artifact.
-func (m *MemoryMigration) DryRun(migrationID string, inputBytes []byte, records []Record, createdAt time.Time) (*MemoryMigrationPlan, error) {
-	if !validMigrationID(migrationID) {
-		return nil, invalidMigrationIDErr(migrationID)
-	}
-	recordsBytes, err := recordsJSON(records)
-	if err != nil {
-		return nil, err
-	}
-	outputs := expectedOutputs()
-	manifest := MemoryMigrationManifest{
-		SchemaVersion: artifactSchemaVersion,
-		MigrationID:   migrationID,
-		InputDigest:   MemoryContentDigest(inputBytes),
-		RecordsDigest: MemoryContentDigest(recordsBytes),
-		RecordCount:   uint64(len(records)),
-		CreatedAt:     createdAt,
-		Outputs:       outputs,
-	}
-	return &MemoryMigrationPlan{
-		Directory: filepath.Join(m.artifactRoot, migrationID),
-		Manifest:  manifest,
-		Rollback: MemoryRollbackManifest{
-			SchemaVersion: artifactSchemaVersion,
-			MigrationID:   migrationID,
-			Outputs:       slices.Clone(outputs),
-		},
-		Records: records,
-	}, nil
-}
-
-// Execute writes the planned artifacts, returning the existing manifest when
-// this exact migration already ran.
-func (m *MemoryMigration) Execute(plan *MemoryMigrationPlan) (*MemoryMigrationManifest, error) {
-	return m.ExecuteWithFailure(plan, nil)
-}
-
-// ExecuteWithFailure is Execute with an optional test-only fault injection.
-func (m *MemoryMigration) ExecuteWithFailure(plan *MemoryMigrationPlan, testFailure *MemoryMigrationTestFailure) (*MemoryMigrationManifest, error) {
-	if err := m.validatePlan(plan); err != nil {
-		return nil, err
-	}
-	manifestPath := filepath.Join(plan.Directory, "manifest.json")
-	if _, err := os.Stat(manifestPath); err == nil {
-		data, err := os.ReadFile(manifestPath)
-		if err != nil {
-			return nil, migrationIOErr(manifestPath, err)
-		}
-		var existing MemoryMigrationManifest
-		if err := json.Unmarshal(data, &existing); err != nil {
-			return nil, migrationJSONErr(err)
-		}
-		if manifestsEqual(existing, plan.Manifest) {
-			return &existing, nil
-		}
-		return nil, migrationConflictErr(plan.Manifest.MigrationID)
-	}
-
-	if err := os.MkdirAll(plan.Directory, 0o755); err != nil {
-		return nil, migrationIOErr(plan.Directory, err)
-	}
-	manifest, err := func() (*MemoryMigrationManifest, error) {
-		if err := atomicWriteJSON(filepath.Join(plan.Directory, "records.json"), recordsForJSON(plan.Records)); err != nil {
-			return nil, err
-		}
-		if testFailure != nil && *testFailure == MemoryMigrationTestFailureAfterRecords {
-			return nil, injectedMigrationFailureErr()
-		}
-		if err := atomicWriteJSON(filepath.Join(plan.Directory, "rollback.json"), &plan.Rollback); err != nil {
-			return nil, err
-		}
-		if testFailure != nil && *testFailure == MemoryMigrationTestFailureAfterRollbackManifest {
-			return nil, injectedMigrationFailureErr()
-		}
-		if err := atomicWriteJSON(manifestPath, &plan.Manifest); err != nil {
-			return nil, err
-		}
-		return &plan.Manifest, nil
-	}()
-	if err != nil {
-		removeOwnedOutputs(plan.Directory, plan.Rollback.Outputs)
-		return nil, err
-	}
-	return manifest, nil
-}
-
-// Rollback deletes the files owned by one migration, verifying the rollback
-// manifest before touching anything.
-func (m *MemoryMigration) Rollback(migrationID string) error {
-	if !validMigrationID(migrationID) {
-		return invalidMigrationIDErr(migrationID)
-	}
-	directory := filepath.Join(m.artifactRoot, migrationID)
-	rollbackPath := filepath.Join(directory, "rollback.json")
-	data, err := os.ReadFile(rollbackPath)
-	if err != nil {
-		return migrationIOErr(rollbackPath, err)
-	}
-	var rollback MemoryRollbackManifest
-	if err := json.Unmarshal(data, &rollback); err != nil {
-		return migrationJSONErr(err)
-	}
-	if rollback.SchemaVersion != artifactSchemaVersion ||
-		rollback.MigrationID != migrationID ||
-		!slices.Equal(rollback.Outputs, expectedOutputs()) {
-		return migrationConflictErr(migrationID)
-	}
-	for _, output := range rollback.Outputs {
-		path := filepath.Join(directory, output)
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return migrationIOErr(path, err)
-		}
-	}
-	if err := os.Remove(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return migrationIOErr(directory, err)
-	}
-	return nil
-}
-
-func (m *MemoryMigration) validatePlan(plan *MemoryMigrationPlan) error {
-	recordsBytes, err := recordsJSON(plan.Records)
-	if err != nil {
-		return err
-	}
-	if !validMigrationID(plan.Manifest.MigrationID) ||
-		plan.Directory != filepath.Join(m.artifactRoot, plan.Manifest.MigrationID) ||
-		plan.Manifest.SchemaVersion != artifactSchemaVersion ||
-		!slices.Equal(plan.Manifest.Outputs, expectedOutputs()) ||
-		plan.Manifest.RecordCount != uint64(len(plan.Records)) ||
-		plan.Manifest.RecordsDigest != MemoryContentDigest(recordsBytes) ||
-		plan.Rollback.SchemaVersion != artifactSchemaVersion ||
-		plan.Rollback.MigrationID != plan.Manifest.MigrationID ||
-		!slices.Equal(plan.Rollback.Outputs, expectedOutputs()) {
-		return migrationConflictErr(plan.Manifest.MigrationID)
-	}
-	return nil
-}
-
-// deterministicRecordID binds a record id to its source and content digest
-// (deterministic_record_id in memory_records.rs).
-func deterministicRecordID(prefix, sourceID string, digest ContentDigest) string {
-	binding := prefix + "\x00" + sourceID + "\x00" + digest.Value
-	return "memory-" + prefix + "-" + MemoryContentDigest([]byte(binding)).Value
 }
 
 // recordKindForSection maps a section to its record kind. Daily, Weekly, and
@@ -738,27 +457,6 @@ func unknownSectionFindings(rawSection any, sourceID string) []IntegrityFinding 
 	return findings
 }
 
-// removeOwnedOutputs deletes only files listed in the migration's own
-// outputs plus the (then empty) artifact directory.
-func removeOwnedOutputs(directory string, outputs []string) {
-	for _, output := range outputs {
-		_ = os.Remove(filepath.Join(directory, output))
-	}
-	_ = os.Remove(directory)
-}
-
-func expectedOutputs() []string {
-	return slices.Clone(artifactOutputs)
-}
-
-func validMigrationID(migrationID string) bool {
-	return strings.TrimSpace(migrationID) != "" &&
-		!strings.Contains(migrationID, "/") &&
-		!strings.Contains(migrationID, "\\") &&
-		migrationID != "." &&
-		migrationID != ".."
-}
-
 // recordsJSON serializes records as serde_json::to_vec does: compact
 // canonical bytes with an empty slice rendering as "[]", not "null".
 func recordsJSON(records []Record) ([]byte, error) {
@@ -778,19 +476,6 @@ func recordsForJSON(records []Record) []Record {
 		return []Record{}
 	}
 	return records
-}
-
-// manifestsEqual compares manifests by their canonical serialized form.
-func manifestsEqual(a, b MemoryMigrationManifest) bool {
-	aBytes, err := marshalCanonical(a)
-	if err != nil {
-		return false
-	}
-	bBytes, err := marshalCanonical(b)
-	if err != nil {
-		return false
-	}
-	return bytes.Equal(aBytes, bBytes)
 }
 
 func sortedKeys(set map[string]bool) []string {

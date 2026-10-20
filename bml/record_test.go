@@ -20,10 +20,9 @@ func testRecord() Record {
 		Kind:    KindLongTerm,
 		Content: "user preference",
 		Provenance: Provenance{
-			Source:        ProvenanceSourceLaputaAppliedSection,
-			SourceID:      "legacy-section",
-			ContentDigest: MemoryContentDigest([]byte("user preference")),
-			CapturedAt:    ts(1),
+			Source:     ProvenanceSourceLaputaAppliedSection,
+			SourceID:   "legacy-section",
+			CapturedAt: ts(1),
 			Correlation: AuditCorrelation{
 				RequestID: "request-1",
 				TurnID:    "turn-1",
@@ -71,10 +70,6 @@ func TestFixedJSONContractRoundTrips(t *testing.T) {
 		"provenance": {
 			"source": "laputa_applied_section",
 			"source_id": "legacy-section",
-			"content_digest": {
-				"algorithm": "sha256",
-				"value": "ce28416a34d0dc6484157ed4ad20a404aca65dbe4696873a96ad957e0f955ca7"
-			},
 			"captured_at": "2026-07-29T12:00:01Z",
 			"correlation": {
 				"request_id": "request-1",
@@ -131,11 +126,6 @@ func TestValidateAtAuthorityTimeScopeAndTombstoneRules(t *testing.T) {
 			want:   ValidationError{Code: "invalid_authority_source"},
 		},
 		{
-			name:   "tampered content breaks digest",
-			mutate: func(r *Record) { r.Content = "tampered" },
-			want:   ValidationError{Code: "content_digest_mismatch"},
-		},
-		{
 			name: "creation beyond clock skew",
 			mutate: func(r *Record) {
 				r.CreatedAt = ts(20)
@@ -154,7 +144,6 @@ func TestValidateAtAuthorityTimeScopeAndTombstoneRules(t *testing.T) {
 				r.Supersedes = []string{"old"}
 				r.Tombstone = &Tombstone{
 					TargetRecordID: "old",
-					ReasonDigest:   MemoryContentDigest([]byte("removed")),
 					ActorID:        "user-1",
 					CreatedAt:      ts(2),
 				}
@@ -243,8 +232,6 @@ func TestMaliciousPromptContentStaysInsideDataBoundary(t *testing.T) {
 
 func TestIntegrityAndErrorJSONProtocolsAreStable(t *testing.T) {
 	report := IntegrityReport{
-		SourceDigest:          MemoryContentDigest([]byte("source")),
-		NormalizedDigest:      MemoryContentDigest([]byte("records")),
 		SourceRecordCount:     1,
 		NormalizedRecordCount: 1,
 		DuplicateRecordIDs:    []string{},
