@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/module"
 )
 
@@ -26,12 +25,8 @@ func TestP8SCXGateARejectsDirectImplementationDependencies(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "provider.go"), []byte(source), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			digest, err := assemblyv1.HashSourceTree(dir, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			descriptor := module.Descriptor{Source: module.Source{SHA256: digest}}
-			err = verifySource(dir, descriptor)
+			descriptor := module.Descriptor{Source: module.Source{}}
+			err := verifySource(dir, descriptor)
 			if err == nil || !strings.Contains(err.Error(), "forbidden source import "+importPath) {
 				t.Fatalf("verifySource() error = %v, want forbidden import %s", err, importPath)
 			}

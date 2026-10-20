@@ -67,7 +67,7 @@ func TestSupportStateAndConformanceAreSealedForInspect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sealed, raw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{
+	sealed, raw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
 		CanonicalRecipe: canonicalRecipe, ConformanceResults: results, PortSupport: records,
 	})

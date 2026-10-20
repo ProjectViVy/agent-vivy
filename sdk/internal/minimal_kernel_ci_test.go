@@ -42,7 +42,7 @@ func TestMinimalKernelArtifactBootAndInspect(t *testing.T) {
 		t.Fatalf("minimal modules = %v, want %v", modules, want)
 	}
 	ui := inspected.Manifest.UI
-	if ui == nil || ui.Root != "" || len(ui.Extensions) != 0 || len(ui.SourceHashes) != 0 || len(ui.DependencyLockHashes) != 0 || len(ui.AssetHashes) != 0 || len(inspected.Manifest.Catalogs) != 0 || len(inspected.Manifest.ConformanceResults) != 0 {
+	if ui == nil || ui.Root != "" || len(ui.Extensions) != 0 || len(inspected.Manifest.Catalogs) != 0 || len(inspected.Manifest.ConformanceResults) != 0 {
 		t.Fatal("minimal retained optional UI, catalog, or Provider evidence")
 	}
 	assets, err := os.ReadDir(filepath.Join(artifact.Directory, "ui", "dist"))

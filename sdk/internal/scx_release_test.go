@@ -3,13 +3,9 @@ package sdk
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -27,23 +23,9 @@ func TestSCXCandidateRollbackRestoresPriorSealedGenerationWithoutJournalMutation
 	if err != nil {
 		t.Fatal(err)
 	}
-	uiSource, sourceHash, lockHash := writePackUIFixture(t, repoRoot)
+	uiSource := writePackUIFixture(t, repoRoot)
 	priorRecipe := filepath.Join(root, "prior-full-ui.yml")
-	priorRecipeBody := fmt.Sprintf(`apiVersion: vivy.generation/v1
-profile: rollback-prior
-modules: [vivy/loop, vivy/model, vivy/tool-host, vivy/storage, vivy/checkpoint, vivy/credential, vivy/sandbox, vivy/presentation-host, example/pack-ui]
-sources:
-  example/pack-ui: {ref: file:pack-ui, sha256: %s}
-exclusive:
-  std/ui-root@v1: example/pack-ui
-order:
-  std/ui-extension@v1: [example/pack-ui]
-ui:
-  sdkVersion: %s
-  root: {id: example.pack-ui-root, moduleId: example/pack-ui, port: std/ui-root@v1, entry: ./root.tsx, export: root, sourceHash: %s, dependencyLockHash: %s, assetHash: %s}
-  extensions:
-    - {id: example.pack-ui-extension, moduleId: example/pack-ui, port: std/ui-extension@v1, entry: ./extension.tsx, export: extension, sourceHash: %s, dependencyLockHash: %s, assetHash: %s}
-`, sourceHash, assemblyv1.UIAssemblySDKVersion, sourceHash, lockHash, strings.Repeat("c", 64), sourceHash, lockHash, strings.Repeat("f", 64))
+	priorRecipeBody := packUIRecipe()
 	if err := os.WriteFile(priorRecipe, []byte(priorRecipeBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +44,7 @@ ui:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prior.Manifest.Catalogs) != 1 || prior.Manifest.Catalogs[0].Digest == "" || len(prior.Manifest.Catalogs[0].Locales) == 0 {
+	if len(prior.Manifest.Catalogs) != 1 || len(prior.Manifest.Catalogs[0].Locales) == 0 {
 		t.Fatalf("rollback prior lacks sealed catalog identity: %#v", prior.Manifest.Catalogs)
 	}
 	candidate := pack("candidate", "scx")
@@ -99,13 +81,8 @@ ui:
 
 	release := func(artifact Artifact, suffix string) domain.Release {
 		t.Helper()
-		binary, err := os.ReadFile(artifact.Binary)
-		if err != nil {
-			t.Fatal(err)
-		}
-		digest := sha256.Sum256(binary)
 		gen := domain.Generation{
-			ID: artifact.Manifest.GenerationID, ArtifactSHA256: hex.EncodeToString(digest[:]),
+			ID:        artifact.Manifest.GenerationID,
 			SourceRef: "file:" + artifact.Binary, Phase: domain.GenerationBuilt,
 			CreatedAt: time.Now().UnixMilli(),
 		}

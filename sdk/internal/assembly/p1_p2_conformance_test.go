@@ -133,7 +133,7 @@ func TestP1P2PortConformanceSuite(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				manifest, raw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{SpecificationVersion: "test", CompilerVersion: "test", SDKVersion: "test", CanonicalRecipe: canonical, CapabilityStates: map[string]assemblyv1.CapabilityState{portName: assemblyv1.CapabilityUnavailable}})
+				manifest, raw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{GenerationID: "authoring-test", SpecificationVersion: "test", CompilerVersion: "test", SDKVersion: "test", CanonicalRecipe: canonical, CapabilityStates: map[string]assemblyv1.CapabilityState{portName: assemblyv1.CapabilityUnavailable}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -213,7 +213,7 @@ func portFixture(t *testing.T, definition port.Definition) []module.Descriptor {
 }
 
 func conformanceDescriptor(id string, provides ...module.PortRef) module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: id, Version: "1.0.0"}, Source: module.Source{Ref: "test:" + id, SHA256: strings.Repeat("a", 64)}, Provides: provides, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: id, Version: "1.0.0"}, Source: module.Source{Ref: "test:" + id}, Provides: provides, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }
 
 func conformanceRecipe(definition port.Definition, descriptors []module.Descriptor) assemblyv1.Recipe {

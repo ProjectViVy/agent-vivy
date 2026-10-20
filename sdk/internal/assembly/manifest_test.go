@@ -17,10 +17,10 @@ import (
 func TestConformanceResultsAreSealedCanonicalAndIdentityBound(t *testing.T) {
 	plan := manifestTestPlan()
 	results := []providerconformance.ConformanceResult{
-		{Port: module.PortRef{Port: "std/tool@v1", ID: "fixture.search"}, ProviderID: "fixture/search", SourceSHA256: strings.Repeat("a", 64), Suite: "timeout", Passed: true, EvidenceID: "evidence/timeout"},
-		{Port: module.PortRef{Port: "std/tool@v1", ID: "fixture.search"}, ProviderID: "fixture/search", SourceSHA256: strings.Repeat("a", 64), Suite: "registration", Passed: true, EvidenceID: "evidence/registration"},
+		{Port: module.PortRef{Port: "std/tool@v1", ID: "fixture.search"}, ProviderID: "fixture/search", Suite: "timeout", Passed: true, EvidenceID: "evidence/timeout"},
+		{Port: module.PortRef{Port: "std/tool@v1", ID: "fixture.search"}, ProviderID: "fixture/search", Suite: "registration", Passed: true, EvidenceID: "evidence/registration"},
 	}
-	inputs := SealInputs{
+	inputs := SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.assembly/v1",
 		CompilerVersion:      "compiler-test",
 		SDKVersion:           "sdk-test",
@@ -47,8 +47,8 @@ func TestConformanceResultsAreSealedCanonicalAndIdentityBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed.GenerationID == manifest.GenerationID {
-		t.Fatal("conformance outcome did not change Generation identity")
+	if failed.GenerationID != manifest.GenerationID || failed.ConformanceResults[1].Passed {
+		t.Fatal("conformance outcome lost or supplied identity changed")
 	}
 }
 
@@ -62,8 +62,7 @@ func TestCatalogCompletenessComesFromCompilerEvidence(t *testing.T) {
 			"plugin.fixture/catalog.title": {Description: "Title", Messages: map[string]string{"en": "Title"}},
 		},
 	}
-	catalog.Digest = catalogProjectionDigest(catalog)
-	manifest, _, err := SealManifest(manifestTestPlan(), SealInputs{
+	manifest, _, err := SealManifest(manifestTestPlan(), SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.assembly/v1", CompilerVersion: "compiler-test", SDKVersion: "sdk-test",
 		CanonicalRecipe: []byte(`{"apiVersion":"vivy.generation/v1","modules":["fixture/search"]}`),
 		Catalogs:        []CatalogManifest{catalog},
@@ -117,13 +116,11 @@ func TestCanonicalRecipeAndManifestAreSemanticByteStable(t *testing.T) {
 	}
 
 	plan := manifestTestPlan()
-	inputs := SealInputs{
+	inputs := SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.assembly/v1",
 		CompilerVersion:      "compiler-test",
 		SDKVersion:           "sdk-test",
 		CanonicalRecipe:      firstCanonical,
-		DependencyLocks:      map[string]string{"go": "go-lock", "ui": "ui-lock"},
-		UIArtifacts:          map[string]string{"fixture/search": "ui-hash"},
 	}
 	firstManifest, firstBytes, err := SealManifest(plan, inputs)
 	if err != nil {
@@ -139,69 +136,33 @@ func TestCanonicalRecipeAndManifestAreSemanticByteStable(t *testing.T) {
 	}
 }
 
-func TestGenerationIDChangesForEveryIdentityInput(t *testing.T) {
-	basePlan := manifestTestPlan()
-	baseInputs := SealInputs{
-		SpecificationVersion: "vivy.assembly/v1",
-		CompilerVersion:      "compiler-a",
-		SDKVersion:           "sdk-a",
-		CanonicalRecipe:      []byte(`{"apiVersion":"vivy.generation/v1","modules":["fixture/search"]}`),
-		DependencyLocks:      map[string]string{"go": "go-lock"},
-		UIArtifacts:          map[string]string{"fixture/search": "ui-a"},
-		Catalogs: []CatalogManifest{{
-			Module: "fixture/search", SchemaVersion: "vivy.i18n/v1", Path: "i18n/catalog.json",
-			Digest: "catalog-a", DefaultLocale: "en", Locales: []string{"en", "zh"},
-		}},
-	}
-	base, _, err := SealManifest(basePlan, baseInputs)
+func TestGenerationIDIsSuppliedIndependentlyOfBuildContent(t *testing.T) {
+	plan := manifestTestPlan()
+	input := SealInputs{GenerationID: "generation-explicit", SpecificationVersion: "vivy.assembly/v1", CompilerVersion: "compiler-a", SDKVersion: "sdk-a", CanonicalRecipe: []byte("{}")}
+	first, _, err := SealManifest(plan, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	tests := []struct {
-		name   string
-		mutate func(*AssemblyPlan, *SealInputs)
-	}{
-		{name: "source hash", mutate: func(plan *AssemblyPlan, _ *SealInputs) {
-			plan.Modules[0].Descriptor.Source.SHA256 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-		}},
-		{name: "ui hash", mutate: func(_ *AssemblyPlan, inputs *SealInputs) {
-			inputs.UIArtifacts["fixture/search"] = "ui-b"
-		}},
-		{name: "port version", mutate: func(plan *AssemblyPlan, _ *SealInputs) {
-			plan.PortEdges[0].Port.Port = "std/tool@v2"
-		}},
-		{name: "compiler version", mutate: func(_ *AssemblyPlan, inputs *SealInputs) {
-			inputs.CompilerVersion = "compiler-b"
-		}},
-		{name: "resolved dependency build list", mutate: func(_ *AssemblyPlan, inputs *SealInputs) {
-			inputs.DependencyLocks["resolved-build-list"] = "go-lock-b"
-		}},
-		{name: "catalog digest", mutate: func(_ *AssemblyPlan, inputs *SealInputs) {
-			inputs.Catalogs[0].Digest = "catalog-b"
-		}},
-		{name: "run observer policy", mutate: func(_ *AssemblyPlan, inputs *SealInputs) {
-			inputs.RunObserverPolicies = []RunObserverPolicy{{ProviderID: "fixture.memory", EventTypes: []string{"run.completed"}, AllowedPayloadFields: []string{"summary"}}}
-		}},
+	input.CompilerVersion = "compiler-b"
+	plan.Modules[0].Descriptor.Source.Ref = "git:fixture/search@updated"
+	second, _, err := SealManifest(plan, input)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			plan := cloneAssemblyPlan(basePlan)
-			inputs := cloneSealInputs(baseInputs)
-			test.mutate(&plan, &inputs)
-			manifest, _, err := SealManifest(plan, inputs)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if manifest.GenerationID == base.GenerationID {
-				t.Fatalf("GenerationID did not change after %s mutation", test.name)
-			}
-		})
+	if first.GenerationID != input.GenerationID || second.GenerationID != input.GenerationID || second.CompilerVersion != "compiler-b" || second.Modules[0].Source.Ref != "git:fixture/search@updated" {
+		t.Fatalf("explicit identity/content not preserved: %#v", second)
+	}
+	input.GenerationID = "generation-another"
+	third, _, err := SealManifest(plan, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.GenerationID == first.GenerationID {
+		t.Fatal("supplied build identity ignored")
 	}
 }
 
-func TestGenerationIDChangesWhenEmbeddedCatalogBodyChanges(t *testing.T) {
+func TestCatalogBodyChangesPreserveSuppliedGenerationID(t *testing.T) {
 	catalog := CatalogManifest{
 		Module:        "fixture/search",
 		APIVersion:    "vivy.i18n/v1",
@@ -218,15 +179,14 @@ func TestGenerationIDChangesWhenEmbeddedCatalogBodyChanges(t *testing.T) {
 			},
 		},
 	}
-	catalog.Digest = catalogProjectionDigest(catalog)
 	canonicalRecipe := []byte(`{"apiVersion":"vivy.generation/v1","modules":["fixture/search"]}`)
 	seal := func(c CatalogManifest) GenerationManifest {
-		manifest, _, err := SealManifest(manifestTestPlan(), SealInputs{
+		manifest, _, err := SealManifest(manifestTestPlan(), SealInputs{GenerationID: "authoring-test",
 			SpecificationVersion: "vivy.assembly/v1",
 			CompilerVersion:      "compiler-test",
 			SDKVersion:           "sdk-test",
 			CanonicalRecipe:      canonicalRecipe,
-			UI: &UIAssemblyManifest{
+			UI: &UIAssemblyManifest{GenerationID: "authoring-test",
 				SDKPackage: UIAssemblySDKPackageName,
 				SDKVersion: UIAssemblySDKVersion,
 				Catalogs:   []CatalogManifest{c},
@@ -240,10 +200,9 @@ func TestGenerationIDChangesWhenEmbeddedCatalogBodyChanges(t *testing.T) {
 	}
 	first := seal(catalog)
 	catalog.Units["plugin.fixture/search.title"].Messages["en"] = "Search results"
-	catalog.Digest = catalogProjectionDigest(catalog)
 	second := seal(catalog)
-	if first.GenerationID == second.GenerationID {
-		t.Fatalf("GenerationID did not change when embedded catalog body changed: %s", first.GenerationID)
+	if first.GenerationID != second.GenerationID || second.Catalogs[0].Units["plugin.fixture/search.title"].Messages["en"] != "Search results" {
+		t.Fatalf("catalog update lost or supplied identity changed: %#v", second)
 	}
 }
 
@@ -265,7 +224,6 @@ func TestSealManifestCanonicalizesUIProjectionCatalogOrder(t *testing.T) {
 			},
 		},
 	}
-	catalogA.Digest = catalogProjectionDigest(catalogA)
 	catalogB := CatalogManifest{
 		Module:        "fixture/catalog-b",
 		APIVersion:    "vivy.i18n/v1",
@@ -282,15 +240,14 @@ func TestSealManifestCanonicalizesUIProjectionCatalogOrder(t *testing.T) {
 			},
 		},
 	}
-	catalogB.Digest = catalogProjectionDigest(catalogB)
 	canonicalRecipe := []byte(`{"apiVersion":"vivy.generation/v1","modules":["fixture/search"]}`)
 	seal := func(catalogs []CatalogManifest) (GenerationManifest, []byte) {
-		manifest, raw, err := SealManifest(manifestTestPlan(), SealInputs{
+		manifest, raw, err := SealManifest(manifestTestPlan(), SealInputs{GenerationID: "authoring-test",
 			SpecificationVersion: "vivy.assembly/v1",
 			CompilerVersion:      "compiler-test",
 			SDKVersion:           "sdk-test",
 			CanonicalRecipe:      canonicalRecipe,
-			UI: &UIAssemblyManifest{
+			UI: &UIAssemblyManifest{GenerationID: "authoring-test",
 				SDKPackage: UIAssemblySDKPackageName,
 				SDKVersion: UIAssemblySDKVersion,
 				Catalogs:   catalogs,
@@ -362,7 +319,7 @@ func TestInspectManifestVerifiesIdentityAndCapabilityStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs := SealInputs{
+	inputs := SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.assembly/v1",
 		CompilerVersion:      "compiler-test",
 		SDKVersion:           "sdk-test",
@@ -388,18 +345,18 @@ func TestInspectManifestVerifiesIdentityAndCapabilityStates(t *testing.T) {
 	if err := json.Unmarshal(raw, &tampered); err != nil {
 		t.Fatal(err)
 	}
-	tampered["compilerVersion"] = "tampered"
+	tampered["generationId"] = ""
 	tamperedRaw, err := json.Marshal(tampered)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InspectManifest(tamperedRaw); err == nil {
-		t.Fatal("InspectManifest() accepted a manifest whose sealed inputs changed")
+		t.Fatal("InspectManifest() accepted a manifest without a Generation ID")
 	}
 }
 
 func TestSealManifestRejectsUnknownCapabilityState(t *testing.T) {
-	inputs := SealInputs{
+	inputs := SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.assembly/v1",
 		CompilerVersion:      "compiler-test",
 		SDKVersion:           "sdk-test",
@@ -462,27 +419,24 @@ func TestTask7P6PortsHaveCompleteSevenArtifactProof(t *testing.T) {
 	}
 }
 
-func TestTask7UIProvenanceBindsHashAndInspectIdentity(t *testing.T) {
-	ui := UIAssemblyManifest{
-		Root:                 "fixture/full-ui-root",
-		Extensions:           []string{"fixture/full-ui-extension"},
-		Replacements:         map[string][]string{"fixture/full-ui-extension": {"fixture/old-extension"}},
-		SourceHashes:         map[string]string{"fixture/full-ui-root": strings.Repeat("a", 64), "fixture/full-ui-extension": strings.Repeat("b", 64)},
-		DependencyLockHashes: map[string]string{"fixture/full-ui-root": strings.Repeat("c", 64), "fixture/full-ui-extension": strings.Repeat("d", 64)},
-		SDKPackage:           UIAssemblySDKPackageName,
-		SDKVersion:           UIAssemblySDKVersion,
-		AssetHashes:          map[string]string{"fixture/full-ui-root": strings.Repeat("e", 64), "fixture/full-ui-extension": strings.Repeat("f", 64)},
+func TestTask7UIProjectionPreservesSelectionAndInspectIdentity(t *testing.T) {
+	ui := UIAssemblyManifest{GenerationID: "authoring-test",
+		Root:         "fixture/full-ui-root",
+		Extensions:   []string{"fixture/full-ui-extension"},
+		Replacements: map[string][]string{"fixture/full-ui-extension": {"fixture/old-extension"}},
+
+		SDKPackage: UIAssemblySDKPackageName,
+		SDKVersion: UIAssemblySDKVersion,
 	}
 	seal := func(projection UIAssemblyManifest) (GenerationManifest, []byte) {
 		t.Helper()
-		manifest, raw, err := SealManifest(AssemblyPlan{}, SealInputs{
+		manifest, raw, err := SealManifest(AssemblyPlan{}, SealInputs{GenerationID: "authoring-test",
 			SpecificationVersion: "vivy.assembly/v1",
 			CompilerVersion:      "task7-provenance-compiler",
 			SDKVersion:           UIAssemblySDKVersion,
 			CanonicalRecipe:      []byte(`{"apiVersion":"vivy.generation/v1","profile":"task7","modules":["fixture/full-ui"]}`),
-			DependencyLocks:      map[string]string{"fixture/full-ui": strings.Repeat("1", 64)},
-			UIArtifacts:          map[string]string{"ui/dist": strings.Repeat("2", 64)},
-			UI:                   &projection,
+
+			UI: &projection,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -494,30 +448,30 @@ func TestTask7UIProvenanceBindsHashAndInspectIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InspectManifest() error = %v", err)
 	}
-	if inspected.GenerationID != first.GenerationID || inspected.UI == nil || inspected.UI.Root != ui.Root || !equalStrings(inspected.UI.Extensions, ui.Extensions) || !reflect.DeepEqual(inspected.UI.SourceHashes, ui.SourceHashes) || !reflect.DeepEqual(inspected.UI.DependencyLockHashes, ui.DependencyLockHashes) || !reflect.DeepEqual(inspected.UI.AssetHashes, ui.AssetHashes) || !reflect.DeepEqual(inspected.UI.Replacements, ui.Replacements) {
+	if inspected.GenerationID != first.GenerationID || inspected.UI == nil || inspected.UI.Root != ui.Root || !equalStrings(inspected.UI.Extensions, ui.Extensions) || !reflect.DeepEqual(inspected.UI.Replacements, ui.Replacements) {
 		t.Fatalf("InspectManifest() lost sealed UI provenance: %#v", inspected.UI)
 	}
 
 	mutated := ui
-	mutated.SourceHashes = map[string]string{"fixture/full-ui-root": strings.Repeat("9", 64), "fixture/full-ui-extension": strings.Repeat("b", 64)}
+	mutated.Root = "fixture/another-root"
 	second, _ := seal(mutated)
-	if first.GenerationID == second.GenerationID {
-		t.Fatal("changing a selected UI source hash did not change GenerationID")
+	if first.GenerationID != second.GenerationID || second.UI.Root != mutated.Root {
+		t.Fatal("UI selection update lost or supplied identity changed")
 	}
 }
 
 func TestTask7MinimalManifestProvesLegacyUIPathsAreAbsent(t *testing.T) {
-	minimal, err := GenerateUIAssembly(UIAssemblyInput{SDKVersion: UIAssemblySDKVersion})
+	minimal, err := GenerateUIAssembly(UIAssemblyInput{GenerationID: "authoring-test", SDKVersion: UIAssemblySDKVersion})
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, raw, err := SealManifest(AssemblyPlan{}, SealInputs{
+	manifest, raw, err := SealManifest(AssemblyPlan{}, SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.assembly/v1",
 		CompilerVersion:      "task7-minimal-compiler",
 		SDKVersion:           UIAssemblySDKVersion,
 		CanonicalRecipe:      []byte(`{"apiVersion":"vivy.generation/v1","profile":"minimal","modules":[]}`),
-		UIArtifacts:          map[string]string{"ui/dist": strings.Repeat("0", 64)},
-		UI:                   &minimal.Manifest,
+
+		UI: &minimal.Manifest,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -529,7 +483,7 @@ func TestTask7MinimalManifestProvesLegacyUIPathsAreAbsent(t *testing.T) {
 	if inspected.GenerationID != manifest.GenerationID || inspected.UI == nil {
 		t.Fatalf("minimal manifest could not be inspected: %#v", inspected)
 	}
-	if inspected.UI.Root != "" || len(inspected.UI.Extensions) != 0 || len(inspected.UI.SourceHashes) != 0 || len(inspected.UI.DependencyLockHashes) != 0 || len(inspected.UI.AssetHashes) != 0 {
+	if inspected.UI.Root != "" || len(inspected.UI.Extensions) != 0 {
 		t.Fatalf("minimal UI projection retained selected state: %#v", inspected.UI)
 	}
 	sealed := string(raw) + "\n" + string(minimal.Source)

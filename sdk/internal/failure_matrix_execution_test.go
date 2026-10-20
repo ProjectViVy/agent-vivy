@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"agent-vivy/internal/toolhost"
-	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/port/pretool"
 )
 
@@ -80,7 +79,7 @@ func TestGenerationFailureMatrixExecutesEveryCase(t *testing.T) {
 
 func matrixExecutionCaseIDs() map[string]struct{} {
 	ids := []string{
-		"bad-source-hash", "catalog-byte-limit", "catalog-duplicate-key", "catalog-message-limit",
+		"source-ref-mismatch", "catalog-byte-limit", "catalog-duplicate-key", "catalog-message-limit",
 		"catalog-missing-english", "catalog-placeholder-drift", "catalog-placeholder-limit",
 		"catalog-symlink-escape", "catalog-unit-limit", "catalog-unknown-field", "catalog-wrong-owner",
 		"dependency-cycle", "duplicate-exclusive-provider", "grant-denied", "legacy-v0-input",
@@ -113,25 +112,36 @@ func executeMatrixCase(t *testing.T, id, root, output string) (string, bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		firstRaw, err := os.ReadFile(filepath.Join(first.Directory, "generation.json"))
+		if first.Manifest.GenerationID == "" || first.Manifest.GenerationID == second.Manifest.GenerationID {
+			t.Fatal("pack identities are empty or reused")
+		}
+		firstManifest, secondManifest := first.Manifest, second.Manifest
+		firstManifest.GenerationID, secondManifest.GenerationID = "", ""
+		if firstManifest.UI != nil {
+			firstManifest.UI.GenerationID = ""
+		}
+		if secondManifest.UI != nil {
+			secondManifest.UI.GenerationID = ""
+		}
+		firstRaw, err := json.Marshal(firstManifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		secondRaw, err := os.ReadFile(filepath.Join(second.Directory, "generation.json"))
+		secondRaw, err := json.Marshal(secondManifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if first.Manifest.GenerationID != second.Manifest.GenerationID || !bytes.Equal(firstRaw, secondRaw) {
-			t.Fatal("repeat Pack changed canonical Manifest or Generation identity")
+		if !bytes.Equal(firstRaw, secondRaw) {
+			t.Fatalf("repeat Pack changed selected composition: %s != %s", firstRaw, secondRaw)
 		}
-		return "identical canonical Manifest and Generation ID", true
+		return "distinct pack identities with equivalent selections", true
 	default:
 		return executeAssemblyMatrixCase(t, id, root, output), false
 	}
 }
 
 type matrixModuleSource struct {
-	ID, Ref, SHA256, Dir string
+	ID, Ref, Dir string
 }
 
 func executeAssemblyMatrixCase(t *testing.T, id, root, output string) string {
@@ -146,8 +156,8 @@ func executeAssemblyMatrixCase(t *testing.T, id, root, output string) string {
 		recipe = "apiVersion: vivy.generation/v1\nmodules: [" + minimal + ", missing/module]\n"
 	case "duplicate-exclusive-provider":
 		recipe = "apiVersion: vivy.generation/v1\nmodules: [" + minimal + ", vivy/face-host, vivy/headless, vivy/tui]\nexclusive:\n  std/face@v1: vivy/headless\n"
-	case "bad-source-hash":
-		source := writeMatrixModule(t, root, "fixture/bad-hash", "provides: []\n", true)
+	case "source-ref-mismatch":
+		source := writeMatrixModule(t, root, "fixture/source", "provides: []\n", true)
 		sources = []matrixModuleSource{source}
 		recipe = matrixRecipe([]string{source.ID}, sources)
 	case "dependency-cycle":
@@ -208,7 +218,7 @@ func runMatrixPack(t *testing.T, root, output, recipe string, sources []string) 
 	return err.Error()
 }
 
-func writeMatrixModule(t *testing.T, root, id, descriptorTail string, badHash bool) matrixModuleSource {
+func writeMatrixModule(t *testing.T, root, id, descriptorTail string, wrongRef bool) matrixModuleSource {
 	t.Helper()
 	slug := strings.NewReplacer("/", "-", "_", "-").Replace(id)
 	dir := filepath.Join(root, "sources", slug)
@@ -231,31 +241,18 @@ func writeMatrixModule(t *testing.T, root, id, descriptorTail string, badHash bo
 		}
 		descriptorTail += "i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en]}\n"
 	}
-	const placeholder = "0000000000000000000000000000000000000000000000000000000000000000"
 	ref := "file:matrix-" + slug
-	sha256 := placeholder
-	if badHash {
-		sha256 = "not-a-sha256"
-	}
-	descriptor := fmt.Sprintf("apiVersion: vivy.module/v1\nmodule: {id: %s, version: 1.0.0}\nsource: {ref: %s, sha256: %s}\n%slifecycle: {scope: generation}\n", id, ref, sha256, descriptorTail)
+	descriptor := fmt.Sprintf("apiVersion: vivy.module/v1\nmodule: {id: %s, version: 1.0.0}\nsource: {ref: %s}\n%slifecycle: {scope: generation}\n", id, ref, descriptorTail)
 	if strings.Contains(descriptorTail, "lifecycle:") {
-		descriptor = fmt.Sprintf("apiVersion: vivy.module/v1\nmodule: {id: %s, version: 1.0.0}\nsource: {ref: %s, sha256: %s}\n%s", id, ref, sha256, descriptorTail)
+		descriptor = fmt.Sprintf("apiVersion: vivy.module/v1\nmodule: {id: %s, version: 1.0.0}\nsource: {ref: %s}\n%s", id, ref, descriptorTail)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "vivy-module.yaml"), []byte(descriptor), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !badHash {
-		var err error
-		sha256, err = assemblyv1.HashSourceTree(dir, placeholder)
-		if err != nil {
-			t.Fatal(err)
-		}
-		descriptor = strings.Replace(descriptor, placeholder, sha256, 1)
-		if err := os.WriteFile(filepath.Join(dir, "vivy-module.yaml"), []byte(descriptor), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if wrongRef {
+		ref = "file:matrix-other-source"
 	}
-	return matrixModuleSource{ID: id, Ref: ref, SHA256: sha256, Dir: dir}
+	return matrixModuleSource{ID: id, Ref: ref, Dir: dir}
 }
 
 func matrixRecipe(moduleIDs []string, sources []matrixModuleSource) string {
@@ -276,7 +273,7 @@ func matrixRecipe(moduleIDs []string, sources []matrixModuleSource) string {
 	}
 	builder.WriteString("sources:\n")
 	for _, source := range sources {
-		builder.WriteString(fmt.Sprintf("  %s: {ref: %s, sha256: %s}\n", source.ID, source.Ref, source.SHA256))
+		builder.WriteString(fmt.Sprintf("  %s: {ref: %s}\n", source.ID, source.Ref))
 	}
 	return builder.String()
 }
@@ -351,7 +348,6 @@ func redactMatrixDiagnostic(observed, root, output string) string {
 
 func executeCatalogMatrixCase(t *testing.T, id, root, output string) string {
 	t.Helper()
-	const oldDigest = "c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc"
 	source := filepath.Join(root, "full-ui-module")
 	if err := copySourceTree("testdata/full-ui-module", source); err != nil {
 		t.Fatal(err)
@@ -410,23 +406,10 @@ func executeCatalogMatrixCase(t *testing.T, id, root, output string) string {
 	if err := os.WriteFile(catalogPath, catalog, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	descriptorPath := filepath.Join(source, "vivy-module.yaml")
-	descriptor, err := os.ReadFile(descriptorPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	newDigest, err := assemblyv1.HashSourceTree(source, oldDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(descriptorPath, bytes.ReplaceAll(descriptor, []byte(oldDigest), []byte(newDigest)), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	recipe, err := os.ReadFile("testdata/full-ui.vivy.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	recipe = bytes.ReplaceAll(recipe, []byte(oldDigest), []byte(newDigest))
 	return runMatrixPack(t, root, output, string(recipe), []string{source})
 }
 

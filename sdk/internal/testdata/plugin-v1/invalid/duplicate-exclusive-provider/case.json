@@ -12,8 +12,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/root-a", "version": "1.0.0" },
       "source": {
-        "ref": "git:fixture/root-a@0123456",
-        "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+        "ref": "git:fixture/root-a@0123456"
       },
       "provides": [{ "port": "std/ui-root@v1", "id": "fixture.root-a" }],
       "requires": [],
@@ -24,8 +23,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/root-b", "version": "1.0.0" },
       "source": {
-        "ref": "git:fixture/root-b@0123456",
-        "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+        "ref": "git:fixture/root-b@0123456"
       },
       "provides": [{ "port": "std/ui-root@v1", "id": "fixture.root-b" }],
       "requires": [],

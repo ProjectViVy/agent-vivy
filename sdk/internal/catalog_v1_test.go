@@ -23,15 +23,12 @@ const completeCatalogJSON = `{
   }
 }`
 
-const catalogSourceHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
 func descriptorForCatalog(locales ...string) module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: "example/search-tools", Version: "1.0.0"},
 		Source: module.Source{
-			Ref:    "git:example/search-tools@0123456",
-			SHA256: catalogSourceHash,
+			Ref: "git:example/search-tools@0123456",
 		},
 		I18N:      &module.I18N{Catalog: "i18n/catalog.json", DefaultLocale: "en", Locales: locales},
 		Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration},
@@ -51,7 +48,7 @@ func writeCatalog(t *testing.T, source string) string {
 	return root
 }
 
-func TestLoadCatalogCanonicalDigestAndCompleteness(t *testing.T) {
+func TestLoadCatalogCanonicalProjectionAndCompleteness(t *testing.T) {
 	descriptor := descriptorForCatalog("en", "zh")
 	first, err := loadCatalog(writeCatalog(t, completeCatalogJSON), descriptor)
 	if err != nil {
@@ -63,17 +60,14 @@ func TestLoadCatalogCanonicalDigestAndCompleteness(t *testing.T) {
 	if first.Completeness["en"] != localeComplete || first.Completeness["zh"] != localeComplete {
 		t.Fatalf("completeness = %#v", first.Completeness)
 	}
-	if len(first.Digest) != 64 {
-		t.Fatalf("digest = %q, want lowercase SHA-256", first.Digest)
-	}
 
 	reordered := `{"units":{"plugin.example/search-tools.results.count":{"short":{"zh":"{{count}} 项","en":"{{count}} results"},"messages":{"zh":"{{count}} 个结果","en":"{{count}} results"},"placeholders":["count"],"description":"Number of search results"}},"apiVersion":"vivy.i18n/v1"}`
 	second, err := loadCatalog(writeCatalog(t, reordered), descriptor)
 	if err != nil {
 		t.Fatalf("loadCatalog(reordered) error = %v", err)
 	}
-	if second.Digest != first.Digest || string(second.Canonical) != string(first.Canonical) {
-		t.Fatalf("semantic formatting changed canonical identity\nfirst:  %s %s\nsecond: %s %s", first.Digest, first.Canonical, second.Digest, second.Canonical)
+	if string(second.Canonical) != string(first.Canonical) {
+		t.Fatalf("semantic formatting changed canonical projection\nfirst: %s\nsecond: %s", first.Canonical, second.Canonical)
 	}
 }
 
@@ -216,7 +210,7 @@ func TestLoadCatalogNotApplicable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCatalog() error = %v", err)
 	}
-	if compiled.State != catalogNotApplicable || compiled.Digest != "" {
+	if compiled.State != catalogNotApplicable {
 		t.Fatalf("catalog = %#v, want NOT_APPLICABLE without digest", compiled)
 	}
 }

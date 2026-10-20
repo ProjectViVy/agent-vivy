@@ -1,7 +1,6 @@
 package conformance
 
 import (
-	"strings"
 	"testing"
 
 	providerconformance "agent-vivy/sdk/conformance"
@@ -63,7 +62,7 @@ func completeProviderResults(portID, providerID, evidenceID string) []providerco
 	for _, check := range providerconformance.RequiredProviderChecks() {
 		results = append(results, providerconformance.ConformanceResult{
 			Port: module.PortRef{Port: portID}, ProviderID: providerID,
-			SourceSHA256: strings.Repeat("a", 64), Suite: check, Passed: true, EvidenceID: evidenceID,
+			Suite: check, Passed: true, EvidenceID: evidenceID,
 		})
 	}
 	return results
