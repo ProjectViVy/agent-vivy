@@ -6,16 +6,16 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-func TestDigestModelRequestFingerprintsPreambleAndTools(t *testing.T) {
+func TestDescribeModelRequestMetadataAndTools(t *testing.T) {
 	msgs := []*schema.AgenticMessage{
 		testSystem("preamble"),
 		testUser("hi"),
 		testToolCalls(testCall("c1", "echo_info", `{"text":"x"}`)),
 		testToolResult("c1", "", "x"),
 	}
-	got := digestModelRequest(msgs, []string{"echo_info"})
-	if got.PreambleSHA256 != sha256Hex([]byte("preamble")) || got.PreambleBytes != len("preamble") {
-		t.Fatalf("preamble digest = %+v", got)
+	got := describeModelRequest(msgs, []string{"echo_info"})
+	if got.PreambleBytes != len("preamble") {
+		t.Fatalf("preamble metadata = %+v", got)
 	}
 	if len(got.SelectedTools) != 1 || got.SelectedTools[0] != "echo_info" {
 		t.Fatalf("selected tools = %v", got.SelectedTools)
@@ -28,14 +28,17 @@ func TestDigestModelRequestFingerprintsPreambleAndTools(t *testing.T) {
 	}
 }
 
-func TestDigestModelRequestIncludesTextMultiContent(t *testing.T) {
+func TestDescribeModelRequestIncludesTextMultiContent(t *testing.T) {
 	msg := agenticUserBlocks([]*schema.ContentBlock{
 		agenticTextBlock("inspect"),
 		agenticTextBlock("\n\n[project file: main.go]\npackage main"),
 	})
 	want := []byte("inspect\n\n[project file: main.go]\npackage main")
-	got := digestModelRequest([]*schema.AgenticMessage{msg}, nil)
-	if len(got.Messages) != 1 || got.Messages[0].ByteLen != len(want) || got.Messages[0].ContentSHA256 != sha256Hex(want) {
-		t.Fatalf("multicontent digest = %+v", got.Messages)
+	got := describeModelRequest([]*schema.AgenticMessage{msg}, nil)
+	if got.SelectedTools == nil {
+		t.Fatal("empty selected_tools must remain an array")
+	}
+	if len(got.Messages) != 1 || got.Messages[0].ByteLen != len(want) {
+		t.Fatalf("multicontent metadata = %+v", got.Messages)
 	}
 }

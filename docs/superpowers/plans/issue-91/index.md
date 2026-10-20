@@ -27,7 +27,7 @@ plugin.
 
 | Order | Work | Concrete completion boundary |
 | --- | --- | --- |
-| 1 | D00 re-anchor and causal regression baseline | Use `stable@fde3c1f9`, current pins and agentic APIs; capture real tool result/call ID in the second model request, final terminal/idle, with existing approval/cancel/recovery checks. Human smoke is useful baseline evidence, not full #91 acceptance. |
+| 1 | D00 re-anchor and causal regression baseline | D01 starts at `stable@ce548925` with scoped source/pin checks and real App causal regression. Other cuts retain their own D00 prerequisites. Human smoke is useful baseline evidence, not full #91 acceptance. |
 | 2 | D01, then D02 | Remove default digest audit, then align completion/request producers and Face consumers without custom hashes. Verify each bounded cut; retain mandatory Journal behavior and framing. |
 | 3 | D03 and D06, sequenced through shared owners | Preserve exact tool/approval intent while removing digest binding; simplify source/Assembly/UI generation. Keep current feature selection. |
 | 4 | D04, then D05 | Remove the extra result handoff/FNV with coaching intact; remove only demonstrated warming/steering coupling. Re-anchor their proposed factory bindings to C11 before execution. |
@@ -112,9 +112,9 @@ Planned = concrete plan exists, awaiting implementation handoff or accepted prer
 
 | Story | Epic / requirement | Outcome | Immediate predecessors | Plan | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| D00 | E0 / R1–R8 | Freeze scope and finite upgrade contracts | — | [D00](D00.md) | Planned — first kickoff task | C11 and kickoff order updated; finish affected stable source/pin revalidation before dependent edits |
-| D01 | E1 / R1,R5 | Delete digest audit and unused experimental hash code | D00 | [D01](D01.md) | Planned — first runtime cut | Default AuditHook confirmed on stable; execute after bounded D00 revalidation; absent donor-only code is not imported |
-| D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Planned — next runtime cut | Hash-based completion still present; re-anchor mapper/request changes to the typed agentic generation |
+| D00 | E0 / R1–R8 | Freeze scope and finite upgrade contracts | — | [D00](D00.md) | D01 closure revalidated; other cuts pending | Current stable/typed Eino/Laputa pin and exact audit consumers checked for D01; no data/upstream-contract change. This does not accept unrelated migration or external consumer gates. |
+| D01 | E1 / R1,R5 | Delete digest audit and unused experimental hash code | D00 | [D01](D01.md) | Implemented — acceptance open | Focused regression and independent code review passed. Full CI failed; changed-source conformance evidence requires successful regeneration. [Verification](../../../logs/2026-10-20-issue91-d01/verification.md). |
+| D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Implemented — verification open | Live completion v3 and request v4, byte-only Face framing and historical v2 normalization implemented from f5ce1c66. [Verification](../../../logs/2026-10-20-issue91-d02/verification.md); three independent review findings fixed; full gate/conformance acceptance remains open. |
 | D03 | E2 / R1,R2,R3,R4 | Bind tool operations and approval to exact private inputs | D00 | [D03](D03.md) | Planned | §11.7 legacy binding/pending mapping fixed; accepted D00 and implementation handoff |
 | D04 | E3 / R1,R2,R3,R5,R6 | Settle the typed seam and remove nudge FNV/handoff with coaching retained | D02, D03, D06 | [D04](D04.md) | Blocked | Accepted D02/D03/D06 outputs; re-anchor factory bindings to revised C11 and typed agentic APIs |
 | D05 | E3 / R1,R2,R3,R5,R6 | Settle the warming/steering seam and remove confirmed hash/duplicate coupling | D04 | [D05](D05.md) | Blocked | Accepted D04 output; reconcile proposed bindings while preserving stable behavior |

@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
   steerTurn: vi.fn(), followUpTurn: vi.fn(), clearSessionQueue: vi.fn(async () => ({ cleared: true, texts: [] })), dequeueQueuedTurn: vi.fn(), removeQueuedTurn: vi.fn(),
   getQueueState: vi.fn(async (): Promise<QueueState> => ({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0 })),
 }));
-const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void) }));
+const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void), onError: undefined as undefined | ((message: string, retryable?: boolean) => void) }));
 const workSubscription = vi.hoisted(() => ({
   onEvent: undefined as undefined | ((event: { seq: number; kind: string; request_id: string; created_at: number }) => void),
   onReconnect: undefined as undefined | (() => Promise<void>),
@@ -21,7 +21,7 @@ const workSubscription = vi.hoisted(() => ({
 }));
 vi.mock('./api', () => api);
 vi.mock('./rpc', () => ({ resetRpcClient: vi.fn() }));
-vi.mock('./run-subscription', () => ({ subscribeRun: vi.fn((_id: string, _seq: number, onEvent: typeof subscription.onEvent) => { subscription.onEvent = onEvent; return { close: vi.fn(), lastSeq: () => 0 }; }) }));
+vi.mock('./run-subscription', () => ({ subscribeRun: vi.fn((_id: string, _seq: number, onEvent: typeof subscription.onEvent, onError: typeof subscription.onError) => { subscription.onEvent = onEvent; subscription.onError = onError; return { close: vi.fn(), lastSeq: () => 0 }; }) }));
 vi.mock('./work-subscription', () => ({ subscribeWork: vi.fn((_id: string, afterSeq: number, onEvent: typeof workSubscription.onEvent, _onError: unknown, onReconnect: typeof workSubscription.onReconnect, onConnected: typeof workSubscription.onConnected) => {
   workSubscription.onEvent = onEvent;
   workSubscription.onReconnect = onReconnect;
@@ -51,6 +51,40 @@ function work(sessionId: string, version: number, activation: 'armed' | 'disarme
 }
 
 describe('Vivy store integrity', () => {
+ it('preserves text, backend status and queued work on permanent replay failure', async () => {
+  useVivyStore.setState({activeSessionId:'s1'});
+  api.startTurn.mockResolvedValue({run_id:'r1',status:'active'});
+  await useVivyStore.getState().startRun('s1',{text:'test'});
+  useVivyStore.setState({streamingText:'kept',queuedMessages:[{id:'queued',text:'next'}]});
+  subscription.onError?.('unsupported model.completed',false);
+  subscription.onEvent?.({run_id:'r1',seq:9,type:'run.completed',created_at:9,payload_version:1,payload:{}});
+  expect(useVivyStore.getState()).toMatchObject({connection:'error',streamingText:'kept',currentRun:{status:'active'},queuedMessages:[{id:'queued',text:'next'}]});
+  expect(useVivyStore.getState().runError).toContain('unsupported model.completed');
+  expect(api.startTurn).toHaveBeenCalledTimes(1);
+ });
+  it('checks v3 completion without ending the run and preserves text on protocol failure', async () => {
+    useVivyStore.setState({ activeSessionId: 's1' });
+    api.startTurn.mockResolvedValue({ run_id: 'r1', status: 'active' });
+    await useVivyStore.getState().startRun('s1', { text: 'hello' });
+    const send = (seq: number, type: string, payload: Record<string, unknown>, version = 1) =>
+      subscription.onEvent?.({ run_id: 'r1', seq, type, payload, payload_version: version, created_at: seq });
+    send(1, 'model.request', {}, 4);
+    send(2, 'model.delta', { delta: '你好🌱' });
+    send(2, 'model.delta', { delta: '你好🌱' });
+    send(3, 'model.completed', { byte_len: 10 }, 3);
+    expect(useVivyStore.getState().currentRun?.status).toBe('active');
+    expect(useVivyStore.getState().runError).toBeNull();
+    send(4, 'model.request', {}, 4);
+    send(5, 'model.delta', { delta: 'x' });
+    send(6, 'model.completed', { byte_len: 2 }, 3);
+    expect(useVivyStore.getState().connection).toBe('error');
+    expect(useVivyStore.getState().runError).toMatch(/byte_len/);
+    expect(useVivyStore.getState().streamingText).toBe('你好🌱x');
+    expect(useVivyStore.getState().currentRun?.status).toBe('active');
+    send(7, 'run.completed', {});
+    expect(useVivyStore.getState().currentRun?.status).toBe('active');
+    expect(api.startTurn).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
     const values = new Map<string, string>();
     const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) };

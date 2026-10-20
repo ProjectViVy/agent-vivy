@@ -30,7 +30,7 @@ const RUN: Run = { id: 'r1', session_id: 's1', status: 'active', created_at: 10 
 const USER: Message = { id: 'm1', run_id: 'r1', role: 'user', content: '问题', created_at: 9 };
 
 function event(seq: number, type: string, payload: Record<string, unknown>): RunLogEvent {
-  return { run_id: 'r1', seq, type, created_at: 10 + seq, payload_version: 1, payload };
+  return { run_id: 'r1', seq, type, created_at: 10 + seq, payload_version: type === 'model.completed' ? 3 : type === 'model.request' ? 4 : 1, payload };
 }
 
 function occurrences(haystack: string, needle: string): number {
@@ -97,7 +97,7 @@ describe('ChatView transcript', () => {
       runEvents: [
         event(1, 'model.reasoning_delta', { delta: '第一行\n第二行' }),
         event(2, 'model.delta', { delta: '答案' }),
-        event(3, 'model.completed', { byte_len: 6, content_sha256: 'x' }),
+        event(3, 'model.completed', { byte_len: 6 }),
         event(4, 'run.completed', {}),
       ],
     };

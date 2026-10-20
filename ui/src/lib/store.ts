@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as api from './api';
 import { runFailedMessage } from './failure';
+import { modelStreamError } from './model-completion';
 import { resetRpcClient } from './rpc';
 import { subscribeRun, type RunEvent, type RunSubscription } from './run-subscription';
 import { subscribeWork, type WorkSubscription } from './work-subscription';
@@ -429,7 +430,14 @@ async function refreshAfterTerminal(runId: string): Promise<void> {
 function handleRunEvent(event: RunEvent): void {
   const state = useVivyStore.getState();
   if (state.currentRun?.id !== event.run_id || state.runEvents.some((item) => item.seq === event.seq)) return;
+  if (state.connection === 'error' && state.runError?.startsWith('Model stream protocol error:')) return;
   const events = [...state.runEvents, event].sort((a, b) => a.seq - b.seq);
+  const protocolError = event.type === 'model.completed' ? modelStreamError(events) : event.type === 'model.delta' ? modelStreamError([event]) : null;
+  if (protocolError) {
+    stopSubscription();
+    useVivyStore.setState({ connection: 'error', runError: 'Model stream protocol error: ' + protocolError });
+    return;
+  }
   const update: Partial<RuntimeState> = { runEvents: events, connection: 'connected', runError: null };
   if (event.type === 'run.started') update.currentRun = state.currentRun ? { ...state.currentRun, status: 'active' } : null;
   else if (event.type === 'model.delta') update.streamingText = state.streamingText + String(event.payload.delta ?? '');
@@ -483,8 +491,8 @@ function drainQueue(): void {
 function startSubscription(runId: string, afterSeq: number): void {
   stopSubscription();
   useVivyStore.setState({ connection: 'connecting', runError: null });
-  subscription = subscribeRun(runId, afterSeq, handleRunEvent, (message) => {
-    if (useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ connection: 'reconnecting', runError: message });
+  subscription = subscribeRun(runId, afterSeq, handleRunEvent, (message, retryable) => {
+    if (useVivyStore.getState().currentRun?.id === runId) useVivyStore.setState({ connection: retryable === false ? 'error' : 'reconnecting', runError: retryable === false ? 'Model stream protocol error: ' + message : message });
   });
 }
 
@@ -900,6 +908,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       if (request !== runOpen || epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       const events = log.events.sort((a, b) => a.seq - b.seq);
       const active = runActive(run);
+      const protocolError = modelStreamError(events);
       const failed = !active && run.status === 'failed'
         ? runFailedMessage([...events].reverse().find((event) => event.type === 'run.failed')?.payload) ?? t('errors.runFailedTitle')
         : null;
@@ -908,9 +917,9 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const runLogs = previous.currentRun && previous.currentRun.id !== runId && previous.runEvents.length > 0
         ? withCachedRunLog(previous.runLogs, previous.currentRun.id, previous.runEvents)
         : previous.runLogs;
-      set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: active ? 'connecting' : 'connected', runError: failed, selectedChild: null });
-      if (active) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
-      else if (run.status === 'completed') drainQueueAfterCompleted(runId);
+      set({ currentRun: run, runEvents: events, runLogs, streamingText: active ? replay(events, 'model.delta') : '', streamingReasoning: active ? replay(events, 'model.reasoning_delta') : '', children: children.children, childrenPhase: children.children.length ? 'ready' : 'empty', connection: protocolError ? 'error' : active ? 'connecting' : 'connected', runError: protocolError ? 'Model stream protocol error: ' + protocolError : failed, selectedChild: null });
+      if (active && !protocolError) startSubscription(runId, events.reduce((max, event) => Math.max(max, event.seq), 0));
+      else if (!protocolError && run.status === 'completed') drainQueueAfterCompleted(runId);
     } catch (error) { if (request === runOpen && epoch === sessionEpoch && get().activeSessionId === sessionId) set({ runError: errorMessage(error) }); }
   },
   loadRunLog: async (runId) => {

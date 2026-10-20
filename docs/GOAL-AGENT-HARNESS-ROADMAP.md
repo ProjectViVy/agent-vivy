@@ -92,8 +92,9 @@ evidence -> Vivy proposal -> contract/tests -> implementation
   the same run-scoped directory without exposing a host path in durable events.
 - H9: done in `d115802`. Provider retry, observed stream stall, reasoning delta,
   and token-usage events now use versioned Vivy schemas and reach the Journal,
-  RPC subscriptions, background logs, and lifecycle hooks. AuditHook records only event
-  metadata plus a payload digest, never raw provider/tool content.
+  RPC subscriptions, background logs, and lifecycle hooks. The former digest-only
+  event audit was retired by #91 D01; required provenance remains in the
+  canonical Journal without logging raw provider/tool content.
 - H10: done in `9878495` (with the background API in `f45ca7e`). The typed UI
   client now performs preflight before send, exposes Plan Mode, reconnects all
   sixteen event types, restores Ask User state after refresh, and renders the
@@ -198,9 +199,9 @@ H1 verification for `c3b8ac4`:
 - Isolation and HTTP tests prove per-run sandbox separation, traversal/symlink
   rejection, bounded background log replay, attach URLs, and recovery refusal
   while this process still owns live work.
-- Observability tests prove reasoning/usage/stall mapping, retry error-message
-  non-disclosure, and digest-only audit records; the full event vocabulary and
-  payload schemas remain synchronized.
+- Observability tests prove reasoning/usage/stall mapping and retry error-message
+  non-disclosure. Required provenance stays in the canonical Journal; the full
+  event vocabulary and payload schemas remain synchronized.
 - UI verification passes `npm run build`, `npm run e2e`, Go vet, and the full
   race suite; no browser state is persisted outside the server-backed RPC and
   Journal cursors.

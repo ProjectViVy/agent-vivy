@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,7 +65,7 @@ type eventMapper struct {
 	contextViewID  string
 	lastSummary    string
 
-	// pendingText accumulates the in-flight assistant turn so v2
+	// pendingText accumulates the in-flight assistant turn so v3
 	// model.completed can commit the exact bounded delta sequence even when
 	// the engine never emits a final whole-message event.
 	pendingText strings.Builder
@@ -98,7 +97,7 @@ type eventMapper struct {
 	observedMu      sync.Mutex
 	observedStreams int
 	// pendingObservedCharges credits mapped accounting for calls that
-	// charged their model-call unit at v3 request Begin (OBS-02): the
+	// charged their model-call unit at v4 request Begin (OBS-02): the
 	// model.completed/tool.requested batch of an observed call consumes
 	// one credit instead of charging again.
 	pendingObservedCharges int
@@ -534,12 +533,10 @@ func (m *eventMapper) onTurnEnd() []domain.RunEvent {
 
 func (m *eventMapper) completedEvent(content string) domain.RunEvent {
 	m.lastSummary = clampEscapedText(tools.RedactSensitive(content), 8<<10)
-	sum := sha256.Sum256([]byte(content))
-	re := m.build(domain.EventModelCompleted, payloadModelCompletedV2{
-		ContentSHA256: fmt.Sprintf("%x", sum[:]),
-		ByteLen:       len([]byte(content)),
+	re := m.build(domain.EventModelCompleted, payloadModelCompletedV3{
+		ByteLen: len([]byte(content)),
 	})
-	re.PayloadVersion = 2
+	re.PayloadVersion = 3
 	return re
 }
 
@@ -830,8 +827,8 @@ func (m *eventMapper) build(t domain.EventType, payload any) domain.RunEvent {
 		terminal.Outcome = "cancelled"
 		terminal.TenantID, terminal.WorkspaceID, terminal.SessionID, terminal.View = m.tenantID, m.workspaceID, m.sessionID, m.contextViewID
 		payload = terminal
-	case payloadModelRequestV3:
-		payloadVersion = 3
+	case payloadModelRequestV4:
+		payloadVersion = 4
 	case payloadModelUsageV2:
 		payloadVersion = 2
 	case payloadModelRequest:

@@ -8,16 +8,14 @@ package facerun
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash"
 	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	faceport "agent-vivy/sdk/port/face"
 )
@@ -62,8 +60,8 @@ func (o Options) unsupported() error {
 // calls from the engine's single notification goroutine; ordering is the
 // journal's seq order.
 type Sink interface {
-	// AssistantDelta carries verified assistant text (content_sha256 checked
-	// against model.completed before Run returns).
+	// AssistantDelta carries assistant text (byte framing checked
+	// at model.completed before Run returns).
 	AssistantDelta(text string)
 	// AssistantMessageEnd fires after each verified model.completed.
 	AssistantMessageEnd()
@@ -102,7 +100,7 @@ func Run(ctx context.Context, env faceport.Host, opts Options, sink Sink) (facep
 	if prompt == "" {
 		return faceport.Result{}, fmt.Errorf("%s: prompt is empty", opts.Face)
 	}
-	e := &engine{env: env, opts: opts, sink: sink, completionHash: sha256.New()}
+	e := &engine{env: env, opts: opts, sink: sink}
 	if _, err := env.Call(ctx, "initialize", nil); err != nil {
 		return faceport.Result{}, fmt.Errorf("%s: initialize: %w", opts.Face, err)
 	}
@@ -129,17 +127,85 @@ func Run(ctx context.Context, env faceport.Host, opts Options, sink Sink) (facep
 		lc.RunStarted(sessionID, start.RunID)
 	}
 	terminal := make(chan string, 1)
+	streamErrors := make(chan error, 1)
+	var subscriptionMu sync.Mutex
+	subscriptionID := ""
+	pendingErrors := make(map[string]error)
+	publishStreamError := func(err error) {
+		select {
+		case streamErrors <- err:
+		default:
+		}
+	}
 	env.OnEvent(func(method string, params json.RawMessage) {
-		if method == "run/event" {
+		switch method {
+		case "run/event":
 			e.onEvent(params, terminal)
+		case "run/stream_error":
+			var failure struct {
+				SubscriptionID string `json:"subscription_id"`
+				Message        string `json:"message"`
+			}
+			if json.Unmarshal(params, &failure) != nil || failure.SubscriptionID == "" {
+				return
+			}
+			err := fmt.Errorf("run stream: %s", failure.Message)
+			subscriptionMu.Lock()
+			if subscriptionID == "" {
+				// A synchronous Host can deliver replay failure before Call returns.
+				if len(pendingErrors) >= 4 {
+					for id := range pendingErrors {
+						delete(pendingErrors, id)
+						break
+					}
+				}
+				pendingErrors[failure.SubscriptionID] = err
+			} else if failure.SubscriptionID == subscriptionID {
+				publishStreamError(err)
+			}
+			subscriptionMu.Unlock()
 		}
 	})
-	if _, err := env.Call(ctx, "run/subscribe", map[string]any{"run_id": start.RunID}); err != nil {
+	subscribed, err := env.Call(ctx, "run/subscribe", map[string]any{"run_id": start.RunID})
+	if err != nil {
 		return faceport.Result{}, fmt.Errorf("%s: run/subscribe: %w", opts.Face, err)
+	}
+	var subscription struct {
+		ID string `json:"subscription_id"`
+	}
+	if err := json.Unmarshal(subscribed, &subscription); err != nil {
+		return faceport.Result{}, fmt.Errorf("decode run/subscribe: %w", err)
+	}
+	if subscription.ID == "" {
+		return faceport.Result{}, fmt.Errorf("run/subscribe: missing subscription_id")
+	}
+	subscriptionMu.Lock()
+	subscriptionID = subscription.ID
+	if err := pendingErrors[subscriptionID]; err != nil {
+		publishStreamError(err)
+	}
+	pendingErrors = nil
+	subscriptionMu.Unlock()
+	failStream := func(err error) (faceport.Result, error) {
+		sink.ProtocolError(err.Error())
+		return faceport.Result{Status: "failed"}, fmt.Errorf("%s: %w", opts.Face, err)
+	}
+	// A synchronous replay may already have supplied a failure and a terminal.
+	select {
+	case err := <-streamErrors:
+		return failStream(err)
+	default:
 	}
 
 	select {
+	case err := <-streamErrors:
+		return failStream(err)
 	case status := <-terminal:
+		select {
+		case err := <-streamErrors:
+			return failStream(err)
+		default:
+		}
 		if lc, ok := sink.(LifecycleSink); ok {
 			lc.RunSettled(status)
 		}
@@ -157,7 +223,7 @@ type engine struct {
 	cancel sync.Once
 
 	stateMu        sync.Mutex
-	completionHash hash.Hash
+	lastEventSeq   int64
 	completionLen  int
 	protocolErr    string
 	streamed       atomic.Bool
@@ -223,12 +289,19 @@ func (e *engine) onEvent(params json.RawMessage, terminal chan<- string) {
 	if err := json.Unmarshal(params, &wire); err != nil || wire.Event.RunID != e.runID {
 		return
 	}
+	e.stateMu.Lock()
+	if wire.Event.Seq <= e.lastEventSeq {
+		e.stateMu.Unlock()
+		return
+	}
+	e.lastEventSeq = wire.Event.Seq
+	e.stateMu.Unlock()
 	payload := wire.Event.Payload
 	if raw, ok := e.sink.(RawSink); ok {
 		raw.JournalEvent(wire.Event.Type, wire.Event.Seq, payload)
 	}
 	switch wire.Event.Type {
-	case "model.request":
+	case "model.request", "tool.requested":
 		e.stateMu.Lock()
 		if e.protocolErr == "" {
 			e.resetCompletionLocked()
@@ -241,7 +314,6 @@ func (e *engine) onEvent(params json.RawMessage, terminal chan<- string) {
 			if err != nil {
 				e.failProtocolLocked(err)
 			} else if delta != "" {
-				_, _ = e.completionHash.Write([]byte(delta))
 				e.completionLen += len([]byte(delta))
 				e.sink.AssistantDelta(delta)
 				e.streamed.Store(true)
@@ -313,50 +385,47 @@ func (e *engine) onEvent(params json.RawMessage, terminal chan<- string) {
 }
 
 func (e *engine) resetCompletionLocked() {
-	e.completionHash = sha256.New()
 	e.completionLen = 0
 }
 
+// Keep the non-interactive Face independent of the TUI renderer package.
 func parseDelta(payload json.RawMessage) (string, error) {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &fields); err != nil || len(fields) != 1 {
-		return "", fmt.Errorf("model.delta: invalid payload")
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return "", fmt.Errorf("decode model.delta: %w", err)
 	}
 	raw, ok := fields["delta"]
-	if !ok {
-		return "", fmt.Errorf("model.delta: missing delta")
+	if len(fields) != 1 || !ok || string(raw) == "null" {
+		return "", fmt.Errorf("model.delta: invalid payload")
 	}
 	var delta string
 	if err := json.Unmarshal(raw, &delta); err != nil {
-		return "", fmt.Errorf("model.delta: delta must be a string")
+		return "", fmt.Errorf("decode model.delta text: %w", err)
+	}
+	if !utf8.ValidString(delta) {
+		return "", fmt.Errorf("model.delta: invalid UTF-8")
 	}
 	return delta, nil
 }
 
 func (e *engine) completeModelLocked(version int, payload json.RawMessage) error {
-	if version != 2 {
+	if version != 3 {
 		return fmt.Errorf("unsupported model.completed payload version %d", version)
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
-		return fmt.Errorf("invalid model.completed payload")
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return fmt.Errorf("decode model.completed v3: %w", err)
 	}
-	if len(fields) != 2 {
-		return fmt.Errorf("model.completed v2: invalid fields")
-	}
-	var digest string
-	if raw, ok := fields["content_sha256"]; !ok || json.Unmarshal(raw, &digest) != nil || len(digest) != 64 || strings.ToLower(digest) != digest {
-		return fmt.Errorf("model.completed v2: invalid content_sha256")
-	}
-	if _, err := hex.DecodeString(digest); err != nil {
-		return fmt.Errorf("model.completed v2: invalid content_sha256")
+	raw, ok := fields["byte_len"]
+	if len(fields) != 1 || !ok || string(raw) == "null" {
+		return fmt.Errorf("model.completed v3: invalid byte_len fields")
 	}
 	var byteLen int
-	if raw, ok := fields["byte_len"]; !ok || json.Unmarshal(raw, &byteLen) != nil || byteLen < 0 {
-		return fmt.Errorf("model.completed v2: invalid byte_len")
+	if err := json.Unmarshal(raw, &byteLen); err != nil {
+		return fmt.Errorf("decode model.completed byte_len: %w", err)
 	}
-	if byteLen != e.completionLen || digest != hex.EncodeToString(e.completionHash.Sum(nil)) {
-		return fmt.Errorf("model.completed v2: content integrity mismatch")
+	if byteLen < 0 || byteLen != e.completionLen {
+		return fmt.Errorf("model.completed v3: byte_len mismatch")
 	}
 	e.resetCompletionLocked()
 	return nil

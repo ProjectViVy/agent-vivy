@@ -7,6 +7,17 @@ vi.mock('./rpc', () => ({ getRpcClient: vi.fn(async () => client), resetRpcClien
 import { subscribeRun } from './run-subscription';
 
 describe('run subscription', () => {
+ it('keeps a permanent protocol failure visible without reconnecting', async () => {
+  vi.useFakeTimers();vi.stubGlobal('window',{setTimeout,clearTimeout});
+  const errors:string[]=[];
+  const sub=subscribeRun('run-1',0,()=>undefined,(message)=>errors.push(message));
+  await Promise.resolve();await Promise.resolve();
+  notifications['run/stream_error']?.({subscription_id:'sub-1',message:'unsupported model.completed',retryable:false});
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(errors).toEqual(['unsupported model.completed']);
+  expect(call.mock.calls.filter(([method])=>method==='run/subscribe')).toHaveLength(1);
+  sub.close();vi.useRealTimers();
+ });
   beforeEach(() => { call.mockClear(); notifications = {}; vi.stubGlobal('window', { setTimeout, clearTimeout }); });
   it('keeps the parent subscription open for child terminal events', async () => {
     const events: string[] = [];

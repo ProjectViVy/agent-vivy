@@ -365,7 +365,7 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				}
 			}
 		case domain.EventModelRequest:
-			var v3 payloadModelRequestV3
+			var v3 payloadModelRequestV4
 			_ = json.Unmarshal(event.Payload, &v3)
 			interruptOpen(event.CreatedAt)
 			step++

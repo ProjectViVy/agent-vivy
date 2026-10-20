@@ -51,12 +51,12 @@ func TestToolSearchActivatesDeferredTool(t *testing.T) {
 	}
 	waitForRunStatus(t, backend, runID, domain.RunCompleted)
 
-	var requests []payloadModelRequestV3
+	var requests []payloadModelRequestV4
 	sawSearchFinish, sawEchoFinish := false, false
 	for _, ev := range replayAll(t, backend, runID) {
 		switch ev.Type {
 		case domain.EventModelRequest:
-			var req payloadModelRequestV3
+			var req payloadModelRequestV4
 			mustUnmarshal(t, ev.Payload, &req)
 			requests = append(requests, req)
 		case domain.EventToolFinished:

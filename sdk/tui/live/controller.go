@@ -106,7 +106,7 @@ type Live struct {
 	// restore (pi returns queued messages on abort/dequeue).
 	restoreDraft         string
 	nextRecoveryAt       time.Time
-	streamFailures       map[string]string
+	streamFailures       map[string]stream.StreamError
 	retiredSubscriptions map[string]struct{}
 
 	inbox     stream.Inbox
@@ -1043,7 +1043,7 @@ func (l *Live) applySubscribed(msg liveSubscribedMsg) tea.Cmd {
 		l.subscriptionID = msg.SubscriptionID
 		streamFailed := false
 		if message, failed := l.streamFailures[msg.SubscriptionID]; failed {
-			l.markStreamFailureLocked(msg.SubscriptionID, message)
+			l.markStreamFailureLocked(message)
 			streamFailed = true
 		}
 		l.streamFailures = nil
@@ -1356,11 +1356,11 @@ func (l *Live) recordStreamError(failure stream.StreamError) {
 		return
 	}
 	if failure.SubscriptionID == l.subscriptionID {
-		l.markStreamFailureLocked(failure.SubscriptionID, failure.Message)
+		l.markStreamFailureLocked(failure)
 		return
 	}
 	if l.streamFailures == nil {
-		l.streamFailures = make(map[string]string)
+		l.streamFailures = make(map[string]stream.StreamError)
 	}
 	if len(l.streamFailures) >= 4 {
 		for id := range l.streamFailures {
@@ -1368,18 +1368,22 @@ func (l *Live) recordStreamError(failure stream.StreamError) {
 			break
 		}
 	}
-	l.streamFailures[failure.SubscriptionID] = failure.Message
+	l.streamFailures[failure.SubscriptionID] = failure
 }
 
-func (l *Live) markStreamFailureLocked(subscriptionID, message string) {
+func (l *Live) markStreamFailureLocked(failure stream.StreamError) {
+	subscriptionID, message := failure.SubscriptionID, failure.Message
 	l.retireSubscriptionLocked(subscriptionID)
 	if l.subscriptionID == subscriptionID {
 		l.subscriptionID = ""
 	}
 	l.recoveryInFlight = false
-	l.recoveryNeeded = true
+	l.recoveryNeeded = !failure.Permanent
 	l.replayPending = false
 	l.nextRecoveryAt = time.Now().Add(250 * time.Millisecond)
+	if failure.Permanent {
+		l.nextRecoveryAt = time.Time{}
+	}
 	if strings.TrimSpace(message) == "" {
 		message = l.translator.T("vivy.tui.live.replayFailed", nil)
 	}

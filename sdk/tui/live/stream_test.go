@@ -138,6 +138,12 @@ func TestLiveCloseUnsubscribesActiveStream(t *testing.T) {
 }
 
 func TestLiveStreamErrorRecoversAndRejectsRetiredTraffic(t *testing.T) {
+	permanent, _ := stream.DecodeStreamError(json.RawMessage(`{"subscription_id":"sub_bad","message":"unsupported model.completed","retryable":false}`))
+	stopped := &Live{runID: "run_bad", busy: true, subscriptionID: "sub_bad"}
+	stopped.recordStreamError(permanent)
+	if stopped.recoveryNeeded || stopped.subscriptionID != "" || !stopped.busy || stopped.runID != "run_bad" {
+		t.Fatalf("permanent failure changed backend state or schedules recovery: %+v", stopped)
+	}
 	live := &Live{
 		messages:       map[string][]surface.Message{"sess_1": nil},
 		activeID:       "sess_1",

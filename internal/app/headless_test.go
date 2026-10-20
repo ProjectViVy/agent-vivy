@@ -89,14 +89,14 @@ func TestHeadlessSinkRendersStream(t *testing.T) {
 	sink := newHeadlessSink(&out, &errw)
 	sink.Publish(domain.RunEvent{Type: domain.EventModelDelta, Payload: []byte(`{"delta":"Hel"}`)})
 	sink.Publish(domain.RunEvent{Type: domain.EventModelDelta, Payload: []byte(`{"delta":"lo"}`)})
-	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 2, Payload: []byte(`{"content_sha256":"185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969","byte_len":5}`)})
-	// A malformed v2 completion fails the stream protocol closed.
-	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 2, Payload: []byte(`{"content":"illegal","content_sha256":"0000000000000000000000000000000000000000000000000000000000000000","byte_len":7}`)})
+	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 3, Payload: []byte(`{"byte_len":5}`)})
+	// A malformed v3 completion fails the stream protocol closed.
+	sink.Publish(domain.RunEvent{Type: domain.EventModelCompleted, PayloadVersion: 3, Payload: []byte(`{"content":"illegal","byte_len":7}`)})
 	if got := out.String(); got != "Hello\n" {
 		t.Fatalf("stdout = %q, want streamed text with message breaks", got)
 	}
-	if !strings.Contains(errw.String(), "model.completed v2") {
-		t.Fatalf("stderr = %q, want invalid v2 diagnostic", errw.String())
+	if !strings.Contains(errw.String(), "model.completed v3") {
+		t.Fatalf("stderr = %q, want invalid v3 diagnostic", errw.String())
 	}
 	// A legacy content-bearing completion is rejected, not rendered.
 	var out2, errw2 bytes.Buffer
@@ -162,7 +162,7 @@ func TestHeadlessTurnCompletesWithScriptedModel(t *testing.T) {
 			completed = append(completed, event)
 		}
 	}
-	if len(completed) != 1 || completed[0].PayloadVersion != 2 {
+	if len(completed) != 1 || completed[0].PayloadVersion != 3 {
 		t.Fatalf("model.completed events = %+v, want one v2 boundary", completed)
 	}
 	var metadata struct {
@@ -173,7 +173,7 @@ func TestHeadlessTurnCompletesWithScriptedModel(t *testing.T) {
 	if err := json.Unmarshal(completed[0].Payload, &metadata); err != nil {
 		t.Fatalf("decode model.completed: %v", err)
 	}
-	if metadata.Content != "" || metadata.ByteLen != len([]byte("All done.")) || metadata.ContentSHA256 == "" {
+	if metadata.Content != "" || metadata.ByteLen != len([]byte("All done.")) || metadata.ContentSHA256 != "" {
 		t.Fatalf("model.completed metadata = %+v, want metadata-only v2 content", metadata)
 	}
 	msgs, err := backend.ListMessages(ctx, "sess_hl_ok")

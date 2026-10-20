@@ -240,7 +240,7 @@ export function foldRunEvents(
         break;
       }
       case 'model.completed': {
-        // v2 完成事件只是提交标记；正文以累计的 model.delta 为准。
+        // v3 完成事件只是字节边界；正文以累计的 model.delta 为准。
         flush();
         break;
       }

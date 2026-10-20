@@ -3,7 +3,6 @@ package rpc
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -57,11 +56,10 @@ func TestSessionHistoryRepairsDurableAssistantProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := "durable rpc answer"
-	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
 	if _, err := env.backend.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{
 		{Type: domain.EventModelRequest, CreatedAt: 10, PayloadVersion: 1, Payload: []byte(`{"messages":0,"preamble_bytes":0}`)},
 		{Type: domain.EventModelDelta, CreatedAt: 20, PayloadVersion: 1, Payload: []byte(`{"delta":"durable rpc answer"}`)},
-		{Type: domain.EventModelCompleted, CreatedAt: 30, PayloadVersion: 2, Payload: []byte(fmt.Sprintf(`{"content_sha256":%q,"byte_len":%d}`, digest, len([]byte(content))))},
+		{Type: domain.EventModelCompleted, CreatedAt: 30, PayloadVersion: 2, Payload: []byte(fmt.Sprintf(`{"content_sha256":%q,"byte_len":%d}`, "ignored historical digest", len([]byte(content))))},
 		{Type: domain.EventRunCompleted, CreatedAt: 40, PayloadVersion: 1, Payload: []byte(`{}`)},
 	}}); err != nil {
 		t.Fatal(err)

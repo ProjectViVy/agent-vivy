@@ -4256,6 +4256,16 @@ func (h *controlHandler) unsubscribe(request Request) (any, *Error) {
 	return map[string]any{"unsubscribed": true}, nil
 }
 
+var errRunEventProtocol = errors.New("run event protocol error")
+
+func notifyRunStreamError(ctx context.Context, peer *Peer, subscriptionID string, err error) {
+	payload := map[string]any{"subscription_id": subscriptionID, "message": err.Error()}
+	if errors.Is(err, errRunEventProtocol) {
+		payload["retryable"] = false
+	}
+	_ = peer.NotifyContext(ctx, "run/stream_error", payload)
+}
+
 func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscriptionID string, runID domain.RunID, after domain.EventSeq) {
 	ch, cancel := h.deps.Bus.Subscribe(runID)
 	defer cancel()
@@ -4264,9 +4274,14 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 		if event.Seq <= last {
 			return true
 		}
+		normalized, normalizeErr := events.NormalizeModelCompletion(event)
+		if normalizeErr != nil {
+			notifyRunStreamError(ctx, peer, subscriptionID, fmt.Errorf("%w: %w", errRunEventProtocol, normalizeErr))
+			return false
+		}
 		if err := peer.NotifyContext(ctx, "run/event", map[string]any{
 			"subscription_id": subscriptionID,
-			"event":           toEventResult(event),
+			"event":           toEventResult(normalized),
 		}); err != nil {
 			return false
 		}
@@ -4275,7 +4290,7 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 	}
 	entries, err := h.replayEvents(ctx, runID, last)
 	if err != nil {
-		_ = peer.NotifyContext(ctx, "run/stream_error", map[string]any{"subscription_id": subscriptionID, "message": "event replay failed"})
+		notifyRunStreamError(ctx, peer, subscriptionID, fmt.Errorf("event replay failed: %w", err))
 		return
 	}
 	for _, entry := range entries {
@@ -4323,6 +4338,7 @@ func (h *controlHandler) streamRun(ctx context.Context, peer *Peer, subscription
 			defer cancel()
 			tail, replayErr := h.replayEvents(ctx, runID, last)
 			if replayErr != nil {
+				notifyRunStreamError(ctx, peer, subscriptionID, fmt.Errorf("event replay failed: %w", replayErr))
 				return
 			}
 			terminal := false
@@ -4349,7 +4365,11 @@ func (h *controlHandler) replayEvents(ctx context.Context, runID domain.RunID, a
 	defer func() { _ = it.Close() }()
 	var out []eventResult
 	for it.Next() {
-		out = append(out, toEventResult(it.Value().Event))
+		event, normalizeErr := events.NormalizeModelCompletion(it.Value().Event)
+		if normalizeErr != nil {
+			return nil, fmt.Errorf("%w: %w", errRunEventProtocol, normalizeErr)
+		}
+		out = append(out, toEventResult(event))
 	}
 	if err := it.Err(); err != nil {
 		return nil, err

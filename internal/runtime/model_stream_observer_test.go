@@ -642,7 +642,7 @@ func TestObservedCallJournalsLifecycle(t *testing.T) {
 	if len(k.requests) != 1 {
 		t.Fatalf("v3 requests = %d, want 1", len(k.requests))
 	}
-	var req payloadModelRequestV3
+	var req payloadModelRequestV4
 	mustUnmarshal(t, k.requests[0].Payload, &req)
 	if req.CallID == "" || req.Provider != "test" || req.Model != "test-model" || req.Source != "main" || req.Mode == "" {
 		t.Fatalf("request envelope = %+v", req)

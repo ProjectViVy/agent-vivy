@@ -63,7 +63,7 @@ func TestProjectionCarriesApprovalPreviewIntoGateAndToolCard(t *testing.T) {
 	}
 }
 
-func TestProjectionV2CompletionRequiresValidatedMetadata(t *testing.T) {
+func TestProjectionV3CompletionRequiresValidatedMetadata(t *testing.T) {
 	nextID := idFactory()
 	p := Projection{}
 	p.Apply(Notice{Kind: "delta", Delta: "streamed"}, nextID)
@@ -76,24 +76,24 @@ func TestProjectionV2CompletionRequiresValidatedMetadata(t *testing.T) {
 
 	p = Projection{}
 	p.Apply(Notice{Kind: "delta", Delta: "streamed answer"}, nextID)
-	done := p.Apply(Notice{Kind: "model_completed", PayloadVersion: 2, HasCompleted: true, Completion: &ModelCompletionMetadata{
-		ContentSHA256: strings.Repeat("0", 64), ByteLen: 99,
+	done := p.Apply(Notice{Kind: "model_completed", PayloadVersion: 3, HasCompleted: true, Completion: &ModelCompletionMetadata{
+		ByteLen: 99,
 	}}, nextID)
 	if !done || p.ProtocolError == "" {
 		t.Fatalf("mismatched completion metadata was accepted: done=%v err=%q", done, p.ProtocolError)
 	}
 }
 
-func TestProjectionV2CompletionClosesDeltaBoundaryWithoutRewriting(t *testing.T) {
+func TestProjectionV3CompletionClosesDeltaBoundaryWithoutRewriting(t *testing.T) {
 	nextID := idFactory()
 	p := Projection{}
-	p.Apply(Notice{Kind: "delta", PayloadVersion: 2, Delta: "streamed answer"}, nextID)
-	p.Apply(Notice{Kind: "model_completed", PayloadVersion: 2, HasCompleted: true, Completion: &ModelCompletionMetadata{
-		ContentSHA256: "51e0aa7a9db99e9121849629cee56ca1eaf331227b7e70f2f6a661efa6ee1599", ByteLen: len([]byte("streamed answer")),
+	p.Apply(Notice{Kind: "delta", PayloadVersion: 3, Delta: "streamed answer"}, nextID)
+	p.Apply(Notice{Kind: "model_completed", PayloadVersion: 3, HasCompleted: true, Completion: &ModelCompletionMetadata{
+		ByteLen: len([]byte("streamed answer")),
 	}}, nextID)
 
 	if len(p.Messages) != 1 || p.Messages[0].Content != "streamed answer" || p.Messages[0].Streaming {
-		t.Fatalf("v2 delta boundary projection = %+v", p.Messages)
+		t.Fatalf("v3 delta boundary projection = %+v", p.Messages)
 	}
 }
 

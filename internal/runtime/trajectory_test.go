@@ -25,8 +25,8 @@ func trajEventVersion(eventType domain.EventType, at int64, payload any, version
 }
 
 func trajCompletedV2(at int64, content string) domain.RunEvent {
-	return trajEventVersion(domain.EventModelCompleted, at, payloadModelCompletedV2{
-		ContentSHA256: sha256Hex([]byte(content)), ByteLen: len([]byte(content)),
+	return trajEventVersion(domain.EventModelCompleted, at, payloadModelCompletedV3{
+		ByteLen: len([]byte(content)),
 	}, 2)
 }
 
@@ -63,8 +63,8 @@ func TestSessionTrajectoryProjection(t *testing.T) {
 	trajCommit(t, ctx, backend, run1,
 		trajEvent(domain.EventRunStarted, 1200, payloadRunStarted{Provider: "test", Model: "m1", Mode: "chat"}),
 		trajEvent(domain.EventModelRequest, 1300, payloadModelRequest{PreambleBytes: 128, Messages: []payloadModelRequestMessage{
-			{Role: "system", ContentSHA256: "abc", ByteLen: 128},
-			{Role: "user", ContentSHA256: "def", ByteLen: 30},
+			{Role: "system", ByteLen: 128},
+			{Role: "user", ByteLen: 30},
 		}}),
 		trajEvent(domain.EventModelUsage, 1400, payloadModelUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120, ReasoningTokens: 5, CachedTokens: 30}),
 		trajEvent(domain.EventModelDelta, 1450, payloadModelDelta{Delta: "step one text"}),
@@ -205,7 +205,7 @@ func TestTrajectoryMultipleCallsStableIdentity(t *testing.T) {
 	cached := 30
 	trajCommit(t, ctx, backend, runID,
 		trajEvent(domain.EventRunStarted, 1200, payloadRunStarted{Provider: "test", Model: "m1", Mode: "chat"}),
-		trajEvent(domain.EventModelRequest, 1300, payloadModelRequestV3{
+		trajEvent(domain.EventModelRequest, 1300, payloadModelRequestV4{
 			payloadModelRequest: payloadModelRequest{PreambleBytes: 10, Messages: []payloadModelRequestMessage{{Role: "user"}}},
 			CallID:              "call-a", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
 		}),
@@ -222,7 +222,7 @@ func TestTrajectoryMultipleCallsStableIdentity(t *testing.T) {
 			CallID: "call-a", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
 			Status: "completed", ResponseComplete: true,
 		}),
-		trajEvent(domain.EventModelRequest, 1600, payloadModelRequestV3{
+		trajEvent(domain.EventModelRequest, 1600, payloadModelRequestV4{
 			payloadModelRequest: payloadModelRequest{PreambleBytes: 20},
 			CallID:              "call-b", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
 		}),
@@ -313,7 +313,7 @@ func TestTrajectoryActiveWaitCancelAndInterrupted(t *testing.T) {
 	}
 	trajCommit(t, ctx, backend, liveRun,
 		trajEvent(domain.EventRunStarted, 1100, payloadRunStarted{Provider: "test", Model: "m1", Mode: "chat"}),
-		trajEvent(domain.EventModelRequest, 1200, payloadModelRequestV3{
+		trajEvent(domain.EventModelRequest, 1200, payloadModelRequestV4{
 			CallID: "call-live", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
 		}),
 		trajEvent(domain.EventToolApprovalRequired, 1300, payloadToolApprovalRequired{
@@ -346,7 +346,7 @@ func TestTrajectoryActiveWaitCancelAndInterrupted(t *testing.T) {
 	}
 	trajCommit(t, ctx, backend, deadRun,
 		trajEvent(domain.EventRunStarted, 2100, payloadRunStarted{Provider: "test", Model: "m1", Mode: "chat"}),
-		trajEvent(domain.EventModelRequest, 2200, payloadModelRequestV3{
+		trajEvent(domain.EventModelRequest, 2200, payloadModelRequestV4{
 			CallID: "call-dead", Mode: "stream", Provider: "test", Model: "m1", Source: "main",
 		}),
 		trajEvent(domain.EventRunCancelled, 2300, payloadRunCancelled{Reason: reasonUserRequested, Outcome: "cancelled"}),

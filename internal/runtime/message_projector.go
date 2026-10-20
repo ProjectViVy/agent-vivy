@@ -3,14 +3,13 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/events"
 	"agent-vivy/internal/storage"
 )
 
@@ -157,39 +156,26 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 }
 
 // errUnsupportedCompletedVersion marks model.completed events that predate
-// the v2 hash-commit shape. Reconcile must not hard-fail a whole session on
+// the supported metadata shapes. Reconcile must not hard-fail a whole session on
 // them: the legacy run is skipped and whatever projection was persisted by
-// the old writer stays readable. Fresh runs are v2-only, so the run
+// the old writer stays readable. Fresh runs are v3-only, so the run
 // completion path still fails closed on this error.
 var errUnsupportedCompletedVersion = errors.New("unsupported model.completed payload version")
 
 func completedProjectionContent(re domain.RunEvent, deltas string) (string, error) {
-	if re.PayloadVersion != 2 {
+	if re.PayloadVersion != 2 && re.PayloadVersion != 3 {
 		return "", fmt.Errorf("%w %d at seq %d", errUnsupportedCompletedVersion, re.PayloadVersion, re.Seq)
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(re.Payload, &fields); err != nil {
-		return "", fmt.Errorf("decode model.completed seq %d: %w", re.Seq, err)
+	normalized, err := events.NormalizeModelCompletion(re)
+	if err != nil {
+		return "", fmt.Errorf("model.completed seq %d: %w", re.Seq, err)
 	}
-	if _, hasContent := fields["content"]; hasContent {
-		return "", fmt.Errorf("model.completed seq %d v2 must not contain content", re.Seq)
+	var p payloadModelCompletedV3
+	if err := json.Unmarshal(normalized.Payload, &p); err != nil {
+		return "", fmt.Errorf("decode model.completed: %w", err)
 	}
-	if len(fields) != 2 {
-		return "", fmt.Errorf("model.completed seq %d v2 has unknown or missing fields", re.Seq)
-	}
-	var p payloadModelCompletedV2
-	if err := json.Unmarshal(re.Payload, &p); err != nil {
-		return "", fmt.Errorf("decode model.completed metadata seq %d: %w", re.Seq, err)
-	}
-	if p.ByteLen != len([]byte(deltas)) {
+	if p.ByteLen != len(deltas) {
 		return "", fmt.Errorf("model.completed seq %d byte length mismatch", re.Seq)
-	}
-	sum := sha256.Sum256([]byte(deltas))
-	if len(p.ContentSHA256) != sha256.Size*2 || strings.ToLower(p.ContentSHA256) != p.ContentSHA256 {
-		return "", fmt.Errorf("model.completed seq %d invalid content digest", re.Seq)
-	}
-	if _, err := hex.DecodeString(p.ContentSHA256); err != nil || p.ContentSHA256 != hex.EncodeToString(sum[:]) {
-		return "", fmt.Errorf("model.completed seq %d content digest mismatch", re.Seq)
 	}
 	return deltas, nil
 }
