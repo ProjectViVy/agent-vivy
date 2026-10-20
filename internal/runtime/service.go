@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -1881,7 +1882,7 @@ func (s *Service) recover(ctx context.Context) error {
 			s.failUnrecoverable(ctx, run.ID, "multiple pending interaction types")
 		case hasApproval && approval.ExpiresAt <= now:
 			if isShellApproval(approval) {
-				s.deleteShellState(shellStateRef(approval.ProposalData))
+				s.deleteShellState(shellStateRefForRun(approval.RunID))
 			}
 			if err := s.expireApproval(ctx, approval, "human review timed out during restart"); err != nil {
 				slog.Warn("restart recovery: expire approval failed", "approval", approval.ID, "err", err)
@@ -1890,7 +1891,7 @@ func (s *Service) recover(ctx context.Context) error {
 		case hasApproval && isShellApproval(approval):
 			if err := s.rebuildShellPending(ctx, run, approval); err != nil {
 				slog.Warn("restart recovery: shell approval could not be rebuilt", "run", string(run.ID), "err", shellPublicError(err))
-				s.deleteShellState(shellStateRef(approval.ProposalData))
+				s.deleteShellState(shellStateRefForRun(approval.RunID))
 				_ = s.cancelApproval(ctx, approval, "protected shell state could not be recovered")
 				s.failUnrecoverable(ctx, run.ID, "protected shell state could not be recovered")
 			}
@@ -2497,6 +2498,7 @@ func (s *Service) usageRoutesForRun(ctx context.Context, runID domain.RunID) (st
 // mapper has to be restored from run.started as well.
 func (s *Service) newResumeEventMapper(ctx context.Context, runID domain.RunID) *eventMapper {
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
+	s.bindMapperToolOutcomes(ctx, m)
 	providerName, modelID := s.usageRoutesForRun(ctx, runID)
 	m.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	m.setContextViewID(s.contextViewForRun(ctx, runID))
@@ -3515,6 +3517,7 @@ func (s *Service) notesDigest(ctx context.Context) string {
 // the Journal. Any exit aborts the waiters the terminal transition
 // leaves behind.
 func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, iter *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]], state *nudgeState, beforeComplete func() error, execution runExecutionOptions) {
+	s.bindMapperToolOutcomes(ctx, m)
 	if ledger == nil {
 		var err error
 		ledger, err = NewBudgetLedger(DefaultBudgetPolicy())
@@ -3581,6 +3584,9 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 						// parked record; rebuild the outcome from the
 						// journaled payload instead.
 						call = completedCall{ID: p.ToolCallID, Name: p.ToolName, Result: p.Result, Error: p.Error}
+						if p.Outcome == domain.ToolOutcomeRecoverable || p.Outcome == domain.ToolOutcomeRefused {
+							call.Failure = &toolFailure{Status: p.Outcome, Reason: p.Reason, Effects: p.Effects, Diagnostic: p.Error}
+						}
 					}
 					if err := state.Complete(call); err != nil {
 						return err
@@ -3841,22 +3847,24 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		fail(proposalErr)
 		return
 	}
-	argumentsHash, hashErr := toolApprovalArgumentsHash(details.ToolName, proposalData)
-	if hashErr != nil {
-		fail(hashErr)
+	intended, bindErr := canonicalToolArguments(details.IntendedArguments)
+	if bindErr != nil || len(details.IntendedArguments) == 0 {
+		fail(errors.New("tool approval interrupt lacks private intended arguments"))
 		return
 	}
-	if details.ArgumentsHash != "" && details.ArgumentsHash != argumentsHash {
-		fail(errors.New("tool approval interrupt arguments hash mismatch"))
+	displayed, displayErr := canonicalToolArguments(proposalData)
+	if displayErr != nil || !bytes.Equal(intended, displayed) {
+		fail(errors.New("tool approval interrupt arguments mismatch"))
 		return
 	}
+	proposalData = intended
 	proposal, proposalErr := s.engine.PrepareProposal(ctx, details.ToolName, proposalData)
 	if proposalErr != nil {
 		fail(proposalErr)
 		return
 	}
 	proposal = boundToolProposalReview(proposal, m.maxPayload)
-	boundProposalData, bindErr := bindToolApprovalProposal(proposal.Data, argumentsHash)
+	boundProposalData, bindErr := bindToolApprovalProposal(proposal.Data, intended)
 	if bindErr != nil {
 		fail(bindErr)
 		return
@@ -4142,6 +4150,31 @@ func (s *Service) waitPendingRegistration(runID domain.RunID) bool {
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
 func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+	it, identityErr := s.deps.Journal.Replay(ctx, approval.RunID, 0)
+	if identityErr != nil {
+		return identityErr
+	}
+	identityFound := false
+	for it.Next() {
+		e := it.Value().Event
+		if e.Type != domain.EventToolApprovalRequired {
+			continue
+		}
+		var p payloadToolApprovalRequired
+		if json.Unmarshal(e.Payload, &p) == nil && p.ApprovalID == approval.ID {
+			identityFound = p.ToolCallID == approval.ToolCallID && p.ToolName == approval.ToolName
+			break
+		}
+	}
+	identityErr = it.Err()
+	_ = it.Close()
+	if identityErr != nil {
+		return identityErr
+	}
+	if !identityFound {
+		return errors.New("runtime: approval identity does not match its durable request")
+	}
+
 	s.mu.Lock()
 	_, nativeChildPending := s.pending[approval.RunID]
 	s.mu.Unlock()
@@ -4649,10 +4682,10 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	if hasPrompt {
 		ctx = promptCtx
 	}
-	approvedArgumentsHash := ""
+	var approvedArguments json.RawMessage
 	if approvalID != "" {
 		var unbindErr error
-		proposalData, approvedArgumentsHash, unbindErr = unbindToolApprovalProposal(proposalData)
+		proposalData, approvedArguments, unbindErr = unbindToolApprovalProposal(proposalData)
 		if unbindErr != nil {
 			slog.Warn("resume rejected invalid tool approval binding", "run", string(runID), "approval", approvalID, "err", unbindErr)
 			if isChildTerminal(ctx) {
@@ -4667,7 +4700,10 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 		}
 	}
 	ctx = tools.WithProposalData(ctx, proposalData)
-	ctx = withApprovedToolArgumentsHash(ctx, approvedArgumentsHash)
+	ctx = withApprovedToolArguments(ctx, approvedArguments)
+	if approvalID != "" {
+		ctx = withApprovedToolCall(ctx, toolCallID)
+	}
 	ctx = tools.WithWorkspaceID(ctx, workspaceID)
 	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
 	if approvalID != "" {
@@ -4696,7 +4732,7 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
 	// window state carries over from the suspended leg.
 	state := newNudgeState()
-	if err := s.restoreResumeNudgeBatch(context.Background(), state, runID, toolCallID, resumeBatchIDs); err != nil {
+	if err := s.restoreResumeNudgeBatch(context.Background(), state, m, runID, toolCallID, resumeBatchIDs); err != nil {
 		slog.Warn("resume could not restore tool result barrier", "run", string(runID), "err", err)
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
@@ -4729,56 +4765,177 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	}
 }
 
-func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState, runID domain.RunID, toolCallID string, batchIDs []string) error {
-	if len(batchIDs) == 0 {
-		return nil
+func (s *Service) bindMapperToolOutcomes(ctx context.Context, m *eventMapper) {
+	if s.deps.ToolOperations == nil {
+		return
 	}
-	containsTarget := false
-	siblings := make(map[string]struct{}, len(batchIDs))
-	for _, id := range batchIDs {
-		if id == toolCallID {
-			containsTarget = true
-			continue
+	m.resolveToolOutcome = func(id, name string) (domain.ToolOperationOutcome, bool, error) {
+		op, err := s.deps.ToolOperations.GetToolOperation(ctx, m.runID, id)
+		if errors.Is(err, storage.ErrNotFound) {
+			return domain.ToolOperationOutcome{}, false, nil
 		}
-		siblings[id] = struct{}{}
+		if err != nil {
+			return domain.ToolOperationOutcome{}, false, err
+		}
+		if err := storage.ValidateToolOperationSource(op); err != nil {
+			return domain.ToolOperationOutcome{}, false, err
+		}
+		if op.ToolName != name {
+			return domain.ToolOperationOutcome{}, false, storage.ErrToolOperationConflict
+		}
+		if op.State != domain.ToolOperationCompleted {
+			return domain.ToolOperationOutcome{}, false, nil
+		}
+		if err := storage.ValidateToolOperationOutcome(op.Outcome()); err != nil {
+			return domain.ToolOperationOutcome{}, false, err
+		}
+		return op.Outcome(), true, nil
 	}
-	if !containsTarget {
-		return errors.New("runtime: resume tool batch does not contain its interrupted call")
-	}
-	if err := state.Register(batchIDs); err != nil {
-		return err
-	}
-	if len(siblings) == 0 {
-		return nil
-	}
+}
+
+// restoreResumeNudgeBatch reconstructs the original batch from the Journal.
+// Eino's executed sibling cache skips tool middleware and emits no new event.
+func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState, m *eventMapper, runID domain.RunID, target string, explicit []string) error {
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
-		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
+		return err
 	}
-	defer func() { _ = it.Close() }()
-	settled := make(map[string]struct{}, len(siblings))
+	var batch []payloadToolRequested
+	var candidate []payloadToolRequested
+	finished := map[string]bool{}
+	started := map[string]bool{}
+	targetFound, freezeBatch := false, false
 	for it.Next() {
-		event := it.Value().Event
-		if event.Type != domain.EventToolFinished {
+		e := it.Value().Event
+		switch e.Type {
+		case domain.EventModelRequest:
+			if targetFound {
+				freezeBatch = true
+			}
+			candidate = nil
+		case domain.EventToolRequested:
+			var p payloadToolRequested
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				_ = it.Close()
+				return err
+			}
+			if freezeBatch {
+				continue
+			}
+			candidate = append(candidate, p)
+			if p.ToolCallID == target {
+				targetFound = true
+			}
+			if targetFound {
+				batch = append([]payloadToolRequested(nil), candidate...)
+			}
+		case domain.EventToolStarted:
+			var p payloadToolStarted
+			if json.Unmarshal(e.Payload, &p) == nil {
+				started[p.ToolCallID] = true
+			}
+		case domain.EventToolFinished:
+			var p payloadToolFinished
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				_ = it.Close()
+				return err
+			}
+			finished[p.ToolCallID] = true
+		}
+	}
+	err = it.Err()
+	_ = it.Close()
+	if err != nil {
+		return err
+	}
+	if len(explicit) > 0 {
+		byID := map[string]payloadToolRequested{}
+		for _, p := range batch {
+			byID[p.ToolCallID] = p
+		}
+		batch = nil
+		for _, id := range explicit {
+			p := byID[id]
+			p.ToolCallID = id
+			batch = append(batch, p)
+		}
+	}
+	if len(batch) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(batch))
+	found := false
+	for _, p := range batch {
+		ids = append(ids, p.ToolCallID)
+		found = found || p.ToolCallID == target
+	}
+	if !found {
+		return errors.New("runtime: resumed batch omits target")
+	}
+	if err := state.Register(ids); err != nil {
+		return err
+	}
+	for _, p := range batch {
+		if p.ToolCallID == target {
 			continue
 		}
-		var finished payloadToolFinished
-		if err := json.Unmarshal(event.Payload, &finished); err != nil {
-			return fmt.Errorf("runtime: decode resumed tool result: %w", err)
-		}
-		if _, ok := siblings[finished.ToolCallID]; !ok {
+		if s.deps.ToolOperations == nil {
 			continue
 		}
-		if _, done := settled[finished.ToolCallID]; done {
+		op, err := s.deps.ToolOperations.GetToolOperation(ctx, runID, p.ToolCallID)
+		if errors.Is(err, storage.ErrNotFound) {
+			if finished[p.ToolCallID] {
+				if err := state.SatisfyDurable(p.ToolCallID); err != nil {
+					return err
+				}
+			}
 			continue
 		}
-		if err := state.SatisfyDurable(finished.ToolCallID); err != nil {
+		if err != nil {
 			return err
 		}
-		settled[finished.ToolCallID] = struct{}{}
-	}
-	if err := it.Err(); err != nil {
-		return fmt.Errorf("runtime: replay resumed tool batch: %w", err)
+		if err := storage.ValidateToolOperationSource(op); err != nil {
+			return err
+		}
+		if op.State == domain.ToolOperationClaimed {
+			return ErrToolOperationUnknown
+		}
+		if finished[p.ToolCallID] {
+			if err := state.SatisfyDurable(p.ToolCallID); err != nil {
+				return err
+			}
+			continue
+		}
+		if op.State != domain.ToolOperationCompleted {
+			continue
+		}
+		if op.ToolName != p.ToolName && p.ToolName != "" {
+			return storage.ErrToolOperationConflict
+		}
+		if err := storage.ValidateToolOperationOutcome(op.Outcome()); err != nil {
+			return err
+		}
+		m.registerOpenCall(openToolCall{id: op.OperationID, name: op.ToolName})
+		result, parts, err := enhancedResultProjection(op.Result, s.engine.cfg.MaxToolResultBytes)
+		if err != nil {
+			return err
+		}
+		events, err := m.toolResultEventsParts(op.ToolName, op.OperationID, result, parts, "")
+		if err != nil {
+			return err
+		}
+		for _, e := range events {
+			if e.Type == domain.EventToolStarted && started[p.ToolCallID] {
+				continue
+			}
+			if !s.persistAndPublish(ctx, domain.SessionID(m.sessionID), e) {
+				return errors.New("runtime: persist recovered tool completion failed")
+			}
+		}
+		m.takeCompletion(op.OperationID)
+		if err := state.SatisfyDurable(op.OperationID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

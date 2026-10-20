@@ -1,8 +1,7 @@
 package storage
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,71 +12,82 @@ import (
 
 const maxToolOperationArgumentsBytes = 1 << 20
 
-// ValidateToolOperationAdmission checks the immutable identity and invocation
-// bytes before a backend persists a new operation.
+// ValidateToolOperationAdmission validates every private input independently.
 func ValidateToolOperationAdmission(op domain.ToolOperation) error {
 	if op.RunID == "" || strings.TrimSpace(op.OperationID) == "" || strings.TrimSpace(op.ToolName) == "" {
 		return errors.New("storage: tool operation identity is incomplete")
 	}
-	if op.RequestDigest == "" || len(op.MiddlewareInputArguments) == 0 || op.ArgumentsDigest == "" || len(op.EffectiveArguments) == 0 {
-		return errors.New("storage: tool operation binding is incomplete")
+	for _, input := range []struct {
+		name string
+		data []byte
+	}{{"request", op.RequestArguments}, {"middleware input", op.MiddlewareInputArguments}, {"effective", op.EffectiveArguments}} {
+		if len(input.data) == 0 || len(input.data) > maxToolOperationArgumentsBytes || !json.Valid(input.data) {
+			return fmt.Errorf("storage: tool operation %s must be nonempty valid JSON within %d bytes", input.name, maxToolOperationArgumentsBytes)
+		}
 	}
-	if len(op.MiddlewareInputArguments) > maxToolOperationArgumentsBytes {
-		return fmt.Errorf("storage: tool operation middleware input exceeds %d bytes", maxToolOperationArgumentsBytes)
-	}
-	if len(op.EffectiveArguments) > maxToolOperationArgumentsBytes {
-		return fmt.Errorf("storage: tool operation arguments exceed %d bytes", maxToolOperationArgumentsBytes)
-	}
-	if !json.Valid(op.MiddlewareInputArguments) {
-		return errors.New("storage: tool operation middleware input is invalid JSON")
-	}
-	if !json.Valid(op.EffectiveArguments) {
-		return errors.New("storage: tool operation arguments are invalid JSON")
-	}
-	sum := sha256.Sum256(op.EffectiveArguments)
-	if got := hex.EncodeToString(sum[:]); got != op.ArgumentsDigest {
-		return errors.New("storage: tool operation arguments digest does not match invocation")
-	}
-	if op.State != "" || op.ClaimOwner != "" || op.Result != "" || op.Failure != "" {
+	if op.State != "" || op.ClaimOwner != "" || op.Outcome() != (domain.ToolOperationOutcome{}) {
 		return errors.New("storage: tool operation admission contains a later state")
 	}
 	return nil
 }
 
-// NewToolOperationEvent creates the append-only Journal record mirrored by
-// the SQL operation lookup row. The Journal carries immutable digests and
-// lifecycle metadata; effective arguments remain in the private operation
-// row so middleware-injected credentials are not exposed through event feeds.
+// CloneToolOperationInputs gives caller and persisted admission independent bytes.
+func CloneToolOperationInputs(op domain.ToolOperation) domain.ToolOperation {
+	op.RequestArguments = bytes.Clone(op.RequestArguments)
+	op.MiddlewareInputArguments = bytes.Clone(op.MiddlewareInputArguments)
+	op.EffectiveArguments = bytes.Clone(op.EffectiveArguments)
+	return op
+}
+
+func ValidateToolOperationSource(op domain.ToolOperation) error {
+	if len(op.RequestArguments) == 0 {
+		return ErrSourceBindingUnavailable
+	}
+	return nil
+}
+
+func SameToolOperationBinding(a, b domain.ToolOperation) bool {
+	return a.RunID == b.RunID && a.OperationID == b.OperationID && a.ToolName == b.ToolName && bytes.Equal(a.RequestArguments, b.RequestArguments) && bytes.Equal(a.MiddlewareInputArguments, b.MiddlewareInputArguments) && bytes.Equal(a.EffectiveArguments, b.EffectiveArguments)
+}
+
+func ValidateToolOperationOutcome(outcome domain.ToolOperationOutcome) error {
+	switch outcome.Status {
+	case domain.ToolOutcomeSuccess, domain.ToolOutcomeFatal:
+		if outcome.Reason != "" {
+			return errors.New("storage: unexpected tool outcome reason")
+		}
+	case domain.ToolOutcomeRecoverable, domain.ToolOutcomeRefused:
+		switch outcome.Reason {
+		case domain.ToolReasonInvalidArguments, domain.ToolReasonNotFound, domain.ToolReasonPolicyDenied, domain.ToolReasonUserDenied, domain.ToolReasonCommandFailed, domain.ToolReasonRemoteTool:
+		default:
+			return errors.New("storage: invalid tool outcome reason")
+		}
+	default:
+		return errors.New("storage: invalid tool outcome status")
+	}
+	switch outcome.Effects {
+	case domain.ToolEffectsNotExecuted, domain.ToolEffectsNone, domain.ToolEffectsUnknown:
+	default:
+		return errors.New("storage: invalid tool outcome effects")
+	}
+	return nil
+}
+
+// NewToolOperationEvent preserves the public v1 lifecycle without private inputs.
 func NewToolOperationEvent(op domain.ToolOperation) (domain.RunEvent, error) {
 	if !op.State.Valid() || op.OperationID == "" || op.ToolName == "" {
 		return domain.RunEvent{}, errors.New("storage: invalid tool operation event")
 	}
 	payload := struct {
-		OperationID         string                    `json:"operation_id"`
-		ToolName            string                    `json:"tool_name"`
-		State               domain.ToolOperationState `json:"state"`
-		RequestDigest       string                    `json:"request_digest,omitempty"`
-		MiddlewareInputHash string                    `json:"middleware_input_digest,omitempty"`
-		ArgumentsDigest     string                    `json:"arguments_digest,omitempty"`
-		Result              string                    `json:"result,omitempty"`
-		Failure             string                    `json:"failure,omitempty"`
-	}{
-		OperationID: op.OperationID, ToolName: op.ToolName, State: op.State,
-		RequestDigest: op.RequestDigest, MiddlewareInputHash: digestToolOperationBytes(op.MiddlewareInputArguments),
-		ArgumentsDigest: op.ArgumentsDigest,
-		Result:          op.Result, Failure: op.Failure,
-	}
+		OperationID string                    `json:"operation_id"`
+		ToolName    string                    `json:"tool_name"`
+		State       domain.ToolOperationState `json:"state"`
+		Result      string                    `json:"result,omitempty"`
+		Failure     string                    `json:"failure,omitempty"`
+	}{op.OperationID, op.ToolName, op.State, op.Result, op.Failure}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: encode tool operation event: %w", err)
 	}
-	return domain.RunEvent{
-		RunID: op.RunID, Type: domain.EventToolOperation, CreatedAt: op.UpdatedAt,
-		PayloadVersion: 1, Payload: data,
-	}, nil
-}
-
-func digestToolOperationBytes(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return domain.RunEvent{RunID: op.RunID, Type: domain.EventToolOperation, CreatedAt: op.UpdatedAt, PayloadVersion: 1, Payload: data}, nil
 }

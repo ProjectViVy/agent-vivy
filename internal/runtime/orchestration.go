@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -278,7 +281,7 @@ func (s *Service) persistNativeOrchestrationApproval(ctx context.Context, coordi
 		if interrupt == nil || !interrupt.IsRootCause {
 			continue
 		}
-		toolName, args, argumentsHash, message, ok := decodeToolApprovalInterrupt(interrupt.Info)
+		toolName, args, intendedArguments, message, ok := decodeToolApprovalInterrupt(interrupt.Info)
 		if !ok || toolName != "orchestration.node" {
 			continue
 		}
@@ -300,12 +303,12 @@ func (s *Service) persistNativeOrchestrationApproval(ctx context.Context, coordi
 		}
 		mapper := s.newResumeEventMapper(ctx, coordinator.runID)
 		mapper.interrupt = &interruptDetails{
-			ResumeTarget:  nativeOrchestrationResumeTarget(interrupt.ID),
-			ToolCallID:    workflowNodeOperationID(input.A.RevisionDigest, "a"),
-			ToolName:      toolName,
-			Args:          args,
-			ArgumentsHash: argumentsHash,
-			Message:       message,
+			ResumeTarget:      nativeOrchestrationResumeTarget(interrupt.ID),
+			ToolCallID:        workflowNodeOperationID(input.A.RevisionDigest, "a"),
+			ToolName:          toolName,
+			Args:              args,
+			IntendedArguments: intendedArguments,
+			Message:           message,
 		}
 		s.handleInterrupt(ctx, mapper, coordinator.sessionID, nil, runMode(ctx))
 		s.mu.Lock()
@@ -378,20 +381,32 @@ func (s *Service) runNativeOrchestration(ctx context.Context, request nativeOrch
 		if !hasState {
 			return nativeOrchestrationResult{}, errors.New("runtime: workflow approval checkpoint state is unavailable")
 		}
-		stateToolName, _, stateHash, _, valid := decodeToolApprovalInterrupt(encodedState)
-		currentHash, hashErr := toolApprovalArgumentsHash("orchestration.node", requestBytes)
-		if !valid || stateToolName != "orchestration.node" || hashErr != nil || stateHash != currentHash {
+		stateToolName, _, stateArguments, _, valid := decodeToolApprovalInterrupt(encodedState)
+		currentArguments, canonicalErr := canonicalToolArguments(requestBytes)
+		if !valid || stateToolName != "orchestration.node" || canonicalErr != nil || !bytes.Equal(stateArguments, currentArguments) {
 			return nativeOrchestrationResult{}, errors.New("runtime: workflow approval checkpoint does not match the node")
 		}
 		isTarget, hasData, decision := einotool.GetResumeContext[string](ctx)
 		if !isTarget || !hasData {
+			if len(approvedToolArguments(ctx)) > 0 && approvedToolCall(ctx) == operationID {
+				return nativeOrchestrationResult{}, errors.New("runtime: workflow approval resume target does not match its node")
+			}
 			return nativeOrchestrationResult{}, einotool.StatefulInterrupt(ctx, encodedState, encodedState)
+		}
+		if approvedToolCall(ctx) != operationID {
+			return nativeOrchestrationResult{}, errors.New("runtime: workflow approval belongs to another tool call")
 		}
 		switch decision {
 		case domain.ApprovalApproved:
+			if err := validateResumedToolApproval(ctx, "orchestration.node", requestBytes); err != nil {
+				return nativeOrchestrationResult{}, err
+			}
 		case domain.ApprovalDenied:
-			output, err := coordinator.Execute(ctx, operation, func(context.Context) (string, error) {
-				return "denied by the reviewer; node did not run", nil
+			if err := validateResumedToolApproval(ctx, "orchestration.node", requestBytes); err != nil {
+				return nativeOrchestrationResult{}, err
+			}
+			output, err := coordinator.Execute(ctx, operation, func(context.Context) (domain.ToolOperationOutcome, error) {
+				return outcomeWithFailure("denied by the reviewer; node did not run", refusalFailure(toolFailureReasonUserDenied, "denied by the reviewer")), nil
 			})
 			if err != nil {
 				return nativeOrchestrationResult{}, err
@@ -401,8 +416,8 @@ func (s *Service) runNativeOrchestration(ctx context.Context, request nativeOrch
 			return nativeOrchestrationResult{}, fmt.Errorf("runtime: invalid workflow approval decision %q", decision)
 		}
 	}
-	output, err := coordinator.Execute(ctx, operation, func(context.Context) (string, error) {
-		return request.Task, nil
+	output, err := coordinator.Execute(ctx, operation, func(context.Context) (domain.ToolOperationOutcome, error) {
+		return successToolOutcome(request.Task), nil
 	})
 	if err != nil {
 		return nativeOrchestrationResult{}, err
@@ -411,16 +426,16 @@ func (s *Service) runNativeOrchestration(ctx context.Context, request nativeOrch
 }
 
 func nativeOrchestrationRequestFromApprovalState(encodedState string) (nativeOrchestrationRequest, error) {
-	toolName, args, argumentsHash, _, ok := decodeToolApprovalInterrupt(encodedState)
-	if !ok || toolName != "orchestration.node" || argumentsHash == "" {
+	toolName, args, intendedArguments, _, ok := decodeToolApprovalInterrupt(encodedState)
+	if !ok || toolName != "orchestration.node" || len(intendedArguments) == 0 {
 		return nativeOrchestrationRequest{}, errors.New("runtime: workflow approval checkpoint state is invalid")
 	}
 	requestBytes, err := json.Marshal(args)
 	if err != nil {
 		return nativeOrchestrationRequest{}, fmt.Errorf("runtime: encode workflow approval state: %w", err)
 	}
-	verifiedHash, err := toolApprovalArgumentsHash(toolName, requestBytes)
-	if err != nil || verifiedHash != argumentsHash {
+	verifiedArguments, err := canonicalToolArguments(requestBytes)
+	if err != nil || !bytes.Equal(verifiedArguments, intendedArguments) {
 		return nativeOrchestrationRequest{}, errors.New("runtime: workflow approval checkpoint state failed its integrity check")
 	}
 	var binding struct {
@@ -445,13 +460,13 @@ func nativeOrchestrationRequestFromApprovalState(encodedState string) (nativeOrc
 }
 
 func validateNativeOrchestrationApprovalBinding(approval domain.Approval, input orchestrationProofInput) error {
-	if approval.ToolName != "orchestration.node" ||
+	if approval.RunID != input.A.RunID || approval.ToolName != "orchestration.node" ||
 		approval.ToolCallID != workflowNodeOperationID(input.A.RevisionDigest, "a") ||
 		!isNativeOrchestrationResumeTarget(approval.ResumeTarget) ||
 		strings.TrimPrefix(approval.ResumeTarget, nativeOrchestrationResumeTargetPrefix) == "" {
 		return errors.New("runtime: workflow approval identity does not match its node")
 	}
-	_, approvedHash, err := unbindToolApprovalProposal(approval.ProposalData)
+	_, approvedArguments, err := unbindToolApprovalProposal(approval.ProposalData)
 	if err != nil {
 		return fmt.Errorf("runtime: workflow approval proposal is invalid: %w", err)
 	}
@@ -465,11 +480,11 @@ func validateNativeOrchestrationApprovalBinding(approval domain.Approval, input 
 	if err != nil {
 		return fmt.Errorf("runtime: encode workflow approval binding: %w", err)
 	}
-	expectedHash, err := toolApprovalArgumentsHash(approval.ToolName, arguments)
+	expectedArguments, err := canonicalToolArguments(arguments)
 	if err != nil {
-		return fmt.Errorf("runtime: hash workflow approval binding: %w", err)
+		return fmt.Errorf("runtime: canonicalize workflow approval binding: %w", err)
 	}
-	if approvedHash == "" || approvedHash != expectedHash {
+	if len(approvedArguments) == 0 || !bytes.Equal(approvedArguments, expectedArguments) {
 		return errors.New("runtime: workflow approval arguments do not match the admitted node")
 	}
 	return nil
@@ -540,6 +555,13 @@ func (s *Service) resumeNativeOrchestrationApproval(p pendingRun, approval domai
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
 		return
 	}
+	_, intended, bindingErr := unbindToolApprovalProposal(approval.ProposalData)
+	if bindingErr != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, bindingErr))
+		return
+	}
+	ctx = withApprovedToolArguments(ctx, intended)
+	ctx = withApprovedToolCall(ctx, approval.ToolCallID)
 	interruptID := strings.TrimPrefix(approval.ResumeTarget, nativeOrchestrationResumeTargetPrefix)
 	ctx = compose.ResumeWithData(ctx, interruptID, decision)
 	output, err := s.executeNativeOrchestrationWorkflow(ctx, input)
@@ -594,4 +616,10 @@ func validWorkflowNodeKey(key string) bool {
 		}
 	}
 	return true
+}
+
+// operationDigest remains only for D11 workflow revision/node identities.
+func operationDigest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

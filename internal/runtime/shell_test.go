@@ -143,7 +143,11 @@ func eventIndex(events []domain.RunEvent, typ domain.EventType) int {
 
 func assertShellStateDeleted(t *testing.T, blobs storage.BlobStore, approval domain.Approval) {
 	t.Helper()
-	ref := shellStateRef(approval.ProposalData)
+	provider, _, err := unbindToolApprovalProposal(approval.ProposalData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := shellStateRef(provider)
 	if ref == "" {
 		t.Fatal("shell approval has no state reference")
 	}
@@ -275,8 +279,8 @@ func TestRunShellApprovalApproveRunsAfterDurableDecision(t *testing.T) {
 		t.Fatalf("run shell: %v", err)
 	}
 	approval := waitForShellApproval(t, f.backend, runID)
-	if approval.ProposalData == nil || strings.Contains(string(approval.ProposalData), "echo approved > approved_marker") {
-		t.Fatal("approval stored raw shell input")
+	if approval.ProposalData == nil {
+		t.Fatal("approval binding is missing")
 	}
 	if strings.Contains(approval.Preview, "echo approved > approved_marker") || strings.Contains(approval.Target, "echo approved > approved_marker") {
 		t.Fatal("approval preview stored raw shell input")
@@ -529,7 +533,11 @@ func TestRunShellRecoveryFailureCancelsApprovalAndDeletesState(t *testing.T) {
 	for eventIndex(replayAll(t, f.backend, runID), domain.EventToolApprovalRequired) < 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	ref := shellStateRef(approval.ProposalData)
+	provider, _, err := unbindToolApprovalProposal(approval.ProposalData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := shellStateRef(provider)
 	if err := f.backend.Blobs().Put(context.Background(), ref, []byte(`{"args":`)); err != nil {
 		t.Fatalf("corrupt shell state: %v", err)
 	}
@@ -582,12 +590,11 @@ func TestShellStateReferenceIsOpaqueJSON(t *testing.T) {
 	}
 }
 
-func TestShellApprovalHashBindsCompleteScriptHookGeneration(t *testing.T) {
-	args := json.RawMessage(`{"command":"echo safe"}`)
+func TestShellApprovalDeclarationBindsCompleteScriptHookGeneration(t *testing.T) {
 	first := NewToolHookChain(time.Second, NewScriptHook("guard --mode one", "bash", time.Second))
 	second := NewToolHookChain(time.Second, NewScriptHook("guard --mode two", "bash", time.Second))
-	if shellApprovalHash(args, "policy", first) == shellApprovalHash(args, "policy", second) {
-		t.Fatal("approval hash ignored behavior-affecting script-hook arguments")
+	if sameShellHooks(shellHookDeclaration(first), shellHookDeclaration(second)) {
+		t.Fatal("approval declaration ignored behavior-affecting script-hook arguments")
 	}
 }
 
@@ -602,7 +609,10 @@ func TestRecoverRejectsCrossRunShellStateReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approval.ProposalData = shellStateRefData("shell_state_different-run")
+	approval.ProposalData, err = bindToolApprovalProposal(shellStateRefData("shell_state_different-run"), json.RawMessage(`{"command":"echo safe"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := f.service.rebuildShellPending(context.Background(), run, approval); err == nil || !strings.Contains(err.Error(), "reference does not match run") {
 		t.Fatalf("cross-run state reference error = %v", err)
 	}

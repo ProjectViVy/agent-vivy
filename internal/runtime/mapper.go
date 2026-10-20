@@ -40,12 +40,12 @@ type interruptDetails struct {
 	// chain for the agent-level resume target.
 	Raw *adk.InterruptInfo
 
-	ToolCallID       string
-	ToolName         string
-	Args             map[string]any
-	ArgumentsHash    string
-	Message          string
-	PlanSubmissionID string
+	ToolCallID        string
+	ToolName          string
+	Args              map[string]any
+	IntendedArguments json.RawMessage
+	Message           string
+	PlanSubmissionID  string
 }
 
 // eventMapper converts Eino AgentEvents into Vivy domain.RunEvents
@@ -88,7 +88,8 @@ type eventMapper struct {
 	// mapped tool.finished until the consuming service confirms the
 	// append is durable (ND-2: completion is recorded on persist
 	// success, not at event construction).
-	completions map[string]completedCall
+	resolveToolOutcome func(string, string) (domain.ToolOperationOutcome, bool, error)
+	completions        map[string]completedCall
 
 	// interrupt holds the details of the latest interrupt action; set
 	// together with the errRunInterrupted sentinel.
@@ -562,7 +563,7 @@ func (m *eventMapper) toolCallEvents(msg *schema.AgenticMessage) []domain.RunEve
 		out = append(out, m.build(domain.EventToolRequested, payloadToolRequested{
 			ToolCallID: tc.CallID,
 			ToolName:   tc.Name,
-			Args:       args,
+			Args:       redactedApprovalArguments(args),
 		}))
 		call := openToolCall{id: tc.CallID, name: tc.Name, args: args, argsJSON: string(argsJSON)}
 		m.toolBatch = append(m.toolBatch, call)
@@ -589,12 +590,12 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 				d.ToolName = seg.ID
 			}
 		}
-		if toolName, args, argumentsHash, message, ok := decodeToolApprovalInterrupt(c.Info); ok && (d.ToolName == "" || d.ToolName == toolName) {
+		if toolName, args, intendedArguments, message, ok := decodeToolApprovalInterrupt(c.Info); ok && (d.ToolName == "" || d.ToolName == toolName) {
 			if d.ToolName == "" {
 				d.ToolName = toolName
 			}
 			d.Args = args
-			d.ArgumentsHash = argumentsHash
+			d.IntendedArguments = append(json.RawMessage(nil), intendedArguments...)
 			d.Message = message
 		}
 		if submissionID, ok := decodePlanReviewInterrupt(c.Info); ok {
@@ -645,8 +646,29 @@ func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, par
 	}
 	call := completedCall{ID: callID, Name: toolName, ArgsJSON: argsJSON, Result: result, Error: errMsg}
 	finished := payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Parts: parts, Error: errMsg}
-	if m.nudge != nil {
-		if failure, ok := m.nudge.Failure(callID); ok {
+	var durableFailure *toolFailure
+	durableFound := false
+	if m.resolveToolOutcome != nil {
+		outcome, found, err := m.resolveToolOutcome(callID, toolName)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			durableFound = true
+			if f, ok := failureFromOutcome(outcome); ok {
+				durableFailure = &f
+			}
+		}
+	}
+	if durableFailure != nil || (!durableFound && m.nudge != nil) {
+		var failure toolFailure
+		var ok bool
+		if durableFailure != nil {
+			failure, ok = *durableFailure, true
+		} else {
+			failure, ok = m.nudge.Failure(callID)
+		}
+		if ok {
 			failure := failure
 			call.Failure = &failure
 			finished.Outcome = failure.Status

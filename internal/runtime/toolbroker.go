@@ -59,8 +59,9 @@ func (s *Service) ExecuteBrokerToolOperation(ctx context.Context, operationID st
 			return "", err
 		}
 	}
-	return coordinator.Execute(ctx, operation, func(invokeCtx context.Context) (string, error) {
-		return invokePreparedBrokerTool(invokeCtx, tool, hooks, runID, profile, effective, maxResultBytes)
+	return coordinator.Execute(ctx, operation, func(invokeCtx context.Context) (domain.ToolOperationOutcome, error) {
+		result, err := invokePreparedBrokerTool(invokeCtx, tool, hooks, runID, profile, effective, maxResultBytes)
+		return successToolOutcome(result), err
 	})
 }
 

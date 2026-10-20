@@ -1,9 +1,8 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,7 +23,7 @@ var (
 type toolOperationCoordinator interface {
 	Lookup(context.Context, string, string, []byte) (domain.ToolOperation, bool, error)
 	Admit(context.Context, string, string, []byte, []byte, []byte) (domain.ToolOperation, error)
-	Execute(context.Context, domain.ToolOperation, func(context.Context) (string, error)) (string, error)
+	Execute(context.Context, domain.ToolOperation, func(context.Context) (domain.ToolOperationOutcome, error)) (string, error)
 }
 
 type toolOperationCoordinatorKey struct{}
@@ -67,11 +66,6 @@ func isModelWorkTool(name string) bool {
 	return false
 }
 
-func operationDigest(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
 func (c serviceToolOperationCoordinator) Lookup(ctx context.Context, operationID, toolName string, request []byte) (domain.ToolOperation, bool, error) {
 	if c.service == nil || c.service.deps.ToolOperations == nil {
 		return domain.ToolOperation{}, false, ErrToolOperationUnavailable
@@ -86,7 +80,10 @@ func (c serviceToolOperationCoordinator) Lookup(ctx context.Context, operationID
 	if err != nil {
 		return domain.ToolOperation{}, false, fmt.Errorf("runtime: read tool operation: %w", err)
 	}
-	if op.ToolName != toolName || op.RequestDigest != operationDigest(request) {
+	if err := storage.ValidateToolOperationSource(op); err != nil {
+		return domain.ToolOperation{}, false, err
+	}
+	if op.ToolName != toolName || !bytes.Equal(op.RequestArguments, request) {
 		return domain.ToolOperation{}, false, storage.ErrToolOperationConflict
 	}
 	return op, true, nil
@@ -105,17 +102,14 @@ func (c serviceToolOperationCoordinator) Admit(ctx context.Context, operationID,
 	now := time.Now().UnixMilli()
 	op := domain.ToolOperation{
 		RunID: c.runID, OperationID: operationID, ToolName: toolName,
-		RequestDigest: operationDigest(request), MiddlewareInputArguments: append([]byte(nil), middlewareInput...),
-		ArgumentsDigest: operationDigest(effective), EffectiveArguments: append([]byte(nil), effective...),
-		CreatedAt: now, UpdatedAt: now,
+		RequestArguments: append([]byte(nil), request...), MiddlewareInputArguments: append([]byte(nil), middlewareInput...),
+		EffectiveArguments: append([]byte(nil), effective...),
+		CreatedAt:          now, UpdatedAt: now,
 	}
-	if err := storage.ValidateToolOperationAdmission(domain.ToolOperation{
-		RunID: op.RunID, OperationID: op.OperationID, ToolName: op.ToolName,
-		RequestDigest: op.RequestDigest, MiddlewareInputArguments: op.MiddlewareInputArguments,
-		ArgumentsDigest: op.ArgumentsDigest, EffectiveArguments: op.EffectiveArguments,
-	}); err != nil {
+	if err := storage.ValidateToolOperationAdmission(op); err != nil {
 		return domain.ToolOperation{}, err
 	}
+
 	eventOp := op
 	eventOp.State = domain.ToolOperationAdmitted
 	if err := c.checkOperationEventSize(eventOp); err != nil {
@@ -131,7 +125,7 @@ func (c serviceToolOperationCoordinator) Admit(ctx context.Context, operationID,
 	return stored, nil
 }
 
-func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.ToolOperation, invoke func(context.Context) (string, error)) (string, error) {
+func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.ToolOperation, invoke func(context.Context) (domain.ToolOperationOutcome, error)) (string, error) {
 	if c.service == nil || c.service.deps.ToolOperations == nil {
 		return "", ErrToolOperationUnavailable
 	}
@@ -141,6 +135,9 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 	stored, err := c.service.deps.ToolOperations.GetToolOperation(ctx, c.runID, op.OperationID)
 	if err != nil {
 		return "", fmt.Errorf("runtime: read tool operation before claim: %w", err)
+	}
+	if err := storage.ValidateToolOperationSource(stored); err != nil {
+		return "", err
 	}
 	if !sameRuntimeToolOperationBinding(stored, op) {
 		return "", storage.ErrToolOperationConflict
@@ -196,48 +193,51 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 		// not prove that no external effect happened during an interruption.
 		return finish("", err)
 	}
-	result, invokeErr := invoke(ctx)
+	outcome, invokeErr := invoke(ctx)
 	var surfacedRefusal error
 	if invokeErr != nil {
-		// A tool interrupt (approval, question, plan review) suspends the run;
-		// it is not an operation outcome and must keep its signal type so the
-		// ToolsNode can surface it as an interrupt instead of a failure.
 		if _, interrupted := compose.IsInterruptRerunError(invokeErr); interrupted {
 			return finish("", invokeErr)
 		}
-		// A governance refusal is a model-visible outcome, not an operation
-		// failure: record the refusal text as the result so the run continues
-		// and a resumed run replays the same response.
-		if refusal, isRefusal := asToolRefusal(invokeErr); isRefusal {
-			result = refusalToolResult(op.ToolName, publicRefusalReason(refusal.cause))
+		if ctx.Err() != nil || errors.Is(invokeErr, context.Canceled) || errors.Is(invokeErr, context.DeadlineExceeded) {
+			return finish("", redactToolError(invokeErr))
+		}
+		if refusal, ok := asToolRefusal(invokeErr); ok {
+			reason := tools.RedactSensitive(refusal.reason)
+			failure := refusalFailure(refusal.classification, reason)
+			outcome = outcomeWithFailure(refusalToolResult(op.ToolName, reason), failure)
 			surfacedRefusal = invokeErr
 			invokeErr = nil
+		} else {
+			outcome.Status, outcome.Reason, outcome.Effects = domain.ToolOutcomeFatal, "", domain.ToolEffectsUnknown
+			outcome.Result, outcome.Failure = "", boundToolOperationFailure(invokeErr.Error())
 		}
 	}
-	result = tools.RedactSensitive(result)
-	failure := ""
-	if invokeErr != nil {
-		failure = boundToolOperationFailure(invokeErr.Error())
-		result = ""
-	}
-	result, failure, err = fitToolOperationResolution(op, result, failure, service.engine)
+	outcome.Result = tools.RedactSensitive(outcome.Result)
+	outcome.Failure = boundToolOperationFailure(outcome.Failure)
+	outcome.Result, outcome.Failure, err = fitToolOperationResolution(op, outcome.Result, outcome.Failure, service.engine)
 	if err != nil {
 		return finish("", err)
 	}
-	completed, completeEvent, err := service.deps.ToolOperations.CompleteToolOperation(ctx, c.runID, op.OperationID, owner, result, failure)
+	completed, completeEvent, err := service.deps.ToolOperations.CompleteToolOperation(ctx, c.runID, op.OperationID, owner, outcome)
 	if err != nil {
-		// Keep the durable claim unresolved. Returning an ordinary result here
-		// would let Eino advance past an outcome the Journal cannot recover.
 		return finish("", fmt.Errorf("runtime: persist tool operation completion: %w", err))
 	}
 	if completeEvent.Seq != 0 {
 		c.publish(completeEvent)
 	}
-	if surfacedRefusal != nil && completed.State == domain.ToolOperationCompleted && completed.Failure == "" {
+	if surfacedRefusal != nil && completed.State == domain.ToolOperationCompleted && completed.OutcomeStatus == domain.ToolOutcomeRefused {
 		// The refusal text is durable as the operation result; still surface
 		// the typed refusal so the caller runs invocation-failure marking and
 		// governance journaling for this attempt.
-		return finish("", surfacedRefusal)
+		refusal, _ := asToolRefusal(surfacedRefusal)
+		copy := *refusal
+		result := completed.Result
+		copy.durableResult = &result
+		return finish("", &copy)
+	}
+	if invokeErr != nil {
+		return finish("", redactToolError(invokeErr))
 	}
 	resolved, resolveErr := toolOperationResolution(completed)
 	return finish(resolved, resolveErr)
@@ -282,17 +282,20 @@ func (c serviceToolOperationCoordinator) publish(event domain.RunEvent) {
 }
 
 func sameRuntimeToolOperationBinding(a, b domain.ToolOperation) bool {
-	return a.RunID == b.RunID && a.OperationID == b.OperationID && a.ToolName == b.ToolName &&
-		a.RequestDigest == b.RequestDigest && a.ArgumentsDigest == b.ArgumentsDigest &&
-		string(a.MiddlewareInputArguments) == string(b.MiddlewareInputArguments) &&
-		string(a.EffectiveArguments) == string(b.EffectiveArguments)
+	return storage.SameToolOperationBinding(a, b)
 }
 
 func toolOperationResolution(op domain.ToolOperation) (string, error) {
 	if op.State != domain.ToolOperationCompleted {
 		return "", fmt.Errorf("runtime: tool operation %s is not complete", op.OperationID)
 	}
-	if op.Failure != "" {
+	if err := storage.ValidateToolOperationSource(op); err != nil {
+		return "", err
+	}
+	if err := storage.ValidateToolOperationOutcome(op.Outcome()); err != nil {
+		return "", err
+	}
+	if op.OutcomeStatus == domain.ToolOutcomeFatal {
 		return "", errors.New(op.Failure)
 	}
 	return op.Result, nil

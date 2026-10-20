@@ -9,39 +9,39 @@ import (
 	"agent-vivy/internal/domain"
 )
 
-func TestToolApprovalArgumentsHashCanonicalizesJSON(t *testing.T) {
-	first, err := toolApprovalArgumentsHash("write", json.RawMessage(`{"b":2,"a":1}`))
+func TestToolApprovalArgumentsCanonicalizeJSON(t *testing.T) {
+	first, err := canonicalToolArguments(json.RawMessage(`{"b":2,"a":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := toolApprovalArgumentsHash("write", json.RawMessage("{\n\t\"a\": 1, \"b\": 2}"))
+	second, err := canonicalToolArguments(json.RawMessage("{\n\t\"a\": 1, \"b\": 2}"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first != second || len(first) != 64 {
-		t.Fatalf("canonical hashes = %q and %q", first, second)
+	if string(first) != string(second) {
+		t.Fatalf("canonical inputs = %q and %q", first, second)
 	}
-	otherTool, err := toolApprovalArgumentsHash("delete", json.RawMessage(`{"a":1,"b":2}`))
+	otherTool, err := canonicalToolArguments(json.RawMessage(`{"a":1,"b":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if otherTool == first {
-		t.Fatal("arguments hash must bind the tool identity")
+	if string(otherTool) != string(first) {
+		t.Fatal("canonical intent unexpectedly changed")
 	}
 }
 
 func TestToolApprovalProposalBindingRoundTrip(t *testing.T) {
 	providerData := json.RawMessage(`{"opaque":"proposal"}`)
-	bound, err := bindToolApprovalProposal(providerData, strings.Repeat("a", 64))
+	bound, err := bindToolApprovalProposal(providerData, json.RawMessage(`{"a":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotData, gotHash, err := unbindToolApprovalProposal(bound)
+	gotData, gotArguments, err := unbindToolApprovalProposal(bound)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(gotData) != string(providerData) || gotHash != strings.Repeat("a", 64) {
-		t.Fatalf("unbound proposal = %s, %q", gotData, gotHash)
+	if string(gotData) != string(providerData) || string(gotArguments) != `{"a":1}` {
+		t.Fatalf("unbound proposal = %s, %q", gotData, gotArguments)
 	}
 }
 
@@ -65,7 +65,7 @@ func TestNativeOrchestrationApprovalBindsRunNodeAndCheckpointTarget(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash, err := toolApprovalArgumentsHash("orchestration.node", arguments)
+	hash, err := canonicalToolArguments(arguments)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestNativeOrchestrationApprovalBindsRunNodeAndCheckpointTarget(t *testing.T
 		t.Fatal(err)
 	}
 	approval := domain.Approval{
-		ToolCallID: workflowNodeOperationID(revision, "a"), ToolName: "orchestration.node",
+		RunID: input.A.RunID, ToolCallID: workflowNodeOperationID(revision, "a"), ToolName: "orchestration.node",
 		ResumeTarget: nativeOrchestrationResumeTarget("runnable:vivy;node:a"), ProposalData: proposal,
 	}
 	if err := validateNativeOrchestrationApprovalBinding(approval, input); err != nil {

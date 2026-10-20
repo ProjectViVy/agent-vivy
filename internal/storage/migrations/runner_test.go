@@ -24,8 +24,8 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 35 {
-		t.Fatalf("migration count = %d, want 35", count)
+	if count != 36 {
+		t.Fatalf("migration count = %d, want 36", count)
 	}
 	var name, checksum string
 	if err := db.QueryRowContext(ctx,
@@ -103,7 +103,7 @@ func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("seed version 23 data: %v", err)
 	}
-	if err := Apply(ctx, db, SQLite); err != nil {
+	if err := ApplyManifest(ctx, db, SQLite, manifest); err != nil {
 		t.Fatalf("upgrade 23 to latest: %v", err)
 	}
 	assertSQLiteLatestMigrations(t, db)
@@ -127,8 +127,8 @@ func assertSQLiteLatestMigrations(t *testing.T, db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count upgraded migrations: %v", err)
 	}
-	if count != 35 {
-		t.Fatalf("upgraded migration count = %d, want 35", count)
+	if count != 36 {
+		t.Fatalf("upgraded migration count = %d, want 36", count)
 	}
 	var name, checksum string
 	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 35`).Scan(&name, &checksum); err != nil {
@@ -201,7 +201,7 @@ func TestContinuityMigrationHistoryPositionsBackfillsLegacyAndReopens(t *testing
 			t.Fatal(err)
 		}
 	}
-	if err := Apply(ctx, db, SQLite); err != nil {
+	if err := ApplyManifest(ctx, db, SQLite, full); err != nil {
 		t.Fatalf("Apply 024: %v", err)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id, position FROM messages WHERE session_id = 's' ORDER BY position`)

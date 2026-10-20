@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 
 	"agent-vivy/internal/domain"
 )
@@ -13,7 +14,7 @@ type policyProfileContextKey struct{}
 type policySnapshotContextKey struct{}
 type sandboxModeContextKey struct{}
 type approvalPolicyContextKey struct{}
-type approvedToolArgumentsHashContextKey struct{}
+type approvedToolArgumentsContextKey struct{}
 
 // directShellContextKey marks the runtime-owned direct shell lifecycle. It
 // is deliberately process-local context metadata: the marker tells the
@@ -100,13 +101,12 @@ func approvalPolicy(ctx context.Context) domain.ApprovalPolicy {
 	return domain.ApprovalPolicyAsk
 }
 
-func withApprovedToolArgumentsHash(ctx context.Context, hash string) context.Context {
-	return context.WithValue(ctx, approvedToolArgumentsHashContextKey{}, hash)
+func withApprovedToolArguments(ctx context.Context, intended json.RawMessage) context.Context {
+	return context.WithValue(ctx, approvedToolArgumentsContextKey{}, append(json.RawMessage(nil), intended...))
 }
-
-func approvedToolArgumentsHash(ctx context.Context) string {
-	hash, _ := ctx.Value(approvedToolArgumentsHashContextKey{}).(string)
-	return hash
+func approvedToolArguments(ctx context.Context) json.RawMessage {
+	raw, _ := ctx.Value(approvedToolArgumentsContextKey{}).(json.RawMessage)
+	return append(json.RawMessage(nil), raw...)
 }
 
 func withSessionSandbox(ctx context.Context, mode domain.SandboxMode, policy domain.ApprovalPolicy) context.Context {
@@ -120,4 +120,14 @@ func withDirectShell(ctx context.Context) context.Context {
 func isDirectShell(ctx context.Context) bool {
 	marked, _ := ctx.Value(directShellContextKey{}).(bool)
 	return marked
+}
+
+type approvedToolCallContextKey struct{}
+
+func withApprovedToolCall(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, approvedToolCallContextKey{}, id)
+}
+func approvedToolCall(ctx context.Context) string {
+	id, _ := ctx.Value(approvedToolCallContextKey{}).(string)
+	return id
 }
