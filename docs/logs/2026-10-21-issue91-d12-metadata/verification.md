@@ -29,3 +29,9 @@ strict guard correctly refused them. Corrected only those fixture declarations
 and registered immediate raw-handle cleanup. Both focused owner cases then pass
 (15.352s); the earlier whole native SQLite run otherwise passed until these two
 fixture failures. Independent Linux whole-owner verification remains required.
+
+Real PostgreSQL first attempt fails on reopen, exposing a catalog-derived shape
+bug: BIGSERIAL identity columns were omitted by the recognizer. The independent
+review found the same cause. A deterministic serial-column/key test fails first;
+normalizing that owned SQL spelling to PostgreSQL's reported BIGINT fixes it.
+Full fresh/reopen PostgreSQL rerun remains required.

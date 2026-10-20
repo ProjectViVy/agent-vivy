@@ -112,3 +112,15 @@ func TestD12RefusesTargetWithoutOperationKey(t *testing.T) {
 		t.Fatal("operation owner without primary key reopened")
 	}
 }
+
+func TestD12TargetShapeIncludesPostgresSerialIdentity(t *testing.T) {
+	items := []Migration{{SQL: `CREATE TABLE objects (
+ id BIGSERIAL PRIMARY KEY,
+ body BYTEA NOT NULL
+);`}}
+	columns := targetColumns(items)
+	keys := targetKeys(items)
+	if columns["objects"]["id"] != "BIGINT" || len(keys["objects"]) != 1 || keys["objects"][0] != "id" {
+		t.Fatalf("serial identity missing: %v/%v", columns, keys)
+	}
+}

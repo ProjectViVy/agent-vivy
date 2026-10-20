@@ -13,10 +13,10 @@ import (
 // ADD/DROP COLUMN grammar. Fresh/reopen parity tests fail closed on new grammar.
 var (
 	tableBodyPattern     = regexp.MustCompile(`(?is)CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s*\((.*?)\);`)
-	columnPattern        = regexp.MustCompile(`(?mi)^\s*([a-z_][a-z0-9_]*)\s+(TEXT|INTEGER|BIGINT|BLOB|BYTEA|REAL|BOOLEAN)\b`)
+	columnPattern        = regexp.MustCompile(`(?mi)^\s*([a-z_][a-z0-9_]*)\s+(TEXT|INTEGER|BIGINT|BIGSERIAL|BLOB|BYTEA|REAL|BOOLEAN)\b`)
 	tableKeyPattern      = regexp.MustCompile(`(?i)PRIMARY\s+KEY\s*\(([^)]+)\)`)
-	inlineKeyPattern     = regexp.MustCompile(`(?mi)^\s*([a-z_][a-z0-9_]*)\s+(?:TEXT|INTEGER|BIGINT|BLOB|BYTEA|REAL|BOOLEAN)\b[^\r\n]*PRIMARY\s+KEY`)
-	alteredColumnPattern = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+([a-z_][a-z0-9_]*)\s+(ADD|DROP)\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)(?:\s+(TEXT|INTEGER|BIGINT|BLOB|BYTEA|REAL|BOOLEAN)\b)?`)
+	inlineKeyPattern     = regexp.MustCompile(`(?mi)^\s*([a-z_][a-z0-9_]*)\s+(?:TEXT|INTEGER|BIGINT|BIGSERIAL|BLOB|BYTEA|REAL|BOOLEAN)\b[^\r\n]*PRIMARY\s+KEY`)
+	alteredColumnPattern = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+([a-z_][a-z0-9_]*)\s+(ADD|DROP)\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)(?:\s+(TEXT|INTEGER|BIGINT|BIGSERIAL|BLOB|BYTEA|REAL|BOOLEAN)\b)?`)
 )
 
 func targetColumns(items []Migration) map[string]map[string]string {
@@ -28,7 +28,11 @@ func targetColumns(items []Migration) map[string]map[string]string {
 				tables[name] = make(map[string]string)
 			}
 			for _, col := range columnPattern.FindAllStringSubmatch(table[2], -1) {
-				tables[name][strings.ToLower(col[1])] = strings.ToUpper(col[2])
+				kind := strings.ToUpper(col[2])
+				if kind == "BIGSERIAL" {
+					kind = "BIGINT"
+				}
+				tables[name][strings.ToLower(col[1])] = kind
 			}
 		}
 		for _, col := range alteredColumnPattern.FindAllStringSubmatch(item.SQL, -1) {
