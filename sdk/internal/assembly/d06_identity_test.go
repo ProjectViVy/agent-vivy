@@ -77,3 +77,28 @@ func TestD06UISelectionNeedsNoHashClaims(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerationIDSharedAcrossProjections(t *testing.T) {
+	const id = "authoring-projections"
+	plan := manifestTestPlan()
+	plan.Modules[0].Binding = GoBinding{ImportPath: "example.com/fixture/search", Package: "search", Constructor: "New", ProviderConstructor: "NewProvider"}
+	goSource, err := GenerateRuntimeAssembly(plan, "assembly", WithFormIdentity(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui, err := GenerateUIAssembly(UIAssemblyInput{GenerationID: id, SDKVersion: UIAssemblySDKVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, raw, err := SealManifest(plan, SealInputs{GenerationID: id, SpecificationVersion: "vivy.module/v1", CompilerVersion: "test", SDKVersion: "v1", CanonicalRecipe: []byte(`{}`), UI: &ui.Manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected, err := InspectManifest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(goSource, []byte(id)) || !bytes.Contains(ui.Source, []byte(id)) || manifest.GenerationID != id || inspected.GenerationID != id || inspected.UI == nil || inspected.UI.GenerationID != id {
+		t.Fatal("Generation identity differs across Go, UI, manifest and Inspect")
+	}
+}

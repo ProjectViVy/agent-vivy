@@ -69,3 +69,11 @@ rows, refresh preserves it, and backend-confirmed English-to-Chinese language
 change renders the compiled catalog after reload. Screenshots accompany this log.
 Home/config are disposable /tmp/vivy-d06-browser, never tenant data; both owned
 split processes stopped after the walkthrough.
+
+The shared core closure is now integrated as d0b4ff3c (source9066373d): paired037,
+existing explicit ApplyManifest copied-target conversion, no runtime old-store
+upgrade, exact035 history preservation and read-only intermediate036 refusal.
+SQLite and actual PostgreSQL evidence is in the linked core log. The final
+unused sha256-shaped evidence-ID whitelist is deleted; portable repository-relative
+paths remain authoritative. Native foreign-path and Go/UI/Manifest/Inspect shared-ID
+regressions pass. Final integrated acceptance is still pending the exact-source gates.
