@@ -276,6 +276,7 @@ func TestPackGoHostSealedExternalArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pack go-host: %v", err)
 	}
+	t.Logf("external fixture=testdata/go-host target=go-host generation=%s", artifact.Manifest.GenerationID)
 	binaryName := artifactHostBinaryName(runtime.GOOS, "gohost")
 	binary := filepath.Join(opts.Output, binaryName)
 	info, err := os.Stat(binary)

@@ -51,7 +51,7 @@ func TestSupportStateRejectsUnsafeEvidenceIdentifiers(t *testing.T) {
 	evidence["std/tool@v1"] = proof
 
 	_, err := generationconformance.EvaluatePortSupport(port.PublicCatalog(), evidence, assemblyv1.SupportedPortConformance())
-	if err == nil || !strings.Contains(err.Error(), "safe repository-relative or opaque identifier") {
+	if err == nil || !strings.Contains(err.Error(), "safe repository-relative identifier") {
 		t.Fatalf("EvaluatePortSupport() error = %v, want unsafe evidence rejection", err)
 	}
 }

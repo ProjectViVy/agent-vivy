@@ -852,6 +852,7 @@ func (provider) Invoke(context.Context, toolport.Host, json.RawMessage) (toolpor
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("external module=acme/greet source=file:test generation=%s", artifact.Manifest.GenerationID)
 	if _, err := InspectArtifact(artifact.Directory); err != nil {
 		t.Fatal(err)
 	}

@@ -162,7 +162,7 @@ The human gate remains: the Studio process must not release automatically. A hum
 ### 5.2 `vivy.exe` (Authority: Daily Life)
 
 - Sessions, Journal, approvals, Ask User, budget, recovery
-- Read-only identity: binary hash, current recipe, tool names (`inspect`)
+- Read-only identity: binary/build identity and Generation ID, current recipe, tool names (`inspect`)
 - Resident model keys
 - Same-binary `vivy worker`
 
