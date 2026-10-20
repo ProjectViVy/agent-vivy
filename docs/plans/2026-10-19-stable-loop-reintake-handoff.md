@@ -1,6 +1,6 @@
 # Stable loop first, then gated capability re-intake
 
-Date: 2026-10-19
+Date: 2026-10-19; scope refreshed 2026-10-20
 
 Authority: [shared deletion design](2026-10-19-complete-deletion-plan.md) and
 [#91 planning index](../superpowers/plans/issue-91/index.md). This supplement
@@ -8,6 +8,11 @@ clarifies sequencing and handoff; it does not authorize implementation, change
 product scope, replace technical contracts or certify any behavior.
 
 ## Intent and baseline
+
+Current working baseline (2026-10-20):
+`stable@fde3c1f96f086507a35e52689e58fc6e4db981b4`, smoke-tested by the owner.
+The #91 index records the current kickoff order; the baseline-A references
+below explain its ancestry and original plan, not a request to reset stable.
 
 The rollback selects a stable place to refine the agent loop, not abandonment of
 post-baseline capabilities. Baseline A is
@@ -54,20 +59,22 @@ and other unlisted newer stores fail closed before writes; future support needs
 its own reviewed decision and fixtures. No production data access, resets or
 released-migration rewrites are authorized.
 
-## Phase B: Extract retained experiments separately
+## Phase B: Extract retained first-party plugins
 
 [E-NUDGE](../superpowers/plans/epic-nudge/index.md),
 [E-WARMING](../superpowers/plans/epic-warming/index.md) and
-[E-STEERING](../superpowers/plans/epic-steering/index.md) own package parity,
-settings/UI/events/recovery, core-body removal and final C11 physical omission.
-Their acceptance includes selected behavior, none/each/all composition and
-independent integrated artifact inspection, not merely an inert seam.
+[E-STEERING](../superpowers/plans/epic-steering/index.md) remain the component
+tracks under #93. The owner revised their direction on 2026-10-20: keep the
+three behaviors on the current stable line and require ordinary first-party
+pluginization later. Do not move them into `plugins/exp/` or apply the former
+default-exclusion choices for nudge/warming.
 
-Preserve the owner's selection decisions: nudge and warming are not installed
-in the shipped default-family/lite/masks Recipes; do not infer steering is
-default-disabled. Nudge's count-6 repeated-tuple hard stop moves with nudge;
-core MaxToolTurns/Eino MaxIterations remain when nudge is absent. Package
-cutover leaves one implementation, never core-plus-package fallback.
+[C11](2026-10-19-complete-deletion-plan.md#101a-c11-retained-behavior-and-required-first-party-plugin-extraction)
+is the sole current scope authority. Re-plan the older extraction drafts against
+stable's typed agentic APIs before execution. Actual extraction still requires
+Module/Port/Host ownership, generated selection, behavior/recovery parity and
+one implementation after cutover. Keeping the current code is not completion
+of pluginization. This later delivery does not block the near-term #91 cuts.
 
 ## Phase C: Re-introduce capabilities in reviewed batches
 

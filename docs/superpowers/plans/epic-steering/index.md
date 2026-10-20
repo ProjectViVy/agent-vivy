@@ -1,4 +1,17 @@
-# E-STEERING: species-selected experimental same-Run steering
+# E-STEERING: Retained steering and later first-party plugin extraction
+
+**Current status (2026-10-20): retain the stable implementation; re-plan before
+extraction.** The owner explicitly chose to keep current behavior now and
+require ordinary pluginization later under #93. Do not create `plugins/exp/`
+or apply this draft's experimental Recipe policy.
+[C11](../../../plans/2026-10-19-complete-deletion-plan.md#101a-c11-retained-behavior-and-required-first-party-plugin-extraction)
+is the current scope authority. S00–S03 remain reference drafts; their
+experimental identities, Recipes and old Eino APIs are not executable plans.
+Re-anchor them to stable's typed middleware, preserving same-Run steering and
+durable queue/recovery behavior. Keeping core code is not completion of
+pluginization.
+
+## Historical extraction draft (2026-10-19)
 
 Epic package for the owner decision of 2026-10-19: nudge, warming and steering are
 retained as **independent epics** and **explicit species-selected experimental

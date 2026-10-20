@@ -2,7 +2,7 @@
 
 Date: 2026-10-19
 
-Tracking: [GitHub issue #91](https://github.com/ProjectViVy/agent-vivy/issues/91). Plan branch: `feat/agent-loop-deletion` (baseline A); original plan branch: `codex/agent-loop-deletion`.
+Tracking: [GitHub issue #91](https://github.com/ProjectViVy/agent-vivy/issues/91). Current working baseline: `stable@fde3c1f96f086507a35e52689e58fc6e4db981b4`. Earlier planning branches: `feat/agent-loop-deletion` and `codex/agent-loop-deletion`.
 
 Executable planning package: [issue-91/index.md](../superpowers/plans/issue-91/index.md).
 Phase and handoff supplement: [stable loop and gated feature re-intake](2026-10-19-stable-loop-reintake-handoff.md).
@@ -13,7 +13,7 @@ requires a separate implementation handoff. Scope is settled; concrete upstream
 delivery and verification prerequisites remain in the index. The issue's embedded snapshot
 is historical and does not override this linked package.
 
-Owner scope update (2026-10-19): **retain nudge/coaching, proactive warming and same-Run steering as species-selected experimental packages**. Their whole-feature-retirement alternatives below are superseded; D04/D05 in the linked package preserve actual features while removing custom hashes/redundant coordination. Tool-visibility/durability choices remain separate. No runtime deletion has occurred.
+Owner scope update (2026-10-20): **retain nudge/coaching, proactive warming and same-Run steering on the current stable line, with an explicit requirement to make them ordinary first-party plugins.** Do not move them into `plugins/exp/` or remove their current availability under the earlier experimental-Recipe policy. Keep one current implementation while #91 progresses; #93 owns the later plugin extraction and its acceptance. Section 10.1a is the current scope authority and supersedes experimental names, locations and default-omission instructions in the earlier drafts. No plugin extraction or runtime deletion is claimed by this update.
 
 Baseline A and delivery split (2026-10-19): the implementation baseline is `202aac38` (2026-10-07), the last stable pi-parity closeout that passed benchmark runs. The original comparison to `e9609296` counted 168 commits and 30 first-parent merges after it. That is a historical inventory, not the current distance to main: main was observed at `c57dfd322a50daf5ac2365369e84f81f1733a8b2` after PR #84 merged on 2026-10-19. Post-baseline work is retained as capability backlog and donor evidence, not assumed present or approved for wholesale restoration; re-review and re-introduce it in gated batches without rebasing this stable branch. This plan and the linked package were authored at `e9609296` (2026-10-18) and replayed onto baseline A; 10-18-only file references are re-anchored in the [baseline-A audit](../research/2026-10-19-baseline-a-reanchor.md). Issue #91's base cut lands hash deletion, the core contraction and the inert loop-exp seam; the three retained packages are delivered as the independent [E-NUDGE](../superpowers/plans/epic-nudge/index.md), [E-WARMING](../superpowers/plans/epic-warming/index.md) and [E-STEERING](../superpowers/plans/epic-steering/index.md) epics. Until each epic lands, the corresponding behavior stays in one core implementation; C11 physical omission is claimed only by the epics, never by #91. D07 stays in the package as an explanatory step: the bundle/toolkit subsystem does not exist at baseline A, so it has no deletion work here, and D07 owns the checkpoint for re-introducing the 2026-10-08..10-18 bundle/toolkit work hash-free before any such batch merges.
 
@@ -256,67 +256,53 @@ producers exist. Section 11 resolves their technical design; the index records
 accepted predecessor evidence before any dependent Story becomes Ready. Tests named in Story plans are proposed unless
 explicitly identified as existing.
 
-### 10.1a C11: Explicit species-selected experimental packages
+### 10.1a C11: Retained behavior and required first-party plugin extraction
 
-This owner-approved amendment affects only nudge, warming and steering. The
-other cuts and existing technical/data/security gates continue as planned.
+Current owner decision: 2026-10-20, against `stable@fde3c1f9`. This replaces
+the 2026-10-19 experimental-package and default-exclusion decisions for these
+three components. The other hash-deletion cuts and data/security gates remain.
 
-| Proposed Module | Proposed source path | Selected behavior |
+| Component | Current delivery | Required plugin outcome under #93 |
 | --- | --- | --- |
-| vivy/exp-nudge | `plugins/exp/nudge/` | Real threshold/window/template coaching and scheduling event |
-| vivy/exp-warming | `plugins/exp/warming/` | Actual eligible, budgeted, accounted maintenance request |
-| vivy/exp-steering | `plugins/exp/steering/` | Active instruction changes with the same RunID and durable queue semantics |
+| Nudge | Keep coaching, thresholds/window and the existing loop stop on stable | Ordinary first-party plugin owning the policy and scheduling contribution |
+| Warming | Keep current availability and the existing off/streaming/idle configuration | Ordinary first-party plugin owning eligibility/policy, with accounted provider work through the Host |
+| Steering | Keep same-Run user steering and its durable queue/recovery behavior | Ordinary first-party plugin owning steering policy and feature surfaces |
 
-Use explicit Recipe source selection and generated Assembly. All unselected
-Recipes, including minimal, omit package implementation, constructors, feature
-state reads, registration, provider work, RPC/control actions and UI controls.
-Shared historical event readers can still display old records without activating
-these features. A request for an uncompiled capability reports NOT_COMPILED;
-never silently accepts a live setting/action and does nothing. For selected
-packages, existing config determines runtime behavior (e.g. warming off versus
-streaming). No runtime directory scanning or unconditional engine imports.
+Near-term delivery preserves the existing single implementations. Moving a
+directory or documenting an interface does not complete pluginization. Do not
+create `plugins/exp/{nudge,warming,steering}`, use the proposed `vivy/exp-*`
+identities, or apply the old instruction to omit nudge/warming from shipped
+default-family Recipes. Retaining warming does not enable paid requests when
+its existing configuration says off.
 
-The generic core retains tool feedback, authorization, exact approval binding,
-durable effect outcomes, mandatory paid-call accounting, cancellation and native
-Eino checkpoint/resume. Package-owned algorithms/policy/UI move out; only the
-small selected Host/Eino adapter remains in runtime/provider. Experimental code
-must not import quarantined Eino or access raw Journal/Policy/storage/credentials.
-Custom hashes are deleted throughout, including these experimental packages.
+The required later cut uses explicit Recipe/generated Assembly selection,
+typed T1 Module/Port/Host ownership, real policy implementation, lifecycle and
+Inspect projection. Preserve stable's shipped capability availability when
+choosing the ordinary plugin identities and Recipe entries. Test selected
+behavior and physical omission in Recipes that deliberately omit a plugin.
+Cutover removes the replaced core body in the same delivery; never ship
+core-plus-plugin fallback, a second Runner or a second queue.
 
-Baseline A findings: the three features exist only as unconditional core code
-(`engine.go` around line 376, `service.go` around lines 2948/4643, `queue.go`);
-nudge has no config/UI, warming is config-only with off/streaming/idle (idle
-uses a timer), steering has RPC/UI but no located custom hash binding. The
-loop-detection hard stop fused with the nudge window in
-`internal/runtime/loopguard.go` is owned by the E-NUDGE package (owner decision
-2026-10-19): D04 keeps it in core only as the interim implementation, and N03
-deletes the core body after cutover, with the `Stop` decision crossing the seam.
-Unselected species then rely on the existing `MaxToolTurns`/Eino `MaxIterations`
-cap — an explicit owner-approved product consequence. Warming is opt-in (owner
-decision 2026-10-19): the shipped default-family Recipes do not select
-`vivy/exp-warming`, so the default species has no warming behavior; only the
-explicit experimental Recipes select it. Nudge is likewise not installed for now
-(owner decision 2026-10-19, provisional and revisited later): the default-family
-and lite/masks Recipes do not select `vivy/exp-nudge`, so the default species
-relies on `MaxToolTurns` for loop protection and has no coaching. C11 is the
-target contract delivered by the epics, not by #91.
+The core retains tool feedback, authorization, exact approved intent, durable
+effect outcomes, paid-call accounting, cancellation and native Eino recovery.
+Only `internal/runtime/` and `internal/provider/` import Eino. The current
+stable already uses Eino v0.9.21, `schema.AgenticMessage`,
+`adk.NewTypedChatModelAgent`, `adk.NewTypedRunner` and typed middleware.
+Re-anchor the older extraction drafts to those APIs before executing them.
 
-Verified seam gap: sdk/port/observer is bounded post-commit observation and
-sdk/port/pretool only constrains pre-tool execution. Neither supplies these
-three policy boundaries. Sections 11.1–11.5 resolve the gap with three closed
-T1-only factory Ports, pure SDK contracts and selected runtime adapters. No
-Observer privilege escalation, untyped registry or raw Service/Runner exposure
-is permitted. D04/D05 consume that settled design and accepted predecessors. The package implementations are delivered by the independent E-NUDGE, E-WARMING and E-STEERING epics; #91 lands only the seam and the hash/handoff cuts.
+D04's FNV/handoff contraction remains in #91, with coaching preserved. D05
+preserves warming/steering and removes only a confirmed duplicate or hash
+coupling. Reconcile their proposed inert factory bindings with the ordinary
+plugin direction before their implementation; #93 extraction is not a
+prerequisite for D01/D02 or independent model-tool-model proof.
 
-Proposed explicit test Recipes live at recipes/exp-nudge.vivy.yml,
-recipes/exp-warming.vivy.yml, recipes/exp-steering.vivy.yml and
-recipes/exp-loop-features.vivy.yml. Verify none/each/all selection, real behavior
-and physical omission with the simplified SDK generation from D06 when the
-owning EXP epics deliver their packages. D13/D14 accept the phase-A base path
-and interim single implementation, not an unimplemented none/each/all matrix.
-The epics own that later matrix and its integrated independent acceptance. An existing paused
-steer opened by a species lacking the package is explicitly unavailable/recovery-
-required under G2; it must not instantiate a hidden legacy steering path.
+Sections 11.1–11.5 and the N00–N03/W00–W03/S00–S03 documents retain useful
+ownership and acceptance design, but their experimental names, source paths,
+Recipe choices and old Eino signatures are reference drafts, not executable
+instructions. The three epic indexes flag this re-planning boundary. #93
+remains open until actual plugin extraction, parity and composition evidence
+exist; retaining current code alone does not complete it. D13/D14 cannot claim
+physical omission of these three components before that delivery.
 
 ### 10.2 Finite data transition
 

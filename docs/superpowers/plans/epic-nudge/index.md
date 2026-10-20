@@ -1,4 +1,16 @@
-# E-NUDGE: Species-selected experimental nudge/coaching epic
+# E-NUDGE: Retained nudge and later first-party plugin extraction
+
+**Current status (2026-10-20): retain the stable implementation; re-plan before
+extraction.** The owner explicitly chose to keep current behavior now and
+require ordinary pluginization later under #93. Do not create `plugins/exp/`
+or apply this draft's earlier default-omission instructions.
+[C11](../../../plans/2026-10-19-complete-deletion-plan.md#101a-c11-retained-behavior-and-required-first-party-plugin-extraction)
+is the current scope authority. N00–N03 remain reference drafts; their
+experimental identities, Recipes and old Eino APIs are not executable plans.
+Re-anchor them to stable's typed agentic APIs and preserve coaching plus the
+existing loop stop. Keeping core code is not completion of pluginization.
+
+## Historical extraction draft (2026-10-19)
 
 Baseline: branch `feat/agent-loop-deletion`, worktree at the rolled-back stable baseline
 `202aac38` (2026-10-07 tree). Planning only: no runtime deletion, regeneration, product CI

@@ -1,8 +1,8 @@
 # Issue #91: Complete deletion planning package
 
-Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Plan branch: `feat/agent-loop-deletion` (baseline A) · Original plan branch: `codex/agent-loop-deletion`.
+Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Current baseline: `stable@fde3c1f96f086507a35e52689e58fc6e4db981b4` · Earlier planning branches: `feat/agent-loop-deletion`, `codex/agent-loop-deletion`.
 
-**Current outcome:** design amendment, 14 executable baseline Story plans plus explanatory D07 (D00–D14), immediate dependency DAG, migration gates and independent acceptance plan, re-anchored to the 2026-10-07 stable baseline (`202aac38`) with the three retained experimental packages split into independent epics (E-NUDGE, E-WARMING, E-STEERING). This is a planning deliverable; no runtime deletion, migration, regeneration, product CI, post-deletion audit or incident-root-cause proof is claimed.
+**Current outcome (2026-10-20):** scope and kickoff order refreshed against the owner-tested stable branch. #91 keeps the deletion/contraction work; #93 retains nudge, warming and steering with a required later first-party plugin extraction. The earlier EXP placement/default-exclusion plan is superseded by C11. Story implementation and acceptance remain pending; this update changes no runtime, data or generated product.
 
 Phase/handoff: [stable loop and gated feature re-intake](../../../plans/2026-10-19-stable-loop-reintake-handoff.md). This supplement sets phase applicability, not a second technical specification.
 
@@ -12,27 +12,54 @@ Phase/handoff: [stable loop and gated feature re-intake](../../../plans/2026-10-
 - Source evidence: [core deletion insight](../../../research/2026-10-19-agent-loop-core-deletion-insight.md) and [slimming review](../../../research/2026-10-19-agent-loop-slimming-review.md). These are source findings and proposals, not product acceptance.
 - Plan authored against `e96092966cfbfa443648374948e7e7e16dd01683` (2026-10-18). **Implementation baseline A:** `202aac38` (2026-10-07, last stable and benchmarked pi-parity closeout); the original plan's docs-only commits were replayed onto that baseline. File references from the 10-18 tree are re-anchored in the [baseline-A audit](../../../research/2026-10-19-baseline-a-reanchor.md); do not cite a 10-18-only path as present.
 - Root/UI AGENTS and relevant plugin/kernel/Eino skills were read. Two independent read-only domain reviews checked runtime/approval and assembly/persistence. No production state was accessed; the historical external audit used the pins recorded in §11.10. INOFY's pin is unchanged; current baseline-A Laputa/Studio pins differ and their API findings remain unverified until inspected. No inspection of the current pins is claimed by this supplement.
-- Planning docs/commit messages are English. Current user asked for a plan package, so implementation is not started. All Stories have concrete contracts. Architecture choices are recorded; upstream delivery, accepted implementation predecessors and product evidence remain separate prerequisites.
+- Planning docs/commit messages are English. The original 2026-10-19 delivery was planning-only. The current owner requests prompt kickoff of #91 and explicitly retains the #93 implementation pending later pluginization; applicable predecessors, source revalidation and product evidence remain required.
 
-## Owner-confirmed scope update (2026-10-19)
+## Current scope and near-term kickoff (2026-10-20)
 
-The owner requires **nudge, warming and steering to remain as explicit species-selected experimental packages**. Their former whole-feature-retirement recommendation is superseded. D04/D05 settle the inert loop-exp seam and remove hash/handoff coupling only; the full package extraction is owned by the independent epics E-NUDGE, E-WARMING and E-STEERING. These packages are absent from minimal and every Recipe that does not select them; selected Recipes retain their full settings/UI/events/behavior. Selection is through Recipe/generated Assembly, not a hidden always-compiled switch. All other deletion/simplification cuts, data/security constraints and unresolved technical evidence continue under the existing plan; do not extend experimental retention to other mechanisms. No runtime work has started.
+The owner wants the other #91 work to start promptly and keeps the three #93
+components on the current branch, with pluginization explicitly required.
+[C11](../../../plans/2026-10-19-complete-deletion-plan.md#101a-c11-retained-behavior-and-required-first-party-plugin-extraction)
+owns the revised scope: preserve current behavior, use ordinary first-party
+plugins, and discard the earlier EXP placement/default-exclusion instructions.
+The owner-confirmed sequence is to retain the implementation now and carry out the
+actual extraction later under #93. Do not label existing core code a completed
+plugin.
 
-Latest selection decision: [experimental-package verification](../../../logs/2026-10-19-issue-91-experimental-selection/verification.md).
+| Order | Work | Concrete completion boundary |
+| --- | --- | --- |
+| 1 | D00 re-anchor and causal regression baseline | Use `stable@fde3c1f9`, current pins and agentic APIs; capture real tool result/call ID in the second model request, final terminal/idle, with existing approval/cancel/recovery checks. Human smoke is useful baseline evidence, not full #91 acceptance. |
+| 2 | D01, then D02 | Remove default digest audit, then align completion/request producers and Face consumers without custom hashes. Verify each bounded cut; retain mandatory Journal behavior and framing. |
+| 3 | D03 and D06, sequenced through shared owners | Preserve exact tool/approval intent while removing digest binding; simplify source/Assembly/UI generation. Keep current feature selection. |
+| 4 | D04, then D05 | Remove the extra result handoff/FNV with coaching intact; remove only demonstrated warming/steering coupling. Re-anchor their proposed factory bindings to C11 before execution. |
+| 5 | Remaining durable owners, minimal and final acceptance | D08–D12 follow their existing dependencies and finite conversion requirements; D13/D14 integrate the exact candidate. D12 may start earlier after its own D00 gate when capacity permits. |
 
-Scope-correction evidence: [retained-feature verification](../../../logs/2026-10-19-issue-91-retained-features/verification.md). Previous planning logs remain historical records of the superseded draft.
+This is a priority order, not a replacement dependency DAG or permission to
+skip migration/acceptance gates. No waiting for #93 package extraction before
+D01/D02. D07 remains outside the baseline executable DAG. Use one write lane;
+do not merge old main/remake donor branches to reconstruct this baseline.
+
+Eino capability check: stable already pins v0.9.21 and uses
+`adk.NewTypedChatModelAgent[*schema.AgenticMessage]`, `adk.NewTypedRunner` and
+`adk.TypedBaseChatModelAgentMiddleware[*schema.AgenticMessage]`. Preserve these
+native owners; revalidate any older text-generation signature at the affected
+cut. The provider/engine migration is already present and is not repeated.
+
+Latest record: [scope and kickoff verification](../../../logs/2026-10-20-issue91-stable-kickoff/verification.md).
+Earlier selection and retained-feature logs remain historical evidence.
 
 ## Baseline A and retained-package epics (2026-10-19)
 
 The owner chose `202aac38` (2026-10-07) as the implementation baseline because it is the last stable pi-parity state that passed benchmark runs; the original comparison through `e9609296` counted 168 commits and 30 first-parent merges, a historical inventory rather than current-main distance. Main was observed at `c57dfd322a50daf5ac2365369e84f81f1733a8b2` after PR #84 merged on 2026-10-19. Later work remains capability backlog/donor evidence to re-review and re-introduce in gated batches, not assumed present or discarded. The plan's docs-only commits were replayed onto this baseline on `feat/agent-loop-deletion`; the original `codex/agent-loop-deletion` branch remains history.
 
-Delivery split: #91 remains the base cut (hash deletion, core contraction, seam) and does not claim C11 physical omission on its own. The three retained experimental packages are delivered as independent epics:
+Delivery split: #91 remains the base cut (hash deletion, core contraction, seam).
+#93 owns actual first-party plugin extraction. The following component tracks
+are retained, but their experimental extraction drafts require re-planning:
 
-| Epic | Scope | Package | Stories |
+| Epic | Scope | Current disposition | Stories |
 | --- | --- | --- | --- |
-| [E-NUDGE](../epic-nudge/index.md) | Full nudge coaching extraction, parity, settings/UI/events/recovery, evidence and core-body deletion | `plugins/exp/nudge/` | N00–N03 |
-| [E-WARMING](../epic-warming/index.md) | Full warming extraction, parity, settings/UI/events/accounting/recovery, evidence and core-body deletion | `plugins/exp/warming/` | W00–W03 |
-| [E-STEERING](../epic-steering/index.md) | Full steering extraction, parity, settings/UI/events/queue recovery, evidence and core-body deletion | `plugins/exp/steering/` | S00–S03 |
+| [E-NUDGE](../epic-nudge/index.md) | Coaching plugin, parity and one implementation after cutover | Retain stable behavior; ordinary plugin extraction later | N00–N03 require re-planning |
+| [E-WARMING](../epic-warming/index.md) | Warming plugin, accounting and recovery | Retain current availability/configuration; ordinary plugin extraction later | W00–W03 require re-planning |
+| [E-STEERING](../epic-steering/index.md) | Steering plugin and same-Run queue/recovery | Retain stable behavior; ordinary plugin extraction later | S00–S03 require re-planning |
 
 Baseline evidence: [baseline-A re-anchor audit](../../../research/2026-10-19-baseline-a-reanchor.md) and [epic-split delivery record](../../../logs/2026-10-19-baseline-a-epic-split/summary.md). Re-introduction of post-baseline capabilities is the separate gated track in [#83](https://github.com/ProjectViVy/agent-vivy/issues/83), with [#81](https://github.com/ProjectViVy/agent-vivy/issues/81) retained as capability backlog. Phase A stabilizes the loop first; missing future batch coordination is not its blocker. Old PRs are evidence/donor diffs, never blanket merge instructions.
 
@@ -44,18 +71,21 @@ Baseline evidence: [baseline-A re-anchor audit](../../../research/2026-10-19-bas
 | R2 | One production model -> real tool -> exact result/call ID -> next model request -> final terminal/idle path, using existing Eino. | D02–D05, D08, D13–D14 |
 | R3 | Preserve approved intent, server permission/scope, durable ownership/outcomes, conflicts and no blind effect replay. | D03–D04, D08–D12; D07 only on later re-intake |
 | R4 | Finite supported data transition, fresh/upgrade/reopen/failure rollback and SQLite/Postgres/BML parity; no data reset. | D00, D03, D08–D12, D14; D07 only on later re-intake |
-| R5 | Delete selected mechanisms through their complete closure. Preserve nudge/warming/steering as explicit species-selected EXP packages, physically absent when unselected and functional when selected; no wrappers or unconditional wiring. | D01–D12, D14; E-NUDGE, E-WARMING, E-STEERING |
-| R6 | Regeneration and supported official Recipe/build variants preserve simplified contracts and physical omission. | D06, D13–D14 base path; EXP epics own C11 omission |
+| R5 | Delete selected mechanisms through their complete closure. Retain current nudge/warming/steering behavior and require ordinary first-party plugin extraction under C11; no duplicate execution path. | D01–D12, D14; #93 owns actual extraction |
+| R6 | Regeneration and supported official Recipe/build variants preserve simplified contracts and current capability availability. | D06, D13–D14 base path; #93 owns eventual plugin composition/omission |
 | R7 | Usable minimal, tiny real-token chat Face and complete runnable minimal-plus-feature examples after core contraction. | D13–D14 |
 | R8 | Independent behavior and residue reviewers, human real-token E2E and required exact-candidate CI before closure. | D14 |
 
 ## Architecture decisions and delivery prerequisites
 
-Hash retirement, the three retained EXP capabilities and all other agreed cuts remain settled. Section 11 now fixes the technical contracts below; none is a repeated product-scope question. Missing delivery/test evidence is explicit and is not supplied by architecture text.
+Hash retirement and the three retained capabilities remain settled. C11 revises
+their plugin placement and retention policy; the earlier §11 experimental
+bindings require re-anchoring before the affected implementation. Missing
+delivery/test evidence is explicit and is not supplied by architecture text.
 
 | Gate | Recommendation and exact decision | Blocks |
 | --- | --- | --- |
-| G1 Product and durability | Settled: three closed T1-only factories, pure SDK policies and selected runtime adapters (§11.1–11.5). Direct producer outcome -> native ToolMessage -> WrapModel; required effect/schedule/final/terminal/accounting commits stay mandatory. Keep current discovery semantics; remove proven duplicate authority only. | D04/D05 accepted implementation predecessors; no missing Host design or renewed scope question |
+| G1 Product and durability | Retain the typed T1 factory/Host design and direct producer outcome -> native ToolMessage -> WrapModel ownership. Re-anchor proposed bindings to C11 and stable's typed agentic APIs. Required effect/schedule/final/terminal/accounting commits stay mandatory; remove proven duplicate authority only. | D04/D05 accepted predecessors and affected binding revalidation; #93 package extraction is later |
 | G2 Supported data and finite upgrade | Settled matrix and target schema (§11.7–11.9): supported old normalizer -> 035 -> copied target T, BML2, explicit NULL/unbindable-input refusal and old-pause terminal mapping, separate Studio ledger. D14 assembles finite artifact. | Disposable fixture proof, all converter fragments and upgrade artifact delivery before final release |
 | G3 Release consent | Later D07 re-intake contract: opaque ArtifactID + release sequence/config revision; scoped fresh consent, preserved history/unknown effects (§11.7). No bundle/toolkit subsystem or converter at baseline A. | The batch that re-introduces bundle/toolkit, not phase-A loop work |
 | G4 Exact content and cursor trust | Bounded before/selection/presentation bytes in existing owners; ContinuityStore atomic presentation receipt, session/truncation pruning, separate transfer TTL. Stateless untrusted cursor reauthorized per page (§11.6). | D09 implementation/privacy/concurrency proof |
@@ -82,12 +112,12 @@ Planned = concrete plan exists, awaiting implementation handoff or accepted prer
 
 | Story | Epic / requirement | Outcome | Immediate predecessors | Plan | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- | --- | --- |
-| D00 | E0 / R1–R8 | Freeze scope and finite upgrade contracts | — | [D00](D00.md) | Planned | §11 architecture/source inspection recorded; implementation handoff and future product evidence pending |
-| D01 | E1 / R1,R5 | Delete digest audit and unused experimental hash code | D00 | [D01](D01.md) | Planned | Design review and implementation authorization |
-| D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Planned | §11.6 completion/historical path fixed; implementation authorization |
+| D00 | E0 / R1–R8 | Freeze scope and finite upgrade contracts | — | [D00](D00.md) | Planned — first kickoff task | C11 and kickoff order updated; finish affected stable source/pin revalidation before dependent edits |
+| D01 | E1 / R1,R5 | Delete digest audit and unused experimental hash code | D00 | [D01](D01.md) | Planned — first runtime cut | Default AuditHook confirmed on stable; execute after bounded D00 revalidation; absent donor-only code is not imported |
+| D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Planned — next runtime cut | Hash-based completion still present; re-anchor mapper/request changes to the typed agentic generation |
 | D03 | E2 / R1,R2,R3,R4 | Bind tool operations and approval to exact private inputs | D00 | [D03](D03.md) | Planned | §11.7 legacy binding/pending mapping fixed; accepted D00 and implementation handoff |
-| D04 | E3 / R1,R2,R3,R5,R6 | Settle the loop-exp seam and remove nudge FNV/handoff (nudge package is E-NUDGE) | D02, D03, D06 | [D04](D04.md) | Blocked | §11.1–11.4 seam settled; accepted D02/D03/D06 implementation outputs |
-| D05 | E3 / R1,R2,R3,R5,R6 | Settle the warming/steering seam and remove hash-only coupling (packages are E-WARMING/E-STEERING) | D04 | [D05](D05.md) | Blocked | §11.3/§11.5 lifecycle settled; accepted D04 implementation output |
+| D04 | E3 / R1,R2,R3,R5,R6 | Settle the typed seam and remove nudge FNV/handoff with coaching retained | D02, D03, D06 | [D04](D04.md) | Blocked | Accepted D02/D03/D06 outputs; re-anchor factory bindings to revised C11 and typed agentic APIs |
+| D05 | E3 / R1,R2,R3,R5,R6 | Settle the warming/steering seam and remove confirmed hash/duplicate coupling | D04 | [D05](D05.md) | Blocked | Accepted D04 output; reconcile proposed bindings while preserving stable behavior |
 | D06 | E4 / R1,R5,R6 | Delete source, Assembly and UI evidence generation end to end | D00 | [D06](D06.md) | Blocked | Accepted D00/implementation handoff; current Studio consumer inspection pending for affected closure only, not independent core generation/seam proof |
 | D07 | E4 / R1,R3,R4,R5 | Replace bundle and toolkit content addressing with owned releases | — | [D07](D07.md) | Retained — explanatory | Owner decision 2026-10-19: baseline A has no bundle/toolkit subsystem, so no deletion here; D07 is the re-intake checkpoint (resolve content-addressed identity/consent before a batch from `backup/main-pre-rollback-20261019` merges) |
 | D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03 | [D08](D08.md) | Blocked | §11.7 checkpoint/Run transition fixed; accepted D03 output, no D07 baseline dependency |
@@ -104,7 +134,9 @@ D00 supplies C1–C11/§11/G1–G5, not code; required upstream version/pin deli
 
 Edges are prerequisite inputs, not a priority ranking. Wave two starts after the common D00 scope freeze. D12 is an independent format/metadata cut after that freeze; feature-specific SQL is owned by its individual Story, not a late central column-drop task.
 
-D06 -> D04 supplies simplified source/Assembly and the inert factory seam. Physical optional-package selection is delivered and accepted by the EXP epics.
+D06 -> D04 supplies simplified source/Assembly and the inert factory seam.
+Reconcile its bindings with C11; #93 delivers actual plugin selection and
+physical omission later.
 
 D03 -> D08 supplies private invocation/approval bindings with no D07 dependency. Two transitive-looking edges carry separate real inputs and are intentional: D03 -> D11 supplies claim/replay and intended-request semantics independently of D08's admitted snapshot; D06 -> D13 supplies pack/generator APIs independently of D08's runtime admission contract. All other redundant transitive edges are omitted.
 
@@ -137,13 +169,13 @@ Waves describe dependencies, not permission for simultaneous edits. No elapsed-t
 | Causal tool continuation | Real isolated nonce read; captured second model request contains exact result + call ID; final text, one terminal, idle | D04, D13, independent D14 |
 | Intent and crash safety | Changed original input conflicts; canonical approval binding; sibling resume; admitted/claimed/effect/completed crash matrix; no blind replay | D03, D08–D11 |
 | Phase-A retained behavior/seam | Single existing core coaching/warming/same-Run steering remains real behind the interim seam, no dual implementation; causal loop, cancellation/durability/budgets remain authoritative. No C11 omission claim. | D04–D05, D13–D14 baseline candidate |
-| Later EXP integration and physical omission | Each selected package works, all three compose, and no unselected implementation/constructor/state read/registration/call/control ships. Preserve full parity, owner Recipe decisions and core behavior without packages. Not accepted until those packages exist. | E-NUDGE/E-WARMING/E-STEERING, including their integrated independent acceptance; not an extra #91 predecessor |
+| Later first-party plugin integration | Preserve shipped behavior through extraction; selected plugins work, all three compose, deliberate omissions omit implementation/control. Current core retention is not plugin completion. | #93 and the re-planned component tracks; not an extra #91 predecessor |
 | Content/privacy | Same-length stale edits conflict, authorized selection exact, foreign cursor cannot gain scope, immutable chunks, no private arguments in public events | D03, D09 |
 | Supported data | Approved source matrix -> target on disposable SQLite/Postgres/BML, reopen/failure rollback; unknown effects/old pauses explicit; no old runtime reader | D03, D08–D12; D07 only on later re-intake |
 | Generation/residue | Source-first removal, double regeneration idempotent with same ID, official Recipe/artifact inspection, exact remaining-match dispositions | D06, D14 |
 | Retained baseline capabilities | Real reviewed skill/memory and Work/workflow/notes behavior under simplified contracts; actual upstream seams retain their gates | D10–D11 |
 | Later capability re-intake | Bundle/toolkit release consent/rollback, report/new-notebook and other post-baseline capabilities get complete reviewed authority/data/acceptance closure in their batch | #83 coordination, #81 backlog; D07 where applicable |
-| Usable baseline minimal | Runnable minimal + feature examples, actual existing Module omission contract, production tiny Face with human real tokens; EXP physical omission remains with epics | D13–D14 |
+| Usable baseline minimal | Runnable minimal + feature examples, actual existing Module omission contract, production tiny Face with human real tokens; omission of the three retained components belongs to later #93 acceptance | D13–D14 |
 | Final closure | Two fresh non-author subagents accept behavior and residue at exact final candidate; just ci + real Postgres + BML + affected real-path checks | D14 |
 
 ## Detailed architecture update
