@@ -20,7 +20,7 @@ interface RulesPanelProps {
 }
 
 /**
- * MEMRULES handbook editor. rules.write is guarded by a exact content and existence CAS:
+ * MEMRULES handbook editor. rules.write is guarded by exact content and existence CAS:
  * the values from the latest rules.read go back as preconditions, and a
  * conflict reloads the authoritative copy instead of overwriting it.
  */
