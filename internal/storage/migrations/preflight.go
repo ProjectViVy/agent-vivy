@@ -36,40 +36,48 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUnsupportedSourceFormat, err)
 	}
-	if !columns["version"] || !columns["applied_at"] || columns["name"] != columns["checksum"] {
+	if !columns["version"] || !columns["applied_at"] {
 		return fmt.Errorf("%w: partial migration metadata", ErrUnsupportedSourceFormat)
 	}
-	if !columns["name"] {
+	if len(columns) == 2 && !columns["name"] && !columns["checksum"] {
 		return preflightLegacy(ctx, db, dialect, tables, manifest)
+	}
+	old := len(columns) == 4 && columns["name"] && columns["checksum"]
+	if !old && !finalMetadataColumns(columns) {
+		return fmt.Errorf("%w: partial or unknown migration metadata", ErrUnsupportedSourceFormat)
 	}
 	applied, err := readApplied(ctx, db, dialect, manifest)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrUnsupportedSourceFormat, err)
-	}
-	if len(applied) == 0 {
-		return fmt.Errorf("%w: metadata without initialized schema", ErrUnsupportedSourceFormat)
-	}
-	for i := 1; i <= len(applied); i++ {
-		if !applied[int64(i)] {
-			return fmt.Errorf("%w: noncontiguous migration metadata", ErrUnsupportedSourceFormat)
-		}
-	}
-	items := manifest.Migrations(dialect)
-	if err := verifySourceTables(tables, items[:len(applied)]); err != nil {
 		return err
 	}
-	if len(applied) < len(items) {
-		if len(applied) > 35 {
+	items := manifest.Migrations(dialect)
+	head := len(applied)
+	if err := verifySourceTables(tables, items[:head]); err != nil {
+		return err
+	}
+	if old {
+		if head > 36 {
 			return fmt.Errorf("%w: unlisted post-baseline source", ErrUnsupportedSourceFormat)
 		}
-		if len(applied) >= 31 {
-			if err := validateOperationShape(ctx, db, dialect, false); err != nil {
+		if head >= 31 {
+			if err := validateOperationShape(ctx, db, dialect, head == 36); err != nil {
 				return err
 			}
 		}
-		return ErrUpgradeRequired
+		return fmt.Errorf("%w: old migration metadata; convert a copy using the finite upgrade artifact", ErrUpgradeRequired)
 	}
-	// A migration number alone is never evidence of the converted target.
+	if err := validateFinalMetadata(ctx, db, dialect); err != nil {
+		return err
+	}
+
+	// 036 is the current candidate barrier, not D14's final target T. Its name
+	// and operation shape distinguish it from the unsupported notebook lineage.
+	if head < 36 || items[35].Name != "tool_operation_private_binding" {
+		return fmt.Errorf("%w: incomplete candidate metadata", ErrUnsupportedSourceFormat)
+	}
+	if err := validateTargetColumns(ctx, db, dialect, items[:head]); err != nil {
+		return err
+	}
 	return validateOperationShape(ctx, db, dialect, true)
 }
 
@@ -106,9 +114,9 @@ func validateOperationShape(ctx context.Context, db *sql.DB, dialect Dialect, bo
 }
 
 func sourceTables(ctx context.Context, db *sql.DB, dialect Dialect) (map[string]bool, error) {
-	query := `SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT GLOB 'sqlite_*'`
+	query := `SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT GLOB 'sqlite_*'`
 	if dialect == Postgres {
-		query = `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()`
+		query = `SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = current_schema()`
 	}
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
@@ -117,11 +125,11 @@ func sourceTables(ctx context.Context, db *sql.DB, dialect Dialect) (map[string]
 	defer rows.Close()
 	tables := map[string]bool{}
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var name, kind string
+		if err := rows.Scan(&name, &kind); err != nil {
 			return nil, err
 		}
-		tables[name] = true
+		tables[name] = kind == "table" || kind == "BASE TABLE"
 	}
 	return tables, rows.Err()
 }

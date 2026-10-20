@@ -1,18 +1,14 @@
 package postgres
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage/migrations"
 )
 
@@ -232,13 +228,10 @@ CREATE INDEX session_compactions_session_idx ON session_compactions(session_id, 
 
 var upgradeSeq atomic.Uint64
 
-// TestMigrateUpgradesV14InPlace explicitly converts a disposable hand-built
-// version-14 fixture, then opens its target: conversion must ALTER messages
-// (legacy rows survive with empty provenance), normalize the legacy marker
-// sequence, and keep accepting provenance-bearing appends. Conformance always
-// bootstraps fresh schemas, so without this test the upgrade branch never
-// executes in CI.
-func TestMigrateUpgradesV14InPlace(t *testing.T) {
+// TestMigrateRefusesV14BeforeWrites proves the runtime refuses a known legacy
+// store without changing its metadata or historical event bytes. Executable
+// normalization and preservation coverage lives in the finite artifact module.
+func TestMigrateRefusesV14BeforeWrites(t *testing.T) {
 	dsn := os.Getenv("VIVY_POSTGRES_TEST_DSN")
 	if dsn == "" {
 		t.Skip("VIVY_POSTGRES_TEST_DSN not set")
@@ -299,211 +292,19 @@ func TestMigrateUpgradesV14InPlace(t *testing.T) {
 	if err := migrations.Apply(ctx, setup, migrations.Postgres); !errors.Is(err, migrations.ErrUpgradeRequired) {
 		t.Fatalf("runtime old source = %v", err)
 	}
-	manifest, err := migrations.Embedded()
-	if err != nil {
+	var count int
+	if err := setup.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("refusal changed metadata: %d %v", count, err)
+	}
+	var cols int
+	if err := setup.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='schema_migrations'`).Scan(&cols); err != nil || cols != 2 {
+		t.Fatalf("refusal changed schema: %d %v", cols, err)
+	}
+	var payload []byte
+	if err := setup.QueryRow(`SELECT payload FROM run_events WHERE run_id='run-upg' AND seq=1`).Scan(&payload); err != nil || string(payload) != `{"provider":"legacy","model":"legacy-model"}` {
+		t.Fatalf("historical event changed: %v", err)
+	}
+	if err := setup.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrations.ApplyManifest(ctx, setup, migrations.Postgres, manifest); err != nil {
-		t.Fatalf("convert disposable fixture: %v", err)
-	}
-	_ = setup.Close()
-
-	b, err := OpenSchema(ctx, dsn, schema)
-	if err != nil {
-		t.Fatalf("OpenSchema over v14 database: %v", err)
-	}
-	t.Cleanup(func() { _ = b.Close() })
-
-	// (a) normalize the old marker and record the canonical 001–023 history;
-	// the normal runner then applies the new 024 mask schema.
-	var versions []int64
-	var names []string
-	var checksums []string
-	rows, err := admin.QueryContext(ctx,
-		`SELECT version, name, checksum FROM `+schema+`.schema_migrations ORDER BY version`)
-	if err != nil {
-		t.Fatalf("read schema_migrations: %v", err)
-	}
-	for rows.Next() {
-		var v int64
-		var name, checksum string
-		if err := rows.Scan(&v, &name, &checksum); err != nil {
-			t.Fatalf("scan version: %v", err)
-		}
-		versions = append(versions, v)
-		names = append(names, name)
-		checksums = append(checksums, checksum)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate schema_migrations: %v", err)
-	}
-	wantMigrations, err := migrations.Embedded()
-	if err != nil {
-		t.Fatalf("load migration manifest: %v", err)
-	}
-	want := wantMigrations.Migrations(migrations.Postgres)
-	wantVersions := make([]int64, len(want))
-	if len(versions) != len(wantVersions) {
-		t.Fatalf("schema_migrations = %v, want %v", versions, wantVersions)
-	}
-	for i, migration := range want {
-		wantVersions[i] = migration.Version
-		if versions[i] != migration.Version || names[i] != migration.Name || checksums[i] != migration.Checksum {
-			t.Fatalf("schema_migrations[%d] = %d/%q/%q, want %d/%q/%q", i, versions[i], names[i], checksums[i], migration.Version, migration.Name, migration.Checksum)
-		}
-	}
-
-	// A fresh database and this upgraded historical database must expose the
-	// same logical table/column contract, even though their paths differ.
-	freshSchema := fmt.Sprintf("fresh_%d_%d", time.Now().UnixNano(), upgradeSeq.Add(1))
-	fresh, err := OpenSchema(ctx, dsn, freshSchema)
-	if err != nil {
-		t.Fatalf("OpenSchema fresh database: %v", err)
-	}
-	t.Cleanup(func() { _ = fresh.Close() })
-	upgradedSignature, err := postgresSchemaSignature(ctx, admin, schema)
-	if err != nil {
-		t.Fatalf("read upgraded schema signature: %v", err)
-	}
-	freshSignature, err := postgresSchemaSignature(ctx, admin, freshSchema)
-	if err != nil {
-		t.Fatalf("read fresh schema signature: %v", err)
-	}
-	if fmt.Sprint(upgradedSignature) != fmt.Sprint(freshSignature) {
-		t.Fatalf("fresh/upgraded schema signatures differ:\nupgraded=%v\nfresh=%v", upgradedSignature, freshSignature)
-	}
-
-	var cronTables int
-	if err := admin.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM information_schema.tables
-		 WHERE table_schema = $1 AND table_name = 'cron_jobs'`, schema).Scan(&cronTables); err != nil {
-		t.Fatalf("check cron_jobs table: %v", err)
-	}
-	if cronTables != 1 {
-		t.Fatalf("cron_jobs tables = %d, want 1", cronTables)
-	}
-
-	// (b) information_schema reports the 4 new columns as NOT NULL DEFAULT ''.
-	// Postgres renders a text default as ''::text, so compare the expression
-	// before the cast annotation.
-	emptyTextDefault := func(def string) bool {
-		return def == "''" || strings.HasPrefix(def, "''::")
-	}
-	for _, col := range []string{"source", "channel", "chat_id", "channel_message_id"} {
-		var nullable, def string
-		err := admin.QueryRowContext(ctx,
-			`SELECT is_nullable, column_default
-			 FROM information_schema.columns
-			 WHERE table_schema = $1 AND table_name = 'messages' AND column_name = $2`,
-			schema, col).Scan(&nullable, &def)
-		if err != nil {
-			t.Fatalf("information_schema column %s: %v", col, err)
-		}
-		if nullable != "NO" || !emptyTextDefault(def) {
-			t.Fatalf("column %s = nullable %q default %q, want NO / ''", col, nullable, def)
-		}
-	}
-	var workspaceNullable, workspaceDefault string
-	if err := admin.QueryRowContext(ctx,
-		`SELECT is_nullable, column_default
-		 FROM information_schema.columns
-		 WHERE table_schema = $1 AND table_name = 'sessions' AND column_name = 'workspace_path'`,
-		schema).Scan(&workspaceNullable, &workspaceDefault); err != nil {
-		t.Fatalf("information_schema workspace_path: %v", err)
-	}
-	if workspaceNullable != "NO" || !emptyTextDefault(workspaceDefault) {
-		t.Fatalf("workspace_path = nullable %q default %q, want NO / ''", workspaceNullable, workspaceDefault)
-	}
-	assertPostgresRunStartedPreserved(t, ctx, admin, schema)
-	if err := b.Close(); err != nil {
-		t.Fatalf("close upgraded database before reopen: %v", err)
-	}
-	b, err = OpenSchema(ctx, dsn, schema)
-	if err != nil {
-		t.Fatalf("reopen upgraded database: %v", err)
-	}
-	assertPostgresRunStartedPreserved(t, ctx, admin, schema)
-
-	// (c) the legacy row survives the in-place upgrade with empty provenance.
-	got, err := b.ListMessages(ctx, "sess-upg")
-	if err != nil {
-		t.Fatalf("ListMessages: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("messages after upgrade = %d, want the 1 legacy row", len(got))
-	}
-	legacy := got[0]
-	if legacy.ID != "msg-upg-legacy" || legacy.Role != domain.RoleUser || legacy.Content != "hello from v14" {
-		t.Fatalf("legacy row drifted: %+v", legacy)
-	}
-	if legacy.Source != "" || legacy.Channel != "" || legacy.ChatID != "" || legacy.ChannelMessageID != "" {
-		t.Fatalf("legacy provenance = %+v, want all empty", legacy)
-	}
-	if legacy.EffectiveSource() != "ui" {
-		t.Fatalf("legacy EffectiveSource = %q, want ui", legacy.EffectiveSource())
-	}
-
-	// (d) provenance-bearing appends round-trip through the upgraded table.
-	if err := b.AppendMessage(ctx, domain.Message{
-		ID: "msg-upg-channel", SessionID: "sess-upg", Role: domain.RoleUser,
-		CreatedAt: 2, Content: "hello from v15",
-		Source: "channel", Channel: "telegram", ChatID: "chat-123", ChannelMessageID: "tg-456",
-	}); err != nil {
-		t.Fatalf("AppendMessage: %v", err)
-	}
-	got, err = b.ListMessages(ctx, "sess-upg")
-	if err != nil {
-		t.Fatalf("ListMessages after append: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("messages = %d, want 2", len(got))
-	}
-	c := got[1]
-	if c.ID != "msg-upg-channel" || c.Source != "channel" || c.Channel != "telegram" ||
-		c.ChatID != "chat-123" || c.ChannelMessageID != "tg-456" || c.Content != "hello from v15" {
-		t.Fatalf("channel row did not round-trip: %+v", c)
-	}
-	if c.EffectiveSource() != "channel" {
-		t.Fatalf("channel EffectiveSource = %q, want channel", c.EffectiveSource())
-	}
-	if got[0].ID != "msg-upg-legacy" {
-		t.Fatalf("legacy row displaced: %+v", got[0])
-	}
-}
-
-func assertPostgresRunStartedPreserved(t *testing.T, ctx context.Context, db *sql.DB, schema string) {
-	t.Helper()
-	var runID, eventType string
-	var seq, createdAt, payloadVersion int64
-	var payload []byte
-	if err := db.QueryRowContext(ctx,
-		`SELECT run_id, seq, type, created_at, payload_version, payload FROM `+schema+`.run_events WHERE run_id = 'run-upg' AND seq = 1`).
-		Scan(&runID, &seq, &eventType, &createdAt, &payloadVersion, &payload); err != nil {
-		t.Fatalf("read preserved run.started: %v", err)
-	}
-	wantPayload := []byte(`{"provider":"legacy","model":"legacy-model"}`)
-	if runID != "run-upg" || seq != 1 || eventType != "run.started" || createdAt != 3 || payloadVersion != 1 || !bytes.Equal(payload, wantPayload) {
-		t.Fatalf("preserved run.started = %q/%d/%q/%d/v%d/%s, want exact legacy event payload %s", runID, seq, eventType, createdAt, payloadVersion, payload, wantPayload)
-	}
-}
-
-func postgresSchemaSignature(ctx context.Context, db *sql.DB, schema string) ([]string, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT table_name, column_name, data_type, is_nullable
-		FROM information_schema.columns
-		WHERE table_schema = $1
-		ORDER BY table_name, column_name`, schema)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var signature []string
-	for rows.Next() {
-		var table, column, dataType, nullable string
-		if err := rows.Scan(&table, &column, &dataType, &nullable); err != nil {
-			return nil, err
-		}
-		signature = append(signature, table+"."+column+":"+dataType+":"+nullable)
-	}
-	return signature, rows.Err()
 }

@@ -39,14 +39,14 @@ func TestToolOperationCopiedBaselineConversionPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.ExecContext(ctx, `CREATE TABLE schema_migrations(version BIGINT PRIMARY KEY,name TEXT NOT NULL,checksum TEXT NOT NULL,applied_at BIGINT NOT NULL)`); err != nil {
+	if _, err := source.ExecContext(ctx, `CREATE TABLE schema_migrations(version BIGINT PRIMARY KEY,name TEXT NOT NULL,applied_at BIGINT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, migration := range manifest.Migrations(migrations.Postgres)[:35] {
 		if _, err := source.ExecContext(ctx, migration.SQL); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := source.ExecContext(ctx, `INSERT INTO schema_migrations VALUES($1,$2,$3,1)`, migration.Version, migration.Name, migration.Checksum); err != nil {
+		if _, err := source.ExecContext(ctx, `INSERT INTO schema_migrations VALUES($1,$2,1)`, migration.Version, migration.Name); err != nil {
 			t.Fatal(err)
 		}
 	}

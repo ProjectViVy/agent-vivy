@@ -26,9 +26,6 @@ func TestManifestValidatesPairedCatalog(t *testing.T) {
 	if len(got) != 2 || got[0].Version != 1 || got[0].Name != "initial" || got[1].Version != 2 || got[1].Name != "notes" {
 		t.Fatalf("SQLite migrations = %+v", got)
 	}
-	if got[0].Checksum == "" || got[0].Checksum != manifest.Migrations(Postgres)[0].Checksum {
-		t.Fatalf("paired checksum = %q / %q", got[0].Checksum, manifest.Migrations(Postgres)[0].Checksum)
-	}
 }
 
 func TestEmbeddedManifestHasCanonicalPairs(t *testing.T) {
@@ -46,9 +43,6 @@ func TestEmbeddedManifestHasCanonicalPairs(t *testing.T) {
 		postgres := manifest.Migrations(Postgres)[i]
 		if migration.Version != postgres.Version || migration.Name != postgres.Name {
 			t.Fatalf("migration pair %d = %d/%s vs %d/%s", i, migration.Version, migration.Name, postgres.Version, postgres.Name)
-		}
-		if migration.Checksum == "" || postgres.Checksum == "" {
-			t.Fatalf("migration pair %d has empty checksum", migration.Version)
 		}
 	}
 }

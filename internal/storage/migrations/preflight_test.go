@@ -42,12 +42,15 @@ func TestApplyPreflightRefusesOldAndUnknownWithoutWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, head := range []int{1, 16, 17, 23, 35} {
+	for head := 1; head <= 36; head++ {
 		t.Run(fmt.Sprintf("old-prefix-%d", head), func(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()
 			old := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:head], Postgres: manifest.Migrations(Postgres)[:head]}}
 			if err := ApplyManifest(ctx, db, SQLite, old); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`ALTER TABLE schema_migrations ADD COLUMN checksum TEXT NOT NULL DEFAULT 'frozen-old-format'`); err != nil {
 				t.Fatal(err)
 			}
 			err := Apply(ctx, db, SQLite)

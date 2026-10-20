@@ -53,7 +53,7 @@ func TestWorkflowDefinitionUpgradeFrom034(t *testing.T) {
 		t.Fatalf("manifest: %v", err)
 	}
 	if _, err := raw.ExecContext(ctx, `CREATE TABLE schema_migrations (
-		version BIGINT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at BIGINT NOT NULL)`); err != nil {
+		version BIGINT PRIMARY KEY, name TEXT NOT NULL, applied_at BIGINT NOT NULL)`); err != nil {
 		t.Fatalf("create schema_migrations: %v", err)
 	}
 	var applied int64
@@ -65,8 +65,8 @@ func TestWorkflowDefinitionUpgradeFrom034(t *testing.T) {
 			t.Fatalf("apply %d %s: %v", m.Version, m.Name, err)
 		}
 		if _, err := raw.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?,?,?,?)`,
-			m.Version, m.Name, m.Checksum, time.Now().UnixMilli()); err != nil {
+			`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)`,
+			m.Version, m.Name, time.Now().UnixMilli()); err != nil {
 			t.Fatalf("record %d: %v", m.Version, err)
 		}
 		applied = m.Version

@@ -110,7 +110,7 @@ function main(scope) {
       goTests(['./sdk/internal'], { env, run: '^Test(PackBuildsSelectedUIIntoFinalArtifact|LiteArtifactRetainsBaseWebShell)$',
         required: ['TestPackBuildsSelectedUIIntoFinalArtifact', 'TestLiteArtifactRetainsBaseWebShell'] });
     } else if (scope === 'postgres') {
-      goTests(['./internal/storage/postgres'], { env, required: ['TestBackendConformance', 'TestMigrateUpgradesV14InPlace'] });
+      goTests(['./internal/storage/postgres'], { env, required: ['TestBackendConformance', 'TestMigrateRefusesV14BeforeWrites'] });
     } else {
       goTests(['./internal/runtime', './internal/rpc'], {
         env, run: 'TestModelCompletedV3|TestCompletion|TestReplayNormalizes|TestMapper|TestMessageProjector|TestTrajectory|TestModelCallPayloadSchemas|TestObservedCall|TestBudget|TestToolHook|TestRecoverAcrossModelGeneration|TestDescribeModelRequest|TestRunSubscription|TestSubscriptionNormalizesHistoricalCompletion|TestLegacyCompletionOnlyReadsPersistedMessages',

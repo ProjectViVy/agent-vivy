@@ -27,20 +27,20 @@ func TestApplyFreshAndReapplyIsNoOp(t *testing.T) {
 	if count != 36 {
 		t.Fatalf("migration count = %d, want 36", count)
 	}
-	var name, checksum string
+	var name string
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 32`).Scan(&name, &checksum); err != nil {
+		`SELECT name FROM schema_migrations WHERE version = 32`).Scan(&name); err != nil {
 		t.Fatalf("read migration 32: %v", err)
 	}
-	if name != "child_sessions" || len(checksum) != 64 {
-		t.Fatalf("migration 32 metadata = %q/%q", name, checksum)
+	if name != "child_sessions" {
+		t.Fatalf("migration 32 metadata = %q", name)
 	}
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 35`).Scan(&name, &checksum); err != nil {
+		`SELECT name FROM schema_migrations WHERE version = 35`).Scan(&name); err != nil {
 		t.Fatalf("read migration 35: %v", err)
 	}
-	if name != "workflow_definitions" || len(checksum) != 64 {
-		t.Fatalf("migration 35 metadata = %q/%q", name, checksum)
+	if name != "workflow_definitions" {
+		t.Fatalf("migration 35 metadata = %q", name)
 	}
 	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions", "workflow_executions", "workflow_commits", "workflow_results", "workflow_definition_drafts", "workflow_definition_revisions"} {
 		if !tableExists(t, db, table) {
@@ -130,12 +130,12 @@ func assertSQLiteLatestMigrations(t *testing.T, db *sql.DB) {
 	if count != 36 {
 		t.Fatalf("upgraded migration count = %d, want 36", count)
 	}
-	var name, checksum string
-	if err := db.QueryRow(`SELECT name, checksum FROM schema_migrations WHERE version = 35`).Scan(&name, &checksum); err != nil {
+	var name string
+	if err := db.QueryRow(`SELECT name FROM schema_migrations WHERE version = 35`).Scan(&name); err != nil {
 		t.Fatalf("read upgraded migration 35 metadata: %v", err)
 	}
-	if name != "workflow_definitions" || len(checksum) != 64 {
-		t.Fatalf("upgraded migration 35 metadata = %q/%q", name, checksum)
+	if name != "workflow_definitions" {
+		t.Fatalf("upgraded migration 35 metadata = %q", name)
 	}
 	for _, table := range []string{"mask_definitions", "session_mask_selections", "run_prompt_snapshots", "channel_deliveries", "session_work_events", "continuity_receipts", "tool_operations", "child_sessions", "child_session_activations", "child_mailbox_messages", "child_message_receipts", "workflow_revisions", "workflow_executions", "workflow_commits", "workflow_results", "workflow_definition_drafts", "workflow_definition_revisions"} {
 		if !tableExists(t, db, table) {
@@ -230,19 +230,19 @@ func TestContinuityMigrationHistoryPositionsBackfillsLegacyAndReopens(t *testing
 	}
 }
 
-func TestApplyRejectsChecksumDrift(t *testing.T) {
+func TestApplyRejectsNameDrift(t *testing.T) {
 	db := openMigrationTestDB(t)
 	ctx := context.Background()
 	if err := Apply(ctx, db, SQLite); err != nil {
 		t.Fatalf("Apply fresh: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `UPDATE schema_migrations SET checksum = 'drift' WHERE version = 1`); err != nil {
-		t.Fatalf("change checksum: %v", err)
+	if _, err := db.ExecContext(ctx, `UPDATE schema_migrations SET name = 'drift' WHERE version = 1`); err != nil {
+		t.Fatalf("change name: %v", err)
 	}
 
 	err := Apply(ctx, db, SQLite)
-	if err == nil || !strings.Contains(err.Error(), "checksum drift") {
-		t.Fatalf("Apply after checksum drift = %v, want checksum drift error", err)
+	if err == nil || !strings.Contains(err.Error(), "name drift") {
+		t.Fatalf("Apply after name drift = %v, want name drift error", err)
 	}
 }
 
@@ -250,9 +250,13 @@ func TestApplyRollsBackFailedMigration(t *testing.T) {
 	db := openMigrationTestDB(t)
 	ctx := context.Background()
 	manifest := testManifest(
-		Migration{Version: 1, Name: "initial", SQL: "CREATE TABLE runner_base (id INTEGER);", Checksum: "base"},
-		Migration{Version: 2, Name: "failure", SQL: "CREATE TABLE runner_partial (id INTEGER); SELECT * FROM missing_table;", Checksum: "failure"},
+		Migration{Version: 1, Name: "initial", SQL: "CREATE TABLE runner_base (id INTEGER);"},
+		Migration{Version: 2, Name: "failure", SQL: "CREATE TABLE runner_partial (id INTEGER); SELECT * FROM missing_table;"},
 	)
+
+	if err := ApplyManifest(ctx, db, SQLite, testManifest(manifest.Migrations(SQLite)[0])); err != nil {
+		t.Fatal(err)
+	}
 
 	err := ApplyManifest(ctx, db, SQLite, manifest)
 	if err == nil || !strings.Contains(err.Error(), "apply migration 2") {
@@ -270,36 +274,18 @@ func TestApplyRollsBackFailedMigration(t *testing.T) {
 	}
 }
 
-func TestApplyBackfillsLegacySQLiteMetadata(t *testing.T) {
+func TestApplyManifestRefusesLegacyMetadata(t *testing.T) {
 	db := openMigrationTestDB(t)
-	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `
-		CREATE TABLE schema_migrations (
-			version INTEGER PRIMARY KEY,
-			applied_at INTEGER NOT NULL
-		);
-		INSERT INTO schema_migrations (version, applied_at) VALUES (1, 1);
-	`); err != nil {
-		t.Fatalf("create legacy metadata: %v", err)
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_migrations VALUES(1,1)`); err != nil {
+		t.Fatal(err)
 	}
-	manifest := testManifest(
-		Migration{Version: 1, Name: "initial", SQL: "SELECT 1;", Checksum: "legacy-checksum"},
-		Migration{Version: 2, Name: "pending", SQL: "CREATE TABLE legacy_pending (id INTEGER);", Checksum: "pending-checksum"},
-	)
-
-	if err := ApplyManifest(ctx, db, SQLite, manifest); err != nil {
-		t.Fatalf("ApplyManifest legacy: %v", err)
+	manifest := testManifest(Migration{Version: 1, Name: "initial", SQL: "SELECT 1;"})
+	if err := ApplyManifest(context.Background(), db, SQLite, manifest); err == nil || !strings.Contains(err.Error(), "upgrade_required") {
+		t.Fatalf("legacy admission=%v", err)
 	}
-	var name, checksum string
-	if err := db.QueryRowContext(ctx,
-		`SELECT name, checksum FROM schema_migrations WHERE version = 1`).Scan(&name, &checksum); err != nil {
-		t.Fatalf("read backfilled metadata: %v", err)
-	}
-	if name != "initial" || checksum != "legacy-checksum" {
-		t.Fatalf("backfilled metadata = %q/%q", name, checksum)
-	}
-	if !tableExists(t, db, "legacy_pending") {
-		t.Fatal("pending migration was not applied")
+	cols, err := metadataColumns(context.Background(), db, SQLite)
+	if err != nil || len(cols) != 2 {
+		t.Fatalf("legacy changed: %v %v", cols, err)
 	}
 }
 
