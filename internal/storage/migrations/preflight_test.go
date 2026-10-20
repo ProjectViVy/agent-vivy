@@ -47,7 +47,7 @@ func TestApplyPreflightRefusesOldAndUnknownWithoutWrites(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()
 			old := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:head], Postgres: manifest.Migrations(Postgres)[:head]}}
-			if err := ApplyManifest(ctx, db, SQLite, old); err != nil {
+			if err := applyManifest(ctx, db, SQLite, old); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := db.Exec(`ALTER TABLE schema_migrations ADD COLUMN checksum TEXT NOT NULL DEFAULT 'frozen-old-format'`); err != nil {
@@ -75,7 +75,7 @@ func TestApplyPreflightRejectsUnexplainedTablesOnKnownMetadata(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()
 			fixture := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:head], Postgres: manifest.Migrations(Postgres)[:head]}}
-			if err := ApplyManifest(ctx, db, SQLite, fixture); err != nil {
+			if err := applyManifest(ctx, db, SQLite, fixture); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := db.Exec(`CREATE TABLE unlisted_source_data (value TEXT); INSERT INTO unlisted_source_data VALUES ('preserve')`); err != nil {

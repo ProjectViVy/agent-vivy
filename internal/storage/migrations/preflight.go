@@ -78,6 +78,9 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 	if err := validateTargetColumns(ctx, db, dialect, items[:head]); err != nil {
 		return err
 	}
+	if err := validateTargetUniqueness(ctx, db, dialect, items[:head]); err != nil {
+		return err
+	}
 	return validateOperationShape(ctx, db, dialect, true)
 }
 

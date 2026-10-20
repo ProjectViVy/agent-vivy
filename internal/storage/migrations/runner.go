@@ -16,16 +16,24 @@ func Apply(ctx context.Context, db *sql.DB, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	if err := preflight(ctx, db, dialect, manifest); err != nil {
-		return err
-	}
 	return ApplyManifest(ctx, db, dialect, manifest)
 }
 
-// ApplyManifest executes a validated paired catalog using final metadata only.
-// It also supports small catalogs for transaction conformance tests. Production
-// entry points use Apply's complete target barrier; no legacy upgrade is done here.
+// ApplyManifest uses the same format barrier as Apply, including for callers
+// supplying a catalog. It is not an offline normalization escape hatch.
 func ApplyManifest(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manifest) error {
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+	if err := preflight(ctx, db, dialect, manifest); err != nil {
+		return err
+	}
+	return applyManifest(ctx, db, dialect, manifest)
+}
+
+// applyManifest is reached only after production admission. Package-private
+// tests may use it to construct synthetic prefixes and inject DDL failures.
+func applyManifest(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manifest) error {
 	if db == nil {
 		return fmt.Errorf("storage migrations: nil database")
 	}
@@ -64,6 +72,9 @@ func ApplyManifest(ctx context.Context, db *sql.DB, dialect Dialect, manifest Ma
 		return err
 	}
 	if err := validateTargetColumns(ctx, db, dialect, manifest.Migrations(dialect)[:len(applied)]); err != nil {
+		return err
+	}
+	if err := validateTargetUniqueness(ctx, db, dialect, manifest.Migrations(dialect)[:len(applied)]); err != nil {
 		return err
 	}
 	for _, item := range manifest.Migrations(dialect)[len(applied):] {

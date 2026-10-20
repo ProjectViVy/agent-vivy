@@ -11,7 +11,7 @@ and metadata in one transaction; later compatible target migrations retain
 per-migration transactions. Read-only startup checks reject old metadata with
 upgrade_required and malformed/unknown/partial targets before writes.
 
-Target checks derive required table columns, types and primary keys from the
+Target checks derive required table columns, types, primary keys and required uniqueness from the
 embedded SQL catalog. Metadata structure and D03 private-binding shape are
 checked independently of the numeric marker. Current036_tool_operation_private_binding
 is a candidate barrier, not D14's complete final target T; old-lineage036_notebook_content

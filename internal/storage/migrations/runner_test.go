@@ -90,7 +90,7 @@ func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 	}
 
 	db := open()
-	if err := ApplyManifest(ctx, db, SQLite, through23); err != nil {
+	if err := applyManifest(ctx, db, SQLite, through23); err != nil {
 		t.Fatalf("apply through migration 23: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `
@@ -103,7 +103,7 @@ func TestApplyUpgradesSQLite23ToLatestAndReopens(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("seed version 23 data: %v", err)
 	}
-	if err := ApplyManifest(ctx, db, SQLite, manifest); err != nil {
+	if err := applyManifest(ctx, db, SQLite, manifest); err != nil {
 		t.Fatalf("upgrade 23 to latest: %v", err)
 	}
 	assertSQLiteLatestMigrations(t, db)
@@ -187,7 +187,7 @@ func TestContinuityMigrationHistoryPositionsBackfillsLegacyAndReopens(t *testing
 		SQLite:   append([]Migration(nil), full.Migrations(SQLite)[:23]...),
 		Postgres: append([]Migration(nil), full.Migrations(Postgres)[:23]...),
 	}}
-	if err := ApplyManifest(ctx, db, SQLite, legacy); err != nil {
+	if err := applyManifest(ctx, db, SQLite, legacy); err != nil {
 		t.Fatalf("Apply legacy: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO sessions (id,title,created_at,updated_at,sandbox_mode,approval_policy,workspace_path) VALUES ('s','s',1,1,'workspace_write','ask','')`); err != nil {
@@ -201,7 +201,7 @@ func TestContinuityMigrationHistoryPositionsBackfillsLegacyAndReopens(t *testing
 			t.Fatal(err)
 		}
 	}
-	if err := ApplyManifest(ctx, db, SQLite, full); err != nil {
+	if err := applyManifest(ctx, db, SQLite, full); err != nil {
 		t.Fatalf("Apply 024: %v", err)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id, position FROM messages WHERE session_id = 's' ORDER BY position`)
@@ -254,11 +254,11 @@ func TestApplyRollsBackFailedMigration(t *testing.T) {
 		Migration{Version: 2, Name: "failure", SQL: "CREATE TABLE runner_partial (id INTEGER); SELECT * FROM missing_table;"},
 	)
 
-	if err := ApplyManifest(ctx, db, SQLite, testManifest(manifest.Migrations(SQLite)[0])); err != nil {
+	if err := applyManifest(ctx, db, SQLite, testManifest(manifest.Migrations(SQLite)[0])); err != nil {
 		t.Fatal(err)
 	}
 
-	err := ApplyManifest(ctx, db, SQLite, manifest)
+	err := applyManifest(ctx, db, SQLite, manifest)
 	if err == nil || !strings.Contains(err.Error(), "apply migration 2") {
 		t.Fatalf("ApplyManifest = %v, want migration failure", err)
 	}
@@ -280,7 +280,7 @@ func TestApplyManifestRefusesLegacyMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := testManifest(Migration{Version: 1, Name: "initial", SQL: "SELECT 1;"})
-	if err := ApplyManifest(context.Background(), db, SQLite, manifest); err == nil || !strings.Contains(err.Error(), "upgrade_required") {
+	if err := applyManifest(context.Background(), db, SQLite, manifest); err == nil || !strings.Contains(err.Error(), "upgrade_required") {
 		t.Fatalf("legacy admission=%v", err)
 	}
 	cols, err := metadataColumns(context.Background(), db, SQLite)

@@ -124,3 +124,61 @@ func TestD12TargetShapeIncludesPostgresSerialIdentity(t *testing.T) {
 		t.Fatalf("serial identity missing: %v/%v", columns, keys)
 	}
 }
+
+func TestD12ManifestEntryRefusesIncompleteCandidateBeforeWrites(t *testing.T) {
+	db := openMigrationTestDB(t)
+	ctx := context.Background()
+	manifest, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:23], Postgres: manifest.Migrations(Postgres)[:23]}}
+	if err := ApplyManifest(ctx, db, SQLite, partial); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyManifest(ctx, db, SQLite, manifest); err == nil {
+		t.Fatal("manifest entry upgraded incomplete candidate")
+	}
+	var head int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 23 {
+		t.Fatalf("refusal mutated source: %d %v", head, err)
+	}
+}
+
+func TestD12RefusesTargetMissingUniqueOwnership(t *testing.T) {
+	for _, fixture := range []string{"history-index", "request-receipt"} {
+		t.Run(fixture, func(t *testing.T) {
+			db := openMigrationTestDB(t)
+			ctx := context.Background()
+			if err := Apply(ctx, db, SQLite); err != nil {
+				t.Fatal(err)
+			}
+			if fixture == "history-index" {
+				if _, err := db.Exec(`DROP INDEX messages_session_position_idx`); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				var ddl string
+				if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE name='session_work_events'`).Scan(&ddl); err != nil {
+					t.Fatal(err)
+				}
+				ddl = strings.Replace(ddl, "UNIQUE (session_id, request_id),", "", 1)
+				if _, err := db.Exec(`DROP TABLE session_work_events;` + ddl); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := Apply(ctx, db, SQLite); err == nil {
+				t.Fatal("target missing uniqueness ownership reopened")
+			}
+		})
+	}
+}
+
+func TestD12UniquePredicateKeepsExactLiteral(t *testing.T) {
+	expected := uniqueIdentity("from_id", "phase = 'accepted'")
+	for _, predicate := range []string{"phase = 'ACCEPTED'", "phase = 'accepted '"} {
+		if uniqueIdentity("from_id", predicate) == expected {
+			t.Fatalf("different partial predicate accepted: %s", predicate)
+		}
+	}
+}

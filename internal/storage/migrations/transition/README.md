@@ -17,6 +17,7 @@ approved authority on nonterminal Runs expires with
 assert that an operation had no effect; claimed operations remain fenced.
 
 D12 owns final metadata and D14 owns the finite conversion artifact and its
-acceptance. `ApplyManifest` remains the existing explicit disposable-fixture
-conversion seam; runtime `Apply` refuses old or unsupported stores before any
-write. D03 alone does not make final upgrade publication possible.
+acceptance. `ApplyManifest` enforces the same runtime format barrier as `Apply`.
+Package-private test-only SQL helpers construct disposable business fixtures;
+they provide no live conversion API. Both runtime entries refuse old or
+unsupported stores before any write. D03 alone does not make final upgrade publication possible.

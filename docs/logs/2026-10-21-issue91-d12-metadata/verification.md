@@ -35,3 +35,14 @@ bug: BIGSERIAL identity columns were omitted by the recognizer. The independent
 review found the same cause. A deterministic serial-column/key test fails first;
 normalizing that owned SQL spelling to PostgreSQL's reported BIGINT fixes it.
 Full fresh/reopen PostgreSQL rerun remains required.
+
+After BIGSERIAL correction b4bc941b, real `just test-postgres` passes118 executed
+cases with zero skips. That candidate predates the following review fixes, so
+it does not accept the later exact candidate.
+
+Independent review reproduced missing unique history/request ownership and the
+exported ApplyManifest format-barrier bypass. Both fail first; final exported
+entries now share admission, and only package-private test helpers construct
+synthetic prefixes. Required UNIQUE constraints and partial indexes derive from
+the same embedded SQL and are inspected in both dialects. Exact SQL literals
+remain distinct. Native migration suite passes after these corrections.

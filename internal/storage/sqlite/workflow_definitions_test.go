@@ -76,9 +76,7 @@ func TestWorkflowDefinitionUpgradeFrom034(t *testing.T) {
 		t.Fatalf("fixture stopped at migration %d, want 34", applied)
 	}
 	// Explicit disposable conversion; production Open refuses old sources.
-	if err := migrations.ApplyManifest(ctx, raw, migrations.SQLite, manifest); err != nil {
-		t.Fatalf("convert fixture: %v", err)
-	}
+	finishMigrationFixture(t, ctx, raw, manifest, 34)
 	if err := raw.Close(); err != nil {
 		t.Fatalf("close fixture db: %v", err)
 	}
