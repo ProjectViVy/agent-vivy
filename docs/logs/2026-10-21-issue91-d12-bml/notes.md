@@ -4,8 +4,8 @@ Plan: approved Data and Feature Lane D12 -> D09 -> D10 -> D11.
 Worktree: codex/issue91-data-features, isolated from stable root.
 
 - D12 independent BML and direct consumer implementation: in progress.
-- Shared application runner/preflight integration: waiting for D03 commit.
-- D09: waiting for accepted D03.
+- Shared application runner/preflight: committed D03 integrated; metadata continuation implemented.
+- D09: accepted D03 integrated; ready after the D12 lane cut.
 - D10: waiting for accepted D08/D12; exact Laputa pin has required digest APIs.
 - D11: waiting for accepted D03/D08 and hash-free INOFY upstream delivery.
 - D14 complete finite converter and final release acceptance: separately owned.
@@ -29,5 +29,5 @@ No new registry, runtime parser negotiation, or migration runner is introduced.
 - Actual alternate-port split smoke passes with a disposable home; 3015-specific
   required smoke remains unrun because a stable checkout owns the standard pair.
 - Converter independent review found reconstructable RecordsDigest not checked
-  and overly strict closed/acyclic graph assumptions; separate artifact owner
-  is correcting them before the fragment is considered verified.
+  and overly strict closed/acyclic graph assumptions; corrected in47e5a549,
+  full standalone suite/vet and actual target bridge pass.

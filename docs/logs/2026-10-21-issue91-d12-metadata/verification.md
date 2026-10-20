@@ -69,3 +69,34 @@ evidence). Real PostgreSQL118 executed cases passed with zero skips. During
 initial gate capture one stale log-only file remained after mixed index
 alignment; it was restored to HEAD before completion, with tested source and
 pinned Laputa unchanged. No product-code worktree drift is accepted.
+
+## Final finite fragment and target bridge
+
+Final artifact:8e63682e6bf42e786a4a626c85079ea87f5c8fb8, separate from runtime.
+Independent review found incomplete canonical/sealed shape checks; regressions
+failed first and frozen SQL-derived columns/types/keys/uniqueness now reject
+before writes. Real PG later exposed the same gap in compressed legacy core
+shapes; six cases failed first. Frozen V14 core plus only already-recognized
+optional feature DDL now validates that class too, preserving missing020.
+
+- Native ordinary module suite: pass114.814s; ordinary/tagged vet pass.
+- Real PG source matrix: `go test -tags postgres -run TestPostgresFinite
+  -count=1 -timeout=5m`, pass198.866s,78 leaf cases:35 canonical,8 released017,
+  1 originalV14,22 compressed/missing020,6 canonical structure,6 legacy partial.
+- Changed legacy6 + malformed-sealed3 focused real-PG cases: pass17.399s;
+  wrong-type fixture uses version INTEGER/applied_at BIGINT so rejection is
+  tested after setup rather than overflowing timestamps. No skipped cases.
+- That real-PG run used native Go1.26.4 against its own loopback postgres:16
+  container in WSL Docker. The dedicated container was removed. It is separate
+  from the independent Linux runtime118-case gate and not a skipped DSN lane.
+- Actual final fragment -> target runtime bridge: both SQLite and PostgreSQL
+  pass2.167s from the independent Linux checkout. It executes normalized23->035,
+  D03's immutable036 owner fragment, metadata seal, actual Apply/open and reopen;
+  preserves session content and original applied_at. Temporary modfile/test
+  files and task-created PG container were removed. Executed source is archived
+  as target-runtime-bridge_test.go.txt; no converter dependency enters runtime.
+
+No complete targetT number, D14 conversion settlement, full-product release,
+D09–D11 acceptance or3015 smoke is claimed. The standard split ports currently
+belong to D06; an explicit scheduling question remains pending. The earlier
+alternative-port BML/MEMRULES behavior evidence remains a scoped observation.

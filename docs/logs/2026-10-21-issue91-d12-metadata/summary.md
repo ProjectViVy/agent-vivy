@@ -1,6 +1,7 @@
 # D12 migration metadata candidate
 
-Status: implementation in progress; exact integrated acceptance remains open.
+Status: runtime and separate converter fragments implemented and scoped tests passed;
+Story acceptance remains open for the required3015 smoke.
 
 Accepted D03 c065a82b was integrated into the isolated data lane at c2c32ff5.
 The root checkout was not edited. Released numbered SQL001..036 is unchanged.
@@ -25,3 +26,9 @@ remaining business conversions and final assembly/release acceptance.
 This continues the [BML candidate](../2026-10-21-issue91-d12-bml/summary.md).
 D09 now has its accepted D03 input; D10 still needs D08/D12 and compatible
 Laputa, D11 still needs D08 and reviewed hash-free INOFY delivery.
+
+Final metadata fragment is `8e63682e6bf42e786a4a626c85079ea87f5c8fb8` on
+`codex/issue91-d12-rules`, under tools/storage-upgrade. It freezes the old SQL,
+normalizer and source proofs; it must not be merged into the final runtime.
+Both actual target bridge cases pass after final corrections. Complete D14
+assembly, cross-owner settlement and release acceptance remain separate.

@@ -12,3 +12,7 @@ runtime and verify history, NULL source bindings and unknown-effect fences.
 D12 acceptance is open pending exact integrated gates, source-format conversion
 fixtures and split UI at3015. D14 complete conversion/release acceptance is
 separate, and later Story prerequisite gates are not waived.
+
+Observed: exact scoped runtime gates pass; both real finite source matrices and
+SQLite/Postgres actual target bridge pass. Human3015 behavior confirmation is
+still open; automation has not accepted the whole Story on the owner's behalf.
