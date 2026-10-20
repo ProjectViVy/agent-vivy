@@ -43,7 +43,6 @@ export interface MemoryEvidenceRef {
   readonly source: string;
   readonly uri: string;
   readonly excerpt?: string | null;
-  readonly hash?: string | null;
   readonly created_at?: string;
 }
 
@@ -62,12 +61,12 @@ export interface MemoryOutcome {
   readonly reason?: string;
 }
 
-/** rules.read returns its own shape: the handbook plus the digest CAS token. */
+/** rules.read returns its own shape: the handbook plus exact file existence. */
 export interface MemoryRulesOutcome {
   readonly status: 'listed' | 'failed' | string;
   readonly content?: string;
   readonly source?: string;
-  readonly revision?: string;
+  readonly exists?: boolean;
   readonly reason?: string;
 }
 
@@ -76,7 +75,6 @@ export interface MemoryStatusOutcome {
   readonly available?: boolean;
   readonly startup_revision?: number;
   readonly database_present?: boolean;
-  readonly rules_revision?: string;
   readonly reason?: string;
 }
 
@@ -112,7 +110,8 @@ export interface MemoryRemoveInput {
 
 export interface MemoryRulesWriteInput {
   readonly content: string;
-  readonly base_revision: string;
+  readonly expected_content: string;
+  readonly expected_exists: boolean;
 }
 
 /** The narrow transport seam makes the UI client independently testable. */

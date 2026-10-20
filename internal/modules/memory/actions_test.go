@@ -248,43 +248,43 @@ func TestRulesReadWriteRoundTripWithCAS(t *testing.T) {
 
 	raw := invokeRaw(t, memory.ActionRulesRead, `{}`)
 	var read struct {
-		Status   bml.CrudOutcomeStatus `json:"status"`
-		Content  string                `json:"content"`
-		Source   string                `json:"source"`
-		Revision string                `json:"revision"`
+		Status  bml.CrudOutcomeStatus `json:"status"`
+		Content string                `json:"content"`
+		Source  string                `json:"source"`
+		Exists  bool                  `json:"exists"`
 	}
 	if err := json.Unmarshal(raw, &read); err != nil {
 		t.Fatalf("rules.read output = %s: %v", raw, err)
 	}
-	if read.Status != bml.CrudOutcomeListed || read.Content == "" || read.Source == "" || read.Revision == "" {
+	if read.Status != bml.CrudOutcomeListed || read.Content == "" || read.Source == "" || read.Exists {
 		t.Fatalf("rules.read = %#v", read)
 	}
 
 	outcome := invokeOutcome(t, memory.ActionRulesWrite,
-		`{"content":"# Rules\nAlways cite evidence.","base_revision":"stale-digest"}`)
+		`{"content":"# Rules\nAlways cite evidence.","expected_content":"stale body","expected_exists":false}`)
 	wantFailure(t, outcome, bml.HomeCodeRevisionConflict)
 
 	outcome = invokeOutcome(t, memory.ActionRulesWrite,
-		fmt.Sprintf(`{"content":"# Rules\nAlways cite evidence.","base_revision":%q}`, read.Revision))
+		fmt.Sprintf(`{"content":"# Rules\nAlways cite evidence.","expected_content":%q,"expected_exists":%t}`, read.Content, read.Exists))
 	wantStatus(t, outcome, bml.CrudOutcomeApplied)
 
-	// The digest CAS must reject an interleaved write holding the old base:
+	// Exact-input CAS must reject an interleaved write holding the old base:
 	// a rules-vs-rules conflict, not just store-level record changes.
 	outcome = invokeOutcome(t, memory.ActionRulesWrite,
-		fmt.Sprintf(`{"content":"# Rules v2","base_revision":%q}`, read.Revision))
+		fmt.Sprintf(`{"content":"# Rules v2","expected_content":%q,"expected_exists":%t}`, read.Content, read.Exists))
 	wantFailure(t, outcome, bml.HomeCodeRevisionConflict)
 
 	raw = invokeRaw(t, memory.ActionRulesRead, `{}`)
 	read = struct {
-		Status   bml.CrudOutcomeStatus `json:"status"`
-		Content  string                `json:"content"`
-		Source   string                `json:"source"`
-		Revision string                `json:"revision"`
+		Status  bml.CrudOutcomeStatus `json:"status"`
+		Content string                `json:"content"`
+		Source  string                `json:"source"`
+		Exists  bool                  `json:"exists"`
 	}{}
 	if err := json.Unmarshal(raw, &read); err != nil {
 		t.Fatalf("rules.read after write = %s: %v", raw, err)
 	}
-	if read.Content != "# Rules\nAlways cite evidence." || read.Source != string(bml.MemRulesSourceFile) {
+	if read.Content != "# Rules\nAlways cite evidence." || read.Source != string(bml.MemRulesSourceFile) || !read.Exists {
 		t.Fatalf("rules.read after write = %#v", read)
 	}
 }
@@ -333,9 +333,9 @@ func TestInvalidInputsReturnExplicitOutcomes(t *testing.T) {
 		{"missing base revision", memory.ActionUpdate, `{"id":"memory-1","content":"x"}`},
 		{"negative base revision", memory.ActionRemove, `{"id":"memory-1","reason":"r","base_revision":-1}`},
 		{"missing reason", memory.ActionRemove, `{"id":"memory-1","base_revision":1}`},
-		{"rules write missing revision", memory.ActionRulesWrite, `{"content":"x"}`},
-		{"rules write empty revision", memory.ActionRulesWrite, `{"content":"x","base_revision":""}`},
-		{"rules write numeric revision", memory.ActionRulesWrite, `{"content":"x","base_revision":0}`},
+		{"rules write missing preconditions", memory.ActionRulesWrite, `{"content":"x"}`},
+		{"rules write missing existence", memory.ActionRulesWrite, `{"content":"x","expected_content":""}`},
+		{"rules write missing content", memory.ActionRulesWrite, `{"content":"x","expected_exists":false}`},
 		{"rules read with field", memory.ActionRulesRead, `{"verbose":true}`},
 	}
 	for _, tc := range cases {
@@ -365,7 +365,7 @@ func TestAllActionsReportUnavailableWithoutService(t *testing.T) {
 		memory.ActionUpdate:     `{"id":"memory-1","content":"x","base_revision":1}`,
 		memory.ActionRemove:     `{"id":"memory-1","reason":"r","base_revision":1}`,
 		memory.ActionRulesRead:  `{}`,
-		memory.ActionRulesWrite: `{"content":"x","base_revision":"digest"}`,
+		memory.ActionRulesWrite: `{"content":"x","expected_content":"","expected_exists":false}`,
 		memory.ActionStatus:     `{}`,
 	}
 	for _, provider := range memory.ActionProviders() {
