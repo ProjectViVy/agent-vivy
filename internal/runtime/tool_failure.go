@@ -27,19 +27,19 @@ type toolFailure struct {
 // Vocabulary of §5 statuses, reasons and effects. Failure identity is
 // metadata, never a string-prefix heuristic.
 const (
-	toolFailureStatusRecoverable = "recoverable"
-	toolFailureStatusRefused     = "refused"
+	toolFailureStatusRecoverable = domain.ToolOutcomeRecoverable
+	toolFailureStatusRefused     = domain.ToolOutcomeRefused
 
-	toolFailureReasonInvalidArguments = "invalid_arguments"
-	toolFailureReasonNotFound         = "not_found"
-	toolFailureReasonPolicyDenied     = "policy_denied"
-	toolFailureReasonUserDenied       = "user_denied"
-	toolFailureReasonCommandFailed    = "command_failed"
-	toolFailureReasonRemoteTool       = "remote_tool_error"
+	toolFailureReasonInvalidArguments = domain.ToolReasonInvalidArguments
+	toolFailureReasonNotFound         = domain.ToolReasonNotFound
+	toolFailureReasonPolicyDenied     = domain.ToolReasonPolicyDenied
+	toolFailureReasonUserDenied       = domain.ToolReasonUserDenied
+	toolFailureReasonCommandFailed    = domain.ToolReasonCommandFailed
+	toolFailureReasonRemoteTool       = domain.ToolReasonRemoteTool
 
-	toolEffectsNotExecuted = "not_executed"
-	toolEffectsNone        = "none"
-	toolEffectsUnknown     = "unknown"
+	toolEffectsNotExecuted = domain.ToolEffectsNotExecuted
+	toolEffectsNone        = domain.ToolEffectsNone
+	toolEffectsUnknown     = domain.ToolEffectsUnknown
 )
 
 // toolFailureDiagnosticMaxBytes bounds the diagnostic text retained on
@@ -125,4 +125,17 @@ func markInvocationFailure(ctx context.Context, failure toolFailure) error {
 		return nil
 	}
 	return state.MarkFailure(compose.GetToolCallID(ctx), failure)
+}
+
+func successToolOutcome(result string) domain.ToolOperationOutcome {
+	return domain.ToolOperationOutcome{Result: result, Status: domain.ToolOutcomeSuccess, Effects: domain.ToolEffectsUnknown}
+}
+func outcomeWithFailure(result string, f toolFailure) domain.ToolOperationOutcome {
+	return domain.ToolOperationOutcome{Result: result, Failure: f.Diagnostic, Status: f.Status, Reason: f.Reason, Effects: f.Effects}
+}
+func failureFromOutcome(outcome domain.ToolOperationOutcome) (toolFailure, bool) {
+	if outcome.Status != domain.ToolOutcomeRecoverable && outcome.Status != domain.ToolOutcomeRefused {
+		return toolFailure{}, false
+	}
+	return toolFailure{Status: outcome.Status, Reason: outcome.Reason, Effects: outcome.Effects, Diagnostic: outcome.Failure}, true
 }

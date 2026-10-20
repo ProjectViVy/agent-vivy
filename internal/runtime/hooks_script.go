@@ -3,8 +3,6 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -57,11 +55,14 @@ func (h *ScriptHook) Name() string {
 	return "script:" + head
 }
 
-// GovernanceIdentity binds approvals to the full script-hook generation
-// without exposing its command in approval metadata or logs.
-func (h *ScriptHook) GovernanceIdentity() string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", h.Command, h.Matcher, h.Timeout)))
-	return "script:" + hex.EncodeToString(sum[:])
+// ApprovalDeclaration is private exact configuration for shell approval drift checks.
+func (h *ScriptHook) ApprovalDeclaration() string {
+	data, _ := json.Marshal(struct {
+		Command string
+		Matcher string
+		Timeout time.Duration
+	}{h.Command, h.Matcher, h.Timeout})
+	return string(data)
 }
 
 // MatchesTool applies the configured glob (empty and "*" match all).

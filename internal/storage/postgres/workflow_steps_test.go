@@ -94,6 +94,9 @@ func TestWorkflowStepUpgradeFrom033Postgres(t *testing.T) {
 		}
 		applied = m.Version
 	}
+	if err := migrations.ApplyManifest(ctx, setup, migrations.Postgres, manifest); err != nil {
+		t.Fatalf("convert disposable fixture: %v", err)
+	}
 	_ = setup.Close()
 	if applied != 33 {
 		t.Fatalf("fixture stopped at migration %d, want 33", applied)

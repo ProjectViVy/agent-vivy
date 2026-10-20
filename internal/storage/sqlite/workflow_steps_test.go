@@ -40,7 +40,7 @@ func TestWorkflowStepContract(t *testing.T) {
 }
 
 // TestWorkflowStepUpgradeFrom033 seeds a database at migration head 033 then
-// opens it through the production runner: the workflow-step migration must
+// converts the disposable fixture explicitly: the workflow-step migration must
 // apply in place and the committed state must stay readable.
 func TestWorkflowStepUpgradeFrom033(t *testing.T) {
 	ctx := context.Background()
@@ -74,6 +74,10 @@ func TestWorkflowStepUpgradeFrom033(t *testing.T) {
 	}
 	if applied != 33 {
 		t.Fatalf("fixture stopped at migration %d, want 33", applied)
+	}
+	// Explicit disposable conversion; production Open refuses old sources.
+	if err := migrations.ApplyManifest(ctx, raw, migrations.SQLite, manifest); err != nil {
+		t.Fatalf("convert fixture: %v", err)
 	}
 	if err := raw.Close(); err != nil {
 		t.Fatalf("close fixture db: %v", err)

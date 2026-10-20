@@ -698,9 +698,62 @@ func cnToolOperationIdentity(t *testing.T, h Harness) {
 	}
 	conflict := conformanceToolOperation(runID, "call-1")
 	conflict.EffectiveArguments = []byte(`{"text":"changed"}`)
-	conflict.ArgumentsDigest = conformanceToolOperationDigest(string(conflict.EffectiveArguments))
 	if _, _, _, err := b.AdmitToolOperation(ctx, conflict); !errors.Is(err, storage.ErrToolOperationConflict) {
 		t.Fatalf("same key with changed payload = %v, want ErrToolOperationConflict", err)
+	}
+	for _, change := range []func(*domain.ToolOperation){
+		func(op *domain.ToolOperation) { op.RequestArguments = []byte(` {"text":"same"}`) },
+		func(op *domain.ToolOperation) { op.ToolName = "another_tool" },
+		func(op *domain.ToolOperation) { op.MiddlewareInputArguments = []byte(`{"text":"changed"}`) },
+	} {
+		op := conformanceToolOperation(runID, "call-1")
+		change(&op)
+		if _, _, _, err := b.AdmitToolOperation(ctx, op); !errors.Is(err, storage.ErrToolOperationConflict) {
+			t.Fatalf("changed binding accepted: %v", err)
+		}
+	}
+	oversizedJSON := append([]byte{'"'}, bytes.Repeat([]byte("x"), 1<<20)...)
+	oversizedJSON = append(oversizedJSON, '"')
+	for field := range 3 {
+		for _, input := range [][]byte{nil, {}, []byte(`{`), oversizedJSON} {
+			op := conformanceToolOperation(runID, "invalid")
+			switch field {
+			case 0:
+				op.RequestArguments = input
+			case 1:
+				op.MiddlewareInputArguments = input
+			case 2:
+				op.EffectiveArguments = input
+			}
+			if _, _, _, err := b.AdmitToolOperation(ctx, op); err == nil {
+				t.Fatal("direct store accepted invalid argument input")
+			}
+		}
+	}
+	// Returning a row must not let caller mutations alter another parameter set.
+	op := conformanceToolOperation(runID, "copy")
+	op.MiddlewareInputArguments = op.RequestArguments
+	op.EffectiveArguments = op.RequestArguments
+	admitted, _, _, err := b.AdmitToolOperation(ctx, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op.RequestArguments[0] = 'x'
+	admitted.RequestArguments[0] = 'y'
+	if admitted.MiddlewareInputArguments[0] != '{' || admitted.EffectiveArguments[0] != '{' {
+		t.Fatal("admission returned aliased input slices")
+	}
+	saved, err := b.GetToolOperation(ctx, runID, "copy")
+	if err != nil || saved.RequestArguments[0] != '{' {
+		t.Fatalf("caller mutated durable input: %+v %v", saved, err)
+	}
+	nullOp := conformanceToolOperation(runID, "json-null")
+	nullOp.RequestArguments = []byte(`null`)
+	if _, _, _, err := b.AdmitToolOperation(ctx, nullOp); err != nil {
+		t.Fatal(err)
+	}
+	if _, acquired, _, err := b.ClaimToolOperation(ctx, runID, "json-null", "owner"); err != nil || !acquired {
+		t.Fatalf("JSON null fenced as missing: %v", err)
 	}
 	if _, inserted, _, err := b.AdmitToolOperation(ctx, conformanceToolOperation(runID, "call-2")); err != nil || !inserted {
 		t.Fatalf("distinct same-argument admission: inserted=%v err=%v", inserted, err)
@@ -725,6 +778,19 @@ func cnToolOperationIdentity(t *testing.T, h Harness) {
 	wg.Wait()
 	if claimed != 1 {
 		t.Fatalf("duplicate claim count = %d, want exactly one", claimed)
+	}
+	claimedOp, err := b.GetToolOperation(ctx, runID, "call-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Append(ctx, storage.Commit{RunID: runID, Events: []domain.RunEvent{{Type: domain.EventRunCancelled, CreatedAt: 3, PayloadVersion: 1, Payload: []byte(`{}`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := b.ClaimToolOperation(ctx, runID, "call-2", "owner-after-close"); !errors.Is(err, storage.ErrRunClosed) {
+		t.Fatalf("claimed after Run close: %v", err)
+	}
+	if _, _, err := b.CompleteToolOperation(ctx, runID, "call-1", claimedOp.ClaimOwner, domain.ToolOperationOutcome{Result: "late", Status: "success", Effects: "unknown"}); !errors.Is(err, storage.ErrRunClosed) {
+		t.Fatalf("completed after Run close: %v", err)
 	}
 }
 
@@ -752,8 +818,25 @@ func cnToolOperationRecovery(t *testing.T, h Harness) {
 			t.Fatalf("claim %s: claimed=%v err=%v", id, claimed, err)
 		}
 	}
-	if _, _, err := b.CompleteToolOperation(ctx, runID, "call-complete", "owner-before-reopen", "persisted", ""); err != nil {
+	if _, _, err := b.CompleteToolOperation(ctx, runID, "call-complete", "owner-before-reopen", domain.ToolOperationOutcome{Result: "persisted", Status: "success", Effects: "unknown"}); err != nil {
 		t.Fatal(err)
+	}
+	classified := map[string]domain.ToolOperationOutcome{
+		"recoverable": {Result: "correct input", Failure: "diagnostic", Status: "recoverable", Reason: "invalid_arguments", Effects: "unknown"},
+		"refused":     {Result: "denied", Failure: "denial diagnostic", Status: "refused", Reason: "user_denied", Effects: "not_executed"},
+		"fatal":       {Failure: "broken", Status: "fatal", Effects: "unknown"},
+		"command":     {Result: "command output", Failure: "exit 1", Status: "recoverable", Reason: "command_failed", Effects: "unknown"},
+	}
+	for id, outcome := range classified {
+		if _, _, _, err := b.AdmitToolOperation(ctx, conformanceToolOperation(runID, id)); err != nil {
+			t.Fatal(err)
+		}
+		if _, acquired, _, err := b.ClaimToolOperation(ctx, runID, id, "owner-before-reopen"); err != nil || !acquired {
+			t.Fatalf("claim classified operation %s: %v", id, err)
+		}
+		if _, _, err := b.CompleteToolOperation(ctx, runID, id, "owner-before-reopen", outcome); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := b.Close(); err != nil {
 		t.Fatal(err)
@@ -763,6 +846,12 @@ func cnToolOperationRecovery(t *testing.T, h Harness) {
 		t.Fatalf("reopen: %v", err)
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
+	for id, outcome := range classified {
+		op, err := reopened.GetToolOperation(ctx, runID, id)
+		if err != nil || op.Outcome() != outcome {
+			t.Fatalf("classification changed after reopen: %s %+v %v", id, op.Outcome(), err)
+		}
+	}
 	unknown, err := reopened.GetToolOperation(ctx, runID, "call-unknown")
 	if err != nil || unknown.State != domain.ToolOperationClaimed {
 		t.Fatalf("unknown operation after reopen = %+v err=%v", unknown, err)
@@ -774,18 +863,35 @@ func cnToolOperationRecovery(t *testing.T, h Harness) {
 	if err != nil || completed.State != domain.ToolOperationCompleted || completed.Result != "persisted" {
 		t.Fatalf("completed operation after reopen = %+v err=%v", completed, err)
 	}
-}
-
-func conformanceToolOperationDigest(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
+	outcome := domain.ToolOperationOutcome{Result: "persisted", Status: "success", Effects: "unknown"}
+	if completed.Outcome() != outcome {
+		t.Fatalf("lost typed completion: %+v", completed.Outcome())
+	}
+	if _, event, err := reopened.CompleteToolOperation(ctx, runID, "call-complete", "owner-before-reopen", outcome); err != nil || event.Type != "" {
+		t.Fatalf("repeat completion=%+v %v", event, err)
+	}
+	for _, change := range []func(*domain.ToolOperationOutcome){
+		func(o *domain.ToolOperationOutcome) { o.Result = "different" }, func(o *domain.ToolOperationOutcome) { o.Failure = "different" },
+		func(o *domain.ToolOperationOutcome) { o.Status = "fatal" }, func(o *domain.ToolOperationOutcome) { o.Status = "recoverable"; o.Reason = "invalid_arguments" },
+		func(o *domain.ToolOperationOutcome) { o.Effects = "none" },
+		func(o *domain.ToolOperationOutcome) { o.Reason = "invalid-repeat-reason" },
+	} {
+		changed := outcome
+		change(&changed)
+		if _, _, err := reopened.CompleteToolOperation(ctx, runID, "call-complete", "owner-before-reopen", changed); !errors.Is(err, storage.ErrToolOperationConflict) {
+			t.Fatalf("changed completion accepted: %+v %v", changed, err)
+		}
+	}
+	if _, _, err := reopened.CompleteToolOperation(ctx, runID, "call-complete", "another-owner", outcome); !errors.Is(err, storage.ErrToolOperationConflict) {
+		t.Fatalf("completed owner binding bypassed: %v", err)
+	}
 }
 
 func conformanceToolOperation(runID domain.RunID, id string) domain.ToolOperation {
 	args := []byte(`{"text":"same"}`)
 	return domain.ToolOperation{RunID: runID, OperationID: id, ToolName: "write_note",
-		RequestDigest: conformanceToolOperationDigest("request:" + string(args)), MiddlewareInputArguments: append([]byte(nil), args...),
-		ArgumentsDigest: conformanceToolOperationDigest(string(args)), EffectiveArguments: args}
+		RequestArguments: append([]byte(nil), args...), MiddlewareInputArguments: append([]byte(nil), args...),
+		EffectiveArguments: args}
 }
 
 func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {

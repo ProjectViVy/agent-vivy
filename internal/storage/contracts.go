@@ -29,6 +29,8 @@ var (
 	// ErrToolOperationConflict means one logical operation key was reused for
 	// a different tool or invocation payload.
 	ErrToolOperationConflict = errors.New("storage: tool operation conflict")
+	// ErrSourceBindingUnavailable fences converted history without original input.
+	ErrSourceBindingUnavailable = errors.New("storage: source_binding_unavailable")
 	// ErrLeaseHeld is returned when a second process tries to become the
 	// organism on a server database that already has a live instance lease.
 	ErrLeaseHeld = errors.New("storage: organism lease held")
@@ -87,14 +89,14 @@ type Journal interface {
 
 // ToolOperationStore atomically appends each operation transition to the
 // Journal and updates its private invocation row in the same transaction.
-// Journal events contain lifecycle metadata and digests; invocation bytes
+// Journal events contain lifecycle metadata; invocation bytes
 // remain in the row for safe recovery. A false acquired/created result is an
 // idempotent observation, never a license to invoke the external tool again.
 type ToolOperationStore interface {
 	AdmitToolOperation(context.Context, domain.ToolOperation) (domain.ToolOperation, bool, domain.RunEvent, error)
 	GetToolOperation(context.Context, domain.RunID, string) (domain.ToolOperation, error)
 	ClaimToolOperation(context.Context, domain.RunID, string, string) (domain.ToolOperation, bool, domain.RunEvent, error)
-	CompleteToolOperation(context.Context, domain.RunID, string, string, string, string) (domain.ToolOperation, domain.RunEvent, error)
+	CompleteToolOperation(context.Context, domain.RunID, string, string, domain.ToolOperationOutcome) (domain.ToolOperation, domain.RunEvent, error)
 }
 
 // SnapshotStore holds the latest consistent domain state per key. Version

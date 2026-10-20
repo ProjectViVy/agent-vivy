@@ -1,9 +1,8 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +18,7 @@ import (
 const (
 	// maxShellScriptBytes is the input bound for one !shell invocation. The
 	// exact script is retained only in the protected state seam; public
-	// journal/proposal projections carry a redacted label and a short hash.
+	// journal/proposal projections carry only a redacted byte-count label.
 	maxShellScriptBytes = 64 << 10
 	// maxShellResultBytes is an outer bound on the serialized direct-shell
 	// result. The command backend independently caps each output stream; this
@@ -43,9 +42,57 @@ var (
 // Approval row. When ServiceDeps.ShellState is wired, it is serialized into
 // the opaque blob store under a random reference so a pending approval can
 // resume after restart without putting the original script in review data.
+type shellHookBinding struct {
+	ChainPresent bool          `json:"chain_present"`
+	Timeout      time.Duration `json:"timeout"`
+	Hooks        []string      `json:"hooks"`
+}
 type shellState struct {
-	Args      json.RawMessage  `json:"args"`
-	SessionID domain.SessionID `json:"session_id"`
+	Kind       string            `json:"kind"`
+	Args       json.RawMessage   `json:"args"`
+	SessionID  domain.SessionID  `json:"session_id"`
+	PolicyHash string            `json:"policy_hash"`
+	Hooks      *shellHookBinding `json:"hook_binding"`
+}
+
+func cloneShellState(state shellState) shellState {
+	state.Args = append(json.RawMessage(nil), state.Args...)
+	if state.Hooks != nil {
+		copy := *state.Hooks
+		copy.Hooks = append([]string(nil), state.Hooks.Hooks...)
+		state.Hooks = &copy
+	}
+	return state
+}
+func shellHookDeclaration(chain *ToolHookChain) shellHookBinding {
+	binding := shellHookBinding{}
+	if chain == nil {
+		return binding
+	}
+	binding.ChainPresent = true
+	binding.Timeout = chain.timeout
+	for _, hook := range chain.hooks {
+		if hook == nil {
+			continue
+		}
+		declaration := hook.Name()
+		if exact, ok := hook.(ToolHookApprovalDeclaration); ok {
+			declaration = exact.ApprovalDeclaration()
+		}
+		binding.Hooks = append(binding.Hooks, declaration)
+	}
+	return binding
+}
+func sameShellHooks(a, b shellHookBinding) bool {
+	if a.ChainPresent != b.ChainPresent || a.Timeout != b.Timeout || len(a.Hooks) != len(b.Hooks) {
+		return false
+	}
+	for i := range a.Hooks {
+		if a.Hooks[i] != b.Hooks[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // shellPendingRun is deliberately independent from pendingRun. The latter
@@ -67,7 +114,7 @@ type shellPendingRun struct {
 	ledger         *BudgetLedger
 	requested      bool
 	approvalReady  chan struct{}
-	approvedHash   string
+	reviewed       *shellState
 }
 
 // shellTool resolves only the active bash surface. A hidden bash tool must
@@ -313,7 +360,7 @@ func (s *Service) runShell(ctx context.Context, p shellPendingRun, approved bool
 	var finalArgs json.RawMessage
 	var err error
 	if approved {
-		finalArgs, err = s.authorizeApprovedShell(ctx, adapter, p.args, p.approvedHash, p.snapshot.Hash)
+		finalArgs, err = s.authorizeApprovedShell(ctx, adapter, p.args, p.reviewed, p.snapshot.Hash)
 	} else {
 		finalArgs, err = s.authorizeShell(ctx, adapter, p.args, false)
 	}
@@ -469,8 +516,9 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 // authorizeApprovedShell revalidates the exact reviewed arguments without
 // re-running pre-tool hooks. A hook rewrite is part of the approved payload;
 // running the hook again could turn approved script A into unreviewed B.
-func (s *Service) authorizeApprovedShell(ctx context.Context, adapter *toolAdapter, args json.RawMessage, approvedHash, policyHash string) (json.RawMessage, error) {
-	if approvedHash == "" || shellApprovalHash(args, policyHash, adapter.hooks) != approvedHash {
+func (s *Service) authorizeApprovedShell(ctx context.Context, adapter *toolAdapter, args json.RawMessage, reviewed *shellState, policyHash string) (json.RawMessage, error) {
+	current, canonErr := canonicalToolArguments(args)
+	if reviewed == nil || reviewed.Kind != "vivy.shell-state/v2" || reviewed.Hooks == nil || canonErr != nil || !bytes.Equal(current, reviewed.Args) || reviewed.PolicyHash != policyHash || !sameShellHooks(*reviewed.Hooks, shellHookDeclaration(adapter.hooks)) {
 		return nil, fmt.Errorf("%w: approved shell arguments changed", ErrPolicyDenied)
 	}
 	if err := validateDirectShellArgs(args); err != nil {
@@ -540,7 +588,12 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 		return err
 	}
 	stateRef := shellStateRefForRun(p.mapper.runID)
-	state := shellState{Args: append(json.RawMessage(nil), args...), SessionID: p.sessionID}
+	canonical, err := canonicalToolArguments(args)
+	if err != nil {
+		return err
+	}
+	hooks := shellHookDeclaration(s.engine.cfg.ToolHooks)
+	state := shellState{Kind: "vivy.shell-state/v2", Args: canonical, SessionID: p.sessionID, PolicyHash: p.snapshot.Hash, Hooks: &hooks}
 	if err := s.storeShellState(ctx, stateRef, state); err != nil {
 		return err
 	}
@@ -550,11 +603,14 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 	proposal.Action = tools.BashName
 	proposal.Target = audit
 	proposal.Preview = audit
-	proposal.Data = shellStateRefData(stateRef)
+	proposal.Data, err = bindToolApprovalProposal(shellStateRefData(stateRef), canonical)
+	if err != nil {
+		s.deleteShellState(stateRef)
+		return err
+	}
 	proposal.RiskFindings = boundShellFindings(proposal.RiskFindings)
 	proposal = boundToolProposalReview(proposal, p.mapper.maxPayload)
 	expiresAt := s.approvalDeadline(time.Now(), s.shellApprovalExpiration()).UnixMilli()
-	approvedHash := shellApprovalHash(args, p.snapshot.Hash, s.engine.cfg.ToolHooks)
 	approval := domain.Approval{
 		ID: newPrefixedID("apr_"), RunID: p.mapper.runID, ToolCallID: p.toolCallID,
 		Decision: domain.ApprovalPending, ExpiresAt: expiresAt, TimeoutAt: expiresAt,
@@ -563,12 +619,12 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 		Target: proposal.Target, Preview: proposal.Preview,
 		RiskFindings: append([]string(nil), proposal.RiskFindings...), ProposalData: append([]byte(nil), proposal.Data...),
 		SandboxMode: string(p.sandboxMode), ApprovalPolicy: string(p.approvalPolicy),
-		PreconditionHash: approvedHash,
 	}
 	p.args = append(json.RawMessage(nil), args...)
 	p.stateRef = stateRef
 	p.requested = true
-	p.approvedHash = approvedHash
+	copy := cloneShellState(state)
+	p.reviewed = &copy
 	p.approvalReady = make(chan struct{})
 	// Register before the approval row becomes externally visible. Review
 	// operations wait for approvalReady, which closes only after the
@@ -587,8 +643,7 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 		Args: shellAuditArgs(args), ExpiresAt: expiresAt, SelectedTools: []string{tools.BashName},
 		Mode: string(p.mode), Face: string(p.face), PolicyProfile: string(p.profile), PolicyHash: p.snapshot.Hash,
 		SandboxMode: string(p.sandboxMode), ApprovalPolicy: string(p.approvalPolicy),
-		PreconditionHash: p.approvedHash,
-		Action:           approval.Action, Target: approval.Target, Preview: approval.Preview,
+		Action: approval.Action, Target: approval.Target, Preview: approval.Preview,
 		RiskFindings: append([]string(nil), approval.RiskFindings...),
 	})
 	if !s.persistShellEvent(ctx, p, ev, false) {
@@ -615,13 +670,18 @@ func (s *Service) resumeShell(p shellPendingRun, approval domain.Approval, decis
 		ctx = context.WithoutCancel(context.Background())
 	}
 	p.args = append(json.RawMessage(nil), p.args...)
-	p.stateRef = shellStateRef(approval.ProposalData)
-	p.approvedHash = approval.PreconditionHash
+	current, currentErr := canonicalToolArguments(p.args)
+	provider, intended, bindingErr := unbindToolApprovalProposal(approval.ProposalData)
+	if currentErr != nil || p.reviewed == nil || p.reviewed.Hooks == nil || !bytes.Equal(current, p.reviewed.Args) || !sameShellHooks(*p.reviewed.Hooks, shellHookDeclaration(s.engine.cfg.ToolHooks)) || bindingErr != nil || approval.RunID != p.mapper.runID || approval.ToolCallID != p.toolCallID || approval.ToolName != tools.BashName || approval.ResumeTarget != shellResumeTarget(p.mapper.runID) || shellStateRef(provider) != shellStateRefForRun(p.mapper.runID) || p.reviewed == nil || !bytes.Equal(intended, p.reviewed.Args) {
+		s.failShell(ctx, p, errors.New("runtime: shell approval private binding mismatch"))
+		return
+	}
+	p.stateRef = shellStateRef(provider)
 	p.requested = true
 	if decision == domain.ApprovalDenied {
 		ctx = s.shellContext(ctx, p)
 		defer s.deleteShellState(p.stateRef)
-		finished := payloadToolFinished{ToolCallID: p.toolCallID, ToolName: tools.BashName, Error: "bash was denied by the user and did not run; continue without it."}
+		finished := payloadToolFinished{ToolCallID: p.toolCallID, ToolName: tools.BashName, Outcome: domain.ToolOutcomeRefused, Reason: domain.ToolReasonUserDenied, Effects: domain.ToolEffectsNotExecuted, Error: "bash was denied by the user and did not run; continue without it."}
 		if s.persistShellEvent(ctx, p, p.mapper.build(domain.EventToolFinished, finished), false) {
 			s.emitTerminal(ctx, p.mapper, p.mapper.build(domain.EventRunCompleted, payloadRunCompleted{}))
 		}
@@ -726,11 +786,14 @@ func shellStateRef(data []byte) string {
 
 func (s *Service) storeShellState(ctx context.Context, ref string, state shellState) error {
 	data, err := json.Marshal(state)
+	if len(data) > maxShellScriptBytes+4096 {
+		return errors.New("runtime: protected shell approval state exceeds bound")
+	}
 	if err != nil {
 		return fmt.Errorf("runtime: encode shell state: %w", err)
 	}
 	s.mu.Lock()
-	s.shellStates[ref] = shellState{Args: append(json.RawMessage(nil), state.Args...), SessionID: state.SessionID}
+	s.shellStates[ref] = cloneShellState(state)
 	s.mu.Unlock()
 	if s.deps.ShellState == nil {
 		return nil
@@ -752,7 +815,7 @@ func (s *Service) loadShellState(ctx context.Context, ref string) (shellState, b
 	state, ok := s.shellStates[ref]
 	s.mu.Unlock()
 	if ok {
-		return state, true, nil
+		return cloneShellState(state), true, nil
 	}
 	if s.deps.ShellState == nil {
 		return shellState{}, false, nil
@@ -767,11 +830,11 @@ func (s *Service) loadShellState(ctx context.Context, ref string) (shellState, b
 	if err := json.Unmarshal(data, &state); err != nil {
 		return shellState{}, false, fmt.Errorf("runtime: decode protected shell state: %w", err)
 	}
-	if len(state.Args) == 0 || len(state.Args) > maxShellScriptBytes+4096 {
+	if state.Kind != "vivy.shell-state/v2" || state.Hooks == nil || state.SessionID == "" || state.PolicyHash == "" || len(state.Args) == 0 || len(state.Args) > maxShellScriptBytes+4096 {
 		return shellState{}, false, errors.New("runtime: protected shell state arguments are invalid")
 	}
 	s.mu.Lock()
-	s.shellStates[ref] = shellState{Args: append(json.RawMessage(nil), state.Args...), SessionID: state.SessionID}
+	s.shellStates[ref] = cloneShellState(state)
 	s.mu.Unlock()
 	return state, true, nil
 }
@@ -851,8 +914,12 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 	if !durable {
 		return errors.New("runtime: shell approval-required event is missing")
 	}
-	ref := shellStateRef(approval.ProposalData)
-	if ref != shellStateRefForRun(run.ID) {
+	provider, intended, bindErr := unbindToolApprovalProposal(approval.ProposalData)
+	if bindErr != nil {
+		return bindErr
+	}
+	ref := shellStateRef(provider)
+	if approval.RunID != run.ID || approval.ResumeTarget != shellResumeTarget(run.ID) || approval.ToolCallID == "" || ref != shellStateRefForRun(run.ID) {
 		return errors.New("runtime: protected shell state reference does not match run")
 	}
 	state, ok, err := s.loadShellState(ctx, ref)
@@ -862,7 +929,7 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 	if !ok {
 		return errors.New("runtime: protected shell state is unavailable after restart")
 	}
-	if state.SessionID != "" && state.SessionID != run.SessionID {
+	if state.SessionID != run.SessionID || !bytes.Equal(state.Args, intended) {
 		return errors.New("runtime: protected shell state session mismatch")
 	}
 	tool, ok := s.shellTool()
@@ -891,7 +958,7 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 		return fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, tools.BashName, reason)
 	}
 	profile, snapshot, mode, face, sandboxMode, approvalPolicy := s.shellRecoveryMetadata(ctx, run.ID, approval)
-	if approval.PreconditionHash == "" || shellApprovalHash(state.Args, snapshot.Hash, s.engine.cfg.ToolHooks) != approval.PreconditionHash {
+	if state.Hooks == nil || state.PolicyHash != snapshot.Hash || !sameShellHooks(*state.Hooks, shellHookDeclaration(s.engine.cfg.ToolHooks)) {
 		return errors.New("runtime: protected shell state or governance generation does not match approval")
 	}
 	ledger, err := s.recoverShellBudgetLedger(ctx, run.ID)
@@ -905,7 +972,7 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 		stateRef: ref, mode: mode, profile: profile, snapshot: snapshot,
 		sandboxMode: sandboxMode, approvalPolicy: approvalPolicy, face: face, ledger: ledger, requested: true,
 		approvalReady: make(chan struct{}),
-		approvedHash:  approval.PreconditionHash,
+		reviewed:      &state,
 	}
 	close(p.approvalReady)
 	s.mu.Lock()
@@ -1065,34 +1132,7 @@ func shellScript(args json.RawMessage) string {
 }
 
 func shellAuditLabel(args json.RawMessage) string {
-	script := shellScript(args)
-	sum := sha256.Sum256([]byte(script))
-	hash := hex.EncodeToString(sum[:])
-	if len(hash) > 16 {
-		hash = hash[:16]
-	}
-	return fmt.Sprintf("bash script [redacted bytes=%d sha256=%s]", len(script), hash)
-}
-
-func shellApprovalHash(args json.RawMessage, policyHash string, hooks *ToolHookChain) string {
-	hash := sha256.New()
-	_, _ = hash.Write(args)
-	_, _ = hash.Write([]byte{0})
-	_, _ = hash.Write([]byte(policyHash))
-	if hooks != nil {
-		_, _ = hash.Write([]byte(fmt.Sprintf("\x00%d", hooks.timeout)))
-		for _, hook := range hooks.hooks {
-			if hook != nil {
-				identity := hook.Name()
-				if versioned, ok := hook.(ToolHookIdentity); ok {
-					identity = versioned.GovernanceIdentity()
-				}
-				_, _ = hash.Write([]byte("\x00" + identity))
-			}
-		}
-	}
-	sum := hash.Sum(nil)
-	return hex.EncodeToString(sum)
+	return fmt.Sprintf("bash script [redacted bytes=%d]", len(shellScript(args)))
 }
 
 func shellAuditArgs(args json.RawMessage) map[string]any {
