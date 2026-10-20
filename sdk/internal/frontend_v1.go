@@ -445,10 +445,13 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 		return Artifact{}, err
 	}
 	var uiBuild builtWebUI
-	if o.Target != packTargetExecutable {
-		// Non-executable Generations have no embedded Web UI — DIVA renders
-		// its own face. Seal an empty dist so the manifest's ui/dist digest
-		// and the staged artifact still verify through the same path.
+	// Only the minimal profile omits the base Web shell. An absent replacement
+	// root in lite/default still means the built-in shell must be compiled.
+	omitUI := recipe.Profile == "minimal" && uiAssembly.Manifest.Root == "" && len(uiAssembly.Manifest.Extensions) == 0
+	embedUI := o.Target == packTargetExecutable && !omitUI
+	if !embedUI {
+		// Minimal without UI contributions and non-executable targets seal an
+		// empty dist without requiring frontend dependencies.
 		buildRoot, mkErr := os.MkdirTemp("", "vivy-shared-ui-")
 		if mkErr != nil {
 			return Artifact{}, mkErr
@@ -492,7 +495,7 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
-	if o.Target == packTargetExecutable {
+	if embedUI {
 		if err := overlaySelectedUIDist(overlayFile, filepath.Join(repoRoot, "ui", "dist"), uiBuild.Dist); err != nil {
 			return Artifact{}, fmt.Errorf("sdk: bind selected UI to executable embed: %w", err)
 		}
@@ -557,6 +560,9 @@ func Pack(ctx context.Context, o packOptions) (Artifact, error) {
 	binaryName := artifactBinaryName(runtime.GOOS)
 	buildPackage := "./cmd/vivy"
 	buildArgs := []string{"build", "-p=2", "-modfile", modfile, "-mod=readonly", "-overlay", overlayFile}
+	if o.Target == packTargetExecutable && !embedUI {
+		buildArgs = append(buildArgs, "-tags", "vivy_headless")
+	}
 	if o.Target == packTargetShared {
 		binaryName = artifactSharedName(runtime.GOOS)
 		buildPackage = "./cmd/vivy-shared"
@@ -621,7 +627,14 @@ func buildWebUI(ctx context.Context, repoRoot string, input assemblyv1.UIAssembl
 	if _, err := os.Stat(viteEntry); err != nil {
 		return builtWebUI{}, fmt.Errorf("sdk: build Web UI: checked-in Vite tool is unavailable at %s: %w", viteEntry, err)
 	}
-	buildRoot, err := os.MkdirTemp("", "vivy-ui-build-")
+	// Keep staged sources below the UI root so Node resolves the installed
+	// dependencies through its normal ancestor lookup. This needs neither a
+	// privileged Windows symlink nor a copied dependency tree.
+	cacheRoot := filepath.Join(uiRoot, ".cache")
+	if err := os.MkdirAll(cacheRoot, 0o700); err != nil {
+		return builtWebUI{}, fmt.Errorf("sdk: create Web UI build scratch: %w", err)
+	}
+	buildRoot, err := os.MkdirTemp(cacheRoot, "vivy-ui-build-")
 	if err != nil {
 		return builtWebUI{}, fmt.Errorf("sdk: create isolated Web UI build boundary: %w", err)
 	}
@@ -631,9 +644,6 @@ func buildWebUI(ctx context.Context, repoRoot string, input assemblyv1.UIAssembl
 	}
 	if err := stageUIBuildSources(buildRoot, input, plan, sources); err != nil {
 		return cleanup(err)
-	}
-	if err := os.Symlink(filepath.Join(uiRoot, "node_modules"), filepath.Join(buildRoot, "node_modules")); err != nil {
-		return cleanup(fmt.Errorf("sdk: link checked-in Web UI dependencies into isolated build boundary: %w", err))
 	}
 	assemblyEntry := filepath.Join(buildRoot, "assembly.ts")
 	if err := os.WriteFile(assemblyEntry, generated, 0o600); err != nil {
@@ -710,7 +720,7 @@ func overlaySelectedUIDist(overlayFile, repositoryDist, selectedDist string) err
 	}
 	if err := mapTree(repositoryDist, func(rel, _ string) (string, string, error) {
 		return filepath.Join(repositoryDist, rel), "", nil
-	}); err != nil {
+	}); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("hide repository UI dist: %w", err)
 	}
 	if err := mapTree(selectedDist, func(rel, path string) (string, string, error) {

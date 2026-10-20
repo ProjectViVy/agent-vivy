@@ -370,6 +370,7 @@ function detectRepo() {
     just: commandExists('just'),
     pnpm: commandExists('pnpm'),
     doctor: null,
+    scopedKernel: existsSync(join(root, 'scripts', 'verify-kernel.mjs')),
   };
   if (!args.noDoctor && existsSync(join(root, 'scripts', 'doctor.mjs'))) {
     const result = run(process.execPath, [join(root, 'scripts', 'doctor.mjs')], {
@@ -466,6 +467,38 @@ function buildGates(host, repo) {
       requires: 'studio/ submodule',
     },
   ];
+  if (repo.scopedKernel) {
+    const linuxLane = (host.os === 'linux' || host.os === 'wsl') &&
+      typeof repo.root === 'string' && repo.root.startsWith('/') && !repo.root.startsWith('/mnt/');
+    gates.unshift({ id: 'minimal-kernel', label: 'just wiring-ci + just kernel-ci',
+      ready: ready && repo.just && linuxLane, external: !linuxLane, requires: 'Linux-filesystem WSL/Linux checkout; no UI installation' });
+    const race = gates.find(gate => gate.id === 'race');
+    race.ready = ready && host.cc.present && linuxLane;
+    race.external = !linuxLane;
+    const full = gates.find(gate => gate.id === 'full-ci');
+    if (host.os !== 'windows') {
+      full.ready = false;
+      full.external = true;
+      full.requires = 'Legacy full-product recipes require Windows; use the scoped kernel gates here';
+    }
+    const fast = gates.find(gate => gate.id === 'fast');
+    fast.label = 'just wiring-ci';
+    fast.ready = ready && repo.just && linuxLane;
+    fast.external = !linuxLane;
+    fast.requires = 'Independent Linux-filesystem WSL/Linux checkout';
+    const postgres = gates.find(gate => gate.id === 'postgres');
+    postgres.ready = postgres.ready && linuxLane;
+    postgres.external = !linuxLane;
+    const inner = gates.find(gate => gate.id === 'inner-loop');
+    inner.label = 'manual split (backend :8787 + Vite :3015)';
+    inner.ready = ready && repo.pnpm;
+    inner.requires = 'Windows legacy launcher or manual split; explicit disposable home';
+    const browser = gates.find(gate => gate.id === 'ui-browser');
+    browser.label = 'split UI smoke (:3015)';
+    const packaging = gates.find(gate => gate.id === 'docker');
+    packaging.ready = false;
+    packaging.requires = 'Legacy packaging recipe; --smoke wiring is not supplied by scoped CI';
+  }
   if (ok === null) {
     for (const gate of gates) {
       if (!gate.optional && gate.id !== 'windows-acceptance') gate.ready = null;

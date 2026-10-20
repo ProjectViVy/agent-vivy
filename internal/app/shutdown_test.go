@@ -2,6 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,6 +20,103 @@ import (
 	"agent-vivy/internal/runtime"
 	plugin "agent-vivy/sdk/port/channel"
 )
+
+func TestAppCloseBoundsSlowMCPSessionsAndClosesStorage(t *testing.T) {
+	a, _ := composeGatewayless(t)
+	if err := a.mcpBackend.Close(); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	deletes := make(chan struct{}, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deletes <- struct{}{}
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var request struct {
+			ID     json.RawMessage
+			Method string
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		if request.Method == "notifications/initialized" {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if request.Method == "server/discover" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32601, "message": "legacy server"}})
+			return
+		}
+		result := map[string]any{"tools": []any{}}
+		if request.Method == "initialize" {
+			w.Header().Set("Mcp-Session-Id", r.URL.Path)
+			result = map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]any{"name": "slow-close", "version": "1"}}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": result})
+	}))
+	defer server.Close()
+	defer close(release)
+	a.mcpBackend = runtime.NewMCPBackend([]runtime.MCPServerConfig{{Name: "slow-a", Endpoint: server.URL + "/a"}, {Name: "slow-b", Endpoint: server.URL + "/b"}}, server.Client())
+	for _, name := range []string{"slow-a", "slow-b"} {
+		if _, err := a.mcpBackend.ListTools(context.Background(), "", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- a.Close() }()
+	select {
+	case <-deletes:
+	case <-time.After(time.Second):
+		t.Fatal("MCP close did not reach the server")
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("slow close error = %v", err)
+		}
+	case <-time.After(shutdownGrace + 2*time.Second):
+		t.Fatal("MCP sessions held shutdown beyond its grace window")
+	}
+	if _, err := a.backend.GetRun(context.Background(), "absent"); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("storage remained open after bounded MCP close: %v", err)
+	}
+}
+
+func TestAppRunListenerFailureClosesOwnedStorage(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	runtime.SetEngineVersionOverride(pinnedEinoVersion)
+	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
+	cfg := newDeepSeekTestConfig(t)
+	cfg.Server.Addr = listener.Addr().String()
+	a, err := New(context.Background(), cfg, WithoutEars())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	if err := a.Run(context.Background()); err == nil {
+		t.Fatal("occupied listener did not fail")
+	}
+	if _, err := a.backend.GetRun(context.Background(), "absent"); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("storage remained open after listener failure: %v", err)
+	}
+}
 
 type blockingShutdownChannel struct {
 	*fake.Channel

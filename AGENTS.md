@@ -401,9 +401,15 @@ work is isolated by structure, not by coordination — there is no `LOCK.md`.
 
 ## Validation
 
-Default gate for kernel, UI, Studio overlay, and product-contract docs is
-**`just ci`** from the repository root. A hand-rolled `go test` is not the
-product path when `just ci` exists.
+The kernel gate is **`just wiring-ci` + `just kernel-ci`** from an independent
+Linux-filesystem WSL/Linux checkout at the candidate, with its own pinned
+Laputa. `kernel-ci` verifies kernel owners and packs, inspects and boots only
+the minimal Recipe without installing or building UI. It does not certify
+default/optional Modules or D13's usable-tool/chat composition. Run affected
+protocol/Face gates as well (`just d02-ci` for D02), and affected UI tests when
+UI behavior changes. Full-product `just ci` remains a separate platform/release
+gate; do not repeatedly run Windows full CI for a kernel acceptance scope.
+Keep native Windows owner checks separate and record every unrun lane.
 
 For minor editorial or agent-instruction changes, review the diff and run
 `git diff --check`; full product CI is unnecessary. Do not add tests that

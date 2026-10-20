@@ -1343,9 +1343,8 @@ func (a *App) StartEmbeddedServices() {
 	a.service.StartCognitiveLoop(context.Background(), 0)
 }
 
-// Close shuts down a gateway-less composition and is safe to call more than
-// once. Resident gateway processes use Run, whose shutdown additionally owns
-// the HTTP listener ordering.
+// Close releases the composition and its optional HTTP listener exactly once.
+// Run and embedded hosts share this teardown owner.
 func (a *App) Close() error {
 	if a == nil {
 		return nil
@@ -1416,6 +1415,12 @@ func (a *App) startClose() {
 			if a.service != nil && !a.service.WaitIdle(shutdownCtx) {
 				a.closeErr = errors.Join(a.closeErr, shutdownCtx.Err())
 			}
+			if a.httpServer != nil {
+				a.closeStage.Store("http server")
+				if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
+					a.closeErr = errors.Join(a.closeErr, fmt.Errorf("shutdown http server: %w", err))
+				}
+			}
 			if a.observerHost != nil {
 				a.closeStage.Store("run observer")
 				a.observerHost.Close()
@@ -1428,7 +1433,14 @@ func (a *App) startClose() {
 			}
 			if a.mcpBackend != nil {
 				a.closeStage.Store("mcp backend")
-				a.closeErr = errors.Join(a.closeErr, a.mcpBackend.Close())
+				closed := make(chan error, 1)
+				go func() { closed <- a.mcpBackend.Close() }()
+				select {
+				case err := <-closed:
+					a.closeErr = errors.Join(a.closeErr, err)
+				case <-shutdownCtx.Done():
+					a.closeErr = errors.Join(a.closeErr, fmt.Errorf("close MCP clients: %w", shutdownCtx.Err()))
+				}
 			}
 			if a.assembly != nil {
 				a.closeStage.Store("assembly")
@@ -1917,106 +1929,27 @@ func applyLiveApprovalWindow(svc *runtime.Service, path string, cfg config.Confi
 // has no listener: it blocks on ctx alone while faces drive the in-process
 // control plane, then takes the same reverse-order shutdown.
 func (a *App) Run(ctx context.Context) error {
-	a.service.StartInteractionSweeper(context.Background(), time.Second)
-	defer a.service.StopInteractionSweeper()
-	// Cron fires agent turns on a schedule; it must not outlive the
-	// server loop and its in-flight watchers drain during shutdown below.
-	if a.cfg.Runtime.Cron.Enabled {
-		a.service.StartCronScheduler(context.Background(), runtime.CronSchedulerOptions{})
-		defer a.service.StopCronScheduler()
-	}
-	// The cognitive wake loop delivers strategy wakeups for a bound
-	// Cognitive service; unbound compositions are a no-op. Stop order:
-	// admission stops before runs are cancelled below.
-	a.service.StartCognitiveLoop(context.Background(), 0)
-	defer a.service.StopCognitiveLoop()
-	// The listener is faces/web's effect (VIVY-FACE-PACK §7); a
-	// gateway-less assembly has no server error source to wait on.
+	a.StartEmbeddedServices()
+	// A gateway-less assembly waits only for cancellation. The optional
+	// listener reports errors through the same teardown path as cancellation.
 	errCh := make(chan error, 1)
 	if a.httpServer != nil {
 		go func() {
 			a.logger.Info("vivy starting", "addr", a.cfg.Server.Addr)
-			if err := a.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errCh <- fmt.Errorf("http server: %w", err)
+			err := a.httpServer.ListenAndServe()
+			if errors.Is(err, http.ErrServerClosed) {
+				err = nil
+			} else if err != nil {
+				err = fmt.Errorf("http server: %w", err)
 			}
-			close(errCh)
+			errCh <- err
 		}()
 	}
-
+	var runErr error
 	select {
-	case err := <-errCh:
-		if err == nil {
-			return nil
-		}
-		return err
+	case runErr = <-errCh:
 	case <-ctx.Done():
 	}
-
 	a.logger.Info("vivy shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
-	defer cancel()
-	a.service.StopAutomaticWork()
-
-	// Reverse startup order with hard ordering guarantees (E4): channels
-	// stop first so an adapter's Stop never races a cancelled run's final
-	// delivery; runs are then cancelled and drained while storage is still
-	// open, so every run.cancelled terminal persists before the journal
-	// closes; only then do the HTTP server and the backend shut down.
-	a.service.StopInteractionSweeper()
-	if a.channels != nil {
-		a.channels.StopAll(shutdownCtx)
-	}
-	// Stop the armed timer before cancelling runs: any in-flight cron
-	// terminal watcher still writes its state back while storage is open
-	// (bounded by StopCronScheduler's drain window).
-	a.service.StopCronScheduler()
-	// Cognitive admission stops before in-flight workflow runs are
-	// cancelled; their durable state resumes on the next boot.
-	a.service.StopCognitiveLoop()
-	a.service.CancelAll()
-	if a.worker != nil {
-		if err := a.worker.Close(shutdownCtx); err != nil {
-			a.logger.Warn("child worker drain timed out", "err", err)
-		}
-	}
-	if !a.service.WaitIdle(shutdownCtx) {
-		a.logger.Warn("shutdown drain timed out; closing storage underneath live runs")
-	}
-	var mcpCloseDone chan error
-	if a.mcpBackend != nil {
-		mcpCloseDone = make(chan error, 1)
-		go func() { mcpCloseDone <- a.mcpBackend.Close() }()
-	}
-	var httpCloseErr error
-	if a.httpServer != nil {
-		httpCloseErr = a.httpServer.Shutdown(shutdownCtx)
-	}
-	var mcpCloseErr error
-	if mcpCloseDone != nil {
-		select {
-		case mcpCloseErr = <-mcpCloseDone:
-		case <-shutdownCtx.Done():
-			a.logger.Warn("MCP client shutdown timed out", "err", shutdownCtx.Err())
-		}
-	}
-	var assemblyCloseErr error
-	if a.assembly != nil {
-		assemblyCloseErr = closeToolWorlds(shutdownCtx, a.assembly.Worlds)
-	}
-	if a.assembly != nil {
-		assemblyCloseErr = errors.Join(assemblyCloseErr, a.assembly.Close(shutdownCtx))
-	}
-	if httpCloseErr != nil {
-		return fmt.Errorf("shutdown http server: %w", httpCloseErr)
-	}
-	if mcpCloseErr != nil {
-		return fmt.Errorf("close MCP clients: %w", mcpCloseErr)
-	}
-	if assemblyCloseErr != nil {
-		return fmt.Errorf("close generated assembly: %w", assemblyCloseErr)
-	}
-	if err := a.backend.Close(); err != nil {
-		return fmt.Errorf("close storage: %w", err)
-	}
-	return nil
+	return errors.Join(runErr, a.Close())
 }

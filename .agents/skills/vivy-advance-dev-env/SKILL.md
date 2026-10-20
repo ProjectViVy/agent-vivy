@@ -7,40 +7,42 @@ description: Analyze, establish, or repair the Vivy development environment acro
 
 ## Restored baseline
 
-Restored from `7b42b292` onto the `stable` baseline on 2026-10-21. The host
-analysis and venue rules apply now; the original environment-tooling line was
-not imported with this skill. Inspect the current `justfile` before using any
-command below. Do not turn a historical command name into an available gate.
+Restored from `7b42b292` onto stable on 2026-10-21. The owner then authorized
+portable WSL verification wiring and dedicated minimal-kernel CI. Use the
+current `justfile` and these actual entry points:
 
-- This baseline lacks `scripts/doctor.mjs`, `scripts/setup.mjs`,
-  `scripts/dev.config.yaml`, and the `doctor`, `check-fast`, `race-ci`, and
-  `release-conformance` recipes. `--check` can analyze the host; missing doctor
-  leaves repository gates `UNKNOWN`. `--apply` refuses the missing prerequisite.
-- The current manual split is backend `127.0.0.1:8787` and Vite
-  `127.0.0.1:3015`. The `:8788/:3016` isolated launcher described in the original
-  guide is not present. Keep an explicit disposable home when exercising this
-  baseline; never fall back to a tenant Journal.
-- The current `justfile` invokes PowerShell and `ensure-laputa.ps1`. A Linux
-  checkout is the preferred Go/Node venue, but portable recipe wiring must be
-  verified before launching `just ci` there. Restoring this skill does not
-  provide that wiring or a dedicated minimal-kernel CI recipe.
-- The current `test-postgres` recipe can exit successfully without a DSN.
-  Require a disposable DSN and actual test execution; its skip is not acceptance.
-- Follow the owner's requested change-specific wiring and minimal-kernel
-  verification scope. Record the exact existing commands or missing wiring.
-  Do not silently replace that scope with repeated Windows full-CI runs, or
-  claim that a missing scoped gate has passed.
+- `node scripts/ensure-laputa.mjs` prepares the pinned sibling through one
+  portable owner. The PowerShell entry only forwards. `just doctor` validates
+  the local toolchain and clean source pin; readiness is not test acceptance.
+- `just wiring-ci` runs bootstrap/evidence guards and kernel compiler/source/
+  runtime Assembly wiring. `just kernel-ci` vets/tests kernel owners and packs,
+  inspects and boots only the seven-module minimal Recipe, without installing
+  or building UI. It does not claim D13 usable tools/chat or default parity.
+- `just d02-ci` covers affected runtime/RPC/Face contracts, the causal App probe
+  separately, shutdown and native CODE fixtures. `just d02-web-ci` separately
+  stages the actual UI, typechecks it and tests affected Web/selected-UI paths.
+- `just race-ci` is the Linux/WSL kernel race lane. `just test-postgres` requires
+  a real disposable DSN and actual required cases; an unset DSN fails closed.
+- Run those scoped gates from a separate Linux-filesystem WSL/Linux checkout,
+  with its own pinned Laputa and dependencies. Windows retains focused native
+  acceptance. Do not replace the owner's scope with Windows full-CI reruns.
+- Full-product `just ci`, the dev launcher and Docker packaging are still
+  legacy platform recipes. Do not advertise them as portable scoped gates.
+  `scripts/setup.mjs`, isolated `:8788/:3016` launcher and release-conformance
+  are not restored. The full `--apply` path still needs that setup owner.
+- The manual split remains backend `127.0.0.1:8787` and Vite
+  `127.0.0.1:3015`; use an explicit disposable home. Never use tenant Journals.
 
-The reference tables retain their original environment-tooling context. This
-section is the authoritative applicability boundary for the restored baseline.
+The older reference tables retain their original environment-tooling context;
+this boundary and the current recipes determine applicability.
 ## Host model
 
 Vivy uses three venues. Keep the split; do not collapse it into one host.
 
 | Venue | Role | Owns |
 | --- | --- | --- |
-| Windows native | editor, browser, daily use | split UI at `:3016`, native acceptance of the packaged `.exe` |
-| WSL2 on the Linux filesystem | main Go/Node/pnpm line | `just ci`, `just race-ci`, Docker when the daemon lives there, UI served to the Windows browser |
+| Windows native | editor, browser, daily use | split UI at `:3015`, native acceptance of the packaged `.exe` |
+| WSL2 on the Linux filesystem | main Go/Node/pnpm line | `just wiring-ci`, `just kernel-ci`, `just race-ci`, Docker when the daemon lives there, UI served to the Windows browser |
 | Linux (or macOS) | the WSL line without the Windows prefix | backend/UI/race; Windows acceptance is external |
 | Docker | dependency services and packaging | real Postgres, image build, empty-`/data` startup smoke; not the inner loop |
 
@@ -74,29 +76,20 @@ The split is a resource decision, not a correctness escape hatch. A Windows-only
 
    The script refuses unsuitable hosts, never elevates, and starts Docker Desktop only when it is already installed. `--install wsl` requires Windows 10 build 19041+ or Windows 11, x64/arm64, enabled virtualization, and at least 15 GiB free. `--install docker` uses winget on Windows and brew on macOS; on Linux/WSL it refuses to run root installs and points at the official Docker documentation. A reboot or first launch may follow. Never add a runtime dependency only because it is available.
 
-5. Configure the checkout.
+5. Configure the checkout using its actual portable entry.
 
    ```bash
-   node .agents/skills/vivy-advance-dev-env/scripts/advance-dev-env.mjs --apply
-   node .agents/skills/vivy-advance-dev-env/scripts/advance-dev-env.mjs --apply --offline
+   node scripts/ensure-laputa.mjs
    just doctor
-   just dev
    ```
 
-   `--apply` prepares the pinned Laputa sibling, downloads Go modules, installs UI dependencies when missing, and runs doctor. `--offline` skips network steps and requires the caches to already be present. It does not start servers, install system packages, or touch `data/`. On a host that reaches upstream directly, export `VIVY_GOPROXY=direct` for the shell; the recipes and this script honor it, and it stays process-local.
+   Install UI dependencies only for an affected UI lane. The minimal lane has
+   no UI dependency installation. Keep Go proxy changes process-local.
 
-6. Run the daily verification ladder in proportion to the change. Use `references/verification-layers.md` for the full gate table and evidence rules.
-
-   - `just doctor` must have zero failures.
-   - `just dev` serves backend `127.0.0.1:8788` and Vite `127.0.0.1:3016` from `.workspace/dev/home`; the daily `~/.vivy` and embedded `:8787` stay untouched.
-   - `just check-fast` is the inner checkpoint; `just ci` is the platform gate on Windows and Linux.
-   - `just race-ci` runs on Linux/WSL with a C toolchain. A pinned upstream Eino race is an upstream finding, not a local pass; record it and keep the pin decision explicit.
-   - `just test-postgres` needs a real `VIVY_POSTGRES_TEST_DSN`; an unset DSN fails closed and is never a pass.
-   - `just ui-ci` and `just ui-e2e` cover the browser contract; exercise the changed surface at the split origin.
-   - `just docker-build --smoke` runs from the checkout that owns the pinned Laputa and must start healthy on an empty `/data`.
-   - Windows acceptance uses an independent Windows checkout at the same SHA and exercises `.exe`, paths, file locks, symlinks, and exit cleanup. Diagnose owner-test failures individually; never label them "Windows environment bad".
-   - `just release-conformance` checks a fixed candidate; record the candidate SHA, Laputa SHA, tool versions, and every skip.
-
+6. Select the scoped verification ladder above in proportion to the change.
+   Run one heavy lane at a time. Record every skip and its owner. Optional
+   modules, full-product packaging and native Windows acceptance remain
+   distinct from a passing minimal kernel. A zero-test selector never passes.
 7. Record evidence outside the chat.
 
    Write `docs/logs/YYYY-MM-DD-slug/{summary,verification,acceptance}.md`, or a focused commit for a minor agent-instruction change. Distinguish implemented, verified, and unverified. A skipped race, Postgres, Docker, or Windows lane is not green. Keep a transferable patch, bundle, or commit so the result does not depend on this conversation.

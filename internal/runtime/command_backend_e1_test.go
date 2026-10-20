@@ -23,11 +23,11 @@ func newE1Backend(t *testing.T, opts CommandBackendOptions) (*CommandBackend, *W
 	if err != nil {
 		t.Fatal(err)
 	}
-	sandbox, err := NewSandboxManager(domain.SandboxModeDangerFullAccess, root, []string{"bash", "echo"}, nil)
+	sandbox, err := NewSandboxManager(domain.SandboxModeDangerFullAccess, root, []string{"bash", "echo", "go"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewCommandBackend(manager, sandbox, []string{"bash", "echo"}, 30*time.Second, opts), manager
+	return NewCommandBackend(manager, sandbox, []string{"bash", "echo", "go"}, 30*time.Second, opts), manager
 }
 
 func TestCommandEnvInjection(t *testing.T) {
@@ -76,11 +76,11 @@ func TestShellPrefixBashAndCommandline(t *testing.T) {
 	}
 
 	// The plain execute path never picks up the prefix.
-	plain, err := backend.Execute(ctx, "run-prefix-exec", tools.CommandRequest{Command: "echo", Args: []string{"hi"}})
+	plain, err := backend.Execute(ctx, "run-prefix-exec", tools.CommandRequest{Command: "go", Args: []string{"version"}})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if plain.Stdout != "hi\n" {
+	if !strings.HasPrefix(plain.Stdout, "go version ") {
 		t.Fatalf("unprefixed stdout = %q", plain.Stdout)
 	}
 }
@@ -88,7 +88,7 @@ func TestShellPrefixBashAndCommandline(t *testing.T) {
 func TestCommandOutputSpillsToWorkspace(t *testing.T) {
 	backend, manager := newE1Backend(t, CommandBackendOptions{})
 	result, err := backend.Execute(context.Background(), "run-spill", tools.CommandRequest{
-		Command: "bash", Args: []string{"-c", `printf 'x%.0s' {1..200000}`},
+		Command: "bash", Args: []string{"-c", `printf '%200000s' x`},
 	})
 	if err != nil {
 		t.Fatalf("execute: %v", err)

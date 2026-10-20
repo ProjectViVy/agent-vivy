@@ -1,7 +1,9 @@
 package codeclient
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,42 +14,64 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ProjectViVy/laputa/laputa/persona"
 )
 
-// fakeRPC is a bash script speaking the wire contract with canned replies.
-const fakeRPC = `#!/usr/bin/env bash
-while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-  case "$line" in
-    *'"type":"get_state"'*)
-      printf '{"id":"%s","type":"response","command":"get_state","success":true,"data":{"session_id":"fake-1","isStreaming":false,"pendingMessageCount":0}}\n' "$id" ;;
-    *'"type":"prompt"'*)
-      printf '{"type":"agent_start","run_id":"r1"}\n'
-      printf '{"type":"message_update","delta":"hi "}\n'
-      printf '{"type":"message_update","delta":"there"}\n'
-      printf '{"type":"agent_settled","status":"completed"}\n'
-      printf '{"id":"%s","type":"response","command":"prompt","success":true,"data":{"disposition":"started","run_id":"r1"}}\n' "$id" ;;
-    *'"type":"steer"'*)
-      printf '{"id":"%s","type":"response","command":"steer","success":false,"error":"steer not implemented yet (lands with B1 steering)"}\n' "$id" ;;
-    *'"type":"abort"'*)
-      printf '{"id":"%s","type":"response","command":"abort","success":true,"data":null}\n' "$id" ;;
-    *)
-      printf '{"id":"%s","type":"response","command":"x","success":false,"error":"unknown"}\n' "$id" ;;
-  esac
-done
-`
+// Reuse the native test executable so the fixture speaks the real subprocess
+// protocol on Windows as well as Unix, without relying on shebang execution.
+func TestMain(m *testing.M) {
+	if os.Getenv("VIVY_CODECLIENT_TEST_HELPER") != "1" {
+		os.Exit(m.Run())
+	}
+	if len(os.Args) != 3 || os.Args[1] != "--mode" || os.Args[2] != "rpc" {
+		os.Exit(2)
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+	for scanner.Scan() {
+		var request struct{ ID, Type string }
+		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+			os.Exit(3)
+		}
+		response := map[string]any{"id": request.ID, "type": "response", "command": request.Type, "success": true, "data": nil}
+		switch request.Type {
+		case "get_state":
+			response["data"] = map[string]any{"session_id": "fake-1", "isStreaming": false, "pendingMessageCount": 0}
+		case "prompt":
+			for _, event := range []map[string]any{{"type": "agent_start", "run_id": "r1"}, {"type": "message_update", "delta": "hi "}, {"type": "message_update", "delta": "there"}, {"type": "agent_settled", "status": "completed"}} {
+				if err := encoder.Encode(event); err != nil {
+					os.Exit(4)
+				}
+			}
+			response["data"] = map[string]any{"disposition": "started", "run_id": "r1"}
+		case "steer":
+			response["success"], response["error"] = false, "steer not implemented yet (lands with B1 steering)"
+		case "abort":
+		default:
+			response["success"], response["error"] = false, "unknown"
+		}
+		if err := encoder.Encode(response); err != nil {
+			os.Exit(4)
+		}
+	}
+	if scanner.Err() != nil {
+		os.Exit(5)
+	}
+	os.Exit(0)
+}
 
-func fakeBinary(t *testing.T) string {
+func fakeConfig(t *testing.T) Config {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "fake-vivy-code")
-	if err := os.WriteFile(path, []byte(fakeRPC), 0o755); err != nil {
+	path, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return Config{Binary: path, Env: []string{"VIVY_CODECLIENT_TEST_HELPER=1"}}
 }
 
 func TestClientCorrelatesResponsesAndStreamsEvents(t *testing.T) {
-	c, err := New(Config{Binary: fakeBinary(t)})
+	c, err := New(fakeConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +110,7 @@ func TestClientCorrelatesResponsesAndStreamsEvents(t *testing.T) {
 }
 
 func TestClientPropagatesProtocolErrors(t *testing.T) {
-	c, err := New(Config{Binary: fakeBinary(t)})
+	c, err := New(fakeConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +148,7 @@ func TestClientAgainstRealVivyCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("go", "build", "-o", bin, "./cmd/vivy-code")
+	build := exec.Command("go", "build", "-tags=vivy_headless", "-o", bin, "./cmd/vivy-code")
 	build.Dir = root
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build vivy-code: %v\n%s", err, out)
@@ -144,10 +168,12 @@ func TestClientAgainstRealVivyCode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(serveSSE))
 	defer srv.Close()
 
+	testHome := t.TempDir()
 	c, err := New(Config{
 		Binary: bin,
 		Dir:    t.TempDir(),
 		Env: []string{
+			"VIVY_USER_HOME=" + testHome,
 			"DEEPSEEK_API_KEY=codeclient-e2e",
 			"VIVY_PROVIDER=deepseek",
 			"VIVY_MODEL=deepseek-chat",
@@ -158,6 +184,19 @@ func TestClientAgainstRealVivyCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
+	// This conversation fixture represents an onboarded owner. Initialize only
+	// the freshly allocated, test-owned instance before admitting its first turn.
+	instances, err := filepath.Glob(filepath.Join(testHome, "code-instances", "*"))
+	if err != nil || len(instances) != 1 {
+		t.Fatalf("private instance: %v / %v", instances, err)
+	}
+	authority, err := persona.Open(filepath.Join(instances[0], "garden", "persona"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authority.Initialize(persona.Initialization{Identity: "Test assistant", Relationship: "Test partner", Redline: "Test boundaries", User: "Test preferences", World: "Test workspace"}, "test-owner", persona.SourceInit, "Conversation fixture setup"); err != nil {
+		t.Fatal(err)
+	}
 
 	sub := c.Subscribe()
 	defer sub.Close()

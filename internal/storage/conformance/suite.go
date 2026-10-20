@@ -2186,6 +2186,7 @@ func cnSessionTruncationMarkers(t *testing.T, h Harness) {
 		{ID: "sess-tw", Title: "rewind", CreatedAt: 1},
 		{ID: "sess-other", Title: "other", CreatedAt: 1},
 		{ID: "sess-un", Title: "union", CreatedAt: 1},
+		{ID: "sess-fk", Title: "fork", CreatedAt: 1},
 	} {
 		if err := b.CreateSession(ctx, s); err != nil {
 			t.Fatalf("CreateSession %s: %v", s.ID, err)

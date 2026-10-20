@@ -1,6 +1,6 @@
 # agent-vivy task recipes (requires `just`; otherwise run the go commands directly)
 
-set shell := ["powershell.exe", "-NoProfile", "-Command"]
+set shell := ["sh", "-cu"]
 set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 
 # Use the toolchain selected on PATH. This lets actions/setup-go enforce the
@@ -11,7 +11,27 @@ vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
 
 # Prepare the pinned Laputa source closure shared by local development and CI.
 ensure-laputa:
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/ensure-laputa.ps1 -Quiet
+    node scripts/ensure-laputa.mjs --quiet
+
+# WSL/Linux scoped gates. The minimal lane never installs or builds the UI.
+doctor:
+    node scripts/doctor.mjs
+
+wiring-ci: ensure-laputa
+    node scripts/verify-kernel.mjs wiring
+
+kernel-ci: ensure-laputa
+    node scripts/verify-kernel.mjs kernel
+
+race-ci: ensure-laputa
+    node scripts/verify-kernel.mjs kernel-race
+
+d02-ci: ensure-laputa
+    node scripts/verify-kernel.mjs d02
+
+# Affected Web contracts are separate from the no-UI minimal lane.
+d02-web-ci: ensure-laputa
+    node scripts/verify-kernel.mjs d02-web
 
 bootstrap-test:
     node --test scripts/ensure-laputa.test.mjs
@@ -114,7 +134,7 @@ docker-up-postgres:
 
 # Optional. Skips when VIVY_POSTGRES_TEST_DSN is unset. Not part of just ci.
 test-postgres:
-    if (-not $env:VIVY_POSTGRES_TEST_DSN) { Write-Output 'VIVY_POSTGRES_TEST_DSN unset; skipping'; exit 0 }; & "{{go}}" test ./internal/storage/postgres
+    node scripts/verify-kernel.mjs postgres
 
 # Packer only. Not the daily gateway.
 sdk: ensure-laputa
