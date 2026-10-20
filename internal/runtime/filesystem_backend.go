@@ -130,13 +130,13 @@ func (b *EinoFilesystemBackend) ListDir(ctx context.Context, runID domain.RunID,
 		return tools.DirListResult{}, fmt.Errorf("filesystem: list %s: %w", displayPath(root, path), err)
 	}
 	if !info.IsDir() {
-		return tools.DirListResult{}, fmt.Errorf("filesystem: list target %s is not a directory", displayPath(root, path))
+		return tools.DirListResult{}, &tools.ArgError{Field: "path", Reason: fmt.Sprintf("list target %s is not a directory", displayPath(root, path))}
 	}
 	maxEntries := req.MaxEntries
 	if maxEntries <= 0 || maxEntries > b.maxListEntries {
 		maxEntries = b.maxListEntries
 	}
-	result := tools.DirListResult{Path: displayPath(root, path)}
+	result := tools.DirListResult{Path: displayPath(root, path), Entries: []tools.DirEntry{}}
 	appendEntry := func(entryPath string, entry fs.DirEntry) error {
 		if entry.Type()&os.ModeSymlink != 0 {
 			return nil
@@ -768,19 +768,19 @@ func safeWorkspacePath(root, value string, allowMissing bool) (string, error) {
 		value = "."
 	}
 	if strings.ContainsRune(value, '\x00') || filepath.IsAbs(filepath.FromSlash(value)) || filepath.VolumeName(filepath.FromSlash(value)) != "" || strings.HasPrefix(value, "\\\\") {
-		return "", fmt.Errorf("filesystem: path must be workspace-relative")
+		return "", &tools.ArgError{Field: "path", Reason: "must be workspace-relative"}
 	}
 	clean := filepath.Clean(filepath.FromSlash(value))
-	if clean == "." && value != "." {
-		return "", fmt.Errorf("filesystem: invalid path")
-	}
 	full := filepath.Join(root, clean)
 	rel, err := filepath.Rel(root, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("filesystem: path escapes workspace")
+	if err != nil {
+		return "", fmt.Errorf("filesystem: resolve path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", &tools.ArgError{Field: "path", Reason: "must stay inside the workspace"}
 	}
 	if protectedPath(rel) {
-		return "", fmt.Errorf("filesystem: protected path denied")
+		return "", &tools.ArgError{Field: "path", Reason: "protected path denied"}
 	}
 	parts := strings.Split(rel, string(filepath.Separator))
 	current := root
@@ -799,10 +799,10 @@ func safeWorkspacePath(root, value string, allowMissing bool) (string, error) {
 			return "", fmt.Errorf("filesystem: inspect path: %w", err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("filesystem: symlink path denied")
+			return "", &tools.ArgError{Field: "path", Reason: "symlink paths are not allowed"}
 		}
 		if i < len(parts)-1 && !info.IsDir() {
-			return "", fmt.Errorf("filesystem: path component is not a directory")
+			return "", &tools.ArgError{Field: "path", Reason: "path component is not a directory"}
 		}
 	}
 	return full, nil
