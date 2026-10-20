@@ -51,3 +51,13 @@ Linux conformance reproduction exposed one remaining removed-field reference
 in the App Work fixture. Replaced its obsolete in-place-upgrade expectation
 with final converted-store open/Work coverage and a separate byte-preserving
 App refusal case for old23 metadata. No checksum producer is restored.
+
+At a1d42fd8, independent Linux App converted-open and old23 byte-preserving
+refusal both pass (0.169s). All23 actual conformance suites pass (77.428s),
+regenerating conformance_results.json through its owner. The failed native
+attempt and earlier compile failure above are superseded, not erased.
+
+Finite artifact correction is1a8e7506acee43f1ed3afc69f877ebb068f5ccf7 on the
+separate artifact branch, never merged into this runtime. Its initial3193abdc
+PG suite passed159 cases with zero skips; final shape-review fixes and actual
+target bridge are undergoing fresh real-PG execution.
