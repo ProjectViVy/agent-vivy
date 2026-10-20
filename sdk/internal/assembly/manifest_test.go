@@ -493,3 +493,35 @@ func TestTask7MinimalManifestProvesLegacyUIPathsAreAbsent(t *testing.T) {
 		}
 	}
 }
+
+func TestInspectManifestRequiresVersionMetadata(t *testing.T) {
+	_, raw, err := SealManifest(manifestTestPlan(), SealInputs{GenerationID: "inspect-versions", SpecificationVersion: "vivy.assembly/v1", CompilerVersion: "compiler-test", SDKVersion: "sdk-test", CanonicalRecipe: []byte("{}")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"specificationVersion", "compilerVersion", "sdkVersion"} {
+		for _, mode := range []string{"missing", "empty", "whitespace"} {
+			t.Run(field+"/"+mode, func(t *testing.T) {
+				var document map[string]any
+				if err := json.Unmarshal(raw, &document); err != nil {
+					t.Fatal(err)
+				}
+				switch mode {
+				case "missing":
+					delete(document, field)
+				case "empty":
+					document[field] = ""
+				case "whitespace":
+					document[field] = " \t"
+				}
+				malformed, err := json.Marshal(document)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := InspectManifest(malformed); err == nil {
+					t.Fatalf("InspectManifest accepted %s %s", mode, field)
+				}
+			})
+		}
+	}
+}
