@@ -17,7 +17,7 @@ D12's producer/consumer closure. It consumes no D08 snapshot API; this prevents
 a compile dependency cycle without accepting or starting D10's broader work.
 No duplicate hash implementation is moved into the memory Module.
 
-The finite BML converter is delivered on a separate branch/commit; it must not
+The finite BML converter is delivered separately as `f7875b21a65b5a45f72ce83e084f4da300b45487` on `codex/issue91-d12-rules`; it must not
 be merged into the final runtime. Application metadata/checksum removal waits
 for committed D03 integration. D14 assembles the complete upgrade artifact;
 no final application target migration number is reserved here.

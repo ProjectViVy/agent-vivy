@@ -300,3 +300,82 @@ func TestV2CompletedImportVerifiesRollbackProjection(t *testing.T) {
 		t.Fatal("corrupt rollback projection accepted")
 	}
 }
+
+func TestV2RejectsIncompleteTargetBeforeWritableOpen(t *testing.T) {
+	for _, mutation := range []string{
+		`UPDATE memory_records SET record_json=json_set(record_json,'$.provenance.content_digest',json('{"algorithm":"sha256","value":"old"}'))`,
+		`DROP TABLE memory_fts; CREATE TABLE memory_fts(memory_id,tenant_id,workspace_id,session_id,content)`,
+		`DROP TABLE memory_supersedes; CREATE TABLE memory_supersedes(memory_id TEXT NOT NULL,superseded_id TEXT NOT NULL)`,
+	} {
+		t.Run(mutation, func(t *testing.T) {
+			dir := t.TempDir()
+			ctx := context.Background()
+			s, err := Open(ctx, dir, "owner")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mustPut(t, s, storeRecord("one", "owner", "body"), 0)
+			if _, err := s.db.Exec(mutation); err != nil {
+				t.Fatal(err)
+			}
+			s.Close()
+			path := filepath.Join(dir, storeFileName)
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec("PRAGMA journal_mode=DELETE"); err != nil {
+				t.Fatal(err)
+			}
+			db.Close()
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := Open(ctx, dir, "owner")
+			if reopened != nil {
+				reopened.Close()
+			}
+			if err == nil {
+				t.Fatal("partial target accepted")
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(before) != string(after) {
+				t.Fatal("refused target mutated")
+			}
+		})
+	}
+}
+
+func TestV2RollbackAfterInterruptedPublicationAndDeletion(t *testing.T) {
+	for _, failure := range []MemoryMigrationTestFailure{MemoryMigrationTestFailureAfterRecords, MemoryMigrationTestFailureAfterRollbackManifest} {
+		migration := NewMemoryMigration(t.TempDir())
+		plan, err := migration.DryRun("rollback", []byte("input"), nil, ts(0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := migration.ExecuteWithFailure(plan, &failure); err == nil {
+			t.Fatal("fault missing")
+		}
+		if err := migration.Rollback("rollback"); err != nil {
+			t.Fatalf("rollback allocated: %v", err)
+		}
+	}
+	migration := NewMemoryMigration(t.TempDir())
+	plan, err := migration.DryRun("rollback", []byte("input"), nil, ts(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := migration.Execute(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(plan.Directory, "records.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(plan.Directory, "rollback.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := migration.Rollback("rollback"); err != nil {
+		t.Fatalf("rollback deletion retry: %v", err)
+	}
+}

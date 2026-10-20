@@ -1,0 +1,51 @@
+package main
+
+import (
+ "context"
+ "encoding/json"
+ "os"
+ "path/filepath"
+ "testing"
+ bml "github.com/ProjectViVy/agent-vivy/bml"
+)
+
+func TestBridgeConvertedStoreOpensInActualTargetRuntime(t *testing.T) {
+ ctx:=context.Background()
+ source:=fixture(t)
+ dir:=filepath.Join(t.TempDir(),"converted")
+ if err:=os.Mkdir(dir,0700);err!=nil { t.Fatal(err) }
+ target:=filepath.Join(dir,"memory.sqlite3")
+ if err:=convert(ctx,source,target,"");err!=nil { t.Fatal(err) }
+ s,err:=bml.OpenExisting(ctx,dir,"workspace-old-hash")
+ if err!=nil { t.Fatalf("actual target reopen: %v",err) }
+ meta,err:=s.Metadata(ctx)
+ if err!=nil || meta.SchemaVersion!=2 || meta.StoreRevision!=8 || meta.RecordCount!=3 || meta.ContentBytes!=10 { t.Fatalf("metadata: %+v %v",meta,err) }
+ a,err:=s.Get(ctx,"old-hash-a")
+ if err!=nil || a==nil || a.Revision!=3 || a.Record.Content!="alpha" { t.Fatalf("a: %+v %v",a,err) }
+ tomb,err:=s.Get(ctx,"old-hash-t")
+ if err!=nil || tomb==nil || tomb.Record.Tombstone==nil || tomb.Record.Tombstone.TargetRecordID!="old-hash-a" { t.Fatalf("tombstone: %+v %v",tomb,err) }
+ integrity,err:=s.Integrity(ctx)
+ if err!=nil || len(integrity.CorruptRecordIDs)!=0 || integrity.RecordCount!=3 || integrity.OrphanFTSRows!=0 { t.Fatalf("integrity: %+v %v",integrity,err) }
+ if err:=s.Close();err!=nil { t.Fatal(err) }
+ moved:=filepath.Join(filepath.Dir(dir),"moved")
+ if err:=os.Rename(dir,moved);err!=nil { t.Fatal(err) }
+ s,err=bml.OpenExistingCanonical(ctx,moved)
+ if err!=nil { t.Fatalf("relocated target: %v",err) }
+ defer s.Close()
+ meta,err=s.Metadata(ctx)
+ if err!=nil || meta.WorkspaceID!="workspace-old-hash" { t.Fatalf("relocated owner: %+v %v",meta,err) }
+}
+
+func TestBridgeConvertedArtifactUsesOnlyTargetParser(t *testing.T) {
+ source:=artifactFixture(t)
+ root:=t.TempDir()
+ target:=filepath.Join(root,"old-migration")
+ if err:=convertArtifact(context.Background(),source,target,"");err!=nil { t.Fatal(err) }
+ raw,err:=os.ReadFile(filepath.Join(target,"manifest.json"))
+ if err!=nil { t.Fatal(err) }
+ var manifest bml.MemoryMigrationManifest
+ if err:=json.Unmarshal(raw,&manifest);err!=nil { t.Fatalf("target manifest parser: %v",err) }
+ if manifest.State!="unverifiable" || manifest.RecordCount!=3 || len(manifest.AdmittedRecords)!=3 { t.Fatalf("manifest: %+v",manifest) }
+ if _,err:=bml.NewMemoryMigration(root).DryRun("old-migration",nil,manifest.AdmittedRecords,manifest.CreatedAt);err==nil { t.Fatal("unverifiable old identity reused") }
+ if err:=bml.NewMemoryMigration(root).Rollback("old-migration");err!=nil { t.Fatalf("owned artifact rollback: %v",err) }
+}

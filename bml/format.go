@@ -86,6 +86,9 @@ func inspectStore(ctx context.Context, path, expected string) (owner string, pri
 			return "", false, err
 		}
 	}
+	if err := inspectDefinitions(ctx, db); err != nil {
+		return "", false, err
+	}
 	shadow := map[string]bool{"memory_fts_data": true, "memory_fts_idx": true, "memory_fts_content": true, "memory_fts_docsize": true, "memory_fts_config": true}
 	for name, kind := range tables {
 		if _, ok := required[name]; !ok && !shadow[name] && kind != "index" {
@@ -98,6 +101,19 @@ func inspectStore(ctx context.Context, path, expected string) (owner string, pri
 			return "", false, formatError(ErrUnsupportedSourceFormat)
 		}
 		return "", false, formatError(ErrUpgradeRequired)
+	}
+	report, err := (&Store{db: db, path: path, workspaceID: owner}).Integrity(ctx)
+	if err != nil {
+		refusal := formatError(ErrUnsupportedSourceFormat)
+		refusal.Err = err
+		return "", false, refusal
+	}
+	if len(report.CorruptRecordIDs) != 0 || report.OrphanFTSRows != 0 {
+		return "", false, formatError(ErrUnsupportedSourceFormat)
+	}
+	var revision, recordedCount, recordedBytes int64
+	if err := db.QueryRowContext(ctx, "SELECT store_revision,record_count,content_bytes FROM schema_meta WHERE component=?", component).Scan(&revision, &recordedCount, &recordedBytes); err != nil || revision < 0 || recordedCount < report.RecordCount || recordedBytes < report.ContentBytes || recordedCount > MaxMemoryRecords || recordedBytes > MaxMemoryContentBytes {
+		return "", false, formatError(ErrUnsupportedSourceFormat)
 	}
 	if expected != "" && owner != expected {
 		return "", false, databaseWorkspaceMismatchErr(expected, owner)
@@ -139,6 +155,23 @@ func rejectRetiredFields(data []byte, fields ...string) error {
 	for _, field := range fields {
 		if _, ok := object[field]; ok {
 			return formatError(ErrUpgradeRequired)
+		}
+	}
+	return nil
+}
+
+// Compare owned DDL after normalizing SQLite's IF NOT EXISTS removal and
+// whitespace. This includes keys, nullability, checks, foreign keys and the
+// actual FTS module, rather than trusting column names or a version marker.
+func inspectDefinitions(ctx context.Context, db *sql.DB) error {
+	expected := map[string]string{"schema_meta": schemaDDL[0], "memory_records": schemaDDL[1], "memory_supersedes": schemaDDL[2], "memory_fts": ftsDDL}
+	normalize := func(s string) string {
+		return strings.Join(strings.Fields(strings.ReplaceAll(strings.ToLower(strings.TrimSuffix(strings.TrimSpace(s), ";")), "if not exists", "")), "")
+	}
+	for name, ddl := range expected {
+		var actual string
+		if err := db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&actual); err != nil || normalize(actual) != normalize(ddl) {
+			return formatError(ErrUnsupportedSourceFormat)
 		}
 	}
 	return nil

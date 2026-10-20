@@ -177,7 +177,7 @@ func (m *MemoryMigration) DryRun(migrationID string, inputBytes []byte, records 
 		return nil, err
 	}
 	if existing != nil {
-		if existing.State == "unverifiable" || !bytes.Equal(inputBytes, existing.Input) {
+		if (existing.State != "allocated" && existing.State != "complete") || !bytes.Equal(inputBytes, existing.Input) {
 			return nil, migrationConflictErr(migrationID)
 		}
 		if err := reuseAllocations(admitted, existing.Allocations); err != nil {
@@ -351,27 +351,56 @@ func (m *MemoryMigration) Rollback(migrationID string) error {
 	if info, err := os.Lstat(directory); err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return migrationConflictErr(migrationID)
 	}
-	rollbackPath := filepath.Join(directory, "rollback.json")
-	data, err := os.ReadFile(rollbackPath)
+	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return migrationIOErr(rollbackPath, err)
+		return migrationIOErr(directory, err)
 	}
-	var rollback MemoryRollbackManifest
-	if err := json.Unmarshal(data, &rollback); err != nil {
-		return migrationJSONErr(err)
+	// An interrupted rollback can leave only an empty directory after deleting
+	// its last receipt. Remove only that empty directory, never recursively.
+	if len(entries) == 0 {
+		if err := os.Remove(directory); err != nil {
+			return migrationIOErr(directory, err)
+		}
+		return nil
 	}
-	if rollback.SchemaVersion != artifactSchemaVersion ||
-		rollback.MigrationID != migrationID ||
-		!slices.Equal(rollback.Outputs, expectedOutputs()) {
+	for _, entry := range entries {
+		if !slices.Contains(expectedOutputs(), entry.Name()) || !entry.Type().IsRegular() {
+			return migrationConflictErr(migrationID)
+		}
+	}
+	manifest, err := readMigrationManifest(directory)
+	if err != nil {
+		return err
+	}
+	if manifest.MigrationID != migrationID || !slices.Equal(manifest.Outputs, expectedOutputs()) || (manifest.State != "allocated" && manifest.State != "complete" && manifest.State != "unverifiable" && manifest.State != "rolling_back") {
 		return migrationConflictErr(migrationID)
 	}
-	for _, output := range rollback.Outputs {
-		path := filepath.Join(directory, output)
+	rollbackPath := filepath.Join(directory, "rollback.json")
+	raw, err := os.ReadFile(rollbackPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return migrationIOErr(rollbackPath, err)
+	}
+	if err == nil {
+		var rollback MemoryRollbackManifest
+		if err := json.Unmarshal(raw, &rollback); err != nil {
+			return migrationJSONErr(err)
+		}
+		if rollback.SchemaVersion != artifactSchemaVersion || rollback.MigrationID != migrationID || !slices.Equal(rollback.Outputs, expectedOutputs()) {
+			return migrationConflictErr(migrationID)
+		}
+	}
+	manifest.State = "rolling_back"
+	if err := atomicWriteJSON(filepath.Join(directory, "manifest.json"), manifest); err != nil {
+		return err
+	}
+	// Keep durable authority until every other owned file has been removed.
+	for _, name := range []string{"records.json", "rollback.json", "manifest.json"} {
+		path := filepath.Join(directory, name)
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return migrationIOErr(path, err)
 		}
 	}
-	if err := os.Remove(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(directory); err != nil {
 		return migrationIOErr(directory, err)
 	}
 	return nil
