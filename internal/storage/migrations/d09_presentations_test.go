@@ -30,7 +30,7 @@ func TestD09PresentationUpgradePreservesHistoricalEventWithoutGuessingBytes(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:39], Postgres: manifest.Migrations(Postgres)[:39]}}
+	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:40], Postgres: manifest.Migrations(Postgres)[:40]}}
 	if err := applyManifest(ctx, db, SQLite, prior); err != nil {
 		t.Fatal(err)
 	}
@@ -61,12 +61,12 @@ func TestD09PresentationMigrationRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:39], Postgres: manifest.Migrations(Postgres)[:39]}}
+	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:40], Postgres: manifest.Migrations(Postgres)[:40]}}
 	if err := applyManifest(ctx, db, SQLite, prior); err != nil {
 		t.Fatal(err)
 	}
 	items := manifest.Migrations(SQLite)
-	items[39].SQL += `SELECT * FROM missing_d09_presentation;`
+	items[40].SQL += `SELECT * FROM missing_d09_presentation;`
 	if err := ApplyManifest(ctx, db, SQLite, testManifest(items...)); err == nil {
 		t.Fatal("injected migration succeeded")
 	}
@@ -74,7 +74,7 @@ func TestD09PresentationMigrationRollback(t *testing.T) {
 		t.Fatal("failed migration retained private table")
 	}
 	var head int
-	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 39 {
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 40 {
 		t.Fatalf("failed migration marker: %d %v", head, err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {

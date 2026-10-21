@@ -12,7 +12,7 @@ func TestD09ReceiptUpgradePreservesLegacyOutcomeWithoutInputAuthority(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:38], Postgres: manifest.Migrations(Postgres)[:38]}}
+	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:39], Postgres: manifest.Migrations(Postgres)[:39]}}
 	if err := applyManifest(ctx, db, SQLite, prior); err != nil {
 		t.Fatal(err)
 	}
@@ -50,12 +50,12 @@ func TestD09ReceiptMigrationRollsBackWithOutcomeIntact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:38], Postgres: manifest.Migrations(Postgres)[:38]}}
+	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:39], Postgres: manifest.Migrations(Postgres)[:39]}}
 	if err := applyManifest(ctx, db, SQLite, prior); err != nil {
 		t.Fatal(err)
 	}
 	items := manifest.Migrations(SQLite)
-	items[38].SQL += `SELECT * FROM d09_receipt_missing;`
+	items[39].SQL += `SELECT * FROM d09_receipt_missing;`
 	if err := ApplyManifest(ctx, db, SQLite, testManifest(items...)); err == nil {
 		t.Fatal("injected migration succeeded")
 	}
@@ -66,7 +66,7 @@ func TestD09ReceiptMigrationRollsBackWithOutcomeIntact(t *testing.T) {
 		t.Fatalf("failed schema escaped rollback: %v %v", exists, err)
 	}
 	var head int
-	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 38 {
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 39 {
 		t.Fatalf("rollback metadata=%d: %v", head, err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {

@@ -1,6 +1,11 @@
 # Verification
 
 Phase 1 passed on cd0d4d3f plus the explicit integrated patch (244 source paths).
+The three D09 migration test-prefix corrections were present in that tested
+patch but omitted from the initial merge staging; a focused follow-up commit
+records the same verified test bytes. No production source changed for this
+staging correction. The dependency checkpoint is intentionally RED until the
+D10/D11 consumer adaptation is integrated.
 The independent Debian Linux-filesystem checkout is
 `/home/mastwet/work/vivy-issue91-final/agent-vivy`, with its own clean Laputa
 ff3936f44ff8cf08c12af2cf698c194cfe474fd3. Go1.26.4 and Node24.21.0 are used.

@@ -14,7 +14,7 @@ func d09ApprovalSource(t *testing.T) (*sql.DB, Manifest) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:37], Postgres: manifest.Migrations(Postgres)[:37]}}
+	prior := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:38], Postgres: manifest.Migrations(Postgres)[:38]}}
 	if err := applyManifest(context.Background(), db, SQLite, prior); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestD09ApprovalDropRollsBackOnFailure(t *testing.T) {
 	db, manifest := d09ApprovalSource(t)
 	ctx := context.Background()
 	items := manifest.Migrations(SQLite)
-	items[37].SQL += `SELECT * FROM d09_missing_table;`
+	items[38].SQL += `SELECT * FROM d09_missing_table;`
 	if err := ApplyManifest(ctx, db, SQLite, testManifest(items...)); err == nil {
 		t.Fatal("injected D09 migration succeeded")
 	}
@@ -80,7 +80,7 @@ func TestD09ApprovalDropRollsBackOnFailure(t *testing.T) {
 		t.Fatalf("rollback lost old column: %v %v", exists, err)
 	}
 	var head int
-	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 37 {
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 38 {
 		t.Fatalf("rollback metadata: %d %v", head, err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {
