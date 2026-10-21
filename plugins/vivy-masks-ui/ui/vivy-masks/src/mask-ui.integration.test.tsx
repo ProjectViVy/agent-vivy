@@ -7,7 +7,7 @@ import { extension } from './index';
 
 const catalog = ['Programmer', 'Researcher', 'Writer'].map((name) => ({
   id: `builtin/${name.toLowerCase()}`, name, description: `${name} description`,
-  revision: 1, built_in: true, digest: 'a'.repeat(64), generation_id: 'generation',
+  revision: 1, built_in: true, generation_id: 'generation',
 }));
 const selection = (session_id: string, mask_id: string, revision: number) => ({
   session_id, mask_id, revision, available: true, inactive_reason: '',

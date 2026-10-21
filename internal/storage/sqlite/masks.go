@@ -24,7 +24,7 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 		return mask.Page{}, err
 	}
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT id, name, description, digest, revision
+		SELECT id, name, description, revision
 		FROM mask_definitions
 		WHERE id > ?
 		ORDER BY id
@@ -37,7 +37,7 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 	items := make([]mask.Metadata, 0, in.Limit)
 	for rows.Next() {
 		var item mask.Metadata
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Digest, &item.Revision); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Revision); err != nil {
 			return mask.Page{}, maskStorageError("scan custom mask", err)
 		}
 		item.BuiltIn = false
@@ -66,7 +66,6 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	if err != nil {
 		return mask.Definition{}, err
 	}
-	requestDigest := mask.CreateRequestDigest(in)
 	tx, err := b.db.BeginTx(ctx, nil)
 	if err != nil {
 		return mask.Definition{}, maskStorageError("begin create custom mask", err)
@@ -76,7 +75,7 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	if existing, found, err := sqliteFindMaskByOperation(ctx, tx, in.OperationID); err != nil {
 		return mask.Definition{}, err
 	} else if found {
-		if existing.requestDigest != requestDigest {
+		if !existing.matches(in) {
 			return mask.Definition{}, mask.NewError(mask.CodeRevisionConflict, nil)
 		}
 		return existing.definition, nil
@@ -84,13 +83,12 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 
 	id := "custom/" + uuid.NewString()
 	now := time.Now().UnixMilli()
-	digest := mask.DefinitionDigest(id, in.Name, in.Body)
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO mask_definitions
-			(id, name, description, body, revision, digest, created_at, updated_at, create_operation_id, create_request_digest)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, name, description, body, revision, created_at, updated_at, create_operation_id, create_name, create_description, create_body)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(create_operation_id) DO NOTHING`,
-		id, in.Name, in.Description, []byte(in.Body), 1, digest, now, now, in.OperationID, requestDigest)
+		id, in.Name, in.Description, []byte(in.Body), 1, now, now, in.OperationID, in.Name, in.Description, []byte(in.Body))
 	if err != nil {
 		return mask.Definition{}, maskStorageError("insert custom mask", err)
 	}
@@ -105,7 +103,7 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	if !found {
 		return mask.Definition{}, maskStorageError("read inserted custom mask", errors.New("operation row missing after insert"))
 	}
-	if created.requestDigest != requestDigest {
+	if !created.matches(in) {
 		return mask.Definition{}, mask.NewError(mask.CodeRevisionConflict, nil)
 	}
 	if err := tx.Commit(); err != nil {
@@ -138,13 +136,12 @@ func (b *Backend) UpdateCustomMask(ctx context.Context, in mask.UpdateRequest) (
 		return mask.Definition{}, mask.NewRevisionError(mask.CodeRevisionConflict, current.Revision, nil)
 	}
 	nextRevision := current.Revision + 1
-	digest := mask.DefinitionDigest(in.ID, in.Name, in.Body)
 	now := time.Now().UnixMilli()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE mask_definitions
-		SET name = ?, description = ?, body = ?, revision = ?, digest = ?, updated_at = ?
+		SET name = ?, description = ?, body = ?, revision = ?, updated_at = ?
 		WHERE id = ? AND revision = ?`,
-		in.Name, in.Description, []byte(in.Body), nextRevision, digest, now, in.ID, in.ExpectedRevision)
+		in.Name, in.Description, []byte(in.Body), nextRevision, now, in.ID, in.ExpectedRevision)
 	if err != nil {
 		return mask.Definition{}, maskStorageError("update custom mask", err)
 	}
@@ -307,8 +304,10 @@ func (b *Backend) SetMaskSelection(ctx context.Context, in mask.SetSelectionRequ
 }
 
 type sqliteOperationResult struct {
-	definition    mask.Definition
-	requestDigest string
+	definition         mask.Definition
+	requestName        sql.NullString
+	requestDescription sql.NullString
+	requestBody        sql.NullString
 }
 
 func sqliteFindMaskByOperation(ctx context.Context, q interface {
@@ -317,10 +316,10 @@ func sqliteFindMaskByOperation(ctx context.Context, q interface {
 	var result sqliteOperationResult
 	var body []byte
 	err := q.QueryRowContext(ctx, `
-		SELECT id, name, description, body, revision, digest, create_request_digest
+		SELECT id, name, description, body, revision, create_name, create_description, create_body
 		FROM mask_definitions WHERE create_operation_id = ?`, operationID).
 		Scan(&result.definition.ID, &result.definition.Name, &result.definition.Description, &body,
-			&result.definition.Revision, &result.definition.Digest, &result.requestDigest)
+			&result.definition.Revision, &result.requestName, &result.requestDescription, &result.requestBody)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sqliteOperationResult{}, false, nil
 	}
@@ -360,9 +359,9 @@ func sqliteGetCustomMask(ctx context.Context, q interface {
 	var definition mask.Definition
 	var body []byte
 	err := q.QueryRowContext(ctx, `
-		SELECT id, name, description, body, revision, digest
+		SELECT id, name, description, body, revision
 		FROM mask_definitions WHERE id = ?`, id).
-		Scan(&definition.ID, &definition.Name, &definition.Description, &body, &definition.Revision, &definition.Digest)
+		Scan(&definition.ID, &definition.Name, &definition.Description, &body, &definition.Revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mask.Definition{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 	}
@@ -380,4 +379,8 @@ func sqliteGetCustomMaskForUpdate(ctx context.Context, tx *sql.Tx, id string) (m
 
 func maskStorageError(operation string, err error) error {
 	return mask.NewError(mask.CodeUnavailable, fmt.Errorf("storage: %s: %w", operation, err))
+}
+
+func (r sqliteOperationResult) matches(in mask.CreateRequest) bool {
+	return r.requestName.Valid && r.requestDescription.Valid && r.requestBody.Valid && r.requestName.String == in.Name && r.requestDescription.String == in.Description && r.requestBody.String == in.Body
 }

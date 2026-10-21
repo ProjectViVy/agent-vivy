@@ -79,7 +79,7 @@ interface SkillDetailPaneProps {
   history: SkillHistoryEntry[];
   historyPreview: SkillHistoryDocument | null;
   isBusy: (key: string) => boolean;
-  onSave: (slug: string, markdown: string, baseHash: string) => Promise<boolean>;
+  onSave: (slug: string, markdown: string, expectedMarkdown: string) => Promise<boolean>;
   onToggleEnabled: (slug: string, enabled: boolean) => Promise<void>;
   onRemove: (slug: string) => Promise<void>;
   onPreviewHistory: (slug: string, revision: number) => Promise<void>;
@@ -89,11 +89,13 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
   const { t } = usePluginTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(doc.markdown);
+  const [expectedMarkdown, setExpectedMarkdown] = useState(doc.markdown);
   const [historyOpen, setHistoryOpen] = useState(false);
   const busy = isBusy(`save:${doc.slug}`) || isBusy(`toggle:${doc.slug}`) || isBusy(`delete:${doc.slug}`);
 
   const beginEdit = () => {
     setDraft(doc.markdown);
+    setExpectedMarkdown(doc.markdown);
     setEditing(true);
   };
 
@@ -114,14 +116,13 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
       </div>
 
       <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-        <p className="min-w-0 break-all font-mono text-xs text-muted-foreground">{t('skills.contentHash')}{doc.content_hash}</p>
         <p className="text-xs text-muted-foreground">{t('skills.updatedAt')}{new Date(doc.updated_at).toLocaleString(dateTimeLocale())}</p>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
         {editing ? (
           <>
-            <Button size="sm" disabled={busy} onClick={() => void onSave(doc.slug, draft, doc.content_hash).then((ok) => ok && setEditing(false))}>
+            <Button size="sm" disabled={busy} onClick={() => void onSave(doc.slug, draft, expectedMarkdown).then((ok) => ok && setEditing(false))}>
               {t('common.save')}
             </Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing(false)}>
@@ -186,7 +187,7 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
             history.map((entry) => (
               <div key={entry.revision} className="rounded-lg border p-3">
                 <Button variant="ghost" size="sm" className="h-auto justify-start py-1 font-mono text-xs" onClick={() => void onPreviewHistory(doc.slug, entry.revision)}>
-                  #{entry.revision} · {entry.content_hash.slice(0, 12)} · {new Date(entry.updated_at).toLocaleString(dateTimeLocale())}
+                  #{entry.revision} · {new Date(entry.updated_at).toLocaleString(dateTimeLocale())}
                 </Button>
               </div>
             ))
@@ -237,7 +238,8 @@ function CreateRequestPanel({ skills, busy, onSubmit, onCancel }: CreateRequestP
       title: title.trim(),
       reason: reason.trim(),
       attestation: attestation.trim() || null,
-      base_hash: existing?.content_hash ?? 'new-skill',
+      expected_exists: existing !== undefined,
+      expected_markdown: '',
       proposed_markdown: markdown,
     });
   };
@@ -352,7 +354,6 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
       ) : null}
 
       <div className="mb-5 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-        <p className="min-w-0 break-all font-mono">{t('plugin.vivy/evolution.requests.baseHash', { hash: request.base_hash })}</p>
         <p>{t('plugin.vivy/evolution.requests.createdAt', { time: new Date(request.created_at).toLocaleString(dateTimeLocale()) })}</p>
       </div>
 

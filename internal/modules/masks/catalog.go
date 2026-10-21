@@ -111,7 +111,6 @@ func loadCatalogDefinitions(assets fs.FS, generationID string, rawFrame string, 
 			Description:  spec.description,
 			Body:         body,
 			Revision:     maskcontract.BuiltinRevision,
-			Digest:       maskcontract.DefinitionDigest(spec.id, spec.name, body),
 			BuiltIn:      true,
 			GenerationID: generationID,
 		}

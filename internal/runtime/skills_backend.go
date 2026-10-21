@@ -1,10 +1,8 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	einoskill "github.com/cloudwego/eino/adk/middlewares/skill"
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
 	"agent-vivy/internal/domain"
@@ -44,6 +44,7 @@ type skillRoot struct {
 }
 
 type EinoSkillBackend struct {
+	mutations    sync.Mutex
 	root         string
 	projectRoots []skillRoot
 	sessions     SessionWorkspaceLookup
@@ -230,7 +231,7 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 	if len(req.Path) > maxSkillPathBytes {
 		return domain.ToolProposal{}, errors.New("skills: path is too long")
 	}
-	current, target, targetRel, baseHash, err := b.skillMutationState(ctx, req)
+	current, target, targetRel, exists, err := b.skillMutationState(ctx, req)
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
@@ -245,8 +246,7 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 	if err != nil {
 		return domain.ToolProposal{}, fmt.Errorf("skills: encode mutation: %w", err)
 	}
-	revisionID := newSkillRevisionID(payload)
-	contentHash := sha256Hex(after)
+	revisionID := newSkillRevisionID()
 	preview := boundedSkillPreview(targetRel, string(current), string(after), req.Action)
 	if len(preview) > maxSkillPreviewBytes {
 		preview = preview[:safeUTF8Prefix(preview, maxSkillPreviewBytes)] + "\n[preview truncated]\n"
@@ -255,7 +255,7 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 	warningsJSON, _ := json.Marshal(warnings)
 	revision := domain.SkillRevision{
 		ID: revisionID, RunID: runID, SkillName: req.SkillName, Action: req.Action, TargetPath: targetRel,
-		Payload: payload, BeforePayload: current, BaseHash: baseHash, ContentHash: contentHash, Preview: preview,
+		Payload: payload, BeforePayload: current, BeforeExists: &exists, Preview: preview,
 		WarningsJSON: warningsJSON, Status: domain.SkillRevisionPending, CreatedAt: time.Now().UnixMilli(),
 	}
 	if err := b.revisions.CreateSkillRevision(ctx, revision); err != nil {
@@ -269,6 +269,8 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 }
 
 func (b *EinoSkillBackend) ApplySkillRevision(ctx context.Context, runID domain.RunID, revisionID string) (tools.SkillManageResult, error) {
+	b.mutations.Lock()
+	defer b.mutations.Unlock()
 	if b.revisions == nil {
 		return tools.SkillManageResult{}, errors.New("skills: revision store not wired")
 	}
@@ -286,15 +288,18 @@ func (b *EinoSkillBackend) ApplySkillRevision(ctx context.Context, runID domain.
 	if err := json.Unmarshal(revision.Payload, &req); err != nil {
 		return tools.SkillManageResult{}, fmt.Errorf("skills: decode revision %s: %w", revisionID, err)
 	}
+	if root, _, err := b.skillDirOf(ctx, req.SkillName); err == nil && !root.writable {
+		return tools.SkillManageResult{}, errSkillReadOnly
+	}
 	if strings.ToLower(strings.TrimSpace(req.Action)) == "rollback" {
-		source, _, target, targetRel, baseHash, after, err := b.rollbackMutationState(ctx, runID, req)
+		source, current, target, targetRel, exists, after, err := b.rollbackMutationState(ctx, runID, req)
 		if err != nil {
 			return tools.SkillManageResult{}, err
 		}
-		if baseHash != revision.BaseHash {
+		if revision.BeforeExists == nil || exists != *revision.BeforeExists || !bytes.Equal(current, revision.BeforePayload) {
 			return tools.SkillManageResult{}, errors.New("skills: rollback target changed after human review")
 		}
-		if err := b.applyRollbackMutation(source, target, targetRel, after); err != nil {
+		if err := b.applyRollbackMutation(source, target, targetRel, after, func() error { return b.checkSkillState(target, false, current, exists) }); err != nil {
 			_ = b.revisions.SetSkillRevisionStatus(context.Background(), revisionID, domain.SkillRevisionFailed, time.Now().UnixMilli())
 			return tools.SkillManageResult{}, err
 		}
@@ -302,20 +307,20 @@ func (b *EinoSkillBackend) ApplySkillRevision(ctx context.Context, runID domain.
 			return tools.SkillManageResult{}, err
 		}
 		return tools.SkillManageResult{RevisionID: revisionID, Status: string(domain.SkillRevisionApplied), SkillName: req.SkillName,
-			Action: req.Action, TargetPath: targetRel, Hash: sha256Hex(after), Warnings: []string{"rollback applied"}}, nil
+			Action: req.Action, TargetPath: targetRel, Warnings: []string{"rollback applied"}}, nil
 	}
-	current, target, targetRel, baseHash, err := b.skillMutationState(ctx, req)
+	current, target, targetRel, exists, err := b.skillMutationState(ctx, req)
 	if err != nil {
 		return tools.SkillManageResult{}, err
 	}
-	if baseHash != revision.BaseHash {
+	if revision.BeforeExists == nil || exists != *revision.BeforeExists || !bytes.Equal(current, revision.BeforePayload) {
 		return tools.SkillManageResult{}, errors.New("skills: target changed after human review")
 	}
 	after, warnings, err := skillMutationContent(req, current, target != "")
 	if err != nil {
 		return tools.SkillManageResult{}, err
 	}
-	if err := b.applyMutation(req, target, targetRel, after, revisionID); err != nil {
+	if err := b.applyMutation(req, target, targetRel, after, revisionID, func() error { return b.checkSkillState(target, req.Action == "delete", current, exists) }); err != nil {
 		_ = b.revisions.SetSkillRevisionStatus(context.Background(), revisionID, domain.SkillRevisionFailed, time.Now().UnixMilli())
 		return tools.SkillManageResult{}, err
 	}
@@ -323,11 +328,11 @@ func (b *EinoSkillBackend) ApplySkillRevision(ctx context.Context, runID domain.
 		return tools.SkillManageResult{}, err
 	}
 	return tools.SkillManageResult{RevisionID: revisionID, Status: string(domain.SkillRevisionApplied), SkillName: req.SkillName,
-		Action: req.Action, TargetPath: targetRel, Hash: sha256Hex(after), Warnings: warnings}, nil
+		Action: req.Action, TargetPath: targetRel, Warnings: warnings}, nil
 }
 
 func (b *EinoSkillBackend) prepareRollbackProposal(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.ToolProposal, error) {
-	source, current, _, targetRel, baseHash, after, err := b.rollbackMutationState(ctx, runID, req)
+	source, current, _, targetRel, exists, after, err := b.rollbackMutationState(ctx, runID, req)
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
@@ -336,11 +341,11 @@ func (b *EinoSkillBackend) prepareRollbackProposal(ctx context.Context, runID do
 		return domain.ToolProposal{}, err
 	}
 	preview := boundedSkillPreview(targetRel, string(current), string(after), "rollback")
-	revisionID := newSkillRevisionID(payload)
+	revisionID := newSkillRevisionID()
 	warnings := []string{fmt.Sprintf("rolls back applied revision %s", source.ID)}
 	warnings = append(warnings, scanSkillText(string(after))...)
 	warningsJSON, _ := json.Marshal(warnings)
-	revision := domain.SkillRevision{ID: revisionID, RunID: runID, SkillName: req.SkillName, Action: "rollback", TargetPath: targetRel, Payload: payload, BeforePayload: current, BaseHash: baseHash, ContentHash: sha256Hex(after), Preview: preview, WarningsJSON: warningsJSON, Status: domain.SkillRevisionPending, CreatedAt: time.Now().UnixMilli()}
+	revision := domain.SkillRevision{ID: revisionID, RunID: runID, SkillName: req.SkillName, Action: "rollback", TargetPath: targetRel, Payload: payload, BeforePayload: current, BeforeExists: &exists, Preview: preview, WarningsJSON: warningsJSON, Status: domain.SkillRevisionPending, CreatedAt: time.Now().UnixMilli()}
 	if err := b.revisions.CreateSkillRevision(ctx, revision); err != nil {
 		return domain.ToolProposal{}, err
 	}
@@ -353,7 +358,6 @@ type loadedSkill struct {
 	content       string
 	dir           string
 	name          string
-	hash          string
 	enabled       bool
 	always        bool
 	userInvocable bool
@@ -513,8 +517,7 @@ func (b *EinoSkillBackend) loadSkillFromRoot(ctx context.Context, root skillRoot
 	if local.Name != name {
 		return loadedSkill{}, fmt.Errorf("skills: frontmatter name %q does not match directory %q", local.Name, name)
 	}
-	hash := sha256Hex(data)
-	return loadedSkill{front: local.eino(), content: content, dir: dir, name: name, hash: hash, enabled: enabled,
+	return loadedSkill{front: local.eino(), content: content, dir: dir, name: name, enabled: enabled,
 		always: local.Always, userInvocable: local.UserInvocable,
 		declaredTools: append([]string(nil), local.Tools...), warnings: scanSkillText(string(data)),
 		origin: root.origin}, nil
@@ -529,14 +532,16 @@ func (b *EinoSkillBackend) summary(item loadedSkill) tools.SkillSummary {
 		Agent: item.front.Agent, Model: item.front.Model, UserInvocable: item.userInvocable,
 		Tools:   append([]string(nil), item.declaredTools...),
 		Origin:  origin,
-		Enabled: item.enabled, Hash: item.hash, Warnings: append([]string(nil), item.warnings...)}
+		Enabled: item.enabled, Warnings: append([]string(nil), item.warnings...)}
 }
 
 // SetSkillEnabled flips the frontmatter enabled flag under CAS on the
-// current SKILL.md content hash. The document is re-rendered with canonical
-// frontmatter keys; content is preserved byte-for-byte after the closing
-// frontmatter delimiter.
-func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, enabled bool, baseHash string) (tools.SkillSummary, error) {
+// current SKILL.md exact bytes and existence. The document is re-rendered with canonical
+// frontmatter keys, using the existing document normalization.
+func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, req tools.SkillEnableRequest) (tools.SkillSummary, error) {
+	b.mutations.Lock()
+	defer b.mutations.Unlock()
+	name, enabled := req.Name, req.Enabled
 	if err := validSkillName(name); err != nil {
 		return tools.SkillSummary{}, err
 	}
@@ -549,7 +554,7 @@ func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, ena
 	if err != nil {
 		return tools.SkillSummary{}, fmt.Errorf("skills: read %s: %w", name, err)
 	}
-	if baseHash == "" || sha256Hex(data) != baseHash {
+	if !req.ExpectedExists || !bytes.Equal(data, req.ExpectedContent) {
 		return tools.SkillSummary{}, fmt.Errorf("skills: %s changed since it was read; refresh and retry", name)
 	}
 	local, _, content, err := parseSkillDocument(data)
@@ -564,7 +569,7 @@ func (b *EinoSkillBackend) SetSkillEnabled(ctx context.Context, name string, ena
 	if len(rendered) > maxSkillBytes {
 		return tools.SkillSummary{}, fmt.Errorf("skills: content exceeds %d bytes", maxSkillBytes)
 	}
-	if err := atomicWrite(path, rendered, fileMode(path)); err != nil {
+	if err := atomicWriteChecked(path, rendered, fileMode(path), func() error { return b.checkSkillState(path, false, data, true) }); err != nil {
 		return tools.SkillSummary{}, fmt.Errorf("skills: write %s: %w", name, err)
 	}
 	item, err := b.loadSkill(ctx, name)
@@ -655,55 +660,55 @@ func (b *EinoSkillBackend) resolveSkillPath(ctx context.Context, name, relative 
 	return path, filepath.ToSlash(filepath.Join(name, relative)), nil
 }
 
-func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.SkillManageRequest) ([]byte, string, string, string, error) {
+func (b *EinoSkillBackend) skillMutationState(ctx context.Context, req tools.SkillManageRequest) ([]byte, string, string, bool, error) {
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	if action == "delete" || action == "create" {
 		dir := filepath.Join(b.root, req.SkillName)
 		if err := validateUnderRoot(b.root, dir); err != nil {
-			return nil, "", "", "", err
+			return nil, "", "", false, err
 		}
 		if action == "create" {
 			if _, _, err := b.skillDirOf(ctx, req.SkillName); err == nil {
-				return nil, "", "", "", errors.New("skills: skill already exists")
+				return nil, "", "", false, errors.New("skills: skill already exists")
 			}
 			if _, err := os.Lstat(dir); err == nil {
-				return nil, "", "", "", errors.New("skills: skill already exists")
+				return nil, "", "", false, errors.New("skills: skill already exists")
 			} else if !errors.Is(err, os.ErrNotExist) {
-				return nil, "", "", "", err
+				return nil, "", "", false, err
 			}
-			return nil, filepath.Join(dir, "SKILL.md"), filepath.ToSlash(filepath.Join(req.SkillName, "SKILL.md")), "", nil
+			return nil, filepath.Join(dir, "SKILL.md"), filepath.ToSlash(filepath.Join(req.SkillName, "SKILL.md")), false, nil
 		}
 		writable, err := b.writableSkillDir(ctx, req.SkillName)
 		if err != nil {
-			return nil, "", "", "", err
+			return nil, "", "", false, err
 		}
-		current, err := readTrustedFile(filepath.Join(writable, "SKILL.md"))
+		current, err := skillDirectoryState(writable)
 		if err != nil {
-			return nil, "", "", "", err
+			return nil, "", "", false, err
 		}
-		return current, writable, filepath.ToSlash(req.SkillName) + "/", sha256Hex(current), nil
+		return current, writable, filepath.ToSlash(req.SkillName) + "/", true, nil
 	}
 	if _, err := b.writableSkillDir(ctx, req.SkillName); err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", false, err
 	}
 	rel := req.Path
 	if action == "edit" || action == "patch" {
 		rel = "SKILL.md"
 	}
 	if rel == "" {
-		return nil, "", "", "", errors.New("skills: supporting path is required")
+		return nil, "", "", false, errors.New("skills: supporting path is required")
 	}
 	path, targetRel, err := b.resolveSkillPath(ctx, req.SkillName, rel, action == "write_file")
 	if err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", false, err
 	}
 	current, err := readTrustedFile(path)
 	if errors.Is(err, os.ErrNotExist) && action == "write_file" {
-		current = nil
+		return nil, path, targetRel, false, nil
 	} else if err != nil {
-		return nil, "", "", "", err
+		return nil, "", "", false, err
 	}
-	return current, path, targetRel, sha256Hex(current), nil
+	return current, path, targetRel, true, nil
 }
 
 func skillMutationContent(req tools.SkillManageRequest, current []byte, targetExists bool) ([]byte, []string, error) {
@@ -719,7 +724,7 @@ func skillMutationContent(req tools.SkillManageRequest, current []byte, targetEx
 				return nil, nil, fmt.Errorf("skills: invalid SKILL.md: %w", err)
 			}
 		}
-		if action != "create" && !targetExists {
+		if action != "create" && action != "write_file" && !targetExists {
 			return nil, nil, errors.New("skills: target file does not exist")
 		}
 		return []byte(req.Content), warnings, nil
@@ -751,16 +756,25 @@ func skillMutationContent(req tools.SkillManageRequest, current []byte, targetEx
 	}
 }
 
-func (b *EinoSkillBackend) applyMutation(req tools.SkillManageRequest, target, targetRel string, after []byte, revisionID string) error {
+func (b *EinoSkillBackend) applyMutation(req tools.SkillManageRequest, target, targetRel string, after []byte, revisionID string, check func() error) error {
+	if err := check(); err != nil {
+		return err
+	}
 	action := strings.ToLower(strings.TrimSpace(req.Action))
 	if action == "delete" {
 		trash := filepath.Join(b.root, ".vivy-trash")
 		if err := os.MkdirAll(trash, 0o700); err != nil {
 			return err
 		}
+		if err := check(); err != nil {
+			return err
+		}
 		return os.Rename(target, filepath.Join(trash, revisionID))
 	}
 	if action == "remove_file" {
+		if err := check(); err != nil {
+			return err
+		}
 		if err := os.Remove(target); err != nil {
 			return fmt.Errorf("skills: remove %s: %w", targetRel, err)
 		}
@@ -769,7 +783,7 @@ func (b *EinoSkillBackend) applyMutation(req tools.SkillManageRequest, target, t
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return fmt.Errorf("skills: create parent: %w", err)
 	}
-	if err := atomicWrite(target, after, fileMode(target)); err != nil {
+	if err := atomicWriteChecked(target, after, fileMode(target), check); err != nil {
 		return fmt.Errorf("skills: apply %s: %w", targetRel, err)
 	}
 	return nil
@@ -924,68 +938,77 @@ func boundedSkillPreview(path, old, new, action string) string {
 	return boundedDiff(path, old, new)
 }
 
-func newSkillRevisionID(payload []byte) string {
-	seed := append([]byte(time.Now().UTC().String()), payload...)
-	var random [8]byte
-	_, _ = rand.Read(random[:])
-	seed = append(seed, random[:]...)
-	hash := sha256.Sum256(seed)
-	return "skrev_" + hex.EncodeToString(hash[:10])
-}
-func (b *EinoSkillBackend) rollbackMutationState(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.SkillRevision, []byte, string, string, string, []byte, error) {
+func newSkillRevisionID() string { return "skrev_" + uuid.NewString() }
+func (b *EinoSkillBackend) rollbackMutationState(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.SkillRevision, []byte, string, string, bool, []byte, error) {
 	if b.revisions == nil || strings.TrimSpace(req.RevisionID) == "" {
-		return domain.SkillRevision{}, nil, "", "", "", nil, errors.New("skills: revision_id is required for rollback")
+		return domain.SkillRevision{}, nil, "", "", false, nil, errors.New("skills: revision_id is required for rollback")
 	}
 	source, err := b.revisions.GetSkillRevision(ctx, strings.TrimSpace(req.RevisionID))
 	if err != nil {
-		return domain.SkillRevision{}, nil, "", "", "", nil, err
+		return domain.SkillRevision{}, nil, "", "", false, nil, err
 	}
 	if source.Status != domain.SkillRevisionApplied {
-		return domain.SkillRevision{}, nil, "", "", "", nil, errors.New("skills: only an applied revision can be rolled back")
+		return domain.SkillRevision{}, nil, "", "", false, nil, errors.New("skills: only an applied revision can be rolled back")
 	}
 	if source.RunID != "" && runID != "" && source.RunID != runID {
-		return domain.SkillRevision{}, nil, "", "", "", nil, errors.New("skills: rollback run binding mismatch")
+		return domain.SkillRevision{}, nil, "", "", false, nil, errors.New("skills: rollback run binding mismatch")
 	}
 	if req.SkillName != "" && req.SkillName != source.SkillName {
-		return domain.SkillRevision{}, nil, "", "", "", nil, errors.New("skills: rollback skill name mismatch")
+		return domain.SkillRevision{}, nil, "", "", false, nil, errors.New("skills: rollback skill name mismatch")
+	}
+	if source.BeforeExists == nil {
+		return source, nil, "", "", false, nil, errors.New("skills: historical revision requires new review")
 	}
 	if source.Action == "delete" {
+		manifest, err := skillDirectoryState(filepath.Join(b.root, ".vivy-trash", source.ID))
+		if err != nil {
+			return source, nil, "", "", false, nil, err
+		}
+		if !bytes.Equal(manifest, source.BeforePayload) {
+			return source, nil, "", "", false, nil, errors.New("skills: deleted Skill changed since removal")
+		}
 		target := filepath.Join(b.root, source.SkillName)
 		if err := validateUnderRoot(b.root, target); err != nil {
-			return domain.SkillRevision{}, nil, "", "", "", nil, err
+			return domain.SkillRevision{}, nil, "", "", false, nil, err
 		}
 		if _, err := os.Lstat(target); err == nil {
-			return domain.SkillRevision{}, nil, "", "", "", nil, errors.New("skills: deleted Skill target already exists")
+			return domain.SkillRevision{}, nil, "", "", false, nil, errors.New("skills: deleted Skill target already exists")
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return domain.SkillRevision{}, nil, "", "", "", nil, err
+			return domain.SkillRevision{}, nil, "", "", false, nil, err
 		}
-		return source, nil, target, filepath.ToSlash(source.SkillName) + "/", "", source.BeforePayload, nil
+		return source, nil, target, filepath.ToSlash(source.SkillName) + "/", false, source.BeforePayload, nil
 	}
 	rel := strings.TrimPrefix(filepath.ToSlash(source.TargetPath), filepath.ToSlash(source.SkillName)+"/")
 	target, targetRel, err := b.resolveSkillPath(ctx, source.SkillName, rel, true)
 	if err != nil {
-		return domain.SkillRevision{}, nil, "", "", "", nil, err
+		return domain.SkillRevision{}, nil, "", "", false, nil, err
 	}
 	var current []byte
 	if data, readErr := readTrustedFile(target); readErr == nil {
 		current = data
 	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return domain.SkillRevision{}, nil, "", "", "", nil, readErr
+		return domain.SkillRevision{}, nil, "", "", false, nil, readErr
 	}
-	if source.Action != "create" && source.BeforePayload == nil {
-		return domain.SkillRevision{}, nil, "", "", "", nil, errors.New("skills: revision has no rollback payload")
-	}
-	return source, current, target, targetRel, sha256Hex(current), source.BeforePayload, nil
+	return source, current, target, targetRel, current != nil, source.BeforePayload, nil
 }
-func (b *EinoSkillBackend) applyRollbackMutation(source domain.SkillRevision, target, targetRel string, after []byte) error {
+func (b *EinoSkillBackend) applyRollbackMutation(source domain.SkillRevision, target, targetRel string, after []byte, check func() error) error {
+	if err := check(); err != nil {
+		return err
+	}
 	if source.Action == "delete" {
 		trash := filepath.Join(b.root, ".vivy-trash", source.ID)
+		if err := check(); err != nil {
+			return err
+		}
 		if err := os.Rename(trash, target); err != nil {
 			return fmt.Errorf("skills: restore %s: %w", targetRel, err)
 		}
 		return nil
 	}
-	if source.Action == "create" && len(after) == 0 {
+	if source.BeforeExists != nil && !*source.BeforeExists {
+		if err := check(); err != nil {
+			return err
+		}
 		if err := os.Remove(target); err != nil {
 			return fmt.Errorf("skills: remove created %s: %w", targetRel, err)
 		}
@@ -994,11 +1017,86 @@ func (b *EinoSkillBackend) applyRollbackMutation(source domain.SkillRevision, ta
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
-	return atomicWrite(target, after, fileMode(target))
+	return atomicWriteChecked(target, after, fileMode(target), check)
 }
 
-// Existing skill/cognitive digest seam remains owned by gated D10/D11.
-func sha256Hex(content []byte) string {
-	hash := sha256.Sum256(content)
-	return hex.EncodeToString(hash[:])
+// skillDirectoryState binds every file and empty directory affected by deletion.
+// JSON is the existing BeforePayload representation for directory actions.
+func skillDirectoryState(dir string) ([]byte, error) {
+	state := struct {
+		Files       map[string][]byte `json:"files"`
+		Directories []string          `json:"directories"`
+	}{Files: map[string][]byte{}, Directories: []string{}}
+	count := 0
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == dir {
+			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				return errors.New("skills: invalid directory")
+			}
+			return nil
+		}
+		count++
+		if count > maxSkillFiles {
+			return errors.New("skills: too many directory entries")
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.Type()&os.ModeSymlink != 0 {
+			return errors.New("skills: symlink denied")
+		}
+		if entry.IsDir() {
+			state.Directories = append(state.Directories, rel)
+			return nil
+		}
+		data, err := readTrustedFile(path)
+		if err != nil {
+			return err
+		}
+		state.Files[rel] = data
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(state)
+}
+
+// checkSkillState rechecks the authorized target immediately before publication.
+func (b *EinoSkillBackend) checkSkillState(path string, directory bool, before []byte, exists bool) error {
+	if err := validateUnderRoot(b.root, path); err != nil {
+		return err
+	}
+	for parent := filepath.Dir(path); parent != filepath.Dir(b.root); parent = filepath.Dir(parent) {
+		info, err := os.Lstat(parent)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
+			return errors.New("skills: unsafe parent directory")
+		}
+		if parent == b.root {
+			break
+		}
+	}
+	var current []byte
+	var err error
+	if directory {
+		current, err = skillDirectoryState(path)
+	} else {
+		current, err = readTrustedFile(path)
+	}
+	currentExists := !errors.Is(err, os.ErrNotExist)
+	if err != nil && currentExists {
+		return err
+	}
+	if exists != currentExists || !bytes.Equal(before, current) {
+		return errors.New("skills: target changed since it was read; refresh and retry")
+	}
+	return nil
 }

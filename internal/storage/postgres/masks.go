@@ -22,7 +22,7 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 		return mask.Page{}, err
 	}
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT id, name, description, digest, revision
+		SELECT id, name, description, revision
 		FROM mask_definitions
 		WHERE id > ?
 		ORDER BY id
@@ -35,7 +35,7 @@ func (b *Backend) ListCustomMasks(ctx context.Context, in mask.ListRequest) (mas
 	items := make([]mask.Metadata, 0, in.Limit)
 	for rows.Next() {
 		var item mask.Metadata
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Digest, &item.Revision); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Revision); err != nil {
 			return mask.Page{}, maskStorageError("scan custom mask", err)
 		}
 		item.BuiltIn = false
@@ -64,7 +64,6 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	if err != nil {
 		return mask.Definition{}, err
 	}
-	requestDigest := mask.CreateRequestDigest(in)
 	tx, err := b.db.BeginTx(ctx, nil)
 	if err != nil {
 		return mask.Definition{}, maskStorageError("begin create custom mask", err)
@@ -74,7 +73,7 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	if existing, found, err := postgresFindMaskByOperation(ctx, tx, in.OperationID); err != nil {
 		return mask.Definition{}, err
 	} else if found {
-		if existing.requestDigest != requestDigest {
+		if !existing.matches(in) {
 			return mask.Definition{}, mask.NewError(mask.CodeRevisionConflict, nil)
 		}
 		return existing.definition, nil
@@ -82,13 +81,12 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 
 	id := "custom/" + uuid.NewString()
 	now := time.Now().UnixMilli()
-	digest := mask.DefinitionDigest(id, in.Name, in.Body)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO mask_definitions
-			(id, name, description, body, revision, digest, created_at, updated_at, create_operation_id, create_request_digest)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, name, description, body, revision, created_at, updated_at, create_operation_id, create_name, create_description, create_body)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (create_operation_id) DO NOTHING`,
-		id, in.Name, in.Description, []byte(in.Body), 1, digest, now, now, in.OperationID, requestDigest); err != nil {
+		id, in.Name, in.Description, []byte(in.Body), 1, now, now, in.OperationID, in.Name, in.Description, []byte(in.Body)); err != nil {
 		return mask.Definition{}, maskStorageError("insert custom mask", err)
 	}
 
@@ -99,7 +97,7 @@ func (b *Backend) CreateCustomMask(ctx context.Context, in mask.CreateRequest) (
 	if !found {
 		return mask.Definition{}, maskStorageError("read inserted custom mask", errors.New("operation row missing after insert"))
 	}
-	if created.requestDigest != requestDigest {
+	if !created.matches(in) {
 		return mask.Definition{}, mask.NewError(mask.CodeRevisionConflict, nil)
 	}
 	if err := tx.Commit(); err != nil {
@@ -127,13 +125,12 @@ func (b *Backend) UpdateCustomMask(ctx context.Context, in mask.UpdateRequest) (
 		return mask.Definition{}, mask.NewRevisionError(mask.CodeRevisionConflict, current.Revision, nil)
 	}
 	nextRevision := current.Revision + 1
-	digest := mask.DefinitionDigest(in.ID, in.Name, in.Body)
 	now := time.Now().UnixMilli()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE mask_definitions
-		SET name = ?, description = ?, body = ?, revision = ?, digest = ?, updated_at = ?
+		SET name = ?, description = ?, body = ?, revision = ?, updated_at = ?
 		WHERE id = ? AND revision = ?`,
-		in.Name, in.Description, []byte(in.Body), nextRevision, digest, now, in.ID, in.ExpectedRevision)
+		in.Name, in.Description, []byte(in.Body), nextRevision, now, in.ID, in.ExpectedRevision)
 	if err != nil {
 		return mask.Definition{}, maskStorageError("update custom mask", err)
 	}
@@ -209,17 +206,17 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 		return mask.Capture{}, mask.NewError(mask.CodeInvalidMask, err)
 	}
 	selection := mask.Selection{SessionID: sessionID}
-	var definitionID, name, digest sql.NullString
+	var definitionID, name sql.NullString
 	var body []byte
 	var definitionRevision sql.NullInt64
 	err := b.db.QueryRowContext(ctx, `
 		SELECT COALESCE(sel.mask_id, ''), COALESCE(sel.revision, 0),
-		       def.id, def.name, def.body, def.revision, def.digest
+		       def.id, def.name, def.body, def.revision
 		FROM sessions AS s
 		LEFT JOIN session_mask_selections AS sel ON sel.session_id = s.id
 		LEFT JOIN mask_definitions AS def ON def.id = sel.mask_id
 		WHERE s.id = ?`, sessionID).
-		Scan(&selection.MaskID, &selection.Revision, &definitionID, &name, &body, &definitionRevision, &digest)
+		Scan(&selection.MaskID, &selection.Revision, &definitionID, &name, &body, &definitionRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mask.Capture{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 	}
@@ -228,7 +225,7 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 	}
 	capture := mask.Capture{Selection: selection}
 	if selection.MaskID != "" && !mask.IsBuiltinID(selection.MaskID) {
-		if !definitionID.Valid || !name.Valid || !definitionRevision.Valid || !digest.Valid {
+		if !definitionID.Valid || !name.Valid || !definitionRevision.Valid {
 			return mask.Capture{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 		}
 		capture.Mask = &mask.Snapshot{
@@ -307,8 +304,10 @@ func (b *Backend) setMaskSelectionTx(ctx context.Context, tx *Tx, in mask.SetSel
 }
 
 type postgresOperationResult struct {
-	definition    mask.Definition
-	requestDigest string
+	definition         mask.Definition
+	requestName        sql.NullString
+	requestDescription sql.NullString
+	requestBody        sql.NullString
 }
 
 type postgresQueryer interface {
@@ -318,10 +317,10 @@ type postgresQueryer interface {
 func postgresFindMaskByOperation(ctx context.Context, q postgresQueryer, operationID string) (postgresOperationResult, bool, error) {
 	var result postgresOperationResult
 	err := q.QueryRowContext(ctx, `
-		SELECT id, name, description, body, revision, digest, create_request_digest
+		SELECT id, name, description, body, revision, create_name, create_description, create_body
 		FROM mask_definitions WHERE create_operation_id = ?`, operationID).
 		Scan(&result.definition.ID, &result.definition.Name, &result.definition.Description, &result.definition.Body,
-			&result.definition.Revision, &result.definition.Digest, &result.requestDigest)
+			&result.definition.Revision, &result.requestName, &result.requestDescription, &result.requestBody)
 	if errors.Is(err, sql.ErrNoRows) {
 		return postgresOperationResult{}, false, nil
 	}
@@ -357,13 +356,13 @@ func (b *Backend) getCustomMaskForUpdate(ctx context.Context, q postgresQueryer,
 func (b *Backend) getCustomMaskQuery(ctx context.Context, q postgresQueryer, id string, forUpdate bool) (mask.Definition, error) {
 	var definition mask.Definition
 	query := `
-		SELECT id, name, description, body, revision, digest
+		SELECT id, name, description, body, revision
 		FROM mask_definitions WHERE id = ?`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
 	err := q.QueryRowContext(ctx, query, id).
-		Scan(&definition.ID, &definition.Name, &definition.Description, &definition.Body, &definition.Revision, &definition.Digest)
+		Scan(&definition.ID, &definition.Name, &definition.Description, &definition.Body, &definition.Revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mask.Definition{}, mask.NewError(mask.CodeNotFound, storage.ErrNotFound)
 	}
@@ -376,4 +375,8 @@ func (b *Backend) getCustomMaskQuery(ctx context.Context, q postgresQueryer, id 
 
 func maskStorageError(operation string, err error) error {
 	return mask.NewError(mask.CodeUnavailable, fmt.Errorf("storage: %s: %w", operation, err))
+}
+
+func (r postgresOperationResult) matches(in mask.CreateRequest) bool {
+	return r.requestName.Valid && r.requestDescription.Valid && r.requestBody.Valid && r.requestName.String == in.Name && r.requestDescription.String == in.Description && r.requestBody.String == in.Body
 }

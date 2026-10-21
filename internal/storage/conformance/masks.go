@@ -105,7 +105,7 @@ func maskCRUD(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatalf("CreateCustomMask: %v", err)
 	}
-	if created.BuiltIn || created.Revision != 1 || created.ID == "" || created.Digest == "" {
+	if created.BuiltIn || created.Revision != 1 || created.ID == "" {
 		t.Fatalf("created = %+v, want custom revision 1", created)
 	}
 	retry, err := store.CreateCustomMask(ctx, request)
@@ -119,7 +119,7 @@ func maskCRUD(t *testing.T, h Harness) {
 	updated, err := store.UpdateCustomMask(ctx, mask.UpdateRequest{
 		ID: created.ID, ExpectedRevision: 1, Name: "CRUD updated", Description: "updated", Body: "updated body",
 	})
-	if err != nil || updated.Revision != 2 || updated.Digest == created.Digest {
+	if err != nil || updated.Revision != 2 || updated.Body != "updated body" || updated.Name != "CRUD updated" {
 		t.Fatalf("update = %+v/%v", updated, err)
 	}
 	retry, err = store.CreateCustomMask(ctx, request)

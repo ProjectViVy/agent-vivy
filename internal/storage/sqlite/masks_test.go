@@ -38,7 +38,7 @@ func TestMaskStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateCustomMask: %v", err)
 	}
-	if created.BuiltIn || created.Revision != 1 || created.ID == "" || created.Digest == "" {
+	if created.BuiltIn || created.Revision != 1 || created.ID == "" {
 		t.Fatalf("created definition = %+v, want custom revision 1", created)
 	}
 	retry, err := store.CreateCustomMask(ctx, request)
@@ -51,7 +51,7 @@ func TestMaskStoreLifecycle(t *testing.T) {
 	}
 
 	page, err := store.ListCustomMasks(ctx, mask.ListRequest{Limit: 1})
-	if err != nil || len(page.Items) != 1 || page.Items[0].ID != created.ID || page.Items[0].Digest != created.Digest {
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != created.ID {
 		t.Fatalf("list custom masks = %+v/%v", page, err)
 	}
 	loaded, err := store.GetCustomMask(ctx, created.ID)

@@ -29,8 +29,8 @@ func TestMaskCatalogEmbedsCanonicalBuiltIns(t *testing.T) {
 		if definition.ID != wantIDs[index] || !definition.BuiltIn || definition.Revision != maskcontract.BuiltinRevision {
 			t.Fatalf("definition[%d] = %+v", index, definition)
 		}
-		if definition.GenerationID != "generation-test" || definition.Digest != maskcontract.DefinitionDigest(definition.ID, definition.Name, definition.Body) {
-			t.Fatalf("definition[%d] has invalid generation/digest: %+v", index, definition)
+		if definition.GenerationID != "generation-test" {
+			t.Fatalf("definition[%d] has invalid generation: %+v", index, definition)
 		}
 		if definition.Body == "" || strings.TrimSpace(definition.Body) == "" {
 			t.Fatalf("definition[%d] has empty body", index)
@@ -167,9 +167,5 @@ func TestMaskCatalogAssetBodiesPreserveLiteralText(t *testing.T) {
 	}
 	if resolved.Body != literalBody {
 		t.Fatalf("literal body = %q, want %q", resolved.Body, literalBody)
-	}
-	wantDigest := maskcontract.DefinitionDigest(quotedID, quotedName, literalBody)
-	if resolved.Digest != wantDigest {
-		t.Fatalf("literal digest = %q, want %q", resolved.Digest, wantDigest)
 	}
 }

@@ -1,0 +1,11 @@
+# D10 skills and masks owner closure
+
+Skills now compare the existing revision BeforePayload with exact current bytes and an explicit BeforeExists value. Missing and empty files differ. Directory deletion binds a bounded manifest of every file and empty directory, and delete rollback checks the retained trash manifest before restoration. Immediate toggles use SkillEnableRequest with exact authorized raw SKILL.md bytes and explicit existence. Local mutations serialize and recheck the target immediately before publication; read-only project restrictions remain.
+
+Removed skill BaseHash/ContentHash, summary/result hashes, hash-derived revision allocation, unused marketplace snapshot hashes, mask definition/create digests and validators, SQL digest fields, UI digest caches and obsolete evolution hash copy. Masks retain their current revision CAS, GenerationID and actual definition. Original create name/description/body are private immutable owner inputs, so divergent operation retries conflict after edits.
+
+Paired append-only migrations 042 and 043 preserve actual history. New missing states use the existing NOT NULL empty BeforePayload plus explicit false. Old nonempty reviewed file payloads and create absence are convertible. Historical empty payloads, directory deletes without manifests and old rollback records remain unbound and require new review; their status/history are preserved. Only revision-1 masks can recover original create inputs from current values. Later historical revisions keep nullable unavailable original inputs and refuse create-operation replay. No digest reader or fallback is retained.
+
+Eino capability check: pinned github.com/cloudwego/eino v0.9.21, adk/middlewares/skill.Backend List/Get remains the existing adapter boundary. It does not own Vivy human review, private revision persistence, filesystem CAS or control-plane toggles. No runner or orchestration capability was added. Reviewed Laputa pin 9acc999301d5d575da2cea902a1c6d213763f381 is unchanged.
+
+Scope excludes BML/MEMRULES (D12), cognitive owners, workflow owners and shared RPC/API/demo/i18n consumers owned by the integration lane. There is no release or installation in this lane; final integration owns generation, packaging, real browser and mandatory whole-candidate gates.

@@ -76,7 +76,7 @@ func (store *serviceStore) SetMaskSelection(_ context.Context, in maskcontract.S
 func customFixture(id string) maskcontract.Definition {
 	return maskcontract.Definition{
 		ID: id, Name: "Custom", Description: "fixture", Body: "custom body",
-		Revision: 1, Digest: maskcontract.DefinitionDigest(id, "Custom", "custom body"),
+		Revision: 1,
 	}
 }
 
@@ -107,7 +107,7 @@ func TestServiceListMergesBuiltinsAndCustoms(t *testing.T) {
 	if len(second.Items) != 2 || second.Items[0].ID != maskcontract.BuiltinWriterID || second.Items[1].ID != store.custom[0].ID {
 		t.Fatalf("second page = %#v", second.Items)
 	}
-	if second.Items[1].Digest == "" || second.Items[1].BuiltIn {
+	if second.Items[1].BuiltIn {
 		t.Fatalf("custom metadata lost identity: %#v", second.Items[1])
 	}
 	if second.Items[0].ID == second.Items[1].ID {

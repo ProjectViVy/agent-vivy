@@ -35,7 +35,7 @@ describe('MaskPage', () => {
     const selectionA = deferred<unknown>();
     const selectionB = deferred<unknown>();
     const catalog = {
-      items: [{ id: 'builtin/writer', name: 'Writer', description: '', digest: 'a'.repeat(64), generation_id: 'generation', revision: 1, built_in: true }],
+      items: [{ id: 'builtin/writer', name: 'Writer', description: '', generation_id: 'generation', revision: 1, built_in: true }],
       next_after_id: '',
     };
     let activeSessionId: string | null = 'session-a';

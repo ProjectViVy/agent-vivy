@@ -20,7 +20,6 @@ export interface MaskMetadata {
   readonly id: string;
   readonly name: string;
   readonly description: string;
-  readonly digest: string;
   readonly generation_id: string;
   readonly revision: number;
   readonly built_in: boolean;
