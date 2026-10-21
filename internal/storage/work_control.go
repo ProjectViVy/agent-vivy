@@ -9,18 +9,22 @@ import (
 )
 
 var (
-	ErrWorkVersionConflict = errors.New("storage: work version conflict")
-	ErrWorkRequestConflict = errors.New("storage: work request conflict")
-	ErrWorkInvalidMutation = errors.New("storage: invalid work mutation")
-	ErrWorkEventCorrupt    = errors.New("storage: corrupt work event")
-	ErrWorkRunConflict     = errors.New("storage: active run conflict")
+	ErrWorkVersionConflict    = errors.New("storage: work version conflict")
+	ErrWorkBindingUnavailable = errors.New("storage: work exact input unavailable; review required")
+	ErrWorkRequestConflict    = errors.New("storage: work request conflict")
+	ErrWorkInvalidMutation    = errors.New("storage: invalid work mutation")
+	ErrWorkEventCorrupt       = errors.New("storage: corrupt work event")
+	ErrWorkRunConflict        = errors.New("storage: active run conflict")
 )
 
-// SameWorkRequest checks the durable payload as well as the caller's digest.
+// SameWorkRequest compares the private normalized intended input and durable payload.
 // A request ID cannot be reused to change work even if an internal caller
-// accidentally reuses its hash.
+// reuses its request identity.
 func SameWorkRequest(committed domain.WorkEvent, requested domain.WorkMutation) bool {
-	return committed.RequestHash == requested.RequestHash &&
+	// ExpectedVersion is a CAS for a new operation. Replays compare the original
+	// intended input while model calls may rebuild against the current cursor.
+	requested.ExpectedVersion = committed.Mutation.ExpectedVersion
+	return committed.RequestInput != "" && committed.RequestInput == requested.RequestInput &&
 		committed.Kind == requested.Kind &&
 		reflect.DeepEqual(committed.Mutation, requested) &&
 		reflect.DeepEqual(committed.Admission, requested.Admission)
@@ -150,7 +154,7 @@ func ValidateWorkMutation(mutation domain.WorkMutation) error {
 	if mutation.SessionID == "" ||
 		mutation.ExpectedVersion < 0 ||
 		mutation.RequestID == "" ||
-		mutation.RequestHash == "" ||
+		mutation.RequestInput == "" ||
 		!mutation.Kind.Valid() {
 		return ErrWorkInvalidMutation
 	}

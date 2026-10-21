@@ -25,7 +25,7 @@ func TestModelEnterPlanWhileGoalArmedReportsGoalArmedWithoutPersistingPlan(t *te
 		t.Fatal(err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-armed-goal", RequestHash: "seed-armed-goal",
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-armed-goal", RequestInput: "seed-armed-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-armed", Revision: 1},
 		Objective: "bounded objective", MaxRounds: 1,
 	}); err != nil {
@@ -123,7 +123,7 @@ func TestUnadmittedRunCannotReportCurrentGoalFromSameSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-current-goal", RequestHash: "seed-current-goal",
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-current-goal", RequestInput: "seed-current-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-current", Revision: 1},
 		Objective: "owner's bounded work", MaxRounds: 2,
 	}); err != nil {
@@ -180,12 +180,12 @@ func TestModelResumeGoalToolIsUnavailableAfterHumanPause(t *testing.T) {
 	}
 	ref := domain.GoalRef{ID: "goal-human-paused", Revision: 1}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{SessionID: sessionID, ExpectedVersion: 0,
-		RequestID: "seed-goal", RequestHash: "seed-goal", Kind: domain.WorkEventGoalCreated,
+		RequestID: "seed-goal", RequestInput: "seed-goal", Kind: domain.WorkEventGoalCreated,
 		Goal: ref, Objective: "bounded work", MaxRounds: 2}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{SessionID: sessionID, ExpectedVersion: 1,
-		RequestID: "human-pause", RequestHash: "human-pause", Kind: domain.WorkEventGoalPaused,
+		RequestID: "human-pause", RequestInput: "human-pause", Kind: domain.WorkEventGoalPaused,
 		Goal: ref, Reason: "human paused"}); err != nil {
 		t.Fatal(err)
 	}
@@ -226,53 +226,53 @@ func TestModelResumeGoalToolIsUnavailableAfterHumanPause(t *testing.T) {
 }
 
 func TestModelWorkIdentityIsDeterministicAndRunScoped(t *testing.T) {
-	id1, hash1, err := modelWorkIdentity("run-1", "submit-plan", "call-1", map[string]string{"markdown": "# plan"})
+	id1, input1, err := modelWorkIdentity("run-1", "submit-plan", "call-1", map[string]string{"markdown": "# plan"})
 	if err != nil {
 		t.Fatalf("modelWorkIdentity() error = %v", err)
 	}
-	id2, hash2, err := modelWorkIdentity("run-1", "submit-plan", "call-1", map[string]string{"markdown": "# plan"})
+	id2, input2, err := modelWorkIdentity("run-1", "submit-plan", "call-1", map[string]string{"markdown": "# plan"})
 	if err != nil {
 		t.Fatalf("modelWorkIdentity() repeat error = %v", err)
 	}
-	if id1 != id2 || hash1 != hash2 {
-		t.Fatalf("identity changed across retries: (%q, %q) vs (%q, %q)", id1, hash1, id2, hash2)
+	if id1 != id2 || input1 != input2 {
+		t.Fatalf("identity changed across retries: (%q, %q) vs (%q, %q)", id1, input1, id2, input2)
 	}
-	id3, hash3, err := modelWorkIdentity("run-2", "submit-plan", "call-1", map[string]string{"markdown": "# plan"})
+	id3, input3, err := modelWorkIdentity("run-2", "submit-plan", "call-1", map[string]string{"markdown": "# plan"})
 	if err != nil {
 		t.Fatalf("modelWorkIdentity() second run error = %v", err)
 	}
-	if id1 == id3 || hash1 == hash3 {
+	if id1 == id3 || input1 == input3 {
 		t.Fatal("different run identities must not share an idempotency key")
 	}
 }
 
 func TestModelWorkIdentityDistinguishesCallsAndRejectsChangedArgs(t *testing.T) {
 	payload := map[string]string{"objective": "ship the change"}
-	requestID, requestHash, err := modelWorkIdentity("run-1", "create-goal", "call-1", payload)
+	requestID, requestInput, err := modelWorkIdentity("run-1", "create-goal", "call-1", payload)
 	if err != nil {
 		t.Fatalf("modelWorkIdentity() error = %v", err)
 	}
-	retryID, retryHash, err := modelWorkIdentity("run-1", "create-goal", "call-1", payload)
+	retryID, retryInput, err := modelWorkIdentity("run-1", "create-goal", "call-1", payload)
 	if err != nil {
 		t.Fatalf("modelWorkIdentity() retry error = %v", err)
 	}
-	if requestID != retryID || requestHash != retryHash {
-		t.Fatalf("exact same-call retry changed identity: (%q, %q) vs (%q, %q)", requestID, requestHash, retryID, retryHash)
+	if requestID != retryID || requestInput != retryInput {
+		t.Fatalf("exact same-call retry changed identity: (%q, %q) vs (%q, %q)", requestID, requestInput, retryID, retryInput)
 	}
 
-	distinctID, distinctHash, err := modelWorkIdentity("run-1", "create-goal", "call-2", payload)
+	distinctID, distinctInput, err := modelWorkIdentity("run-1", "create-goal", "call-2", payload)
 	if err != nil {
 		t.Fatalf("modelWorkIdentity() distinct call error = %v", err)
 	}
-	if distinctID == requestID || distinctHash == requestHash {
+	if distinctID == requestID || distinctInput == requestInput {
 		t.Fatal("distinct Eino tool-call IDs must identify distinct model work requests")
 	}
 
-	changedID, changedHash, err := modelWorkIdentity("run-1", "create-goal", "call-1", map[string]string{"objective": "different change"})
+	changedID, changedInput, err := modelWorkIdentity("run-1", "create-goal", "call-1", map[string]string{"objective": "different change"})
 	if err != nil {
 		t.Fatalf("modelWorkIdentity() changed arguments error = %v", err)
 	}
-	if changedID != requestID || changedHash == requestHash {
-		t.Fatalf("same call ID with changed args must retain request ID but change payload hash: (%q, %q) vs (%q, %q)", requestID, requestHash, changedID, changedHash)
+	if changedID != requestID || changedInput == requestInput {
+		t.Fatalf("same call ID with changed args must retain request ID but change intended input: (%q, %q) vs (%q, %q)", requestID, requestInput, changedID, changedInput)
 	}
 }

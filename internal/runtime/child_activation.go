@@ -74,6 +74,9 @@ func (s *Service) StartChildActivation(ctx context.Context, childSessionID domai
 	if err != nil {
 		return err
 	}
+	if binding.RequestInput == "" || binding.ActivationRequestInput == "" {
+		return storage.ErrChildBindingUnavailable
+	}
 	if s.sessionDeleted(binding.OriginParentSessionID) {
 		return storage.ErrNotFound
 	}

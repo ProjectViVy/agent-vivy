@@ -42,13 +42,13 @@ func TestReplayWorkValidatesPersistedLifecycleAcrossPages(t *testing.T) {
 			}
 			ref := domain.GoalRef{ID: "goal-1", Revision: 1}
 			if _, err := b.CommitWork(ctx, domain.WorkMutation{
-				SessionID: sessionID, RequestID: "create", RequestHash: "hash-create",
+				SessionID: sessionID, RequestID: "create", RequestInput: "input-create",
 				Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "ship it", MaxRounds: 2,
 			}); err != nil {
 				t.Fatalf("CommitWork create: %v", err)
 			}
 			if _, err := b.CommitWork(ctx, domain.WorkMutation{
-				SessionID: sessionID, ExpectedVersion: 1, RequestID: "pause", RequestHash: "hash-pause",
+				SessionID: sessionID, ExpectedVersion: 1, RequestID: "pause", RequestInput: "input-pause",
 				Kind: domain.WorkEventGoalPaused, Goal: ref,
 			}); err != nil {
 				t.Fatalf("CommitWork pause: %v", err)
@@ -97,7 +97,7 @@ func TestReplayWorkReadsOnlyRequestedPage(t *testing.T) {
 		mutation.SessionID = sessionID
 		mutation.ExpectedVersion = domain.WorkVersion(i)
 		mutation.RequestID = []string{"create", "pause", "resume"}[i]
-		mutation.RequestHash = mutation.RequestID
+		mutation.RequestInput = mutation.RequestID
 		if _, err := b.CommitWork(ctx, mutation); err != nil {
 			t.Fatalf("CommitWork %s: %v", mutation.Kind, err)
 		}
@@ -140,7 +140,7 @@ func TestReplayWorkRejectsMismatchedCursorAndGap(t *testing.T) {
 		mutation.SessionID = sessionID
 		mutation.ExpectedVersion = domain.WorkVersion(i)
 		mutation.RequestID = []string{"create", "pause", "resume"}[i]
-		mutation.RequestHash = mutation.RequestID
+		mutation.RequestInput = mutation.RequestID
 		if _, err := b.CommitWork(ctx, mutation); err != nil {
 			t.Fatalf("CommitWork %s: %v", mutation.Kind, err)
 		}

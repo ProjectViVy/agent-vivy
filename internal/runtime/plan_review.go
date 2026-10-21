@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -148,10 +146,10 @@ func (s *Service) handlePlanReviewInterrupt(ctx context.Context, m *eventMapper,
 		fail(errors.New("Plan submission does not match the interrupted run and tool call"))
 		return
 	}
-	requestID, requestHash := planReviewSuspendIdentity(m.runID, details.PlanSubmissionID, details.ToolCallID, details.ResumeTarget)
+	requestID, requestInput := planReviewSuspendIdentity(m.runID, details.PlanSubmissionID, details.ToolCallID, details.ResumeTarget)
 	mutation := domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: state.Version,
-		RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanReviewSuspended,
+		RequestID: requestID, RequestInput: requestInput, Kind: domain.WorkEventPlanReviewSuspended,
 		PlanSubmissionID: details.PlanSubmissionID, PlanOriginRunID: m.runID,
 		PlanOriginToolCallID: details.ToolCallID, PlanResumeTarget: details.ResumeTarget,
 		PlanBlockedToolCalls: siblingToolCallIDs(m.toolBatch, details.ToolCallID),
@@ -210,9 +208,8 @@ func siblingToolCallIDs(openCalls []openToolCall, submittedCallID string) []stri
 
 func planReviewSuspendIdentity(runID domain.RunID, submissionID, toolCallID, resumeTarget string) (string, string) {
 	raw, _ := json.Marshal([]string{string(runID), submissionID, toolCallID, resumeTarget})
-	digest := sha256.Sum256(append([]byte("vivy:plan-review-suspend:v1\x00"), raw...))
-	requestHash := hex.EncodeToString(digest[:])
-	return "plan-review-suspend-" + requestHash[:24], requestHash
+	identity, _ := json.Marshal([]string{"plan-review-suspend", string(runID), submissionID, toolCallID})
+	return string(identity), string(raw)
 }
 
 // DecidePlan commits the human decision and resumes the originating model
@@ -354,7 +351,7 @@ func (s *Service) cancelPlanReviewForRun(ctx context.Context, sessionID domain.S
 	if err != nil || state.Plan.ReviewStatus != domain.PlanReviewPending || state.Plan.OriginRunID != runID {
 		return
 	}
-	requestID, requestHash, err := modelWorkIdentity(runID, "cancel-plan-review", state.Plan.OriginToolCallID, map[string]string{
+	requestID, requestInput, err := modelWorkIdentity(runID, "cancel-plan-review", state.Plan.OriginToolCallID, map[string]string{
 		"submission_id": state.Plan.SubmissionID,
 	})
 	if err != nil {
@@ -362,7 +359,7 @@ func (s *Service) cancelPlanReviewForRun(ctx context.Context, sessionID domain.S
 	}
 	if _, err := s.CommitWork(ctx, domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: state.Version,
-		RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanReviewCancelled,
+		RequestID: requestID, RequestInput: requestInput, Kind: domain.WorkEventPlanReviewCancelled,
 		PlanSubmissionID: state.Plan.SubmissionID, PlanOriginRunID: runID,
 		Reason: "originating run ended before human review",
 	}); err != nil && !errors.Is(err, storage.ErrWorkVersionConflict) {

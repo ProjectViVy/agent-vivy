@@ -134,7 +134,7 @@ func TestPlanGoalProbeReportFencesLaterToolInSameBatch(t *testing.T) {
 			t.Fatalf("create session %s: %v", sessionID, err)
 		}
 		if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-			SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-goal", RequestHash: "seed-goal",
+			SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-goal", RequestInput: "seed-goal",
 			Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: goalID, Revision: 1},
 			Objective: "finish a bounded test task", MaxRounds: 1,
 		}); err != nil {
@@ -169,7 +169,7 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter-plan", RequestHash: "enter-plan",
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter-plan", RequestInput: "enter-plan",
 		Kind: domain.WorkEventPlanEntered,
 	}); err != nil {
 		t.Fatalf("enter Plan: %v", err)
@@ -246,7 +246,7 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 	}
 	decision := domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: state.Version,
-		RequestID: "decide-plan-once", RequestHash: "decide-plan-once",
+		RequestID: "decide-plan-once", RequestInput: "decide-plan-once",
 		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: state.Plan.SubmissionID,
 		PlanAction: domain.PlanDecisionRevise, PlanFeedback: "clarify the rollback step",
 	}
@@ -337,7 +337,7 @@ func TestPlanSubmissionSurvivesToolApprovalGate(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter-plan", RequestHash: "enter-plan",
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter-plan", RequestInput: "enter-plan",
 		Kind: domain.WorkEventPlanEntered,
 	}); err != nil {
 		t.Fatalf("enter Plan: %v", err)
@@ -405,7 +405,7 @@ func TestPlanSubmissionSurvivesToolApprovalGate(t *testing.T) {
 
 	decision := domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: state.Version,
-		RequestID: "decide-plan-once", RequestHash: "decide-plan-once",
+		RequestID: "decide-plan-once", RequestInput: "decide-plan-once",
 		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: state.Plan.SubmissionID,
 		PlanAction: domain.PlanDecisionExecuteOnce,
 	}

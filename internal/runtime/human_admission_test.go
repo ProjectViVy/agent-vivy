@@ -24,7 +24,7 @@ func TestHumanAdmissionRegistersBeforeWaitingForSessionGate(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "create-goal", RequestHash: "create-goal",
+		SessionID: sessionID, RequestID: "create-goal", RequestInput: "create-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-1", Revision: 1},
 		Objective: "finish the current task", MaxRounds: 1,
 	}); err != nil {

@@ -55,9 +55,8 @@ func (s *Service) rebuildPendingChild(ctx context.Context, run domain.Run, appro
 		if binding.State != domain.ChildSessionOpen || binding.ActivationRunID != run.ID || binding.AuthorizerRunID != run.ParentID {
 			return storage.ErrChildAdmissionConflict
 		}
-		digest, err := binding.AuthorityCeiling.Digest()
-		if err != nil || digest != binding.AuthorityCeilingDigest {
-			return errors.New("runtime: recovered child authority ceiling failed its digest check")
+		if binding.RequestInput == "" || binding.ActivationRequestInput == "" {
+			return storage.ErrChildBindingUnavailable
 		}
 		if profile != binding.AuthorityCeiling.PolicyProfile || policy.Definition != binding.AuthorityCeiling.PolicyDefinition ||
 			sandboxMode != binding.AuthorityCeiling.SandboxMode || approvalPolicy != binding.AuthorityCeiling.ApprovalPolicy ||

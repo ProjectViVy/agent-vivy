@@ -25,13 +25,13 @@ func TestRecoveredGoalRefUsesFoldedWorkReplay(t *testing.T) {
 	}
 	ref := domain.GoalRef{ID: "goal-1", Revision: 1}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "create", RequestHash: "hash-create",
+		SessionID: sessionID, RequestID: "create", RequestInput: "hash-create",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "ship it", MaxRounds: 2,
 	}); err != nil {
 		t.Fatalf("CommitWork create: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "admit", RequestHash: "hash-admit",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "admit", RequestInput: "hash-admit",
 		Kind:      domain.WorkEventGoalRoundAdmitted,
 		Admission: domain.GoalRunAdmission{SessionID: sessionID, Goal: ref, Round: 1, RunID: "run-1"},
 	}); err != nil {
@@ -58,13 +58,13 @@ func TestRecoveredGoalRefRejectsCorruptLaterReplayPage(t *testing.T) {
 	}
 	ref := domain.GoalRef{ID: "goal-1", Revision: 1}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "create", RequestHash: "hash-create",
+		SessionID: sessionID, RequestID: "create", RequestInput: "hash-create",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "ship it", MaxRounds: 2,
 	}); err != nil {
 		t.Fatalf("CommitWork create: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "admit", RequestHash: "hash-admit",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "admit", RequestInput: "hash-admit",
 		Kind:      domain.WorkEventGoalRoundAdmitted,
 		Admission: domain.GoalRunAdmission{SessionID: sessionID, Goal: ref, Round: 1, RunID: "run-1"},
 	}); err != nil {
@@ -91,7 +91,7 @@ func TestRecoveredGoalRefRejectsCorruptLaterReplayPage(t *testing.T) {
 		requestID := fmt.Sprintf("transition-%d", seq)
 		mutation := domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: domain.WorkVersion(seq - 1),
-			RequestID: requestID, RequestHash: requestID, Kind: kind, Goal: ref,
+			RequestID: requestID, RequestInput: requestID, Kind: kind, Goal: ref,
 		}
 		payload, err := json.Marshal(struct {
 			Mutation  domain.WorkMutation

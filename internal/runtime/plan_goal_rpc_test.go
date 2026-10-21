@@ -83,7 +83,7 @@ func TestStartGoalDecisionRPCWakesExactlyOneRound(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "enter", RequestHash: "enter", Kind: domain.WorkEventPlanEntered,
+		SessionID: sessionID, RequestID: "enter", RequestInput: "enter", Kind: domain.WorkEventPlanEntered,
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -2,8 +2,6 @@ package rpc
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -316,13 +314,13 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 	}
 	mutation := domain.WorkMutation{
 		SessionID: domain.SessionID(params.SessionID), ExpectedVersion: domain.WorkVersion(params.ExpectedVersion),
-		RequestID: params.RequestID, RequestHash: hashWorkRequest(method, params), Kind: kind, Reason: params.Reason,
+		RequestID: params.RequestID, RequestInput: workRequestInput(method, params), Kind: kind, Reason: params.Reason,
 	}
 	switch kind {
 	case domain.WorkEventGoalCreated:
 		if params.GoalID == "" {
-			params.GoalID = deterministicWorkID("goal", params.RequestID)
-			mutation.RequestHash = hashWorkRequest(method, params)
+			params.GoalID = workResourceID("goal", params.RequestID)
+			mutation.RequestInput = workRequestInput(method, params)
 		}
 		if strings.TrimSpace(params.Objective) == "" || params.MaxRounds <= 0 || params.MaxRounds > domain.MaxGoalRounds {
 			return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "objective and max_rounds are required"}
@@ -354,8 +352,8 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 				return domain.WorkMutation{}, &Error{Code: InvalidParams, Message: "start_goal requires objective and max_rounds"}
 			}
 			if params.GoalID == "" {
-				params.GoalID = deterministicWorkID("goal", params.RequestID)
-				mutation.RequestHash = hashWorkRequest(method, params)
+				params.GoalID = workResourceID("goal", params.RequestID)
+				mutation.RequestInput = workRequestInput(method, params)
 			}
 			mutation.Goal = domain.GoalRef{ID: params.GoalID, Revision: 1}
 			mutation.Objective, mutation.MaxRounds = params.Objective, params.MaxRounds
@@ -366,15 +364,13 @@ func buildWorkMutation(method string, kind domain.WorkEventKind, params workPara
 	return mutation, nil
 }
 
-func hashWorkRequest(method string, params workParams) string {
+func workRequestInput(method string, params workParams) string {
 	raw, _ := json.Marshal([]any{method, params})
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
+	return string(raw)
 }
 
-func deterministicWorkID(prefix, requestID string) string {
-	sum := sha256.Sum256([]byte(prefix + "\x00" + requestID))
-	return prefix + "-" + hex.EncodeToString(sum[:8])
+func workResourceID(prefix, requestID string) string {
+	return prefix + ":" + requestID
 }
 
 func hasWorkControl(value string) bool {
@@ -391,6 +387,8 @@ func workError(err error) *Error {
 		return &Error{Code: CodeNotFound, Message: "session not found"}
 	case errors.Is(err, storage.ErrWorkVersionConflict):
 		return &Error{Code: CodeConflict, Message: "stale work version"}
+	case errors.Is(err, storage.ErrWorkBindingUnavailable):
+		return &Error{Code: CodeConflict, Message: "work exact input unavailable; review required"}
 	case errors.Is(err, storage.ErrWorkRequestConflict):
 		return &Error{Code: CodeConflict, Message: "request id was already used with different work"}
 	case errors.Is(err, storage.ErrWorkRunConflict):

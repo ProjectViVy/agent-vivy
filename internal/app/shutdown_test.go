@@ -171,7 +171,7 @@ func TestAppShutdownStopsGoalAdmissionBeforeChannelDrain(t *testing.T) {
 				t.Fatalf("create session: %v", err)
 			}
 			if _, err := a.service.CommitWork(ctx, domain.WorkMutation{
-				SessionID: sessionID, RequestID: "create-shutdown-goal", RequestHash: "create-shutdown-goal",
+				SessionID: sessionID, RequestID: "create-shutdown-goal", RequestInput: "create-shutdown-goal",
 				Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "shutdown-goal", Revision: 1},
 				Objective: "do not start during shutdown", MaxRounds: 2,
 			}); err != nil {

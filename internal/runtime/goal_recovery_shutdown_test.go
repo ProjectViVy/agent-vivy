@@ -103,7 +103,7 @@ func TestGoalPausePersistenceFailureDisarmsWithoutDurablePause(t *testing.T) {
 		t.Fatalf("committed Goal run never became armed: activation=%q run=%q", activation, current)
 	}
 	if _, err := svc.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 2, RequestID: "pause-error", RequestHash: "pause-error",
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "pause-error", RequestInput: "pause-error",
 		Kind: domain.WorkEventGoalPaused, Goal: ref, Reason: "stop now",
 	}); !errors.Is(err, pauseErr) {
 		t.Fatalf("pause persistence error = %v", err)
@@ -224,7 +224,7 @@ func TestGoalRecoveryHumanQuestionDoesNotStartGoalRound(t *testing.T) {
 	}
 	question := waitForPendingQuestion(t, backend, runID)
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "human-created-goal", RequestHash: "human-created-goal",
+		SessionID: sessionID, RequestID: "human-created-goal", RequestInput: "human-created-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-after-question", Revision: 1},
 		Objective: "continue after the answer", MaxRounds: 2, EvidenceRunID: runID,
 	}); err != nil {

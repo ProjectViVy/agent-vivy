@@ -135,7 +135,7 @@ type WorkMutation struct {
 	SessionID            SessionID
 	ExpectedVersion      WorkVersion
 	RequestID            string
-	RequestHash          string
+	RequestInput         string `json:"-"`
 	Kind                 WorkEventKind
 	Goal                 GoalRef
 	Objective            string
@@ -168,7 +168,7 @@ type WorkEvent struct {
 	Kind           WorkEventKind
 	PayloadVersion int
 	RequestID      string
-	RequestHash    string
+	RequestInput   string `json:"-"`
 	CreatedAt      int64
 	Mutation       WorkMutation
 	Admission      GoalRunAdmission

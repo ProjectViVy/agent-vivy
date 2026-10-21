@@ -74,7 +74,7 @@ func TestModelWorkIdentityUsesEinoCallIDForDistinctCallsAndRetries(t *testing.T)
 	if len(mutations) != 3 {
 		t.Fatalf("model work mutations = %d, want one per Eino call (including the retry), got %+v", len(mutations), mutations)
 	}
-	if mutations[0].RequestID != mutations[1].RequestID || mutations[0].RequestHash != mutations[1].RequestHash {
+	if mutations[0].RequestID != mutations[1].RequestID || mutations[0].RequestInput != mutations[1].RequestInput {
 		t.Fatalf("exact same-call retry changed request identity: first=%+v retry=%+v", mutations[0], mutations[1])
 	}
 	if mutations[2].RequestID == mutations[0].RequestID {
@@ -94,12 +94,12 @@ func TestModelWorkIdentityChangedArgsConflictAtWorkStore(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	requestID, requestHash, err := modelWorkIdentity("run-model-1", "create-goal", "call-reused", map[string]string{"objective": "first"})
+	requestID, requestInput, err := modelWorkIdentity("run-model-1", "create-goal", "call-reused", map[string]string{"objective": "first"})
 	if err != nil {
 		t.Fatalf("initial model identity: %v", err)
 	}
 	first, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: requestID, RequestHash: requestHash,
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: requestID, RequestInput: requestInput,
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-created", Revision: 1},
 		Objective: "first", MaxRounds: 2,
 	})
@@ -107,22 +107,22 @@ func TestModelWorkIdentityChangedArgsConflictAtWorkStore(t *testing.T) {
 		t.Fatalf("commit initial request: %v", err)
 	}
 	retry, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: requestID, RequestHash: requestHash,
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: requestID, RequestInput: requestInput,
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-created", Revision: 1},
 		Objective: "first", MaxRounds: 2,
 	})
 	if err != nil || !retry.Replayed || retry.Event.Seq != first.Event.Seq {
 		t.Fatalf("exact same-call retry = %+v / %v, want original committed result", retry, err)
 	}
-	changedID, changedHash, err := modelWorkIdentity("run-model-1", "create-goal", "call-reused", map[string]string{"objective": "changed"})
+	changedID, changedInput, err := modelWorkIdentity("run-model-1", "create-goal", "call-reused", map[string]string{"objective": "changed"})
 	if err != nil {
 		t.Fatalf("changed model identity: %v", err)
 	}
-	if changedID != requestID || changedHash == requestHash {
-		t.Fatalf("same call ID changed identity incorrectly: original=(%q,%q) changed=(%q,%q)", requestID, requestHash, changedID, changedHash)
+	if changedID != requestID || changedInput == requestInput {
+		t.Fatalf("same call ID changed identity incorrectly: original=(%q,%q) changed=(%q,%q)", requestID, requestInput, changedID, changedInput)
 	}
 	_, err = backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: first.State.Version, RequestID: changedID, RequestHash: changedHash,
+		SessionID: sessionID, ExpectedVersion: first.State.Version, RequestID: changedID, RequestInput: changedInput,
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-created", Revision: 1},
 		Objective: "changed", MaxRounds: 2,
 	})

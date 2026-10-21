@@ -186,7 +186,7 @@ func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "enter-plan", RequestHash: "enter-plan", Kind: domain.WorkEventPlanEntered,
+		SessionID: sessionID, RequestID: "enter-plan", RequestInput: "enter-plan", Kind: domain.WorkEventPlanEntered,
 	}); err != nil {
 		t.Fatalf("enter Plan: %v", err)
 	}

@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -91,12 +89,11 @@ func (s *Service) pauseGoalForPlan(ctx context.Context, mutation domain.WorkMuta
 	s.mu.Unlock()
 	versionAfterPause := state.Version
 	if needsPause {
-		pauseIdentity := sha256.Sum256([]byte("plan-pause\x00" + mutation.RequestID + "\x00" + mutation.RequestHash))
 		pause := domain.WorkMutation{
 			SessionID: mutation.SessionID, ExpectedVersion: state.Version,
-			RequestID:   "plan-pause-" + hex.EncodeToString(pauseIdentity[:12]),
-			RequestHash: hex.EncodeToString(pauseIdentity[:]),
-			Kind:        domain.WorkEventGoalPaused, Goal: state.Goal.Ref,
+			RequestID:    "plan-pause:" + mutation.RequestID,
+			RequestInput: mutation.RequestInput,
+			Kind:         domain.WorkEventGoalPaused, Goal: state.Goal.Ref,
 			Reason: "paused for Plan", EvidenceRunID: runID,
 		}
 		paused, pauseErr := s.CommitWork(ctx, pause)
@@ -263,7 +260,10 @@ func (s *Service) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 		s.mu.Unlock()
 	}
 	if err == nil && !result.Replayed && s.deps.WorkSink != nil {
-		s.deps.WorkSink.Publish(result.Event)
+		publicEvent := result.Event
+		publicEvent.RequestInput = ""
+		publicEvent.Mutation.RequestInput = ""
+		s.deps.WorkSink.Publish(publicEvent)
 	}
 	return result, err
 }

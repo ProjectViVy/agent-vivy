@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,10 +100,16 @@ func modelWorkIdentity(runID domain.RunID, operation, toolCallID string, input a
 	if err != nil {
 		return "", "", err
 	}
-	identity := []byte("vivy:model-work:v2\x00" + string(runID) + "\x00" + operation + "\x00" + toolCallID)
-	idDigest := sha256.Sum256(identity)
-	requestHash := sha256.Sum256(append(append(identity, 0), raw...))
-	return "model-work-" + operation + "-" + hex.EncodeToString(idDigest[:12]), hex.EncodeToString(requestHash[:]), nil
+	requestID, err := json.Marshal([]string{"model-work", string(runID), operation, toolCallID})
+	if err != nil {
+		return "", "", err
+	}
+	intended, err := json.Marshal(struct {
+		RunID                 domain.RunID
+		Operation, ToolCallID string
+		Input                 json.RawMessage
+	}{runID, operation, toolCallID, raw})
+	return string(requestID), string(intended), err
 }
 
 func (s *Service) commitModelWork(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, operation string, input any, build func(string, string, domain.WorkState) domain.WorkMutation) (domain.WorkState, error) {
@@ -113,7 +117,7 @@ func (s *Service) commitModelWork(ctx context.Context, sessionID domain.SessionI
 	if toolCallID == "" {
 		return domain.WorkState{}, errors.New("runtime: model work tool call ID is required")
 	}
-	requestID, requestHash, err := modelWorkIdentity(runID, operation, toolCallID, input)
+	requestID, requestInput, err := modelWorkIdentity(runID, operation, toolCallID, input)
 	if err != nil {
 		return domain.WorkState{}, err
 	}
@@ -121,7 +125,7 @@ func (s *Service) commitModelWork(ctx context.Context, sessionID domain.SessionI
 	if err != nil {
 		return domain.WorkState{}, err
 	}
-	mutation := build(requestID, requestHash, state)
+	mutation := build(requestID, requestInput, state)
 	result, err := s.CommitWork(ctx, mutation)
 	if err != nil {
 		return domain.WorkState{}, err
@@ -134,10 +138,10 @@ func (s *Service) EnterPlanMode(ctx context.Context) (domain.WorkState, error) {
 	if err != nil {
 		return domain.WorkState{}, err
 	}
-	return s.commitModelWork(ctx, sessionID, runID, "enter-plan", nil, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
+	return s.commitModelWork(ctx, sessionID, runID, "enter-plan", nil, func(requestID, requestInput string, state domain.WorkState) domain.WorkMutation {
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanEntered,
+			RequestID: requestID, RequestInput: requestInput, Kind: domain.WorkEventPlanEntered,
 		}
 	})
 }
@@ -157,11 +161,11 @@ func (s *Service) SubmitPlan(ctx context.Context, markdown string) (domain.WorkS
 	}
 	state, err := s.commitModelWork(ctx, sessionID, runID, "submit-plan", map[string]string{
 		"markdown": markdown,
-	}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
+	}, func(requestID, requestInput string, state domain.WorkState) domain.WorkMutation {
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventPlanSubmitted,
-			PlanSubmissionID: "submission-" + requestID[len("model-work-submit-plan-"):],
+			RequestID: requestID, RequestInput: requestInput, Kind: domain.WorkEventPlanSubmitted,
+			PlanSubmissionID: "submission:" + requestID,
 			PlanMarkdown:     markdown, PlanOriginRunID: runID,
 			PlanOriginToolCallID: toolCallID,
 		}
@@ -200,11 +204,11 @@ func (s *Service) CreateGoal(ctx context.Context, objective string, maxRounds in
 	if objective == "" || len([]byte(objective)) > domain.MaxGoalObjectiveBytes || maxRounds <= 0 || maxRounds > domain.MaxGoalRounds {
 		return domain.WorkState{}, fmt.Errorf("runtime: invalid Goal objective or round limit")
 	}
-	state, err := s.commitModelWork(ctx, sessionID, runID, "create-goal", map[string]any{"objective": objective, "max_rounds": maxRounds}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
+	state, err := s.commitModelWork(ctx, sessionID, runID, "create-goal", map[string]any{"objective": objective, "max_rounds": maxRounds}, func(requestID, requestInput string, state domain.WorkState) domain.WorkMutation {
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: domain.WorkEventGoalCreated,
-			Goal:          domain.GoalRef{ID: "goal-" + requestID[len("model-work-create-goal-"):], Revision: 1},
+			RequestID: requestID, RequestInput: requestInput, Kind: domain.WorkEventGoalCreated,
+			Goal:          domain.GoalRef{ID: "goal:" + requestID, Revision: 1},
 			Objective:     objective,
 			MaxRounds:     maxRounds,
 			EvidenceRunID: runID,
@@ -244,10 +248,10 @@ func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64,
 	}
 	state, err := s.commitModelWork(ctx, sessionID, runID, "report-goal", map[string]any{
 		"goal_id": goalID, "revision": revision, "status": status, "reason": reason,
-	}, func(requestID, requestHash string, state domain.WorkState) domain.WorkMutation {
+	}, func(requestID, requestInput string, state domain.WorkState) domain.WorkMutation {
 		return domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: requestID, RequestHash: requestHash, Kind: kind,
+			RequestID: requestID, RequestInput: requestInput, Kind: kind,
 			Goal:   domain.GoalRef{ID: goalID, Revision: revision},
 			Reason: reason, EvidenceRunID: runID,
 		}
