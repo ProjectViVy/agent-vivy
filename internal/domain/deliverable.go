@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"path"
@@ -214,8 +215,14 @@ type ContinuityReceipt struct {
 	RunID     RunID     `json:"run_id"`
 	Operation string    `json:"operation"`
 	RequestID string    `json:"request_id"`
-	InputHash string    `json:"input_hash"`
+	Input     []byte    `json:"-"`
 	EventSeq  EventSeq  `json:"event_seq"`
+}
+
+// MatchesInput fails closed for legacy receipts with no retained intended input.
+// Input is private persistence state, excluded from wire/event projections.
+func (r ContinuityReceipt) MatchesInput(input []byte) bool {
+	return len(r.Input) > 0 && bytes.Equal(r.Input, input)
 }
 
 func validWorkspaceRelativePath(value string) bool {

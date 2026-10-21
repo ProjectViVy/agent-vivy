@@ -64,10 +64,10 @@ func sqliteFindReceiptTx(ctx context.Context, tx *sql.Tx, sessionID domain.Sessi
 	var r domain.ContinuityReceipt
 	var seq int64
 	err := tx.QueryRowContext(ctx,
-		`SELECT session_id, run_id, operation, request_id, input_hash, event_seq FROM continuity_receipts
+		`SELECT session_id, run_id, operation, request_id, intended_input, event_seq FROM continuity_receipts
 		 WHERE session_id = ? AND operation = ? AND request_id = ?`,
 		sessionID, operation, requestID).
-		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.InputHash, &seq)
+		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.Input, &seq)
 	switch {
 	case err == nil:
 		r.EventSeq = domain.EventSeq(seq)
@@ -83,10 +83,10 @@ func (b *Backend) FindContinuityReceipt(ctx context.Context, sessionID domain.Se
 	var r domain.ContinuityReceipt
 	var seq int64
 	err := b.db.QueryRowContext(ctx,
-		`SELECT session_id, run_id, operation, request_id, input_hash, event_seq FROM continuity_receipts
+		`SELECT session_id, run_id, operation, request_id, intended_input, event_seq FROM continuity_receipts
 		 WHERE session_id = ? AND operation = ? AND request_id = ?`,
 		sessionID, operation, requestID).
-		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.InputHash, &seq)
+		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.Input, &seq)
 	switch {
 	case err == nil:
 		r.EventSeq = domain.EventSeq(seq)
@@ -124,6 +124,28 @@ func sqliteReplayAdmission(ctx context.Context, tx *sql.Tx, receipt domain.Conti
 		return storage.ContinuityResult{}, fmt.Errorf("storage: replay continuity admission: %w", err)
 	}
 	return storage.ContinuityResult{RunID: receipt.RunID, Events: events, Receipt: receipt, NewlyCommitted: false}, nil
+}
+
+// sqliteReplayCommittedAdmission locks only the destination for replay.
+// Fresh admissions still acquire all source/destination locks in sorted order.
+func sqliteReplayCommittedAdmission(ctx context.Context, tx *sql.Tx, a storage.ContinuityAdmission) (storage.ContinuityResult, bool, error) {
+	receipt, found, err := sqliteFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
+	if err != nil || !found {
+		return storage.ContinuityResult{}, false, err
+	}
+	if err := sqliteLockContinuitySessions(ctx, tx, storage.ContinuityAdmission{SessionID: a.SessionID}); err != nil {
+		return storage.ContinuityResult{}, false, err
+	}
+	// Deletion may have removed the first observed receipt before this lock.
+	receipt, found, err = sqliteFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
+	if err != nil {
+		return storage.ContinuityResult{}, false, err
+	}
+	if !found || !receipt.MatchesInput(a.Receipt.Input) {
+		return storage.ContinuityResult{}, false, storage.ErrConflict
+	}
+	result, err := sqliteReplayAdmission(ctx, tx, receipt)
+	return result, true, err
 }
 
 func sqliteCheckExpectations(ctx context.Context, tx *sql.Tx, expectations []storage.SourceExpectation) error {
@@ -204,21 +226,19 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := sqliteLockContinuitySessions(ctx, tx, a); err != nil {
-		return storage.ContinuityResult{}, err
+	if result, found, err := sqliteReplayCommittedAdmission(ctx, tx, a); err != nil || found {
+		return result, err
 	}
-
-	// Receipt lookup precedes every write so an identical replay returns the
-	// original run without a second admission.
-	existing, found, err := sqliteFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
-	if err != nil {
-		return storage.ContinuityResult{}, err
+	lockErr := sqliteLockContinuitySessions(ctx, tx, a)
+	if lockErr != nil && !errors.Is(lockErr, storage.ErrSourceChanged) {
+		return storage.ContinuityResult{}, lockErr
 	}
-	if found {
-		if existing.InputHash != a.Receipt.InputHash {
-			return storage.ContinuityResult{}, storage.ErrConflict
-		}
-		return sqliteReplayAdmission(ctx, tx, existing)
+	// Recheck racing commits even when a source disappeared after initial lookup.
+	if result, found, err := sqliteReplayCommittedAdmission(ctx, tx, a); err != nil || found {
+		return result, err
+	}
+	if lockErr != nil {
+		return storage.ContinuityResult{}, lockErr
 	}
 
 	if err := sqliteCheckExpectations(ctx, tx, a.Expectations); err != nil {
@@ -263,8 +283,8 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 	receipt.RunID = a.Run.ID
 	receipt.EventSeq = domain.EventSeq(len(events))
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO continuity_receipts (session_id, operation, request_id, input_hash, run_id, event_seq) VALUES (?,?,?,?,?,?)`,
-		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.InputHash, receipt.RunID, int64(receipt.EventSeq)); err != nil {
+		`INSERT INTO continuity_receipts (session_id, operation, request_id, intended_input, run_id, event_seq) VALUES (?,?,?,?,?,?)`,
+		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.Input, receipt.RunID, int64(receipt.EventSeq)); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: insert continuity receipt: %w", err)
 	}
 	if err := sqliteFault(a.TestFaultHook, "receipt"); err != nil {
@@ -277,7 +297,7 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		return storage.ContinuityResult{}, fmt.Errorf("storage: touch admitted session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity admission: %w", storage.ErrCommitUncertain)
+		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity admission: %w: %w", storage.ErrCommitUncertain, err)
 	}
 	return storage.ContinuityResult{RunID: a.Run.ID, Events: events, Receipt: receipt, NewlyCommitted: true}, nil
 }
@@ -312,7 +332,7 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 		return storage.ContinuityResult{}, err
 	}
 	if found {
-		if existing.InputHash != m.InputHash || existing.RunID != m.RunID {
+		if !existing.MatchesInput(m.Receipt.Input) || existing.RunID != m.RunID {
 			return storage.ContinuityResult{}, storage.ErrConflict
 		}
 		var replay domain.RunEvent
@@ -356,15 +376,15 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 	receipt.RunID = m.RunID
 	receipt.EventSeq = event.Seq
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO continuity_receipts (session_id, operation, request_id, input_hash, run_id, event_seq) VALUES (?,?,?,?,?,?)`,
-		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.InputHash, receipt.RunID, int64(receipt.EventSeq)); err != nil {
+		`INSERT INTO continuity_receipts (session_id, operation, request_id, intended_input, run_id, event_seq) VALUES (?,?,?,?,?,?)`,
+		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.Input, receipt.RunID, int64(receipt.EventSeq)); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: insert continuity receipt: %w", err)
 	}
 	if err := sqliteFault(m.TestFaultHook, "receipt"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity operation: %w", storage.ErrCommitUncertain)
+		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity operation: %w: %w", storage.ErrCommitUncertain, err)
 	}
 	return storage.ContinuityResult{RunID: m.RunID, Events: []domain.RunEvent{event}, Receipt: receipt, NewlyCommitted: true}, nil
 }

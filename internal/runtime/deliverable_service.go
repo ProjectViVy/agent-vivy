@@ -134,6 +134,16 @@ func (s *DeliverableService) Present(ctx context.Context, request domain.Present
 		}
 		seen[file.Path] = struct{}{}
 	}
+	input, err := deliverableIntendedInput(request)
+	if err != nil {
+		return domain.DeliverySet{}, err
+	}
+	receipt := domain.ContinuityReceipt{SessionID: sessionID, Operation: DeliverableOperationPresent, RequestID: callID, Input: input}
+	if events, found, err := replayContinuityOperation(ctx, s.continuity, s.journal, receipt, runID, domain.EventDeliverablesPresented); err != nil {
+		return domain.DeliverySet{}, err
+	} else if found {
+		return decodeDeliverySetEvents(events)
+	}
 	workspace, found, err := s.manager.Existing(ctx, runID)
 	if err != nil {
 		return domain.DeliverySet{}, err
@@ -174,18 +184,11 @@ func (s *DeliverableService) Present(ctx context.Context, request domain.Present
 	if err != nil {
 		return domain.DeliverySet{}, err
 	}
-	inputHash := deliverableInputHash(request)
 	result, err := s.continuity.CommitContinuityOperation(ctx, storage.ContinuityMutation{
 		SessionID: sessionID,
 		RunID:     runID,
 		Event:     event,
-		InputHash: inputHash,
-		Receipt: domain.ContinuityReceipt{
-			SessionID: sessionID,
-			Operation: DeliverableOperationPresent,
-			RequestID: callID,
-			InputHash: inputHash,
-		},
+		Receipt:   receipt,
 	})
 	if err != nil {
 		return domain.DeliverySet{}, err
@@ -643,13 +646,12 @@ func decodeDeliverySetEvents(events []domain.RunEvent) (domain.DeliverySet, erro
 	return domain.DeliverySet{}, fmt.Errorf("deliverable: committed events carry no delivery set")
 }
 
-func deliverableInputHash(request domain.PresentRequest) string {
+func deliverableIntendedInput(request domain.PresentRequest) ([]byte, error) {
 	data, err := json.Marshal(request)
 	if err != nil {
-		return ""
+		return nil, fmt.Errorf("deliverable: encode intended input: %w", err)
 	}
-	sum := sha256.Sum256(append([]byte("v1:"), data...))
-	return hex.EncodeToString(sum[:])
+	return data, nil
 }
 
 // safeDeliveryName strips control and bidi characters from a presented file

@@ -35,7 +35,6 @@ var (
 type SourceExpectation struct {
 	SourceSessionID   domain.SessionID
 	TruncationMarkers int64
-	Digest            string
 }
 
 func (e SourceExpectation) validate() error {
@@ -78,7 +77,7 @@ func (a ContinuityAdmission) Validate() error {
 			return fmt.Errorf("storage: continuity admission event %s belongs to another run", e.Type)
 		}
 	}
-	if a.Receipt.Operation != ContinuityOperationAdmission || a.Receipt.SessionID != a.SessionID || a.Receipt.RequestID == "" || a.Receipt.InputHash == "" {
+	if a.Receipt.Operation != ContinuityOperationAdmission || a.Receipt.SessionID != a.SessionID || a.Receipt.RequestID == "" || len(a.Receipt.Input) == 0 {
 		return fmt.Errorf("storage: continuity admission receipt is invalid")
 	}
 	if a.Scope.DestinationSessionID != a.SessionID {
@@ -99,7 +98,6 @@ type ContinuityMutation struct {
 	SessionID domain.SessionID
 	RunID     domain.RunID
 	Event     domain.RunEvent
-	InputHash string
 	Receipt   domain.ContinuityReceipt
 	// TestFaultHook mirrors ContinuityAdmission.TestFaultHook for the
 	// "events" and "receipt" write steps.
@@ -113,11 +111,8 @@ func (m ContinuityMutation) Validate() error {
 	if m.Event.Type == "" || m.Event.Type == domain.EventRunStarted || m.Event.Type.Terminal() {
 		return fmt.Errorf("storage: continuity mutation event type is invalid")
 	}
-	if m.Receipt.Operation == "" || m.Receipt.SessionID != m.SessionID || m.Receipt.RequestID == "" || m.Receipt.InputHash == "" {
+	if m.Receipt.Operation == "" || m.Receipt.SessionID != m.SessionID || m.Receipt.RequestID == "" || len(m.Receipt.Input) == 0 {
 		return fmt.Errorf("storage: continuity mutation receipt is invalid")
-	}
-	if m.InputHash == "" || m.Receipt.InputHash != m.InputHash {
-		return fmt.Errorf("storage: continuity mutation input hash is invalid")
 	}
 	return nil
 }
@@ -134,14 +129,14 @@ type ContinuityResult struct {
 }
 
 // ContinuityStore commits task admissions and guarded operations
-// atomically. The receipt is a rebuildable index into the authoritative
-// events; the event payload remains the source of truth for the result.
+// atomically. The receipt owns private intended input and points to the
+// authoritative Journal event payload for the durable result.
 type ContinuityStore interface {
 	// CommitContinuityRun inserts message, run, the ordered startup events
 	// and the admission receipt in one transaction. Source and destination
 	// sessions lock in sorted-ID order before the expectations are
 	// rechecked. An identical replay returns the original RunID and events
-	// with NewlyCommitted=false; a different input hash is ErrConflict.
+	// with NewlyCommitted=false; different intended input is ErrConflict.
 	CommitContinuityRun(ctx context.Context, a ContinuityAdmission) (ContinuityResult, error)
 	// CommitContinuityOperation appends one typed event plus its receipt to
 	// an existing run. The receipt lookup precedes the terminal check so an

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -909,22 +908,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if s.sessionDeleted(sessionID) {
 		return "", storage.ErrNotFound
 	}
-	if options.GoalRound == nil {
-		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
-		if err != nil {
-			return "", fmt.Errorf("runtime: inspect active session runs: %w", err)
-		}
-		for _, existing := range runs {
-			if (existing.Kind == "" || existing.Kind == domain.RunKindPrimary) && !existing.Status.Terminal() {
-				return "", storage.ErrWorkRunConflict
-			}
-		}
-	}
-	// A deferred settings-save engine rebuild applies here, while no run
-	// is registered.
-	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
-		return "", err
-	}
+	// Preserve an omitted caller profile as a default declaration across retries;
+	// resolving the current server default belongs only to a fresh admission.
+	requestedProfile := options.Profile
 	if options.Profile == "" {
 		options.Profile = s.defaultProfile
 	}
@@ -956,31 +942,16 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 		provenance = *options.Provenance
 	}
-	snapshot, err := s.engine.cfg.Policy.Snapshot(profile)
-	if err != nil {
-		return "", err
-	}
-	sandboxMode, approvalPolicy := s.sessionSandbox(ctx, sessionID)
-	ledger, err := NewBudgetLedger(s.deps.Budget)
-	if err != nil {
-		return "", err
-	}
-	if err := ledger.ReserveEvent(); err != nil {
-		return "", err
-	}
 
 	if options.Continuity != nil && persist != nil {
 		return "", errors.New("runtime: continuity admission does not compose with a persistence override")
 	}
 	var continuityScope *domain.AcceptedHistoryScope
 	var continuityExpectations []storage.SourceExpectation
-	var continuityHash string
+	var continuityInput []byte
 	admissionAlloc, _ := s.deps.Workspaces.(AdmissionWorkspaceAllocator)
 	if options.Continuity != nil {
 		if s.deps.Continuity == nil {
-			return "", ErrContinuityUnavailable
-		}
-		if s.deps.Workspaces != nil && admissionAlloc == nil {
 			return "", ErrContinuityUnavailable
 		}
 		input := options.Continuity
@@ -996,10 +967,14 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			return "", err
 		}
 		continuityScope = &scope
-		if continuityExpectations, err = s.continuityExpectations(ctx, input); err != nil {
+		continuityInput, err = continuityIntendedInput(continuityAdmissionIntent{
+			Text: userText, Continuity: *input, Scope: resolved, Mode: mode, Profile: requestedProfile,
+			CollaborationMode: collaborationMode, CollaborationVersion: collaborationVersion,
+			Thinking: thinking, Face: face, Provenance: provenance, Attachments: options.Attachments, FileContexts: fileContexts,
+		})
+		if err != nil {
 			return "", err
 		}
-		continuityHash = continuityInputHash(userText, input)
 		// Cheap receipt pre-check: a lost-response retry returns the
 		// original run without allocating anything. The in-transaction
 		// recheck still guards the racing first commit.
@@ -1008,10 +983,46 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			return "", fmt.Errorf("runtime: read continuity receipt: %w", err)
 		}
 		if found {
-			if receipt.InputHash != continuityHash {
+			if !receipt.MatchesInput(continuityInput) {
 				return "", storage.ErrConflict
 			}
 			return receipt.RunID, nil
+		}
+		if s.deps.Workspaces != nil && admissionAlloc == nil {
+			return "", ErrContinuityUnavailable
+		}
+	}
+	if options.GoalRound == nil {
+		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+		if err != nil {
+			return "", fmt.Errorf("runtime: inspect active session runs: %w", err)
+		}
+		for _, existing := range runs {
+			if (existing.Kind == "" || existing.Kind == domain.RunKindPrimary) && !existing.Status.Terminal() {
+				return "", storage.ErrWorkRunConflict
+			}
+		}
+	}
+	// A deferred settings-save engine rebuild applies here, while no run
+	// is registered.
+	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
+		return "", err
+	}
+	snapshot, err := s.engine.cfg.Policy.Snapshot(profile)
+	if err != nil {
+		return "", err
+	}
+	sandboxMode, approvalPolicy := s.sessionSandbox(ctx, sessionID)
+	ledger, err := NewBudgetLedger(s.deps.Budget)
+	if err != nil {
+		return "", err
+	}
+	if err := ledger.ReserveEvent(); err != nil {
+		return "", err
+	}
+	if options.Continuity != nil {
+		if continuityExpectations, err = s.continuityExpectations(ctx, options.Continuity); err != nil {
+			return "", err
 		}
 	}
 	runID := newRunID()
@@ -1190,7 +1201,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 				SessionID: sessionID,
 				Operation: storage.ContinuityOperationAdmission,
 				RequestID: options.Continuity.RequestID,
-				InputHash: continuityHash,
+				Input:     continuityInput,
 			},
 		})
 		if commitErr != nil {
@@ -1417,25 +1428,9 @@ func (s *Service) continuityExpectations(ctx context.Context, input *domain.Cont
 		out = append(out, storage.SourceExpectation{
 			SourceSessionID:   sid,
 			TruncationMarkers: revision,
-			Digest:            ref.ExpectedDigest,
 		})
 	}
 	return out, nil
-}
-
-// continuityInputHash fingerprints one admission request: identical retries
-// hash identically while a changed payload under the same request_id is a
-// conflict. The encoding is the canonical JSON of the caller-visible input.
-func continuityInputHash(userText string, input *domain.ContinuityInput) string {
-	canonical, err := json.Marshal(struct {
-		Text  string                 `json:"text"`
-		Input domain.ContinuityInput `json:"input"`
-	}{Text: userText, Input: *input})
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
 }
 
 // discardAdmissionWorkspace reaps the empty private directory created for a

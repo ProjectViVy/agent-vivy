@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,6 +113,22 @@ func (s *ReferenceService) Attach(ctx context.Context, selection domain.Referenc
 	if s.continuity == nil || s.journal == nil {
 		return domain.ContextReference{}, ReferenceError{Status: string(domain.HistoryStatusUnavailable), Reason: "reference commits unavailable"}
 	}
+	if err := selection.Selection.Validate(s.limits); err != nil {
+		return domain.ContextReference{}, err
+	}
+	if !utf8.ValidString(selection.ExpectedDigest) {
+		return domain.ContextReference{}, ReferenceError{Status: string(domain.HistoryStatusInvalidArgument), Reason: "expected digest is invalid"}
+	}
+	input, err := referenceIntendedInput(selection)
+	if err != nil {
+		return domain.ContextReference{}, err
+	}
+	receipt := domain.ContinuityReceipt{SessionID: sessionID, Operation: ReferenceOperationAttach, RequestID: callID, Input: input}
+	if events, found, err := replayContinuityOperation(ctx, s.continuity, s.journal, receipt, runID, domain.EventContextReferenceAttached); err != nil {
+		return domain.ContextReference{}, err
+	} else if found {
+		return decodeReferenceEvents(events)
+	}
 	reference, err := s.snapshot(ctx, selection, sessionID, runID, "model_tool")
 	if err != nil {
 		return domain.ContextReference{}, err
@@ -133,18 +147,11 @@ func (s *ReferenceService) Attach(ctx context.Context, selection domain.Referenc
 	if err != nil {
 		return domain.ContextReference{}, err
 	}
-	inputHash := referenceInputHash(selection)
 	result, err := s.continuity.CommitContinuityOperation(ctx, storage.ContinuityMutation{
 		SessionID: sessionID,
 		RunID:     runID,
 		Event:     event,
-		InputHash: inputHash,
-		Receipt: domain.ContinuityReceipt{
-			SessionID: sessionID,
-			Operation: ReferenceOperationAttach,
-			RequestID: callID,
-			InputHash: inputHash,
-		},
+		Receipt:   receipt,
 	})
 	if err != nil {
 		return domain.ContextReference{}, err
@@ -529,17 +536,18 @@ func referenceEvent(reference domain.ContextReference, at int64) (domain.RunEven
 	}, nil
 }
 
-func referenceInputHash(selection domain.ReferenceSelection) string {
-	body := map[string]any{
-		"selection":       selection.Selection,
-		"expected_digest": selection.ExpectedDigest,
-	}
-	data, err := json.Marshal(body)
+func normalizedReferenceSelection(selection domain.HistorySelection) domain.HistorySelection {
+	filter := normalizeHistoryCursorFilter(domain.HistoryReadRequest{Selection: &selection})
+	return *filter.Selection
+}
+
+func referenceIntendedInput(selection domain.ReferenceSelection) ([]byte, error) {
+	selection.Selection = normalizedReferenceSelection(selection.Selection)
+	data, err := json.Marshal(selection)
 	if err != nil {
-		return ""
+		return nil, fmt.Errorf("reference: encode intended input: %w", err)
 	}
-	sum := sha256.Sum256(append([]byte("v1:"), data...))
-	return hex.EncodeToString(sum[:])
+	return data, nil
 }
 
 func referenceByteCount(reference domain.ContextReference) int {
