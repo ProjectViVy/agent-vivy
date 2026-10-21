@@ -12,7 +12,6 @@ const item = (overrides: Partial<Deliverable> = {}): Deliverable => ({
   name: '报告.txt',
   description: 'final report',
   size: 3,
-  sha256: 'd'.repeat(64),
   media_type: 'text/plain',
   captured_at: 1700000000,
   origin_tool_call_id: 'call_1',
@@ -22,7 +21,6 @@ const item = (overrides: Partial<Deliverable> = {}): Deliverable => ({
 const chunk = (overrides: Partial<DeliveryChunk>): DeliveryChunk => ({
   transfer_id: 'xfr_1',
   item_id: 'itm_1',
-  digest: 'd'.repeat(64),
   offset: 0,
   data_base64: '',
   eof: false,
@@ -39,11 +37,6 @@ function makeRpc(readImpl: (sessionId: string, req: { offset: number; length: nu
   return { read, close };
 }
 
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 describe('isTextPreviewable', () => {
   it('admits text types and structured text, rejects html/svg/binary', () => {
     expect(isTextPreviewable('text/plain')).toBe(true);
@@ -56,12 +49,12 @@ describe('isTextPreviewable', () => {
 });
 
 describe('downloadDeliverable', () => {
-  it('fetches chunks sequentially, verifies EOF+hash, then creates and revokes the object URL', async () => {
+  it('fetches chunks sequentially, verifies one transfer, declared size and EOF, then creates and revokes the object URL', async () => {
     const body = 'hello world';
-    const meta = item({ size: body.length, sha256: await sha256Hex(body) });
+    const meta = item({ size: body.length });
     const rpc = makeRpc(async (_sid, req) => {
-      if (req.offset === 0) return chunk({ transfer_id: 'xfr_1', digest: meta.sha256, data_base64: b64(body.slice(0, 5)) });
-      if (req.offset === 5) return chunk({ transfer_id: 'xfr_1', digest: meta.sha256, offset: 5, data_base64: b64(body.slice(5)), eof: true });
+      if (req.offset === 0) return chunk({ transfer_id: 'xfr_1', data_base64: b64(body.slice(0, 5)) });
+      if (req.offset === 5) return chunk({ transfer_id: 'xfr_1', offset: 5, data_base64: b64(body.slice(5)), eof: true });
       throw new Error(`unexpected offset ${req.offset}`);
     });
     const createURL = vi.fn(() => 'blob:fake');
@@ -78,7 +71,7 @@ describe('downloadDeliverable', () => {
     await downloadDeliverable(meta, 'ses_1', rpc, new AbortController().signal);
 
     expect(rpc.read).toHaveBeenCalledTimes(2);
-    expect(rpc.read.mock.calls[1]?.[1]).toMatchObject({ offset: 5, transfer_id: 'xfr_1', expected_digest: meta.sha256 });
+    expect(rpc.read.mock.calls[1]?.[1]).toMatchObject({ offset: 5, transfer_id: 'xfr_1' });
     expect(createURL).toHaveBeenCalledTimes(1);
     expect(revokeURL).toHaveBeenCalledWith('blob:fake');
     expect(clicks).toEqual(['报告.txt']);
@@ -92,7 +85,7 @@ describe('downloadDeliverable', () => {
     const meta = item();
     const rpc = makeRpc(async () => {
       controller.abort();
-      return chunk({ transfer_id: 'xfr_active', digest: meta.sha256, data_base64: b64('abc') });
+      return chunk({ transfer_id: 'xfr_active', data_base64: b64('abc') });
     });
     const createURL = vi.fn(() => 'blob:fake');
     vi.stubGlobal('URL', { ...URL, createObjectURL: createURL, revokeObjectURL: vi.fn() });
@@ -104,9 +97,9 @@ describe('downloadDeliverable', () => {
   });
 
   it('maps a changed read error to the typed reason and still closes the transfer', async () => {
-    const meta = item();
+    const meta = item({ size: 6 });
     const rpc = makeRpc(async () => { throw new Error('deliverables/read failed: changed: workspace file differs'); });
-    rpc.read.mockImplementationOnce(async () => chunk({ transfer_id: 'xfr_1', digest: meta.sha256, data_base64: b64('abc') }));
+    rpc.read.mockImplementationOnce(async () => chunk({ transfer_id: 'xfr_1', data_base64: b64('abc') }));
     vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(), revokeObjectURL: vi.fn() });
 
     await expect(downloadDeliverable(meta, 'ses_1', rpc)).rejects.toMatchObject({ reason: 'changed' });
@@ -114,18 +107,18 @@ describe('downloadDeliverable', () => {
     vi.unstubAllGlobals();
   });
 
-  it('rejects a frame whose offset/digest does not match the request', async () => {
+  it('rejects a frame whose offset/item does not match the request', async () => {
     const meta = item();
-    const rpc = makeRpc(async () => chunk({ transfer_id: 'xfr_1', digest: meta.sha256, offset: 99, data_base64: b64('abc'), eof: true }));
+    const rpc = makeRpc(async () => chunk({ transfer_id: 'xfr_1', offset: 99, data_base64: b64('abc'), eof: true }));
     vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(), revokeObjectURL: vi.fn() });
     await expect(downloadDeliverable(meta, 'ses_1', rpc)).rejects.toMatchObject({ reason: 'mismatch' });
     expect(rpc.close).toHaveBeenCalledWith('ses_1', 'xfr_1');
     vi.unstubAllGlobals();
   });
 
-  it('rejects when assembled bytes fail the committed sha256', async () => {
-    const meta = item({ size: 3 });
-    const rpc = makeRpc(async () => chunk({ transfer_id: 'xfr_1', digest: meta.sha256, data_base64: b64('abc'), eof: true }));
+  it('rejects EOF before the declared size', async () => {
+    const meta = item({ size: 4 });
+    const rpc = makeRpc(async () => chunk({ transfer_id: 'xfr_1', data_base64: b64('abc'), eof: true }));
     vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(), revokeObjectURL: vi.fn() });
     await expect(downloadDeliverable(meta, 'ses_1', rpc)).rejects.toMatchObject({ reason: 'mismatch' });
     vi.unstubAllGlobals();
@@ -134,12 +127,12 @@ describe('downloadDeliverable', () => {
 
 describe('readDeliveryPreview', () => {
   it('returns decoded utf-8 text and closes its transfer', async () => {
-    const meta = item({ size: 3 });
-    const rpc = makeRpc(async () => chunk({ transfer_id: 'xfr_p', digest: meta.sha256, data_base64: b64u('你好'), eof: false }));
+    const meta = item({ size: 6 });
+    const rpc = makeRpc(async () => chunk({ transfer_id: 'xfr_p', data_base64: b64u('你好'), eof: true }));
     const preview = await readDeliveryPreview(meta, 'ses_1', rpc);
     expect(preview).toBe('你好');
     expect(rpc.close).toHaveBeenCalledWith('ses_1', 'xfr_p');
-    expect(rpc.read.mock.calls[0]?.[1].length).toBe(3);
+    expect(rpc.read.mock.calls[0]?.[1].length).toBe(6);
   });
 
   it('propagates a missing file as a typed reason', async () => {
@@ -147,5 +140,69 @@ describe('readDeliveryPreview', () => {
     const rpc = makeRpc(async () => { throw new Error('deliverables/read failed: missing'); });
     await expect(readDeliveryPreview(meta, 'ses_1', rpc)).rejects.toBeInstanceOf(DeliverableTransferError);
     await expect(readDeliveryPreview(meta, 'ses_1', rpc)).rejects.toMatchObject({ reason: 'missing' });
+  });
+});
+
+
+describe('immutable transfer frame boundaries', () => {
+  it('rejects a different transfer id midway and closes the original handle', async () => {
+    const meta = item({ size: 6 });
+    const rpc = makeRpc(async (_sid, req) => req.offset === 0
+      ? chunk({ transfer_id: 'xfr_original', data_base64: b64('abc') })
+      : chunk({ transfer_id: 'xfr_foreign', offset: 3, data_base64: b64('def'), eof: true }));
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(), revokeObjectURL: vi.fn() });
+    await expect(downloadDeliverable(meta, 'ses_1', rpc)).rejects.toMatchObject({ reason: 'mismatch' });
+    expect(rpc.close).toHaveBeenCalledWith('ses_1', 'xfr_original');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('refuses bytes beyond the declared size before requesting another chunk', async () => {
+    const rpc = makeRpc(async (_sid, req) => {
+      if (req.offset > 0) throw new Error('must not request beyond declared size');
+      return chunk({ data_base64: b64('abcd') });
+    });
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(), revokeObjectURL: vi.fn() });
+    await expect(downloadDeliverable(item(), 'ses_1', rpc)).rejects.toMatchObject({ reason: 'mismatch' });
+    expect(rpc.read).toHaveBeenCalledTimes(1);
+    expect(rpc.close).toHaveBeenCalledWith('ses_1', 'xfr_1');
+    vi.unstubAllGlobals();
+  });
+
+  it('refuses preview bytes exceeding the requested window and closes the handle', async () => {
+    const rpc = makeRpc(async () => chunk({ data_base64: b64('abcd'), eof: true }));
+    await expect(readDeliveryPreview(item(), 'ses_1', rpc)).rejects.toMatchObject({ reason: 'mismatch' });
+    expect(rpc.close).toHaveBeenCalledWith('ses_1', 'xfr_1');
+  });
+});
+
+
+describe('download failure cleanup', () => {
+  it('closes the original transfer when authorization is lost on the next chunk', async () => {
+    const rpc = makeRpc(async (_sid, req) => {
+      if (req.offset > 0) throw new Error('deliverables/read failed: forbidden');
+      return chunk({ data_base64: b64('abc') });
+    });
+    await expect(downloadDeliverable(item({ size: 6 }), 'ses_1', rpc)).rejects.toMatchObject({ reason: 'forbidden' });
+    expect(rpc.close).toHaveBeenCalledWith('ses_1', 'xfr_1');
+  });
+
+  it('does not save when canceled while final close is pending', async () => {
+    const controller = new AbortController();
+    const rpc = makeRpc(async () => chunk({ data_base64: b64('abc'), eof: true }));
+    rpc.close.mockImplementation(async () => { controller.abort(); });
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(), revokeObjectURL: vi.fn() });
+    await expect(downloadDeliverable(item(), 'ses_1', rpc, controller.signal)).rejects.toMatchObject({ reason: 'aborted' });
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('refuses an empty transfer id and oversized encoded page', async () => {
+    const empty = makeRpc(async () => chunk({ transfer_id: '', data_base64: b64('abc'), eof: true }));
+    await expect(downloadDeliverable(item(), 'ses_1', empty)).rejects.toMatchObject({ reason: 'mismatch' });
+    expect(empty.close).not.toHaveBeenCalled();
+    const huge = makeRpc(async () => chunk({ data_base64: 'A'.repeat(350000), eof: true }));
+    await expect(downloadDeliverable(item(), 'ses_1', huge)).rejects.toMatchObject({ reason: 'mismatch' });
+    expect(huge.close).toHaveBeenCalledWith('ses_1', 'xfr_1');
   });
 });

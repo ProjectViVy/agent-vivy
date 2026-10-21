@@ -138,7 +138,6 @@ export function ReferenceDetail({ reference }: { reference: api.ContextReference
           <details className="text-[11px] text-muted-foreground">
             <summary className="cursor-pointer select-none">{t('referenceDetail.details')}</summary>
             <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
-              <dt>{t('referenceDetail.digest')}</dt><dd className="break-all">{reference.digest}</dd>
               <dt>{t('referenceDetail.captured')}</dt><dd>{captured}</dd>
               <dt>{t('referenceDetail.sourceSession')}</dt><dd className="break-all">{reference.source_session_id}</dd>
               <dt>{t('referenceDetail.destination')}</dt><dd className="break-all">{reference.destination_session_id} / {reference.destination_run_id}</dd>

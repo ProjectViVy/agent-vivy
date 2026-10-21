@@ -24,15 +24,14 @@ type deliverablesGetParams struct {
 }
 
 // deliverablesReadParams pages verified bytes of one presented item. The
-// caller declares the digest it expects; a changed file answers "changed"
-// instead of serving wrong bytes.
+// server compares the file to private presentation bytes before opening an
+// immutable owner-bound transfer. Later chunks pin that same TransferID.
 type deliverablesReadParams struct {
-	SessionID      string `json:"session_id"`
-	ItemID         string `json:"item_id"`
-	ExpectedDigest string `json:"expected_digest"`
-	TransferID     string `json:"transfer_id,omitempty"`
-	Offset         int64  `json:"offset"`
-	Length         int    `json:"length"`
+	SessionID  string `json:"session_id"`
+	ItemID     string `json:"item_id"`
+	TransferID string `json:"transfer_id,omitempty"`
+	Offset     int64  `json:"offset"`
+	Length     int    `json:"length"`
 }
 
 // deliverablesCloseParams releases one live transfer handle early.
@@ -112,11 +111,10 @@ func (h *controlHandler) deliverablesRead(ctx context.Context, request Request) 
 		return nil, rpcErr
 	}
 	chunk, err := h.deps.Deliverables.Read(authority, domain.DeliveryReadRequest{
-		ItemID:         params.ItemID,
-		ExpectedDigest: params.ExpectedDigest,
-		TransferID:     params.TransferID,
-		Offset:         params.Offset,
-		Length:         params.Length,
+		ItemID:     params.ItemID,
+		TransferID: params.TransferID,
+		Offset:     params.Offset,
+		Length:     params.Length,
 	})
 	if err != nil {
 		return nil, mapDeliverableError(err, "deliverables read")

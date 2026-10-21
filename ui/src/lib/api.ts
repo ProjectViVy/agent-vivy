@@ -147,7 +147,7 @@ export interface ChildHistoryMessage { id: string; run_id?: string; role: Messag
 export interface ChildMailboxMessage { id: string; child_session_id: string; sender_session_id: string; recipient_session_id: string; sequence: number; text: string; status: 'pending' | 'consumed' | 'rejected' | 'expired'; created_at: number }
 export type ReviewKind = 'approval' | 'question';
 export type ReviewStatus = 'pending' | 'approved' | 'denied' | 'answered' | 'cancelled' | 'expired' | 'stale';
-export interface ReviewItem { id: string; kind: ReviewKind; status: ReviewStatus; session_id: string; session_title?: string; run_id: string; tool_call_id?: string; tool_name?: string; source?: string; actor?: string; created_at: number; expires_at: number; decided_at?: number; action?: string; target?: string; precondition_hash?: string; preview?: string; risk_findings?: string[]; arguments?: Record<string, unknown>; prompt?: string; decision_reason?: string; stale_reason?: string; error?: string; effect?: string; reversibility?: string; scope?: string; trust?: string }
+export interface ReviewItem { id: string; kind: ReviewKind; status: ReviewStatus; session_id: string; session_title?: string; run_id: string; tool_call_id?: string; tool_name?: string; source?: string; actor?: string; created_at: number; expires_at: number; decided_at?: number; action?: string; target?: string; preview?: string; risk_findings?: string[]; arguments?: Record<string, unknown>; prompt?: string; decision_reason?: string; stale_reason?: string; error?: string; effect?: string; reversibility?: string; scope?: string; trust?: string }
 export interface WorkspaceFile { path: string; size: number }
 export interface WorkspaceFileContent { path: string; content: string; size: number; truncated: boolean; binary: boolean }
 export interface WorkspaceDirectory { name: string; path: string }
@@ -287,7 +287,7 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
     ...(http ? { http } : {}),
   };
 }
-export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; artifact_sha256?: string; ui_artifact_sha256?: string; recipe: Recipe; policy_profile: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
+export interface SpeciesInspect { protocol_version: string; binary_id: string; generation_id: string; recipe: Recipe; policy_profile: string; tools: Array<{ name: string; readonly: boolean }>; grants: string[] }
 export interface Recipe { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] }
 export type GenerationPhase = 'built' | 'eval_pending' | 'evaluated' | 'promoted' | 'released' | 'rejected';
 export interface Generation { id: string; parent_id?: string; source_ref?: string; recipe: Recipe; phase: GenerationPhase; created_at: number }
@@ -345,10 +345,10 @@ export const importSession = (data: string) =>
   request<{ session_id: string; imported: number; skipped: number }>('session/import', { data });
 /** session/export：可见视图渲染为 exports 目录下的独立 HTML。 */
 export const exportSession = (sessionId: string) =>
-  request<{ path: string; name: string; sha256: string; size: number; message_count: number }>('session/export', { session_id: sessionId, format: 'html' });
-/** exports/read：digest 绑定的 exports 目录读取，是导出文件的验证下载通道。 */
-export const readExport = (name: string, expectedDigest?: string) =>
-  request<{ name: string; digest: string; size: number; data_base64: string }>('exports/read', { name, expected_digest: expectedDigest });
+  request<{ path: string; name: string; size: number; message_count: number }>('session/export', { session_id: sessionId, format: 'html' });
+/** exports/read：按发布时的不透明名称读取不可变导出。 */
+export const readExport = (name: string) =>
+  request<{ name: string; size: number; data_base64: string }>('exports/read', { name });
 export const editSession = (sessionId: string, messageId: string, text: string, mode: RunMode = 'normal', face?: Face, thinking?: ThinkingMode) =>
   request<{ run_id: string; status: RunStatus }>('session/edit', {
     session_id: sessionId, message_id: messageId, text,

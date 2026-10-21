@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -58,10 +56,6 @@ func TestDownloadStreamsIntoWorkspace(t *testing.T) {
 	if result.Path != "docs/file.bin" || result.Bytes != int64(len("hello download payload")) || result.Overwritten {
 		t.Fatalf("unexpected result: %+v", result)
 	}
-	sum := sha256.Sum256([]byte("hello download payload"))
-	if result.SHA256 != hex.EncodeToString(sum[:]) {
-		t.Fatalf("sha mismatch: %q", result.SHA256)
-	}
 	data, err := os.ReadFile(filepath.Join(workspace, "docs", "file.bin"))
 	if err != nil || string(data) != "hello download payload" {
 		t.Fatalf("workspace payload wrong: %q err=%v", data, err)
@@ -88,7 +82,14 @@ func TestDownloadOverwritesAndChecksPrecondition(t *testing.T) {
 		t.Fatalf("expected overwritten flag: %+v", result)
 	}
 
-	stale := tools.WithProposalPrecondition(ctx, "deadbeef")
+	proposal, err := backend.PrepareDownload(ctx, runID, tools.DownloadRequest{URL: server.URL, Path: "existing.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("other bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stale := tools.WithProposalData(ctx, proposal.Data)
 	if _, err := backend.Download(stale, runID, tools.DownloadRequest{URL: server.URL, Path: "existing.txt"}); err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("expected stale proposal refusal, got %v", err)
 	}

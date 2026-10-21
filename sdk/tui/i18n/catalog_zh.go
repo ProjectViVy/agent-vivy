@@ -257,7 +257,6 @@ var chineseCatalog = map[string]string{
 	"vivy.tui.gate.diffFooter":                 "{{mode}} · t 视图 · f 全屏 · ↑↓/pg 滚动 · enter/y 批准 · esc/n 拒绝",
 	"vivy.tui.gate.action":                     "操作：{{action}}",
 	"vivy.tui.gate.target":                     "目标：{{target}}",
-	"vivy.tui.gate.base":                       "基准：{{hash}}",
 	"vivy.tui.gate.moreRisks":                  "警告：还有 {{count}} 项发现",
 	"vivy.tui.gate.risk":                       "警告：{{risk}}",
 	"vivy.tui.attachment.image":                "[图片：{{name}}]",

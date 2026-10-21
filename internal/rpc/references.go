@@ -88,7 +88,7 @@ func (h *controlHandler) referenceGet(ctx context.Context, request Request) (any
 }
 
 // decodeStrictJSON decodes one body exactly: unknown keys are rejected so a
-// forged caller body (raw items, fabricated digest fields, spoofed authority)
+// forged caller body (unknown keys or spoofed authority)
 // fails closed instead of being silently ignored.
 func decodeStrictJSON(raw json.RawMessage, target any) *Error {
 	if len(raw) == 0 {
@@ -104,7 +104,7 @@ func decodeStrictJSON(raw json.RawMessage, target any) *Error {
 
 // decodeContinuityInput folds the continuity-bearing turn/start fields into
 // the validated admission input. References are strictly decoded per entry so
-// a forged reference body (items/content/actor/accepted_scope inside the
+// a forged reference body (unknown items/content/actor/accepted_scope inside the
 // object) is rejected rather than ignored.
 func decodeContinuityInput(params *turnParams) *Error {
 	if len(params.References) == 0 && len(params.HistoryScope) == 0 && params.RequestID == "" {

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"path"
@@ -22,8 +23,8 @@ func validDeliveryStatus(status string) bool {
 	return false
 }
 
-// Deliverable records an immutable fingerprint for one explicitly presented
-// workspace-relative file. It does not promise durable file bytes.
+// Deliverable identifies one explicitly presented workspace-relative file.
+// Exact presentation bytes remain private to the continuity store.
 type Deliverable struct {
 	ID               string    `json:"id"`
 	SessionID        SessionID `json:"session_id"`
@@ -33,7 +34,6 @@ type Deliverable struct {
 	Name             string    `json:"name"`
 	Description      string    `json:"description"`
 	Size             int64     `json:"size"`
-	SHA256           string    `json:"sha256"`
 	MediaType        string    `json:"media_type"`
 	CapturedAt       int64     `json:"captured_at"`
 	OriginToolCallID string    `json:"origin_tool_call_id"`
@@ -44,7 +44,7 @@ type Deliverable struct {
 // does not read the workspace or attempt to verify file bytes.
 func (d Deliverable) Validate(limits ContinuityLimits) error {
 	limits = limits.Effective(0)
-	if d.ID == "" || d.SessionID == "" || d.RunID == "" || d.WorkspaceID == "" || d.Name == "" || d.SHA256 == "" || d.MediaType == "" || d.OriginToolCallID == "" {
+	if d.ID == "" || d.SessionID == "" || d.RunID == "" || d.WorkspaceID == "" || d.Name == "" || d.MediaType == "" || d.OriginToolCallID == "" {
 		return fmt.Errorf("deliverable identifiers are invalid")
 	}
 	if d.Size < 0 || d.Size > limits.PresentFileBytes || d.CapturedAt < 0 {
@@ -53,7 +53,7 @@ func (d Deliverable) Validate(limits ContinuityLimits) error {
 	if !validWorkspaceRelativePath(d.Path) {
 		return fmt.Errorf("deliverable path is not normalized and workspace-relative")
 	}
-	if err := validateUTF8Strings("deliverable", d.ID, string(d.SessionID), string(d.RunID), d.WorkspaceID, d.Path, d.Name, d.SHA256, d.MediaType, d.OriginToolCallID, d.FileVersionID); err != nil {
+	if err := validateUTF8Strings("deliverable", d.ID, string(d.SessionID), string(d.RunID), d.WorkspaceID, d.Path, d.Name, d.MediaType, d.OriginToolCallID, d.FileVersionID); err != nil {
 		return err
 	}
 	return validateUTF8Bounded("deliverable description", d.Description, limits.DescriptionBytes)
@@ -161,16 +161,15 @@ type DeliverySetPage struct {
 }
 
 type DeliveryReadRequest struct {
-	ItemID         string `json:"item_id"`
-	ExpectedDigest string `json:"expected_digest"`
-	TransferID     string `json:"transfer_id,omitempty"`
-	Offset         int64  `json:"offset"`
-	Length         int    `json:"length"`
+	ItemID     string `json:"item_id"`
+	TransferID string `json:"transfer_id,omitempty"`
+	Offset     int64  `json:"offset"`
+	Length     int    `json:"length"`
 }
 
 func (r DeliveryReadRequest) Validate(limits ContinuityLimits) error {
 	limits = limits.Effective(0)
-	if r.ItemID == "" || r.ExpectedDigest == "" || !utf8.ValidString(r.ItemID) || !utf8.ValidString(r.ExpectedDigest) {
+	if r.ItemID == "" || !utf8.ValidString(r.ItemID) {
 		return fmt.Errorf("delivery read identifiers are invalid")
 	}
 	if r.Offset < 0 || r.Length < 0 || r.Length > limits.BinaryPageBytes {
@@ -182,7 +181,6 @@ func (r DeliveryReadRequest) Validate(limits ContinuityLimits) error {
 type DeliveryChunk struct {
 	TransferID string `json:"transfer_id"`
 	ItemID     string `json:"item_id"`
-	Digest     string `json:"digest"`
 	Offset     int64  `json:"offset"`
 	DataBase64 string `json:"data_base64"`
 	EOF        bool   `json:"eof"`
@@ -193,10 +191,10 @@ type DeliveryChunk struct {
 // decoded page larger than the protocol ceiling.
 func (c DeliveryChunk) Validate(limits ContinuityLimits) error {
 	limits = limits.Effective(0)
-	if c.TransferID == "" || c.ItemID == "" || c.Digest == "" || c.Offset < 0 || c.ExpiresAt < 0 {
+	if c.TransferID == "" || c.ItemID == "" || c.Offset < 0 || c.ExpiresAt < 0 {
 		return fmt.Errorf("delivery chunk metadata is invalid")
 	}
-	if err := validateUTF8Strings("delivery chunk", c.TransferID, c.ItemID, c.Digest, c.DataBase64); err != nil {
+	if err := validateUTF8Strings("delivery chunk", c.TransferID, c.ItemID, c.DataBase64); err != nil {
 		return err
 	}
 	if len(c.DataBase64) > base64.StdEncoding.EncodedLen(limits.BinaryPageBytes) {
@@ -214,8 +212,14 @@ type ContinuityReceipt struct {
 	RunID     RunID     `json:"run_id"`
 	Operation string    `json:"operation"`
 	RequestID string    `json:"request_id"`
-	InputHash string    `json:"input_hash"`
+	Input     []byte    `json:"-"`
 	EventSeq  EventSeq  `json:"event_seq"`
+}
+
+// MatchesInput fails closed for legacy receipts with no retained intended input.
+// Input is private persistence state, excluded from wire/event projections.
+func (r ContinuityReceipt) MatchesInput(input []byte) bool {
+	return len(r.Input) > 0 && bytes.Equal(r.Input, input)
 }
 
 func validWorkspaceRelativePath(value string) bool {

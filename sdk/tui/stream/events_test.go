@@ -123,7 +123,7 @@ func TestDisplayToolResultParsesRuntimeUntrustedEnvelope(t *testing.T) {
 
 func TestInterpretApprovalPreservesAuthoritativeDiffContract(t *testing.T) {
 	notice := Interpret(Event{Type: "tool.approval_required", Payload: json.RawMessage(`{
-		"approval_id":"approval_1","tool_name":"write_file","action":"write","target":"src/main.go","precondition_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"approval_id":"approval_1","tool_name":"write_file","action":"write","target":"src/main.go",
 		"preview":"--- a/src/main.go\n+++ b/src/main.go\n@@ -1 +1 @@\n-old\n+new",
 		"risk_findings":["overwrites an existing file","workspace scoped"],
 		"args":{"path":"must-not-be-the-diff"}
@@ -132,7 +132,7 @@ func TestInterpretApprovalPreservesAuthoritativeDiffContract(t *testing.T) {
 		t.Fatalf("notice = %+v", notice)
 	}
 	gate := notice.Gate
-	if gate.ID != "approval_1" || gate.Action != "write" || gate.Target != "src/main.go" || len(gate.PreconditionHash) != 64 || !strings.Contains(gate.Preview, "+new") {
+	if gate.ID != "approval_1" || gate.Action != "write" || gate.Target != "src/main.go" || !strings.Contains(gate.Preview, "+new") {
 		t.Fatalf("gate = %+v", gate)
 	}
 	if len(gate.Risks) != 2 || gate.Risks[0] != "overwrites an existing file" {

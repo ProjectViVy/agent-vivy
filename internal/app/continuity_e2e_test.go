@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -169,7 +167,9 @@ func (f *continuityLoopFixture) newService(t *testing.T, rec *loopRecordingModel
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	return runtime.NewService(eng, "scripted", "loop-v1", runtime.ServiceDeps{Admission: f.backend, GenerationID: "test-generation",
+	return runtime.NewService(eng, "scripted", "loop-v1", runtime.ServiceDeps{
+		Admission:          f.backend,
+		GenerationID:       "test-generation",
 		Journal:            f.backend,
 		Runs:               f.backend,
 		Messages:           f.backend,
@@ -279,15 +279,19 @@ func TestContinuityCodingLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preview reference selection: %v", err)
 	}
-	if preview.Digest == "" {
-		t.Fatal("preview returned empty selection digest")
+	if len(preview.Items) == 0 {
+		t.Fatal("preview returned no selected records")
+	}
+	expectedItems, err := json.Marshal(preview.Items)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	recB := &loopRecordingModel{inner: runtime.NewScriptedModel(
 		loopToolCall("call-b-1", tools.HistorySearchName, `{"query":"PLAN-ALPHA","session_ids":["sess-a"]}`),
 		loopToolCall("call-b-2", tools.HistoryReadName, `{"selection":{"source_session_id":"sess-a","refs":[{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}]}}`),
 		loopToolCall("call-b-3", tools.HistoryTraceName, `{"source_ref":{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}}`),
-		loopToolCall("call-b-4", tools.ReferenceContextName, `{"selection":{"source_session_id":"sess-a","refs":[{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}]},"expected_digest":"`+preview.Digest+`","description":"source plan"}`),
+		loopToolCall("call-b-4", tools.ReferenceContextName, `{"selection":{"source_session_id":"sess-a","refs":[{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}]},"expected_items":`+string(expectedItems)+`,"description":"source plan"}`),
 		loopToolCall("call-b-5", tools.PatchName, `{"path":"source.txt","old_string":"// TODO fill","new_string":"// PLAN-ALPHA implemented\nresult := 42"}`),
 		loopToolCall("call-b-6", tools.ExecuteName, `{"command":"rg","args":["-n","PLAN-ALPHA","source.txt"]}`),
 		loopToolCall("call-b-7", tools.BashName, `{"command":"printf 'report for PLAN-ALPHA\\n' > report.txt && tar -cf report.tar report.txt"}`),
@@ -301,8 +305,8 @@ func TestContinuityCodingLoop(t *testing.T) {
 			RequestID:    "req-loop-1",
 			HistoryScope: domain.HistoryScope{SessionIDs: []domain.SessionID{"sess-a"}},
 			References: []domain.ReferenceSelection{{
-				Selection:      selection,
-				ExpectedDigest: preview.Digest,
+				Selection:     selection,
+				ExpectedItems: preview.Items,
 			}},
 		},
 	})
@@ -371,7 +375,7 @@ func TestContinuityCodingLoop(t *testing.T) {
 	}
 
 	// Delivery discovery: the committed set lists both artifacts and the
-	// read path returns byte-identical content bound to its digest.
+	// read path returns the exact bytes of its immutable item snapshot.
 	setCtx := tools.WithSessionID(ctx, "sess-b")
 	page, err := f.deliverables.List(setCtx, "sess-b", "", 10)
 	if err != nil || len(page.Items) != 1 {
@@ -390,15 +394,10 @@ func TestContinuityCodingLoop(t *testing.T) {
 	if reportItem == nil {
 		t.Fatalf("report.txt missing from delivered items: %+v", set.Items)
 	}
-	diskSHA := sha256.Sum256(mustReadFile(t, filepath.Join(f.workspaceBDir, "report.txt")))
-	if reportItem.SHA256 != hex.EncodeToString(diskSHA[:]) {
-		t.Fatalf("item sha256 %s != disk %s", reportItem.SHA256, hex.EncodeToString(diskSHA[:]))
-	}
 	chunk, err := f.deliverables.Read(setCtx, domain.DeliveryReadRequest{
-		ItemID:         reportItem.ID,
-		ExpectedDigest: reportItem.SHA256,
-		Offset:         0,
-		Length:         256 << 10,
+		ItemID: reportItem.ID,
+		Offset: 0,
+		Length: 256 << 10,
 	})
 	if err != nil {
 		t.Fatalf("deliverables read: %v", err)
@@ -427,8 +426,8 @@ func TestContinuityCodingLoop(t *testing.T) {
 			RequestID:    "req-loop-1",
 			HistoryScope: domain.HistoryScope{SessionIDs: []domain.SessionID{"sess-a"}},
 			References: []domain.ReferenceSelection{{
-				Selection:      selection,
-				ExpectedDigest: preview.Digest,
+				Selection:     selection,
+				ExpectedItems: preview.Items,
 			}},
 		},
 	})

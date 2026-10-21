@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -95,10 +93,6 @@ func TestEinoFilesystemBackendReadWriteAndPatch(t *testing.T) {
 	}
 	if !write.Changed || write.Path != "src/example.txt" || write.Bytes != len("one\ntwo\nthree") {
 		t.Fatalf("unexpected write result: %+v", write)
-	}
-	hash := sha256.Sum256([]byte("one\ntwo\nthree"))
-	if write.SHA256 != hex.EncodeToString(hash[:]) {
-		t.Fatalf("write hash = %q", write.SHA256)
 	}
 
 	read, err := backend.ReadFile(ctx, runID, tools.FileReadRequest{Path: "src/example.txt", StartLine: 2, EndLine: 2})

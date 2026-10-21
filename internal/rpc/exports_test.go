@@ -1,9 +1,7 @@
 package rpc
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,12 +22,9 @@ func TestExportsReadRoundtrip(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "sess-1.html"), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(body)
-	want := hex.EncodeToString(sum[:])
 
 	result, rpcErr := callControl(t, handler, "exports/read", map[string]any{
-		"name":            "sess-1.html",
-		"expected_digest": want,
+		"name": "sess-1.html",
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
@@ -38,7 +33,10 @@ func TestExportsReadRoundtrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T", result)
 	}
-	if page["digest"] != want || page["name"] != "sess-1.html" {
+	if _, exists := page["digest"]; exists {
+		t.Fatal("retired digest response")
+	}
+	if page["name"] != "sess-1.html" {
 		t.Fatalf("page = %+v", page)
 	}
 	raw, err := base64.StdEncoding.DecodeString(fmt.Sprintf("%v", page["data_base64"]))
@@ -63,7 +61,6 @@ func TestExportsReadGuards(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.html"), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(body)
 
 	for _, name := range []string{"", "../escape", "..", ".", "a/b.html", "a\\b.html", "a b.html"} {
 		if _, rpcErr := callControl(t, handler, "exports/read", map[string]any{"name": name}); rpcErr == nil || rpcErr.Code != InvalidParams {
@@ -75,9 +72,9 @@ func TestExportsReadGuards(t *testing.T) {
 	}
 	if _, rpcErr := callControl(t, handler, "exports/read", map[string]any{
 		"name":            "a.html",
-		"expected_digest": hex.EncodeToString(sum[:]) + "dead",
-	}); rpcErr == nil || rpcErr.Code != CodeNotFound {
-		t.Fatalf("changed digest = %+v, want not found", rpcErr)
+		"expected_digest": "retired",
+	}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("retired digest = %+v, want InvalidParams", rpcErr)
 	}
 	// Unwired dir hides the method and the capability.
 	unwired := newControlTestEnv(t).handler

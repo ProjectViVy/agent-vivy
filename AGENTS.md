@@ -299,9 +299,9 @@ work.
   plugins, or package `init()` functions.
 - Migration files are append-only and immutable after release. SQLite and
   PostgreSQL use the same logical numeric ID and filename stem; dialect-specific
-  SQL is allowed, but missing pairs, name drift, and checksum drift fail closed.
+  SQL is allowed, but missing pairs, name drift, and unknown target shapes fail closed.
 - The shared migration runner owns ordering, manifest validation, metadata,
-  checksums, per-migration transactions, and startup failure behavior. Runtime
+  atomic pristine initialization, per-migration transactions, and startup failure behavior. Runtime
   artifacts must not require an external SQL directory.
 - Public plugins must not access or migrate the core database directly. Plugin
   persistence requires an explicit reviewed Storage Port with its own ownership,

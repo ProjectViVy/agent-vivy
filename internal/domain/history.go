@@ -1,8 +1,6 @@
 package domain
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -154,11 +152,9 @@ func (s HistoryScope) Validate(limits ContinuityLimits) error {
 type AcceptedHistoryScope struct {
 	DestinationSessionID SessionID   `json:"destination_session_id"`
 	SourceSessionIDs     []SessionID `json:"source_session_ids"`
-	ScopeHash            string      `json:"scope_hash"`
 }
 
-// NewAcceptedHistoryScope canonicalizes source IDs and derives a stable hash
-// binding them to the destination session.
+// NewAcceptedHistoryScope canonicalizes source IDs bound to the destination.
 func NewAcceptedHistoryScope(destination SessionID, sources []SessionID) (AcceptedHistoryScope, error) {
 	if destination == "" || !utf8.ValidString(string(destination)) {
 		return AcceptedHistoryScope{}, fmt.Errorf("destination session ID is invalid")
@@ -170,23 +166,13 @@ func NewAcceptedHistoryScope(destination SessionID, sources []SessionID) (Accept
 	if len(canonical) == 0 {
 		return AcceptedHistoryScope{}, fmt.Errorf("accepted history scope requires at least one source session")
 	}
-	encoded, err := json.Marshal(struct {
-		DestinationSessionID SessionID   `json:"destination_session_id"`
-		SourceSessionIDs     []SessionID `json:"source_session_ids"`
-	}{destination, canonical})
-	if err != nil {
-		return AcceptedHistoryScope{}, fmt.Errorf("encode accepted history scope: %w", err)
-	}
-	digest := sha256.Sum256(encoded)
 	return AcceptedHistoryScope{
 		DestinationSessionID: destination,
 		SourceSessionIDs:     canonical,
-		ScopeHash:            hex.EncodeToString(digest[:]),
 	}, nil
 }
 
-// Validate verifies the accepted scope has its canonical, destination-bound
-// hash. It does not make an authorization decision.
+// Validate checks actual canonical scope values. It does not grant authority.
 func (s AcceptedHistoryScope) Validate() error {
 	limits := DefaultContinuityLimits()
 	if s.DestinationSessionID == "" || !utf8.ValidString(string(s.DestinationSessionID)) {
@@ -202,10 +188,6 @@ func (s AcceptedHistoryScope) Validate() error {
 		if i > 0 && s.SourceSessionIDs[i-1] >= id {
 			return fmt.Errorf("accepted history scope source session IDs are not canonical")
 		}
-	}
-	canonical, err := NewAcceptedHistoryScope(s.DestinationSessionID, s.SourceSessionIDs)
-	if err != nil || s.ScopeHash != canonical.ScopeHash {
-		return fmt.Errorf("accepted history scope hash does not match canonical scope")
 	}
 	return nil
 }
@@ -319,21 +301,22 @@ func (s HistorySelection) Validate(limits ContinuityLimits) error {
 	return nil
 }
 
-// ReferenceSelection supplies a server-validated selector plus its expected
-// sanitized-snapshot digest; no browser content is accepted.
+// ReferenceSelection binds source positions to the bounded preview records.
+// ExpectedItems is untrusted input; the owner re-reads and compares every value.
 type ReferenceSelection struct {
-	Selection      HistorySelection `json:"selection"`
-	ExpectedDigest string           `json:"expected_digest"`
+	Selection     HistorySelection `json:"selection"`
+	ExpectedItems []HistoryItem    `json:"expected_items"`
 }
 
 func (s ReferenceSelection) Validate(limits ContinuityLimits) error {
+	limits = limits.Effective(0)
 	if err := s.Selection.Validate(limits); err != nil {
 		return err
 	}
-	if s.ExpectedDigest == "" || !utf8.ValidString(s.ExpectedDigest) {
-		return fmt.Errorf("reference selection expected digest is invalid")
+	if len(s.ExpectedItems) == 0 {
+		return fmt.Errorf("reference selection requires preview records")
 	}
-	return nil
+	return validateHistoryItems(s.ExpectedItems, limits, limits.ReferenceBytes)
 }
 
 type HistorySearchRequest struct {
@@ -423,14 +406,13 @@ func (r HistoryTraceRequest) Validate(limits ContinuityLimits) error {
 }
 
 type HistoryPage struct {
-	Status          string        `json:"status"`
-	Items           []HistoryItem `json:"items"`
-	NextCursor      string        `json:"next_cursor"`
-	Truncated       bool          `json:"truncated"`
-	Redacted        bool          `json:"redacted"`
-	Warnings        []string      `json:"warnings"`
-	Reason          *string       `json:"reason,omitempty"`
-	SelectionDigest string        `json:"selection_digest,omitempty"`
+	Status     string        `json:"status"`
+	Items      []HistoryItem `json:"items"`
+	NextCursor string        `json:"next_cursor"`
+	Truncated  bool          `json:"truncated"`
+	Redacted   bool          `json:"redacted"`
+	Warnings   []string      `json:"warnings"`
+	Reason     *string       `json:"reason,omitempty"`
 }
 
 func (p HistoryPage) Validate(limits ContinuityLimits) error {
@@ -446,7 +428,7 @@ func (p HistoryPage) Validate(limits ContinuityLimits) error {
 			return err
 		}
 	}
-	if err := validateUTF8Strings("history page", p.NextCursor, p.SelectionDigest); err != nil {
+	if err := validateUTF8Strings("history page", p.NextCursor); err != nil {
 		return err
 	}
 	for _, warning := range p.Warnings {
@@ -463,7 +445,6 @@ func (p HistoryPage) Validate(limits ContinuityLimits) error {
 type ReferencePreview struct {
 	Selection    HistorySelection `json:"selection"`
 	Items        []HistoryItem    `json:"items"`
-	Digest       string           `json:"digest"`
 	CapturedAt   int64            `json:"captured_at"`
 	ByteCount    int              `json:"byte_count"`
 	SourceStatus string           `json:"source_status"`
@@ -476,7 +457,7 @@ func (p ReferencePreview) Validate(limits ContinuityLimits) error {
 	if err := p.Selection.Validate(limits); err != nil {
 		return err
 	}
-	if p.Digest == "" || !utf8.ValidString(p.Digest) || p.CapturedAt < 0 || p.ByteCount < 0 || p.ByteCount > limits.ReferenceBytes {
+	if p.CapturedAt < 0 || p.ByteCount < 0 || p.ByteCount > limits.ReferenceBytes {
 		return fmt.Errorf("reference preview metadata is invalid")
 	}
 	if !HistoryStatus(p.SourceStatus).Valid() {
@@ -617,22 +598,13 @@ func validateJSONBytes(label string, value any, maximum int) error {
 }
 
 // CanonicalSessionIDs exposes the stable ID order used in accepted scope
-// hashes without turning a caller selection into an authorization decision.
+// values without turning a caller selection into an authorization decision.
 func CanonicalSessionIDs(ids []SessionID) []SessionID {
 	canonical, err := canonicalSessionIDs(ids, DefaultContinuityLimits().ExpandedSessions, "history scope")
 	if err != nil {
 		return nil
 	}
 	return canonical
-}
-
-// ScopeHash is a convenience for consumers which already have canonical IDs.
-func ScopeHash(destination SessionID, sources []SessionID) (string, error) {
-	accepted, err := NewAcceptedHistoryScope(destination, sources)
-	if err != nil {
-		return "", err
-	}
-	return accepted.ScopeHash, nil
 }
 
 // IsPublicHistoryKind reports whether a string is a public source kind.

@@ -48,18 +48,16 @@ func ProposalDataFromContext(ctx context.Context) json.RawMessage {
 	return append(json.RawMessage(nil), data...)
 }
 
-type proposalPreconditionKey struct{}
-
-// WithProposalPrecondition carries the approved target hash into the resumed
-// tool call. Mutation backends use it to fail closed if the target changed
-// while the human review was open.
-func WithProposalPrecondition(ctx context.Context, hash string) context.Context {
-	return context.WithValue(ctx, proposalPreconditionKey{}, hash)
+// HasProposalData reports a reviewed-call binding even when its private data
+// is missing. File backends must not treat that loss as an unreviewed call.
+func HasProposalData(ctx context.Context) bool {
+	_, ok := ctx.Value(proposalDataContextKey{}).(json.RawMessage)
+	return ok
 }
 
-func ProposalPreconditionFromContext(ctx context.Context) string {
-	value, _ := ctx.Value(proposalPreconditionKey{}).(string)
-	return value
+// WithoutProposalData keeps a run's approval out of sibling and fresh calls.
+func WithoutProposalData(ctx context.Context) context.Context {
+	return context.WithValue(ctx, proposalDataContextKey{}, false)
 }
 
 type proposalStaleReporterKey struct{}

@@ -12,8 +12,7 @@ internal/storage/migrations/
 ├── runner.go
 ├── metadata/
 │   ├── sqlite.sql
-│   ├── postgres.sql
-│   └── *_add_metadata.sql
+│   └── postgres.sql
 ├── sqlite/
 │   └── NNN_name.sql
 └── postgres/
@@ -40,15 +39,23 @@ when the dialect requires it.
    `just ci` when the repository UI/toolchain dependencies are available.
 
 The manifest validates duplicate and missing versions, invalid filenames,
-missing dialect pairs, and name drift before applying production DDL. Every
-applied row stores the logical name and SHA-256 checksum. Editing an applied
-file is a checksum-drift failure; create a new append-only migration instead.
+missing dialect pairs, and logical name drift before applying production DDL.
+Final metadata contains exactly `version/name/applied_at`. The active manifest
+and runner do not compute, backfill or validate file checksums. Released SQL
+remains immutable; add a paired migration for any schema change.
 
-The runner applies each pending migration in its own `database/sql` transaction
-and records its marker in that transaction. A failed migration therefore aborts
-startup without exposing a partial schema or marker. Legacy databases receive a
-one-time metadata backfill; the old PostgreSQL compressed marker sequence is
-normalized using both its marker history and verified schema shape.
+The runner initializes a truly pristine database in one transaction: historical
+DDL, all current owner migrations and final metadata commit together. Later
+known compatible target migrations use one transaction per migration with its
+marker. Startup inspects metadata, contiguous known names/versions and the
+required actual target tables/columns before any write. Old metadata returns
+`upgrade_required`; partial or unknown formats return `unsupported_source_format`.
+
+Historical normalization, released-017 repair and conversion operate on copies
+in a separately delivered finite tool. They are absent from the runtime writer.
+The supported source matrix is [design §§11.7–11.9](../plans/2026-10-19-complete-deletion-plan.md#117-final-schemas-and-finite-supported-source-formats).
+Current D03 migration036 is an integrated candidate barrier; it is not D14's
+final target number, and old-lineage036_notebook_content is unsupported.
 
 Plugins do not receive raw core database access. Plugin persistence must use an
 explicit public Storage Port with an independently reviewed contract.

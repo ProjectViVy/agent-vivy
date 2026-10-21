@@ -906,6 +906,9 @@ func (a *toolAdapter) invokeOutcome(ctx context.Context, argumentsInJSON string)
 	// The runtime run identity is copied into the tools package context at the
 	// Eino boundary so workspace-backed tools cannot fall back to a host path.
 	toolCtx := tools.WithRunID(ctx, contextRunID(ctx))
+	if approvedToolCall(ctx) == "" || approvedToolCall(ctx) != compose.GetToolCallID(ctx) {
+		toolCtx = tools.WithoutProposalData(toolCtx)
+	}
 	toolCtx = tools.WithToolCallID(toolCtx, compose.GetToolCallID(ctx))
 	toolCtx = tools.WithSessionID(toolCtx, contextSessionID(ctx))
 	toolCtx = tools.WithWorkspaceID(toolCtx, contextWorkspaceID(ctx))

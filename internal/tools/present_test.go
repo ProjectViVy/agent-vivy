@@ -79,7 +79,7 @@ func TestPresentFilesCommitsSet(t *testing.T) {
 		ID:     "dvs_committed",
 		Status: domain.DeliveryStatusPartial,
 		Items: []domain.Deliverable{
-			{ID: "dvl_a", Path: "a.txt", Name: "a.txt", Size: 5, SHA256: "aa"},
+			{ID: "dvl_a", Path: "a.txt", Name: "a.txt", Size: 5},
 		},
 		Failures: []domain.DeliveryFailure{{Path: "b.txt", Reason: "missing"}},
 	}}

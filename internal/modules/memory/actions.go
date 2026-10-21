@@ -65,7 +65,7 @@ func ActionProviders() []controlaction.Provider {
 		memoryAction{definition: actionDefinition(ActionUpdate, "Update a memory record under revision CAS", controlaction.EffectWrite, updateInputSchema), invoke: invokeUpdate},
 		memoryAction{definition: actionDefinition(ActionRemove, "Tombstone a memory record under revision CAS", controlaction.EffectWrite, removeInputSchema), invoke: invokeRemove},
 		memoryAction{definition: actionDefinition(ActionRulesRead, "Read the MEMRULES handbook", controlaction.EffectRead, emptyInputSchema), invoke: invokeRulesRead},
-		memoryAction{definition: actionDefinition(ActionRulesWrite, "Replace the MEMRULES handbook under content-digest CAS", controlaction.EffectWrite, rulesWriteInputSchema), invoke: invokeRulesWrite},
+		memoryAction{definition: actionDefinition(ActionRulesWrite, "Replace the MEMRULES handbook under exact content and existence CAS", controlaction.EffectWrite, rulesWriteInputSchema), invoke: invokeRulesWrite},
 		memoryAction{definition: actionDefinition(ActionStatus, "Report memory service status", controlaction.EffectRead, emptyInputSchema), invoke: invokeStatus},
 	}
 }
@@ -169,8 +169,9 @@ type removeInput struct {
 }
 
 type rulesWriteInput struct {
-	Content      string  `json:"content"`
-	BaseRevision *string `json:"base_revision"`
+	Content         string  `json:"content"`
+	ExpectedContent *string `json:"expected_content"`
+	ExpectedExists  *bool   `json:"expected_exists"`
 }
 
 func invokeList(ctx context.Context, service *Service, raw json.RawMessage) (json.RawMessage, error) {
@@ -249,12 +250,12 @@ func invokeRemove(ctx context.Context, service *Service, raw json.RawMessage) (j
 }
 
 // rulesReadResult is the rules.read wire payload: the handbook plus the
-// content-digest revision token rules.write requires as its base_revision.
+// exact content and existence rules.write requires as its precondition.
 type rulesReadResult struct {
-	Status   bml.CrudOutcomeStatus `json:"status"`
-	Content  string                `json:"content"`
-	Source   string                `json:"source"`
-	Revision string                `json:"revision"`
+	Status  bml.CrudOutcomeStatus `json:"status"`
+	Content string                `json:"content"`
+	Source  string                `json:"source"`
+	Exists  bool                  `json:"exists"`
 }
 
 func invokeRulesRead(ctx context.Context, service *Service, raw json.RawMessage) (json.RawMessage, error) {
@@ -267,10 +268,10 @@ func invokeRulesRead(ctx context.Context, service *Service, raw json.RawMessage)
 		return marshalOutcome(outcome)
 	}
 	return marshalResult(rulesReadResult{
-		Status:   bml.CrudOutcomeListed,
-		Content:  view.Content,
-		Source:   view.Source,
-		Revision: view.Revision,
+		Status:  bml.CrudOutcomeListed,
+		Content: view.Content,
+		Source:  view.Source,
+		Exists:  view.Exists,
 	})
 }
 
@@ -279,10 +280,10 @@ func invokeRulesWrite(ctx context.Context, service *Service, raw json.RawMessage
 	if outcome := decodeInput(raw, &in); outcome != nil {
 		return marshalOutcome(*outcome)
 	}
-	if in.Content == "" || in.BaseRevision == nil || *in.BaseRevision == "" {
+	if in.Content == "" || in.ExpectedContent == nil || in.ExpectedExists == nil {
 		return marshalOutcome(invalidInput())
 	}
-	return marshalOutcome(service.WriteRules(ctx, in.Content, *in.BaseRevision))
+	return marshalOutcome(service.WriteRules(ctx, in.Content, *in.ExpectedContent, *in.ExpectedExists))
 }
 
 // statusResult is the status wire payload when the read succeeds; failures
@@ -292,7 +293,6 @@ type statusResult struct {
 	Available       bool                  `json:"available"`
 	StartupRevision uint64                `json:"startup_revision"`
 	DatabasePresent bool                  `json:"database_present"`
-	RulesRevision   string                `json:"rules_revision,omitempty"`
 }
 
 func invokeStatus(ctx context.Context, service *Service, raw json.RawMessage) (json.RawMessage, error) {
@@ -313,7 +313,6 @@ func invokeStatus(ctx context.Context, service *Service, raw json.RawMessage) (j
 		Available:       true,
 		StartupRevision: status.StartupRevision,
 		DatabasePresent: status.DatabasePresent,
-		RulesRevision:   status.RulesRevision,
 	})
 }
 
@@ -325,6 +324,6 @@ var (
 	addInputSchema        = json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["long_term"]},"content":{"type":"string","minLength":1},"evidence":{"type":"array","items":{"type":"object"},"maxItems":64}},"required":["kind","content"],"additionalProperties":false}`)
 	updateInputSchema     = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"content":{"type":"string","minLength":1},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"evidence_refs":{"type":"array","items":{"type":"object"},"maxItems":64}},"required":["id","content","base_revision"],"additionalProperties":false}`)
 	removeInputSchema     = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128},"reason":{"type":"string","minLength":1,"maxLength":1024},"base_revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","reason","base_revision"],"additionalProperties":false}`)
-	rulesWriteInputSchema = json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","minLength":1},"base_revision":{"type":"string","minLength":1,"maxLength":128}},"required":["content","base_revision"],"additionalProperties":false}`)
+	rulesWriteInputSchema = json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","minLength":1},"expected_content":{"type":"string"},"expected_exists":{"type":"boolean"}},"required":["content","expected_content","expected_exists"],"additionalProperties":false}`)
 	outcomeSchema         = json.RawMessage(`{"type":"object","required":["status"]}`)
 )

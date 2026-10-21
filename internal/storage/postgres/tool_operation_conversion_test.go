@@ -40,14 +40,14 @@ func TestToolOperationCopiedBaselineConversionPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.ExecContext(ctx, `CREATE TABLE schema_migrations(version BIGINT PRIMARY KEY,name TEXT NOT NULL,checksum TEXT NOT NULL,applied_at BIGINT NOT NULL)`); err != nil {
+	if _, err := source.ExecContext(ctx, `CREATE TABLE schema_migrations(version BIGINT PRIMARY KEY,name TEXT NOT NULL,applied_at BIGINT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, migration := range manifest.Migrations(migrations.Postgres)[:35] {
 		if _, err := source.ExecContext(ctx, migration.SQL); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := source.ExecContext(ctx, `INSERT INTO schema_migrations VALUES($1,$2,$3,1)`, migration.Version, migration.Name, migration.Checksum); err != nil {
+		if _, err := source.ExecContext(ctx, `INSERT INTO schema_migrations VALUES($1,$2,1)`, migration.Version, migration.Name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,9 +108,7 @@ func TestToolOperationCopiedBaselineConversionPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer target.Close()
-	if err := migrations.ApplyManifest(ctx, target, migrations.Postgres, manifest); err != nil {
-		t.Fatal(err)
-	}
+	finishMigrationFixture(t, ctx, target, manifest, 35)
 	fragment, err := os.ReadFile("../migrations/transition/postgres/expire_baseline_approvals.sql")
 	if err != nil {
 		t.Fatal(err)

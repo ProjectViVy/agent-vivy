@@ -64,10 +64,10 @@ func postgresFindReceiptTx(ctx context.Context, tx *sql.Tx, sessionID domain.Ses
 	var r domain.ContinuityReceipt
 	var seq int64
 	err := tx.QueryRowContext(ctx,
-		`SELECT session_id, run_id, operation, request_id, input_hash, event_seq FROM continuity_receipts
+		`SELECT session_id, run_id, operation, request_id, intended_input, event_seq FROM continuity_receipts
 		 WHERE session_id = $1 AND operation = $2 AND request_id = $3`,
 		sessionID, operation, requestID).
-		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.InputHash, &seq)
+		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.Input, &seq)
 	switch {
 	case err == nil:
 		r.EventSeq = domain.EventSeq(seq)
@@ -83,10 +83,10 @@ func (b *Backend) FindContinuityReceipt(ctx context.Context, sessionID domain.Se
 	var r domain.ContinuityReceipt
 	var seq int64
 	err := b.db.QueryRowContext(ctx,
-		`SELECT session_id, run_id, operation, request_id, input_hash, event_seq FROM continuity_receipts
+		`SELECT session_id, run_id, operation, request_id, intended_input, event_seq FROM continuity_receipts
 		 WHERE session_id = ? AND operation = ? AND request_id = ?`,
 		sessionID, operation, requestID).
-		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.InputHash, &seq)
+		Scan((*string)(&r.SessionID), (*string)(&r.RunID), &r.Operation, &r.RequestID, &r.Input, &seq)
 	switch {
 	case err == nil:
 		r.EventSeq = domain.EventSeq(seq)
@@ -124,6 +124,28 @@ func postgresReplayAdmission(ctx context.Context, tx *sql.Tx, receipt domain.Con
 		return storage.ContinuityResult{}, fmt.Errorf("storage: replay continuity admission: %w", err)
 	}
 	return storage.ContinuityResult{RunID: receipt.RunID, Events: events, Receipt: receipt, NewlyCommitted: false}, nil
+}
+
+// postgresReplayCommittedAdmission locks only the destination for replay.
+// Fresh admissions still acquire all source/destination locks in sorted order.
+func postgresReplayCommittedAdmission(ctx context.Context, tx *sql.Tx, a storage.ContinuityAdmission) (storage.ContinuityResult, bool, error) {
+	receipt, found, err := postgresFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
+	if err != nil || !found {
+		return storage.ContinuityResult{}, false, err
+	}
+	if err := postgresLockContinuitySessions(ctx, tx, storage.ContinuityAdmission{SessionID: a.SessionID}); err != nil {
+		return storage.ContinuityResult{}, false, err
+	}
+	// Deletion may have removed the first observed receipt before this lock.
+	receipt, found, err = postgresFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
+	if err != nil {
+		return storage.ContinuityResult{}, false, err
+	}
+	if !found || !receipt.MatchesInput(a.Receipt.Input) {
+		return storage.ContinuityResult{}, false, storage.ErrConflict
+	}
+	result, err := postgresReplayAdmission(ctx, tx, receipt)
+	return result, true, err
 }
 
 func postgresCheckExpectations(ctx context.Context, tx *sql.Tx, expectations []storage.SourceExpectation) error {
@@ -203,21 +225,19 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := postgresLockContinuitySessions(ctx, tx, a); err != nil {
-		return storage.ContinuityResult{}, err
+	if result, found, err := postgresReplayCommittedAdmission(ctx, tx, a); err != nil || found {
+		return result, err
 	}
-
-	// Receipt lookup precedes every write so an identical replay returns the
-	// original run without a second admission.
-	existing, found, err := postgresFindReceiptTx(ctx, tx, a.SessionID, a.Receipt.Operation, a.Receipt.RequestID)
-	if err != nil {
-		return storage.ContinuityResult{}, err
+	lockErr := postgresLockContinuitySessions(ctx, tx, a)
+	if lockErr != nil && !errors.Is(lockErr, storage.ErrSourceChanged) {
+		return storage.ContinuityResult{}, lockErr
 	}
-	if found {
-		if existing.InputHash != a.Receipt.InputHash {
-			return storage.ContinuityResult{}, storage.ErrConflict
-		}
-		return postgresReplayAdmission(ctx, tx, existing)
+	// Recheck racing commits even when a source disappeared after initial lookup.
+	if result, found, err := postgresReplayCommittedAdmission(ctx, tx, a); err != nil || found {
+		return result, err
+	}
+	if lockErr != nil {
+		return storage.ContinuityResult{}, lockErr
 	}
 
 	if err := postgresCheckExpectations(ctx, tx, a.Expectations); err != nil {
@@ -273,8 +293,8 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 	receipt.RunID = a.Run.ID
 	receipt.EventSeq = domain.EventSeq(len(events))
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO continuity_receipts (session_id, operation, request_id, input_hash, run_id, event_seq) VALUES ($1,$2,$3,$4,$5,$6)`,
-		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.InputHash, receipt.RunID, int64(receipt.EventSeq)); err != nil {
+		`INSERT INTO continuity_receipts (session_id, operation, request_id, intended_input, run_id, event_seq) VALUES ($1,$2,$3,$4,$5,$6)`,
+		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.Input, receipt.RunID, int64(receipt.EventSeq)); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: insert continuity receipt: %w", err)
 	}
 	if err := postgresFault(a.TestFaultHook, "receipt"); err != nil {
@@ -287,7 +307,7 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		return storage.ContinuityResult{}, fmt.Errorf("storage: touch admitted session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity admission: %w", storage.ErrCommitUncertain)
+		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity admission: %w: %w", storage.ErrCommitUncertain, err)
 	}
 	return storage.ContinuityResult{RunID: a.Run.ID, Events: events, Receipt: receipt, NewlyCommitted: true}, nil
 }
@@ -304,6 +324,26 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 		return storage.ContinuityResult{}, fmt.Errorf("storage: begin continuity operation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	// Session/source locks precede the owner-run lock, matching admission/deletion.
+	_, priorReceipt, err := postgresFindReceiptTx(ctx, tx, m.SessionID, m.Receipt.Operation, m.Receipt.RequestID)
+	if err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	lockRequest := storage.ContinuityAdmission{SessionID: m.SessionID, Expectations: m.Expectations}
+	if priorReceipt {
+		lockRequest.Expectations = nil
+	}
+	lockErr := postgresLockContinuitySessions(ctx, tx, lockRequest)
+	if lockErr != nil {
+		if !errors.Is(lockErr, storage.ErrSourceChanged) {
+			return storage.ContinuityResult{}, lockErr
+		}
+		// A racing committed receipt may outlive its source; retain destination fence.
+		if err := postgresLockContinuitySessions(ctx, tx, storage.ContinuityAdmission{SessionID: m.SessionID}); err != nil {
+			return storage.ContinuityResult{}, err
+		}
+	}
 
 	var owner string
 	err = tx.QueryRowContext(ctx, `SELECT session_id FROM runs WHERE id = $1 FOR UPDATE`, m.RunID).Scan(&owner)
@@ -322,7 +362,7 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 		return storage.ContinuityResult{}, err
 	}
 	if found {
-		if existing.InputHash != m.InputHash || existing.RunID != m.RunID {
+		if !existing.MatchesInput(m.Receipt.Input) || existing.RunID != m.RunID {
 			return storage.ContinuityResult{}, storage.ErrConflict
 		}
 		var replay domain.RunEvent
@@ -339,6 +379,13 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 		}
 		replay.Type = domain.EventType(typ)
 		return storage.ContinuityResult{RunID: m.RunID, Events: []domain.RunEvent{replay}, Receipt: existing, NewlyCommitted: false}, nil
+	}
+
+	if lockErr != nil {
+		return storage.ContinuityResult{}, lockErr
+	}
+	if err := postgresCheckExpectations(ctx, tx, m.Expectations); err != nil {
+		return storage.ContinuityResult{}, err
 	}
 
 	var closed int
@@ -362,19 +409,25 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 	if err := postgresFault(m.TestFaultHook, "events"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
+	if err := postgresInsertPresentations(ctx, tx, m); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if err := postgresFault(m.TestFaultHook, "presentations"); err != nil {
+		return storage.ContinuityResult{}, err
+	}
 	receipt := m.Receipt
 	receipt.RunID = m.RunID
 	receipt.EventSeq = event.Seq
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO continuity_receipts (session_id, operation, request_id, input_hash, run_id, event_seq) VALUES ($1,$2,$3,$4,$5,$6)`,
-		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.InputHash, receipt.RunID, int64(receipt.EventSeq)); err != nil {
+		`INSERT INTO continuity_receipts (session_id, operation, request_id, intended_input, run_id, event_seq) VALUES ($1,$2,$3,$4,$5,$6)`,
+		receipt.SessionID, receipt.Operation, receipt.RequestID, receipt.Input, receipt.RunID, int64(receipt.EventSeq)); err != nil {
 		return storage.ContinuityResult{}, fmt.Errorf("storage: insert continuity receipt: %w", err)
 	}
 	if err := postgresFault(m.TestFaultHook, "receipt"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity operation: %w", storage.ErrCommitUncertain)
+		return storage.ContinuityResult{}, fmt.Errorf("storage: commit continuity operation: %w: %w", storage.ErrCommitUncertain, err)
 	}
 	return storage.ContinuityResult{RunID: m.RunID, Events: []domain.RunEvent{event}, Receipt: receipt, NewlyCommitted: true}, nil
 }

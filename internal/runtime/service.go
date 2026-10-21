@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -908,22 +907,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	if s.sessionDeleted(sessionID) {
 		return "", storage.ErrNotFound
 	}
-	if options.GoalRound == nil {
-		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
-		if err != nil {
-			return "", fmt.Errorf("runtime: inspect active session runs: %w", err)
-		}
-		for _, existing := range runs {
-			if (existing.Kind == "" || existing.Kind == domain.RunKindPrimary) && !existing.Status.Terminal() {
-				return "", storage.ErrWorkRunConflict
-			}
-		}
-	}
-	// A deferred settings-save engine rebuild applies here, while no run
-	// is registered.
-	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
-		return "", err
-	}
+	// Preserve an omitted caller profile as a default declaration across retries;
+	// resolving the current server default belongs only to a fresh admission.
+	requestedProfile := options.Profile
 	if options.Profile == "" {
 		options.Profile = s.defaultProfile
 	}
@@ -955,31 +941,16 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 		provenance = *options.Provenance
 	}
-	snapshot, err := s.engine.cfg.Policy.Snapshot(profile)
-	if err != nil {
-		return "", err
-	}
-	sandboxMode, approvalPolicy := s.sessionSandbox(ctx, sessionID)
-	ledger, err := NewBudgetLedger(s.deps.Budget)
-	if err != nil {
-		return "", err
-	}
-	if err := ledger.ReserveEvent(); err != nil {
-		return "", err
-	}
 
 	if options.Continuity != nil && persist != nil {
 		return "", errors.New("runtime: continuity admission does not compose with a persistence override")
 	}
 	var continuityScope *domain.AcceptedHistoryScope
 	var continuityExpectations []storage.SourceExpectation
-	var continuityHash string
+	var continuityInput []byte
 	admissionAlloc, _ := s.deps.Workspaces.(AdmissionWorkspaceAllocator)
 	if options.Continuity != nil {
 		if s.deps.Continuity == nil {
-			return "", ErrContinuityUnavailable
-		}
-		if s.deps.Workspaces != nil && admissionAlloc == nil {
 			return "", ErrContinuityUnavailable
 		}
 		input := options.Continuity
@@ -995,10 +966,14 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			return "", err
 		}
 		continuityScope = &scope
-		if continuityExpectations, err = s.continuityExpectations(ctx, input); err != nil {
+		continuityInput, err = continuityIntendedInput(continuityAdmissionIntent{
+			Text: userText, Continuity: *input, Scope: resolved, Mode: mode, Profile: requestedProfile,
+			CollaborationMode: collaborationMode, CollaborationVersion: collaborationVersion,
+			Thinking: thinking, Face: face, Provenance: provenance, Attachments: options.Attachments, FileContexts: fileContexts,
+		})
+		if err != nil {
 			return "", err
 		}
-		continuityHash = continuityInputHash(userText, input)
 		// Cheap receipt pre-check: a lost-response retry returns the
 		// original run without allocating anything. The in-transaction
 		// recheck still guards the racing first commit.
@@ -1007,10 +982,46 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			return "", fmt.Errorf("runtime: read continuity receipt: %w", err)
 		}
 		if found {
-			if receipt.InputHash != continuityHash {
+			if !receipt.MatchesInput(continuityInput) {
 				return "", storage.ErrConflict
 			}
 			return receipt.RunID, nil
+		}
+		if s.deps.Workspaces != nil && admissionAlloc == nil {
+			return "", ErrContinuityUnavailable
+		}
+	}
+	if options.GoalRound == nil {
+		runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+		if err != nil {
+			return "", fmt.Errorf("runtime: inspect active session runs: %w", err)
+		}
+		for _, existing := range runs {
+			if (existing.Kind == "" || existing.Kind == domain.RunKindPrimary) && !existing.Status.Terminal() {
+				return "", storage.ErrWorkRunConflict
+			}
+		}
+	}
+	// A deferred settings-save engine rebuild applies here, while no run
+	// is registered.
+	if err := s.applyPendingEngineReload(ctx, nil); err != nil {
+		return "", err
+	}
+	snapshot, err := s.engine.cfg.Policy.Snapshot(profile)
+	if err != nil {
+		return "", err
+	}
+	sandboxMode, approvalPolicy := s.sessionSandbox(ctx, sessionID)
+	ledger, err := NewBudgetLedger(s.deps.Budget)
+	if err != nil {
+		return "", err
+	}
+	if err := ledger.ReserveEvent(); err != nil {
+		return "", err
+	}
+	if options.Continuity != nil {
+		if continuityExpectations, err = s.continuityExpectations(ctx, options.Continuity); err != nil {
+			return "", err
 		}
 	}
 	runID := newRunID()
@@ -1189,7 +1200,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 				SessionID: sessionID,
 				Operation: storage.ContinuityOperationAdmission,
 				RequestID: options.Continuity.RequestID,
-				InputHash: continuityHash,
+				Input:     continuityInput,
 			},
 		})
 		if commitErr != nil {
@@ -1416,25 +1427,9 @@ func (s *Service) continuityExpectations(ctx context.Context, input *domain.Cont
 		out = append(out, storage.SourceExpectation{
 			SourceSessionID:   sid,
 			TruncationMarkers: revision,
-			Digest:            ref.ExpectedDigest,
 		})
 	}
 	return out, nil
-}
-
-// continuityInputHash fingerprints one admission request: identical retries
-// hash identically while a changed payload under the same request_id is a
-// conflict. The encoding is the canonical JSON of the caller-visible input.
-func continuityInputHash(userText string, input *domain.ContinuityInput) string {
-	canonical, err := json.Marshal(struct {
-		Text  string                 `json:"text"`
-		Input domain.ContinuityInput `json:"input"`
-	}{Text: userText, Input: *input})
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
 }
 
 // discardAdmissionWorkspace reaps the empty private directory created for a
@@ -3849,23 +3844,22 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		}
 	}
 	approval := domain.Approval{
-		ID:               newPrefixedID("apr_"),
-		RunID:            runID,
-		ToolCallID:       details.ToolCallID,
-		ToolName:         details.ToolName,
-		Decision:         domain.ApprovalPending,
-		ExpiresAt:        expiresAt,
-		CreatedAt:        time.Now().UnixMilli(),
-		ResumeTarget:     details.ResumeTarget,
-		Action:           proposal.Action,
-		Target:           proposal.Target,
-		PreconditionHash: proposal.PreconditionHash,
-		Preview:          proposal.Preview,
-		RiskFindings:     append([]string(nil), proposal.RiskFindings...),
-		ProposalData:     boundProposalData,
-		Kind:             approvalKind,
-		SandboxMode:      string(sandboxMode(ctx)),
-		ApprovalPolicy:   string(approvalPolicy(ctx)),
+		ID:             newPrefixedID("apr_"),
+		RunID:          runID,
+		ToolCallID:     details.ToolCallID,
+		ToolName:       details.ToolName,
+		Decision:       domain.ApprovalPending,
+		ExpiresAt:      expiresAt,
+		CreatedAt:      time.Now().UnixMilli(),
+		ResumeTarget:   details.ResumeTarget,
+		Action:         proposal.Action,
+		Target:         proposal.Target,
+		Preview:        proposal.Preview,
+		RiskFindings:   append([]string(nil), proposal.RiskFindings...),
+		ProposalData:   boundProposalData,
+		Kind:           approvalKind,
+		SandboxMode:    string(sandboxMode(ctx)),
+		ApprovalPolicy: string(approvalPolicy(ctx)),
 	}
 	if err := s.deps.Approvals.CreateApproval(persistCtx, approval); err != nil {
 		fail(err)
@@ -3873,22 +3867,21 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	ev := m.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
-		ApprovalID:       approval.ID,
-		ToolCallID:       details.ToolCallID,
-		ToolName:         details.ToolName,
-		Args:             redactedApprovalArguments(details.Args),
-		ExpiresAt:        expiresAt,
-		SelectedTools:    append([]string(nil), selectedTools...),
-		Mode:             string(mode),
-		Face:             string(runFace(ctx)),
-		PolicyProfile:    string(policyProfile(ctx)),
-		SandboxMode:      string(sandboxMode(ctx)),
-		ApprovalPolicy:   string(approvalPolicy(ctx)),
-		Action:           approval.Action,
-		Target:           approval.Target,
-		PreconditionHash: approval.PreconditionHash,
-		Preview:          approval.Preview,
-		RiskFindings:     append([]string(nil), approval.RiskFindings...),
+		ApprovalID:     approval.ID,
+		ToolCallID:     details.ToolCallID,
+		ToolName:       details.ToolName,
+		Args:           redactedApprovalArguments(details.Args),
+		ExpiresAt:      expiresAt,
+		SelectedTools:  append([]string(nil), selectedTools...),
+		Mode:           string(mode),
+		Face:           string(runFace(ctx)),
+		PolicyProfile:  string(policyProfile(ctx)),
+		SandboxMode:    string(sandboxMode(ctx)),
+		ApprovalPolicy: string(approvalPolicy(ctx)),
+		Action:         approval.Action,
+		Target:         approval.Target,
+		Preview:        approval.Preview,
+		RiskFindings:   append([]string(nil), approval.RiskFindings...),
 	})
 	_, err := s.appendRunEvent(persistCtx, ev, false)
 	if err != nil {
@@ -4240,7 +4233,7 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
-			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID, nil)
+			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.ID, nil)
 	}()
 	return nil
 }
@@ -4515,7 +4508,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
-			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "", nil)
+			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", nil)
 	}()
 	return nil
 }
@@ -4580,7 +4573,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the response back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, eng *Engine, execution runExecutionOptions, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string, resumeBatchIDs []string) {
+func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, eng *Engine, execution runExecutionOptions, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, approvalID string, resumeBatchIDs []string) {
 	s.mu.Lock()
 	if s.runTools[runID] == nil {
 		selected := make(map[string]struct{}, len(selectedTools))
@@ -4684,7 +4677,6 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 		ctx = withApprovedToolCall(ctx, toolCallID)
 	}
 	ctx = tools.WithWorkspaceID(ctx, workspaceID)
-	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	ctx = withRunEventPublisher(ctx, s.deps.Sink)
 	var onDelta func(string)

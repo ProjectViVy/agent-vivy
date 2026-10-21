@@ -25,7 +25,7 @@ func TestCopiedBaselineConversionPreservesUnboundHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyManifest(ctx, source, SQLite, baseline); err != nil {
+	if err := applyManifest(ctx, source, SQLite, baseline); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := source.Exec(`
@@ -75,7 +75,7 @@ func TestCopiedBaselineConversionPreservesUnboundHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer target.Close()
-	if err := ApplyManifest(ctx, target, SQLite, manifest); err != nil {
+	if err := applyManifest(ctx, target, SQLite, manifest); err != nil {
 		t.Fatal(err)
 	}
 	fragment, err := os.ReadFile("transition/sqlite/expire_baseline_approvals.sql")

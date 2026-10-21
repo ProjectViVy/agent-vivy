@@ -15,12 +15,16 @@ var _ storage.TruncationStore = (*Backend)(nil)
 // RecordSessionTruncation appends one cutoff marker. Rows are never
 // updated: a new rewind is just a new row, and the newest one wins.
 func (b *Backend) RecordSessionTruncation(ctx context.Context, t storage.SessionTruncation) error {
-	_, err := b.db.ExecContext(ctx, `
-		INSERT INTO session_truncations (session_id, run_id, cutoff_message_id, tail_message_id, work_seq, reason, fork_session_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.SessionID, t.RunID, t.CutoffMessageID, t.TailMessageID, int64(t.WorkSeq), t.Reason, t.ForkSessionID, t.CreatedAt)
+	tx, err := b.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("storage: record session truncation: %w", err)
+		return fmt.Errorf("storage: begin session truncation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := sqliteInsertMarker(ctx, tx, t); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: commit session truncation: %w", err)
 	}
 	return nil
 }

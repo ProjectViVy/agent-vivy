@@ -1,4 +1,4 @@
-# D03/D08 transition fragments
+# D03 transition fragments
 
 These paired SQL resources are deliberately outside the runtime migration
 embed glob. They are not a runner or a publishable upgrade tool.
@@ -17,6 +17,11 @@ approved authority on nonterminal Runs expires with
 assert that an operation had no effect; claimed operations remain fenced.
 
 Migration 037 drops the prompt payload digest and written-only Blob checksum.
+Its paired SQL remains byte-for-byte equal to accepted stable D08 source
+`dd5610c38ed0508e9898a06390bb12b4efb4f98f`. Final integration preserves stable
+001–038; donor-only allocations are not supported source formats. D09 uses
+039_file_approval_before_state, 040_continuity_intended_input and
+041_deliverable_presentations. D06 remains 038_generation_identity.
 `settle_baseline_runs.sql` disables only `ckpt-` pointers, preserving their
 generations and unrelated private Blob owners. It expires pending questions
 and commits one terminal per old nonterminal Run: active becomes failed,
@@ -27,16 +32,11 @@ transaction when D14 assembles the finite artifact; these fragments alone
 are not a publishable upgrade tool. No source database is modified.
 
 D12 owns final metadata and D14 owns the finite conversion artifact and its
-acceptance. `ApplyManifest` remains the existing explicit disposable-fixture
-conversion seam; runtime `Apply` refuses old or unsupported stores before any
-write. Accepted D03 target 036 is an explicitly recognized upgrade source;
-unlisted historical 036–043 formats remain unsupported. Neither D03 nor D08
-alone makes final upgrade publication possible.
-
-
-Stable integration after D08: the owner-approved donor D06 allocation is now
-paired038_generation_identity, removing generations.artifact_sha256. Stable
-001–037 are unchanged. Exact accepted D03 036 and D08 037 source manifests are
-recognized only for explicit copied upgrade; startup returns upgrade_required.
-D06's earlier donor-only 037 target is historical test data, not an added source
-format. Generation history/rollback checks are rerun against the combined target.
+acceptance. `ApplyManifest` enforces the same runtime format barrier as `Apply`.
+Package-private test-only SQL helpers construct disposable business fixtures;
+they provide no live conversion API. Both runtime entries refuse old or
+unsupported stores before any write. The accepted D03 old-metadata 036 shape
+remains upgrade-required. Accepted stable 037/038 old metadata also requires
+finite copied conversion after name and actual shape validation; unlisted
+historical 036–043 lineages remain unsupported.
+Neither D03 nor D08 alone makes final upgrade publication possible.

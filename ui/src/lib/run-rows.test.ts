@@ -260,7 +260,6 @@ describe('foldRunEvents with deliverables', () => {
       name: path.split('/').pop(),
       description: '',
       size: 10,
-      sha256: 'a'.repeat(64),
       media_type: 'text/plain',
       captured_at: 100,
       origin_tool_call_id: 'call-1',

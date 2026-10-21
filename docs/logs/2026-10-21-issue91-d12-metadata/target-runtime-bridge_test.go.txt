@@ -1,0 +1,62 @@
+package migrations
+
+import (
+ "context"
+ "database/sql"
+ "fmt"
+ "os"
+ "path/filepath"
+ "testing"
+ "time"
+
+ finite "github.com/ProjectViVy/agent-vivy/tools/storage-upgrade"
+ "github.com/jackc/pgx/v5"
+ "github.com/jackc/pgx/v5/stdlib"
+)
+
+func TestFiniteMetadataBridgeToActualTarget(t *testing.T) {
+ for _,dialect:=range []Dialect{SQLite,Postgres} { t.Run(string(dialect),func(t *testing.T) {
+  ctx:=context.Background()
+  var db *sql.DB
+  var err error
+  if dialect==SQLite {
+   db,err=sql.Open("sqlite",filepath.Join(t.TempDir(),"copied-target.db"))
+  } else {
+   dsn:=os.Getenv("VIVY_POSTGRES_TEST_DSN");if dsn=="" {t.Fatal("disposable PostgreSQL DSN required")}
+   admin,e:=sql.Open("pgx",dsn);if e!=nil {t.Fatal(e)};defer admin.Close()
+   schema:=fmt.Sprintf("metadata_bridge_%d",time.Now().UnixNano())
+   if _,e:=admin.ExecContext(ctx,"CREATE SCHEMA "+schema);e!=nil {t.Fatal(e)}
+   defer admin.ExecContext(ctx,"DROP SCHEMA "+schema+" CASCADE")
+   config,e:=pgx.ParseConfig(dsn);if e!=nil {t.Fatal(e)};config.RuntimeParams["search_path"]=schema
+   db=stdlib.OpenDB(*config)
+  }
+  if err!=nil {t.Fatal(err)};defer db.Close();db.SetMaxOpenConns(1)
+  source,err:=finite.Embedded();if err!=nil {t.Fatal(err)}
+  fd:=finite.Dialect(dialect)
+  metadata:=`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,checksum TEXT NOT NULL,applied_at INTEGER NOT NULL)`
+  if dialect==Postgres {metadata=`CREATE TABLE schema_migrations(version BIGINT PRIMARY KEY,name TEXT NOT NULL,checksum TEXT NOT NULL,applied_at BIGINT NOT NULL)`}
+  if _,err:=db.ExecContext(ctx,metadata);err!=nil {t.Fatal(err)}
+  for _,item:=range source.Migrations(fd)[:23] {
+   if _,err:=db.ExecContext(ctx,item.SQL);err!=nil {t.Fatal(err)}
+   query:=`INSERT INTO schema_migrations VALUES(?,?,?,?)`;if dialect==Postgres {query=`INSERT INTO schema_migrations VALUES($1,$2,$3,$4)`}
+   if _,err:=db.ExecContext(ctx,query,item.Version,item.Name,item.Checksum,item.Version+100);err!=nil {t.Fatal(err)}
+  }
+  if _,err:=db.ExecContext(ctx,`INSERT INTO sessions(id,title,created_at) VALUES('bridge-session','preserved',1); INSERT INTO runs(id,session_id,status,created_at) VALUES('bridge-run','bridge-session','completed',2)`);err!=nil {t.Fatal(err)}
+  if err:=finite.NormalizeBaseline(ctx,db,fd);err!=nil {t.Fatal(err)}
+  // Consume the immutable D03 owner fragment; never invent original arguments.
+  item:=source.Migrations(fd)[35]
+  tx,err:=db.BeginTx(ctx,nil);if err!=nil {t.Fatal(err)}
+  if _,err:=tx.ExecContext(ctx,item.SQL);err!=nil {tx.Rollback();t.Fatal(err)}
+  query:=`INSERT INTO schema_migrations VALUES(?,?,?,?)`;if dialect==Postgres {query=`INSERT INTO schema_migrations VALUES($1,$2,$3,$4)`}
+  if _,err:=tx.ExecContext(ctx,query,item.Version,item.Name,item.Checksum,136);err!=nil {tx.Rollback();t.Fatal(err)}
+  if err:=tx.Commit();err!=nil {t.Fatal(err)}
+  if err:=finite.SealCandidateMetadata(ctx,db,fd);err!=nil {t.Fatal(err)}
+  if err:=Apply(ctx,db,dialect);err!=nil {t.Fatalf("actual target open: %v",err)}
+  if err:=Apply(ctx,db,dialect);err!=nil {t.Fatalf("actual target reopen: %v",err)}
+  var title string
+  if err:=db.QueryRowContext(ctx,`SELECT title FROM sessions WHERE id='bridge-session'`).Scan(&title);err!=nil || title!="preserved" {t.Fatalf("history lost: %v",err)}
+  var applied int64
+  if err:=db.QueryRowContext(ctx,`SELECT applied_at FROM schema_migrations WHERE version=23`).Scan(&applied);err!=nil || applied!=123 {t.Fatalf("timestamp changed: %d %v",applied,err)}
+  cols,err:=metadataColumns(ctx,db,dialect);if err!=nil || !finalMetadataColumns(cols) {t.Fatalf("metadata shape: %v %v",cols,err)}
+ }) }
+}

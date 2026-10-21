@@ -99,8 +99,7 @@ func (p *Projection) Apply(notice Notice, nextID func(prefix string) string) (do
 			Kind: notice.Gate.Kind, ID: notice.Gate.ID,
 			Title: notice.Gate.Title, Body: notice.Gate.Body,
 			Action: notice.Gate.Action, Target: notice.Gate.Target,
-			PreconditionHash: notice.Gate.PreconditionHash,
-			Preview:          notice.Gate.Preview, Risks: append([]string(nil), notice.Gate.Risks...),
+			Preview: notice.Gate.Preview, Risks: append([]string(nil), notice.Gate.Risks...),
 		}
 		if notice.Gate.Kind == "approval" {
 			found := false

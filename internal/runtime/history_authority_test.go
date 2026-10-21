@@ -40,8 +40,8 @@ func TestContinuityRunStartedPayloadCompatibility(t *testing.T) {
 	if legacy.HistoryScope != nil {
 		t.Fatal("legacy payload unexpectedly has history scope")
 	}
-	withScope := payloadRunStarted{HistoryScope: &domain.AcceptedHistoryScope{DestinationSessionID: "session", SourceSessionIDs: []domain.SessionID{"session"}, ScopeHash: "digest"}}
-	if withScope.HistoryScope == nil || withScope.HistoryScope.ScopeHash != "digest" {
+	withScope := payloadRunStarted{HistoryScope: &domain.AcceptedHistoryScope{DestinationSessionID: "session", SourceSessionIDs: []domain.SessionID{"session"}}}
+	if withScope.HistoryScope == nil || withScope.HistoryScope.DestinationSessionID != "session" {
 		t.Fatalf("typed accepted scope missing: %#v", withScope)
 	}
 }

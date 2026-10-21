@@ -105,6 +105,12 @@ func (f *referenceFixture) AdmitAsOperator(t *testing.T, input *domain.Continuit
 // caller's run ctx carries the accepted scope and the stable tool_call id.
 func (f *referenceFixture) AttachAsModel(t *testing.T, ctx context.Context, selection domain.ReferenceSelection) (domain.ContextReference, error) {
 	t.Helper()
+	if selection.ExpectedItems == nil {
+		preview, err := f.refs.Preview(ctx, selection.Selection)
+		if err == nil {
+			selection.ExpectedItems = preview.Items
+		}
+	}
 	return f.refs.Attach(ctx, selection)
 }
 
@@ -174,9 +180,6 @@ func TestReferencePreviewAsOperator(t *testing.T) {
 	if preview.SourceStatus != string(domain.HistoryStatusOK) || len(preview.Items) != 1 {
 		t.Fatalf("preview = %#v", preview)
 	}
-	if preview.Digest == "" || preview.Digest != CanonicalHistorySelectionDigest(preview.Items) {
-		t.Fatalf("preview digest = %q", preview.Digest)
-	}
 	if preview.ByteCount <= 0 || preview.Items[0].Text != "release notes draft for alpha" {
 		t.Fatalf("preview items = %#v", preview.Items)
 	}
@@ -190,7 +193,7 @@ func TestReferenceAdmissionAttachesExcerptOnly(t *testing.T) {
 	runID, err := f.AdmitAsOperator(t, &domain.ContinuityInput{
 		RequestID: "req-excerpt",
 		References: []domain.ReferenceSelection{
-			{Selection: preview.Selection, ExpectedDigest: preview.Digest},
+			{Selection: preview.Selection, ExpectedItems: preview.Items},
 		},
 	})
 	if err != nil {
@@ -207,7 +210,7 @@ func TestReferenceAdmissionAttachesExcerptOnly(t *testing.T) {
 	if accepted.DestinationSessionID != "B" || accepted.DestinationRunID != runID || accepted.Origin != "user_selection" {
 		t.Fatalf("reference destination/origin = %#v", accepted)
 	}
-	if accepted.Digest != preview.Digest || len(accepted.Items) != 1 || accepted.Items[0].Text != "release notes draft for alpha" {
+	if !sameReferenceItems(accepted.Items, preview.Items) || len(accepted.Items) != 1 || accepted.Items[0].Text != "release notes draft for alpha" {
 		t.Fatalf("snapshot drifted from preview: %#v", accepted)
 	}
 	if accepted.SourceWorkspace != "/srv/source-a" {
@@ -240,18 +243,18 @@ func TestReferenceAdmissionAttachesExcerptOnly(t *testing.T) {
 	}
 }
 
-func TestReferenceAdmissionDigestConflictFailsRecoverably(t *testing.T) {
+func TestReferenceAdmissionPreviewConflictFailsRecoverably(t *testing.T) {
 	f := newReferenceFixture(t)
 	preview := f.PreviewAsOperator(t, "B", safeSelectionA())
 	_, err := f.AdmitAsOperator(t, &domain.ContinuityInput{
 		RequestID:    "req-stale",
 		HistoryScope: domain.HistoryScope{SessionIDs: []domain.SessionID{"A"}},
 		References: []domain.ReferenceSelection{
-			{Selection: preview.Selection, ExpectedDigest: strings.Repeat("0", 64)},
+			{Selection: preview.Selection, ExpectedItems: []domain.HistoryItem{{Ref: preview.Items[0].Ref, Author: preview.Items[0].Author, Text: "changed preview"}}},
 		},
 	})
 	if err == nil || !errors.Is(err, storage.ErrSourceChanged) {
-		t.Fatalf("stale digest admission = %v", err)
+		t.Fatalf("stale preview admission = %v", err)
 	}
 	// The draft stayed recoverable: nothing was committed for destination B.
 	runs, listErr := f.backend.ListRunsBySession(context.Background(), "B")
@@ -303,7 +306,7 @@ func TestReferenceModelAttachCommitsAndDeduplicates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attach: %v", err)
 	}
-	if first.Origin != "model_tool" || first.DestinationRunID != "run-model-1" || first.Digest == "" {
+	if first.Origin != "model_tool" || first.DestinationRunID != "run-model-1" {
 		t.Fatalf("first reference = %#v", first)
 	}
 	// A checkpoint resume re-executes the identical call: the receipt replays
@@ -365,16 +368,16 @@ func TestReferenceModelAttachRequiresCallIdentity(t *testing.T) {
 	}
 }
 
-func TestReferenceModelAttachRejectsInvalidDigestEncoding(t *testing.T) {
+func TestReferenceModelAttachRejectsInvalidPreviewEncoding(t *testing.T) {
 	f := newReferenceFixture(t)
 	f.createLiveRun(t, "run-model-utf8")
 	ctx := f.modelCtx(t, "run-model-utf8", "call-utf8", "A")
 	_, err := f.AttachAsModel(t, ctx, domain.ReferenceSelection{
-		Selection:      safeSelectionA(),
-		ExpectedDigest: "bad\x00digest",
+		Selection:     safeSelectionA(),
+		ExpectedItems: []domain.HistoryItem{{Ref: domain.SourceRef{SessionID: "A", MessageID: "a-safe", Kind: "message"}, Author: "user", Text: string([]byte{0xff})}},
 	})
 	if err == nil {
-		t.Fatal("control bytes in expected_digest were accepted")
+		t.Fatal("invalid text in expected_items were accepted")
 	}
 }
 
@@ -448,7 +451,7 @@ func TestReferenceSourceDeletionFailsAttach(t *testing.T) {
 	_, err := f.AdmitAsOperator(t, &domain.ContinuityInput{
 		RequestID:    "req-deleted",
 		HistoryScope: domain.HistoryScope{SessionIDs: []domain.SessionID{"A"}},
-		References:   []domain.ReferenceSelection{{Selection: preview.Selection, ExpectedDigest: preview.Digest}},
+		References:   []domain.ReferenceSelection{{Selection: preview.Selection, ExpectedItems: preview.Items}},
 	})
 	if err == nil {
 		t.Fatal("deleted source was still attachable")

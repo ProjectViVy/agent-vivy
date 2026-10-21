@@ -2,7 +2,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"path/filepath"
+	"strings"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -43,21 +46,48 @@ func (r *FileVersionRecorder) RecordMutation(ctx context.Context, sessionID doma
 
 // TrackAccess moves the stale-read marker forward; failures are logged,
 // never propagated.
-func (r *FileVersionRecorder) TrackAccess(ctx context.Context, sessionID domain.SessionID, path string, at int64) {
+func (r *FileVersionRecorder) TrackAccess(ctx context.Context, sessionID domain.SessionID, workspaceRoot, path string, state domain.FileReadState) {
 	if r == nil || r.store == nil || sessionID == "" || path == "" {
 		return
 	}
-	if err := r.store.TrackFileAccess(ctx, sessionID, path, at); err != nil {
+	key, err := fileReadKey(workspaceRoot, path)
+	if err == nil {
+		err = r.store.TrackFileAccess(ctx, sessionID, key, state)
+	}
+	if err != nil {
 		r.logger.Warn("file access tracking failed (best-effort)",
 			"session", string(sessionID), "path", path, "error", err)
 	}
 }
 
-// LastAccess reports the marker timestamp; a failed lookup reads as "never
-// tracked" so the stale-read guard fails open.
-func (r *FileVersionRecorder) LastAccess(ctx context.Context, sessionID domain.SessionID, path string) (int64, bool, error) {
+// LastAccess returns exact state. Lookup errors and unavailable old state
+// cannot authorize an overwrite; the backend requests another read.
+func (r *FileVersionRecorder) LastAccess(ctx context.Context, sessionID domain.SessionID, workspaceRoot, path string) (*domain.FileReadState, bool, error) {
 	if r == nil || r.store == nil || sessionID == "" || path == "" {
-		return 0, false, nil
+		return nil, false, nil
 	}
-	return r.store.LastFileAccess(ctx, sessionID, path)
+	key, err := fileReadKey(workspaceRoot, path)
+	if err != nil {
+		return nil, false, err
+	}
+	state, tracked, err := r.store.LastFileAccess(ctx, sessionID, key)
+	if err != nil || tracked {
+		return state, tracked, err
+	}
+	// Converted relative-path rows cannot prove their workspace. Preserve the
+	// unavailable fence until an actual read binds this root; never copy bytes.
+	_, tracked, err = r.store.LastFileAccess(ctx, sessionID, filepath.ToSlash(filepath.Clean(path)))
+	return nil, tracked, err
+}
+
+func fileReadKey(root, name string) (string, error) {
+	if !filepath.IsAbs(root) || filepath.IsAbs(name) || strings.ContainsRune(name, '\x00') {
+		return "", fmt.Errorf("file history: invalid workspace read identity")
+	}
+	key := filepath.Join(root, filepath.FromSlash(name))
+	rel, err := filepath.Rel(root, key)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("file history: read identity escapes workspace")
+	}
+	return filepath.ToSlash(key), nil
 }

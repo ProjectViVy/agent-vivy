@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	schemaVersion int64 = 1
+	schemaVersion int64 = 2
 	component           = "embedded_laputa"
 	storeFileName       = "memory.sqlite3"
 	busyTimeoutMS       = 5000
@@ -37,6 +37,8 @@ type StoreErrorCode string
 
 const (
 	ErrInvalidRecord             StoreErrorCode = "invalid_record"
+	ErrUpgradeRequired           StoreErrorCode = "upgrade_required"
+	ErrUnsupportedSourceFormat   StoreErrorCode = "unsupported_source_format"
 	ErrWorkspaceMismatch         StoreErrorCode = "workspace_mismatch"
 	ErrDatabaseWorkspaceMismatch StoreErrorCode = "database_workspace_mismatch"
 	ErrUnsupportedSchema         StoreErrorCode = "unsupported_schema"
@@ -209,6 +211,9 @@ func Open(ctx context.Context, dir, workspaceID string) (*Store, error) {
 // creating or modifying filesystem state. A missing database fails closed.
 func OpenExisting(ctx context.Context, dir, workspaceID string) (*Store, error) {
 	path := filepath.Join(dir, storeFileName)
+	if _, _, err := inspectStore(ctx, path, workspaceID); err != nil {
+		return nil, err
+	}
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		if err == nil {
@@ -246,7 +251,7 @@ func (s *Store) Metadata(ctx context.Context) (StoreMetadata, error) {
 	return m, nil
 }
 
-// schemaDDL is byte-faithful to typed_store.rs initialize().
+// schemaDDL owns the active BML schema. Legacy conversion is separately delivered.
 var schemaDDL = []string{
 	`CREATE TABLE IF NOT EXISTS schema_meta (
                component TEXT PRIMARY KEY,
@@ -277,17 +282,6 @@ var schemaDDL = []string{
                superseded_id TEXT NOT NULL,
                PRIMARY KEY(memory_id, superseded_id),
                FOREIGN KEY(memory_id) REFERENCES memory_records(memory_id) ON DELETE CASCADE
-             )`,
-	`CREATE TABLE IF NOT EXISTS memory_apply_journal (
-               idempotency_key TEXT PRIMARY KEY,
-               proposal_id TEXT NOT NULL,
-               request_id TEXT NOT NULL,
-               content_digest TEXT NOT NULL,
-               record_id TEXT NOT NULL,
-               store_revision INTEGER NOT NULL,
-               record_revision INTEGER NOT NULL,
-               actor_id TEXT NOT NULL,
-               applied_at TEXT NOT NULL
              )`,
 }
 

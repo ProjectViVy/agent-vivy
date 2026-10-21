@@ -30,31 +30,30 @@ const (
 // Arguments projection; ProposalData remains runtime-owned and is never
 // returned by the review API.
 type ReviewItem struct {
-	ID               string
-	Kind             ReviewKind
-	Status           ReviewStatus
-	SessionID        SessionID
-	SessionTitle     string
-	RunID            RunID
-	ToolCallID       string
-	ToolName         string
-	Source           string
-	Actor            string
-	CreatedAt        int64
-	ExpiresAt        int64
-	DecidedAt        int64
-	Action           string
-	Target           string
-	PreconditionHash string
-	Preview          string
-	RiskFindings     []string
-	Arguments        json.RawMessage
-	Prompt           string
-	DecisionReason   string
-	StaleReason      string
-	Error            string
-	Effect           string
-	Reversibility    string
-	Scope            string
-	Trust            string
+	ID             string
+	Kind           ReviewKind
+	Status         ReviewStatus
+	SessionID      SessionID
+	SessionTitle   string
+	RunID          RunID
+	ToolCallID     string
+	ToolName       string
+	Source         string
+	Actor          string
+	CreatedAt      int64
+	ExpiresAt      int64
+	DecidedAt      int64
+	Action         string
+	Target         string
+	Preview        string
+	RiskFindings   []string
+	Arguments      json.RawMessage
+	Prompt         string
+	DecisionReason string
+	StaleReason    string
+	Error          string
+	Effect         string
+	Reversibility  string
+	Scope          string
+	Trust          string
 }

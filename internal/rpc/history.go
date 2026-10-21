@@ -51,7 +51,7 @@ func rejectHistorySpoofFields(request Request) *Error {
 	if err := json.Unmarshal(request.Params, &raw); err != nil {
 		return &Error{Code: InvalidParams, Message: "params must be a valid JSON object"}
 	}
-	for _, field := range []string{"actor", "caller", "identity", "permissions", "scope_hash", "accepted_scope", "destination_session_id"} {
+	for _, field := range []string{"actor", "caller", "identity", "permissions", "accepted_scope", "destination_session_id"} {
 		if _, ok := raw[field]; ok {
 			return &Error{Code: InvalidParams, Message: field + " is server-derived"}
 		}

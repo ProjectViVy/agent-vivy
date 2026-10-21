@@ -1614,13 +1614,12 @@ func TestLiveApprovalRespondsAndFiltersOtherRun(t *testing.T) {
 	env.deliver(t, "run_other", "model.delta", map[string]string{"delta": "nope"})
 	env.deliver(t, "run_1", "tool.approval_required", map[string]any{
 		"approval_id": "appr_1", "tool_name": "write_file", "action": "write_file", "target": "README.md",
-		"precondition_hash": strings.Repeat("a", 64),
-		"preview":           "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new", "risk_findings": []string{"overwrite"},
+		"preview": "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new", "risk_findings": []string{"overwrite"},
 	})
 	_, _ = live.drainEvents()
 
 	gate := live.PendingGate()
-	if gate == nil || gate.ID != "appr_1" || gate.Action != "write_file" || gate.Target != "README.md" || len(gate.PreconditionHash) != 64 || !strings.Contains(gate.Preview, "+new") || len(gate.Risks) != 1 {
+	if gate == nil || gate.ID != "appr_1" || gate.Action != "write_file" || gate.Target != "README.md" || !strings.Contains(gate.Preview, "+new") || len(gate.Risks) != 1 {
 		t.Fatalf("gate = %+v", gate)
 	}
 	gate.Risks[0] = "caller mutation"

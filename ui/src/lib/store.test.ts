@@ -864,7 +864,7 @@ describe('Vivy store integrity', () => {
             source_session_id: 'src-1',
             refs: [{ session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }],
           },
-          expected_digest: 'd1',
+          expected_items: [{ ref: { session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }, author: 'user', text: 'hi', redacted: false, truncated: false }],
         }],
         history_scope: { session_ids: [] as string[] },
       },
@@ -874,6 +874,7 @@ describe('Vivy store integrity', () => {
 
     // The queued copy must not drift if the composer mutates its draft later.
     submission.continuity.history_scope.session_ids.push('mutated');
+    submission.continuity.references[0].expected_items[0].text = 'changed draft';
     api.startTurn.mockRejectedValueOnce(new Error('stale reference'));
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
     await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledTimes(1));
@@ -901,7 +902,7 @@ describe('Vivy store integrity', () => {
     await vi.waitFor(() => expect(useVivyStore.getState().queuedMessages.map((item) => item.text)).toEqual(['stale', 'later']));
 
     // Removing the stale head lets the next item drain on the next idle beat;
-    // no reordering, no silent digest refresh.
+    // no reordering, no silent preview refresh.
     useVivyStore.getState().removeQueuedMessage(useVivyStore.getState().queuedMessages[0].id);
     useVivyStore.setState({ currentRun: null, runBusy: false });
     useVivyStore.setState((state) => ({ ...state })); // trigger subscription drain
@@ -914,9 +915,9 @@ describe('Vivy store integrity', () => {
     const preview = {
       selection: { source_session_id: 'src-1', refs: [{ session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }] },
       items: [{ ref: { session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }, author: 'user', text: 'hi', redacted: false, truncated: false }],
-      digest: 'd1', captured_at: 1, byte_count: 2, source_status: 'ok',
+      captured_at: 1, byte_count: 2, source_status: 'ok',
     };
-    const selection = { selection: preview.selection, expected_digest: 'd1' };
+    const selection = { selection: preview.selection, expected_items: [{ ref: { session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }, author: 'user', text: 'hi', redacted: false, truncated: false }] };
     useVivyStore.getState().addDraftReference(preview, selection, true);
     const firstRequest = useVivyStore.getState().draftRequestId;
     expect(useVivyStore.getState().draftReferences).toHaveLength(1);
@@ -1030,7 +1031,7 @@ describe('Vivy store integrity', () => {
 
   const deliverable = (id: string): import('./api').Deliverable => ({
     id, session_id: 'ses-1', run_id: 'run-1', workspace_id: 'ws-1', path: `out/${id}.txt`, name: `${id}.txt`,
-    description: '', size: 2, sha256: 'a'.repeat(64), media_type: 'text/plain', captured_at: 1, origin_tool_call_id: 'call-1',
+    description: '', size: 2, media_type: 'text/plain', captured_at: 1, origin_tool_call_id: 'call-1',
   });
 
   it('loadDeliverySets dedupes set ids across cursor pages', async () => {
@@ -1057,18 +1058,53 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().downloadDeliveryItem(item);
     expect(api.deliverablesRead).toHaveBeenCalledTimes(1);
     useVivyStore.getState().cancelDeliveryDownload('itm-1');
-    gate.resolve({ transfer_id: 'xfr-1', item_id: 'itm-1', digest: item.sha256, offset: 0, data_base64: btoa('ab'), eof: true, expires_at: 0 });
+    gate.resolve({ transfer_id: 'xfr-1', item_id: 'itm-1', offset: 0, data_base64: btoa('ab'), eof: true, expires_at: 0 });
     await first;
     expect(useVivyStore.getState().deliveryItemStates['itm-1']?.status).toBe('unchecked');
     expect(api.deliverablesClose).toHaveBeenCalledWith('ses-1', 'xfr-1');
     // 取消后可重试：新一次调用会开新传输。
-    api.deliverablesRead.mockResolvedValue({ transfer_id: 'xfr-2', item_id: 'itm-1', digest: item.sha256, offset: 0, data_base64: btoa('ab'), eof: true, expires_at: 0 });
+    api.deliverablesRead.mockResolvedValue({ transfer_id: 'xfr-2', item_id: 'itm-1', offset: 0, data_base64: btoa('ab'), eof: true, expires_at: 0 });
     const urlCreate = vi.fn(() => 'blob:x');
+    const anchor = { click: vi.fn(), remove: vi.fn() };
+    vi.stubGlobal('document', { createElement: () => anchor, body: { appendChild: vi.fn() } });
     vi.stubGlobal('URL', { ...URL, createObjectURL: urlCreate, revokeObjectURL: vi.fn() });
     await useVivyStore.getState().downloadDeliveryItem(item);
-    // assembled bytes 未过 sha 校验时状态落为不可用而非下载成功。
-    expect(useVivyStore.getState().deliveryItemStates['itm-1']?.status).toBe('unavailable');
-    expect(urlCreate).not.toHaveBeenCalled();
+    // 重试在相同传输到达完整大小与 EOF 后下载成功。
+    expect(useVivyStore.getState().deliveryItemStates['itm-1']?.status).toBe('downloaded');
+    expect(urlCreate).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
+
+  it.each(['checkDeliveryItem', 'previewDeliveryItem', 'downloadDeliveryItem'] as const)('drops late %s results after reopening the same session', async (operation) => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('ses-1');
+    const gate = deferred<import('./api').DeliveryChunk>();
+    api.deliverablesRead.mockReturnValue(gate.promise);
+    api.deliverablesClose.mockResolvedValue(undefined);
+    const createURL = vi.fn(() => 'blob:old');
+    const anchor = { click: vi.fn(), remove: vi.fn() };
+    vi.stubGlobal('document', { createElement: () => anchor, body: { appendChild: vi.fn() } });
+    vi.stubGlobal('URL', { ...URL, createObjectURL: createURL, revokeObjectURL: vi.fn() });
+    const pending = useVivyStore.getState()[operation](deliverable('itm-old'));
+    await useVivyStore.getState().selectSession('ses-1');
+    gate.resolve({ transfer_id: 'xfr-old', item_id: 'itm-old', offset: 0, data_base64: btoa('ab'), eof: true, expires_at: 0 });
+    await pending;
+    expect(useVivyStore.getState().deliveryItemStates).toEqual({});
+    expect(api.deliverablesClose).toHaveBeenCalledWith('ses-1', 'xfr-old');
+    expect(createURL).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('drops an old delivery list when the same session is reopened', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    await useVivyStore.getState().selectSession('ses-1');
+    const gate = deferred<{ items: []; next_cursor?: string }>();
+    api.deliverablesList.mockReturnValue(gate.promise);
+    const pending = useVivyStore.getState().loadDeliverySets();
+    await useVivyStore.getState().selectSession('ses-1');
+    gate.resolve({ items: [] });
+    await pending;
+    expect(useVivyStore.getState().deliverySetsPhase).toBe('idle');
+  });
+
 });

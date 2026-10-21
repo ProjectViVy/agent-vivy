@@ -585,17 +585,17 @@ type FileVersionStore interface {
 	// whose latest version no longer matches the pre-mutation content
 	// (externally modified meanwhile) first archives that intermediate
 	// state, and the post-mutation content is appended last. Entries
-	// deduplicate by content hash and oversized content (over
+	// deduplicate by exact content and oversized content (over
 	// FileVersionMaxBytes) is skipped rather than truncated.
 	RecordFileMutation(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, path string, oldContent, newContent []byte) error
 	// TrackFileAccess upserts the (session, path) access marker used by
 	// the stale-read guard (the filetracker). Both the read and the write
 	// path call it: after a write the agent knows the disk content, so the
 	// marker must move forward.
-	TrackFileAccess(ctx context.Context, sessionID domain.SessionID, path string, at int64) error
-	// LastFileAccess returns the marker timestamp; ok=false when the path
-	// was never tracked.
-	LastFileAccess(ctx context.Context, sessionID domain.SessionID, path string) (int64, bool, error)
+	TrackFileAccess(ctx context.Context, sessionID domain.SessionID, path string, state domain.FileReadState) error
+	// LastFileAccess returns exact state; nil with ok=true requires re-reading.
+	// ok=false when the path was never tracked.
+	LastFileAccess(ctx context.Context, sessionID domain.SessionID, path string) (*domain.FileReadState, bool, error)
 }
 
 // FileVersionRow is the bounded, metadata-plus-content read shape used by

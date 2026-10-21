@@ -15,7 +15,6 @@ type ContextReference struct {
 	SourceWorkspace      string        `json:"source_workspace"`
 	CapturedAt           int64         `json:"captured_at"`
 	Items                []HistoryItem `json:"items"`
-	Digest               string        `json:"digest"`
 	Origin               string        `json:"origin"`
 }
 
@@ -31,11 +30,14 @@ type ReferenceView struct {
 // Validate checks the captured snapshot without consulting its live source.
 func (r ContextReference) Validate(limits ContinuityLimits) error {
 	limits = limits.Effective(0)
-	if r.ID == "" || r.DestinationSessionID == "" || r.DestinationRunID == "" || r.SourceSessionID == "" || r.Digest == "" {
+	if r.ID == "" || r.DestinationSessionID == "" || r.DestinationRunID == "" || r.SourceSessionID == "" {
 		return fmt.Errorf("context reference identifiers are invalid")
 	}
-	if r.CapturedAt < 0 || !utf8.ValidString(r.ID) || !utf8.ValidString(string(r.DestinationSessionID)) || !utf8.ValidString(string(r.DestinationRunID)) || !utf8.ValidString(string(r.SourceSessionID)) || !utf8.ValidString(r.SourceWorkspace) || !utf8.ValidString(r.Digest) {
+	if r.CapturedAt < 0 || !utf8.ValidString(r.ID) || !utf8.ValidString(string(r.DestinationSessionID)) || !utf8.ValidString(string(r.DestinationRunID)) || !utf8.ValidString(string(r.SourceSessionID)) || !utf8.ValidString(r.SourceWorkspace) {
 		return fmt.Errorf("context reference metadata is invalid")
+	}
+	if len(r.Items) == 0 {
+		return fmt.Errorf("context reference has no captured records")
 	}
 	if r.Origin != "user_selection" && r.Origin != "model_tool" {
 		return fmt.Errorf("context reference origin %q is unknown", r.Origin)

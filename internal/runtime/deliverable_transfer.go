@@ -1,9 +1,9 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -41,13 +41,14 @@ var (
 )
 
 // secureFile is one validated, root-bound regular-file handle. Callers read
-// and hash through this descriptor only; reopening by name is never trusted.
+// through this descriptor only; reopening by name is never trusted.
 type secureFile struct {
-	file  *os.File
-	info  os.FileInfo
-	clean string // normalized workspace-relative path, forward slashes
-	real  string // canonical absolute path inside the real root
-	root  *os.Root
+	file           *os.File
+	info           os.FileInfo
+	clean          string // normalized workspace-relative path, forward slashes
+	real           string // canonical absolute path inside the real root
+	root           *os.Root
+	allowSensitive bool
 }
 
 // openWorkspaceFileSecure resolves rel against a trusted workspace root with
@@ -56,11 +57,17 @@ type secureFile struct {
 // the opened descriptor. A name swapped between the checks is either refused
 // by the root handle or caught by the post-read identity recheck.
 func openWorkspaceFileSecure(root, rel string) (*secureFile, error) {
+	return openWorkspaceFile(root, rel, false)
+}
+
+// Private mutation state has already passed the filesystem policy. Delivery
+// paths retain their separate sensitive-file restriction.
+func openWorkspaceFile(root, rel string, allowSensitive bool) (*secureFile, error) {
 	clean, err := workspaceRelPath(rel)
 	if err != nil {
 		return nil, &secureOpenError{public: "invalid workspace-relative path", cause: err}
 	}
-	if SensitiveWorkspacePath(clean) {
+	if !allowSensitive && SensitiveWorkspacePath(clean) {
 		return nil, &secureOpenError{public: "path is sensitive", cause: errSecureSensitive}
 	}
 	rootAbs, err := filepath.Abs(root)
@@ -86,7 +93,7 @@ func openWorkspaceFileSecure(root, rel string) (*secureFile, error) {
 	if err != nil {
 		return nil, &secureOpenError{public: "workspace is unavailable", cause: err}
 	}
-	sf := &secureFile{clean: clean, root: rootHandle}
+	sf := &secureFile{clean: clean, root: rootHandle, allowSensitive: allowSensitive}
 	if err := sf.preflight(rootAbs, rootReal); err != nil {
 		_ = rootHandle.Close()
 		return nil, err
@@ -129,7 +136,7 @@ func (s *secureFile) preflight(rootAbs, rootReal string) error {
 	if err != nil {
 		return &secureOpenError{public: "file cannot be opened", cause: err}
 	}
-	if SensitiveWorkspacePath(canonicalRel) {
+	if !s.allowSensitive && SensitiveWorkspacePath(canonicalRel) {
 		return &secureOpenError{public: "path is sensitive", cause: errSecureSensitive}
 	}
 	lexicalReal, err := filepath.Abs(filepath.Join(rootReal, native))
@@ -170,7 +177,7 @@ func (s *secureFile) recheckIdentity(rootReal string) error {
 	}
 	postReal, absErr := filepath.Abs(postReal)
 	postRel, relErr := filepath.Rel(rootReal, postReal)
-	if absErr != nil || relErr != nil || !sameFilePath(s.real, postReal) || SensitiveWorkspacePath(postRel) || !os.SameFile(s.info, postInfo) {
+	if absErr != nil || relErr != nil || !sameFilePath(s.real, postReal) || (!s.allowSensitive && SensitiveWorkspacePath(postRel)) || !os.SameFile(s.info, postInfo) || s.info.Size() != postInfo.Size() || !s.info.ModTime().Equal(postInfo.ModTime()) {
 		return &secureOpenError{public: "file changed while reading", cause: errSecureChanged}
 	}
 	return nil
@@ -208,13 +215,12 @@ func sameFilePath(a, b string) bool {
 }
 
 // deliveryTransfer is one verified download snapshot bound to its owner,
-// item and digest. Only the last served window may be replayed; every other
+// item. Only the last served window may be replayed; every other
 // offset must advance strictly.
 type deliveryTransfer struct {
 	id          string
 	owner       domain.SessionID
 	itemID      string
-	digest      string
 	snapshot    string
 	size        int64
 	servedStart int64
@@ -274,10 +280,9 @@ func (m *transferManager) purge() error {
 	return nil
 }
 
-// create hashes the complete bounded file while copying it into a scratch
-// snapshot, then creates the owner-bound handle. A hash that does not match
-// the presented digest deletes the temp and reports changed.
-func (m *transferManager) create(ctx context.Context, sf *secureFile, rootReal string, owner domain.SessionID, itemID, digest string, maxBytes int64) (*deliveryTransfer, error) {
+// create compares bounded current bytes with the retained presentation before
+// publishing one immutable owner-bound scratch snapshot.
+func (m *transferManager) create(ctx context.Context, sf *secureFile, rootReal string, owner domain.SessionID, itemID string, expected []byte, maxBytes int64) (*deliveryTransfer, error) {
 	bound := maxBytes
 	if m.maxRead > 0 && (bound <= 0 || m.maxRead < bound) {
 		bound = m.maxRead
@@ -285,46 +290,53 @@ func (m *transferManager) create(ctx context.Context, sf *secureFile, rootReal s
 	if bound > 0 && sf.info.Size() > bound {
 		return nil, &secureOpenError{public: "file exceeds the readable limit", cause: errSecureIrregular}
 	}
+	limit := bound
+	if limit <= 0 {
+		limit = sf.info.Size()
+	}
+	content, err := io.ReadAll(io.LimitReader(ctxReader{ctx: ctx, r: sf.file}, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("runtime: read transfer bytes: %w", err)
+	}
+	written := int64(len(content))
+	if written > limit {
+		return nil, &secureOpenError{public: "file exceeds the readable limit", cause: errSecureIrregular}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	after, err := sf.file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("runtime: stat transfer bytes: %w", err)
+	}
+	if after.Size() != sf.info.Size() || !after.ModTime().Equal(sf.info.ModTime()) || written != after.Size() {
+		return nil, &secureOpenError{public: "file changed while reading", cause: errSecureChanged}
+	}
+	if err := sf.recheckIdentity(rootReal); err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(content, expected) {
+		return nil, &secureOpenError{public: "file changed since presentation", cause: errSecureChanged}
+	}
 	tmp, err := os.CreateTemp(m.dir, "snap-*")
 	if err != nil {
 		return nil, fmt.Errorf("runtime: create transfer snapshot: %w", err)
 	}
 	tmpPath := tmp.Name()
-	remove := func() {
-		_ = os.Remove(tmpPath)
-	}
-	hash := sha256.New()
-	// bound+1 detects an oversize read; a zero bound hashes the stat size.
-	limit := bound
-	if limit <= 0 {
-		limit = sf.info.Size()
-	}
-	written, err := io.CopyN(tmp, io.TeeReader(ctxReader{ctx: ctx, r: sf.file}, hash), limit+1)
+	remove := func() { _ = os.Remove(tmpPath) }
+	_, writeErr := tmp.Write(content)
 	closeErr := tmp.Close()
-	if err != nil && !errors.Is(err, io.EOF) {
+	if writeErr != nil {
 		remove()
-		return nil, fmt.Errorf("runtime: snapshot transfer bytes: %w", err)
+		return nil, fmt.Errorf("runtime: write transfer snapshot: %w", writeErr)
 	}
 	if closeErr != nil {
 		remove()
-		return nil, fmt.Errorf("runtime: write transfer snapshot: %w", closeErr)
-	}
-	if bound > 0 && written > bound {
-		remove()
-		return nil, &secureOpenError{public: "file exceeds the readable limit", cause: errSecureIrregular}
+		return nil, fmt.Errorf("runtime: close transfer snapshot: %w", closeErr)
 	}
 	if err := ctx.Err(); err != nil {
 		remove()
 		return nil, err
-	}
-	if err := sf.recheckIdentity(rootReal); err != nil {
-		remove()
-		return nil, err
-	}
-	sum := hex.EncodeToString(hash.Sum(nil))
-	if sum != digest {
-		remove()
-		return nil, &secureOpenError{public: "file changed since presentation", cause: errSecureChanged}
 	}
 	id, err := newTransferID()
 	if err != nil {
@@ -340,7 +352,6 @@ func (m *transferManager) create(ctx context.Context, sf *secureFile, rootReal s
 		id:        id,
 		owner:     owner,
 		itemID:    itemID,
-		digest:    digest,
 		snapshot:  tmpPath,
 		size:      written,
 		expiresAt: m.now().Add(m.ttl),
@@ -351,10 +362,14 @@ func (m *transferManager) create(ctx context.Context, sf *secureFile, rootReal s
 }
 
 // lookup validates a handle for a subsequent chunk: it must exist, be fresh,
-// belong to the caller and pin the same item and digest.
-func (m *transferManager) lookup(owner domain.SessionID, transferID, itemID, digest string) (*deliveryTransfer, error) {
+// belong to the caller and pin the same immutable item.
+func (m *transferManager) lookup(owner domain.SessionID, transferID, itemID string) (*deliveryTransfer, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.lookupLocked(owner, transferID, itemID)
+}
+
+func (m *transferManager) lookupLocked(owner domain.SessionID, transferID, itemID string) (*deliveryTransfer, error) {
 	m.expireLocked()
 	tr, ok := m.byID[transferID]
 	if !ok {
@@ -363,7 +378,7 @@ func (m *transferManager) lookup(owner domain.SessionID, transferID, itemID, dig
 	if tr.owner != owner {
 		return nil, &secureOpenError{public: "transfer belongs to another session", cause: errSecureOutside}
 	}
-	if tr.itemID != itemID || tr.digest != digest {
+	if tr.itemID != itemID {
 		return nil, &secureOpenError{public: "transfer does not match this item", cause: errSecureIrregular}
 	}
 	tr.expiresAt = m.now().Add(m.ttl)

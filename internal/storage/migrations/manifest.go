@@ -3,9 +3,7 @@
 package migrations
 
 import (
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"regexp"
@@ -30,13 +28,12 @@ var migrationFilenamePattern = regexp.MustCompile(`^([0-9]{3})_([a-z0-9]+(?:_[a-
 var embeddedFiles embed.FS
 
 // Migration is one immutable logical migration. SQL is kept as the exact
-// embedded file text so its checksum detects any post-release drift.
+// embedded file text. Released SQL is immutable transition history.
 type Migration struct {
-	Version  int64
-	Name     string
-	SQL      string
-	Checksum string
-	Path     string
+	Version int64
+	Name    string
+	SQL     string
+	Path    string
 }
 
 // Manifest is the validated pair of dialect-specific migration sequences.
@@ -142,14 +139,12 @@ func loadDialect(fsys fs.FS, dialect Dialect) ([]Migration, error) {
 		if err != nil {
 			return nil, fmt.Errorf("migration manifest: read %s: %w", path, err)
 		}
-		digest := sha256.Sum256(data)
 		seen[version] = entry.Name()
 		items = append(items, Migration{
-			Version:  version,
-			Name:     match[2],
-			SQL:      string(data),
-			Checksum: hex.EncodeToString(digest[:]),
-			Path:     path,
+			Version: version,
+			Name:    match[2],
+			SQL:     string(data),
+			Path:    path,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Version < items[j].Version })

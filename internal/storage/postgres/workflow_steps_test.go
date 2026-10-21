@@ -76,7 +76,7 @@ func TestWorkflowStepUpgradeFrom033Postgres(t *testing.T) {
 		t.Fatalf("manifest: %v", err)
 	}
 	if _, err := setup.ExecContext(ctx, `CREATE TABLE schema_migrations (
-		version BIGINT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at BIGINT NOT NULL)`); err != nil {
+		version BIGINT PRIMARY KEY, name TEXT NOT NULL, applied_at BIGINT NOT NULL)`); err != nil {
 		t.Fatalf("create schema_migrations: %v", err)
 	}
 	applied := int64(0)
@@ -88,15 +88,13 @@ func TestWorkflowStepUpgradeFrom033Postgres(t *testing.T) {
 			t.Fatalf("apply %d %s: %v", m.Version, m.Name, err)
 		}
 		if _, err := setup.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES ($1,$2,$3,$4)`,
-			m.Version, m.Name, m.Checksum, time.Now().UnixMilli()); err != nil {
+			`INSERT INTO schema_migrations (version, name, applied_at) VALUES ($1,$2,$3)`,
+			m.Version, m.Name, time.Now().UnixMilli()); err != nil {
 			t.Fatalf("record %d: %v", m.Version, err)
 		}
 		applied = m.Version
 	}
-	if err := migrations.ApplyManifest(ctx, setup, migrations.Postgres, manifest); err != nil {
-		t.Fatalf("convert disposable fixture: %v", err)
-	}
+	finishMigrationFixture(t, ctx, setup, manifest, 33)
 	_ = setup.Close()
 	if applied != 33 {
 		t.Fatalf("fixture stopped at migration %d, want 33", applied)

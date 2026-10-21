@@ -31,14 +31,12 @@ func (s *Service) close() error {
 // live reports whether the service can still reach the store.
 func (s *Service) live() bool { return s != nil && !s.closed.Load() }
 
-// StatusResponse is the vivy.memory.status wire DTO. RulesRevision is the
-// current MEMRULES CAS token; empty when the document could not be read.
+// StatusResponse is the vivy.memory.status wire DTO.
 type StatusResponse struct {
 	Available       bool   `json:"available"`
 	Reason          string `json:"reason,omitempty"`
 	StartupRevision uint64 `json:"startup_revision"`
 	DatabasePresent bool   `json:"database_present"`
-	RulesRevision   string `json:"rules_revision,omitempty"`
 }
 
 // List returns the visible long-term projection as a listed outcome.
@@ -181,19 +179,11 @@ func (s *Service) Remove(ctx context.Context, req bml.MemoryRemoveRequest) bml.M
 	return bml.MemoryCrudOutcome{Status: bml.CrudOutcomeApplied, Entry: &entry}
 }
 
-// RulesView is the rules.read payload: the handbook plus the revision token
-// WriteRules requires as its CAS base.
+// RulesView contains the handbook and exact file existence used by WriteRules.
 type RulesView struct {
-	Content  string `json:"content"`
-	Source   string `json:"source"`
-	Revision string `json:"revision"`
-}
-
-// rulesRevision is the MEMRULES CAS token: a stable sha256 digest of the
-// document's current content, so a stale base detects interleaved writes
-// and external edits, and survives restarts.
-func rulesRevision(content string) string {
-	return bml.MemoryContentDigest([]byte(content)).Value
+	Content string `json:"content"`
+	Source  string `json:"source"`
+	Exists  bool   `json:"exists"`
 }
 
 // Rules reads MEMRULES.MD, falling back to the built-in rulebook.
@@ -206,28 +196,18 @@ func (s *Service) Rules(_ context.Context) (RulesView, bml.MemoryCrudOutcome) {
 		return RulesView{}, outcomeFromError(err)
 	}
 	return RulesView{
-		Content:  doc.Content,
-		Source:   string(doc.Source),
-		Revision: rulesRevision(doc.Content),
+		Content: doc.Content,
+		Source:  string(doc.Source),
+		Exists:  doc.Source == bml.MemRulesSourceFile,
 	}, bml.MemoryCrudOutcome{Status: bml.CrudOutcomeListed}
 }
 
-// WriteRules atomically replaces MEMRULES.MD under content-digest CAS:
-// baseRevision must equal the digest of the current MEMRULES content (from
-// Rules or Status), else the outcome is failed memory_revision_conflict —
-// never a forced write.
-func (s *Service) WriteRules(_ context.Context, content string, baseRevision string) bml.MemoryCrudOutcome {
+// WriteRules replaces MEMRULES under exact content and existence CAS.
+func (s *Service) WriteRules(_ context.Context, content, expectedContent string, expectedExists bool) bml.MemoryCrudOutcome {
 	if !s.live() {
 		return unavailableOutcome()
 	}
-	current, err := s.home.ReadMemRules()
-	if err != nil {
-		return outcomeFromError(err)
-	}
-	if baseRevision != rulesRevision(current.Content) {
-		return failedOutcome(bml.HomeCodeRevisionConflict)
-	}
-	if _, err := s.home.WriteMemRules(content); err != nil {
+	if _, err := s.home.CompareAndWriteMemRules(content, expectedContent, expectedExists); err != nil {
 		return outcomeFromError(err)
 	}
 	return bml.MemoryCrudOutcome{Status: bml.CrudOutcomeApplied}
@@ -242,9 +222,6 @@ func (s *Service) Status(_ context.Context) StatusResponse {
 	status := StatusResponse{Available: true, StartupRevision: s.home.StartupRevision()}
 	_, err := os.Stat(s.home.DatabasePath())
 	status.DatabasePresent = err == nil
-	if doc, err := s.home.ReadMemRules(); err == nil {
-		status.RulesRevision = rulesRevision(doc.Content)
-	}
 	return status
 }
 

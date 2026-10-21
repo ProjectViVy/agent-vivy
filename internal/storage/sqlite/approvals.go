@@ -37,10 +37,10 @@ func (b *Backend) CreateApproval(ctx context.Context, a domain.Approval) error {
 	timeoutAt := a.TimeoutAt
 	if _, err := b.db.ExecContext(ctx,
 		`INSERT INTO approvals
-			 (id, run_id, tool_call_id, decision, expires_at, resume_target, kind, action, target, precondition_hash, preview, risk_findings_json, proposal_data, tool_name, created_at, decided_at, actor, decision_reason, stale_reason, sandbox_mode, approval_policy, timeout_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 (id, run_id, tool_call_id, decision, expires_at, resume_target, kind, action, target, preview, risk_findings_json, proposal_data, tool_name, created_at, decided_at, actor, decision_reason, stale_reason, sandbox_mode, approval_policy, timeout_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.RunID, a.ToolCallID, a.Decision, a.ExpiresAt, a.ResumeTarget, approvalKind(a.Kind),
-		a.Action, a.Target, a.PreconditionHash, a.Preview, riskFindings, proposalData, a.ToolName,
+		a.Action, a.Target, a.Preview, riskFindings, proposalData, a.ToolName,
 		a.CreatedAt, a.DecidedAt, a.Actor, a.DecisionReason, "", sandboxMode, approvalPolicy, timeoutAt); err != nil {
 		return fmt.Errorf("storage: create approval %s: %w", a.ID, err)
 	}
@@ -54,12 +54,12 @@ func (b *Backend) GetApproval(ctx context.Context, id string) (domain.Approval, 
 	var riskFindings, proposalData, decisionReason, staleReason []byte
 	err := b.db.QueryRowContext(ctx,
 		`SELECT id, run_id, tool_call_id, decision, expires_at, resume_target, kind,
-			action, target, precondition_hash, preview, risk_findings_json, proposal_data,
+			action, target, preview, risk_findings_json, proposal_data,
 			tool_name, created_at, decided_at, actor, decision_reason, stale_reason,
 			sandbox_mode, approval_policy, timeout_at
 			FROM approvals WHERE id = ?`, id).
 		Scan(&a.ID, &rid, &a.ToolCallID, &a.Decision, &a.ExpiresAt, &a.ResumeTarget, &a.Kind,
-			&a.Action, &a.Target, &a.PreconditionHash, &a.Preview, &riskFindings, &proposalData,
+			&a.Action, &a.Target, &a.Preview, &riskFindings, &proposalData,
 			&a.ToolName, &a.CreatedAt, &a.DecidedAt, &a.Actor, &decisionReason, &staleReason,
 			&a.SandboxMode, &a.ApprovalPolicy, &a.TimeoutAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -84,7 +84,7 @@ func (b *Backend) GetApproval(ctx context.Context, id string) (domain.Approval, 
 func (b *Backend) ListPendingApprovals(ctx context.Context) ([]domain.Approval, error) {
 	rows, err := b.db.QueryContext(ctx,
 		`SELECT id, run_id, tool_call_id, decision, expires_at, resume_target, kind,
-			action, target, precondition_hash, preview, risk_findings_json, proposal_data,
+			action, target, preview, risk_findings_json, proposal_data,
 			tool_name, created_at, decided_at, actor, decision_reason, stale_reason,
 			sandbox_mode, approval_policy, timeout_at
 			FROM approvals WHERE decision = ? ORDER BY expires_at DESC, id`, domain.ApprovalPending)
@@ -99,7 +99,7 @@ func (b *Backend) ListPendingApprovals(ctx context.Context) ([]domain.Approval, 
 		var rid string
 		var riskFindings, proposalData, decisionReason, staleReason []byte
 		if err := rows.Scan(&a.ID, &rid, &a.ToolCallID, &a.Decision, &a.ExpiresAt, &a.ResumeTarget, &a.Kind,
-			&a.Action, &a.Target, &a.PreconditionHash, &a.Preview, &riskFindings, &proposalData,
+			&a.Action, &a.Target, &a.Preview, &riskFindings, &proposalData,
 			&a.ToolName, &a.CreatedAt, &a.DecidedAt, &a.Actor, &decisionReason, &staleReason,
 			&a.SandboxMode, &a.ApprovalPolicy, &a.TimeoutAt); err != nil {
 			return nil, fmt.Errorf("storage: scan approval: %w", err)
@@ -204,7 +204,7 @@ func (b *Backend) ListExpiredApprovals(ctx context.Context) ([]domain.Approval, 
 	now := time.Now().UnixMilli()
 	rows, err := b.db.QueryContext(ctx,
 		`SELECT id, run_id, tool_call_id, decision, expires_at, resume_target, kind,
-			action, target, precondition_hash, preview, risk_findings_json, proposal_data,
+			action, target, preview, risk_findings_json, proposal_data,
 			tool_name, created_at, decided_at, actor, decision_reason, stale_reason,
 			sandbox_mode, approval_policy, timeout_at
 			FROM approvals 
@@ -221,7 +221,7 @@ func (b *Backend) ListExpiredApprovals(ctx context.Context) ([]domain.Approval, 
 		var rid string
 		var riskFindings, proposalData, decisionReason, staleReason []byte
 		if err := rows.Scan(&a.ID, &rid, &a.ToolCallID, &a.Decision, &a.ExpiresAt, &a.ResumeTarget, &a.Kind,
-			&a.Action, &a.Target, &a.PreconditionHash, &a.Preview, &riskFindings, &proposalData,
+			&a.Action, &a.Target, &a.Preview, &riskFindings, &proposalData,
 			&a.ToolName, &a.CreatedAt, &a.DecidedAt, &a.Actor, &decisionReason, &staleReason,
 			&a.SandboxMode, &a.ApprovalPolicy, &a.TimeoutAt); err != nil {
 			return nil, fmt.Errorf("storage: scan expired approval: %w", err)

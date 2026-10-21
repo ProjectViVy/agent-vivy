@@ -64,7 +64,7 @@ func newReferenceTestEnv(t *testing.T, ops *fakeReferenceOps) *controlTestEnv {
 
 func TestReferencePreviewAdvertisedAndRouted(t *testing.T) {
 	ops := &fakeReferenceOps{preview: domain.ReferencePreview{
-		Digest: "d1", ByteCount: 7, SourceStatus: string(domain.HistoryStatusOK),
+		ByteCount: 7, SourceStatus: string(domain.HistoryStatusOK),
 	}}
 	env := newReferenceTestEnv(t, ops)
 
@@ -107,7 +107,7 @@ func TestReferencePreviewAdvertisedAndRouted(t *testing.T) {
 	if err := json.Unmarshal(resultJSON, &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.Digest != "d1" {
+	if preview.ByteCount != 7 {
 		t.Fatalf("preview = %#v", preview)
 	}
 }
@@ -154,7 +154,7 @@ func TestReferencePreviewHiddenWithoutService(t *testing.T) {
 }
 
 func TestTurnContinuityDecoding(t *testing.T) {
-	valid := `{"session_id":"B","text":"hi","request_id":"req-1","history_scope":{"session_ids":["A"]},"references":[{"selection":{"source_session_id":"A","refs":[{"session_id":"A","message_id":"m1","kind":"message"}]},"expected_digest":"d1"}]}`
+	valid := `{"session_id":"B","text":"hi","request_id":"req-1","history_scope":{"session_ids":["A"]},"references":[{"selection":{"source_session_id":"A","refs":[{"session_id":"A","message_id":"m1","kind":"message"}]},"expected_items":[{"ref":{"session_id":"A","message_id":"m1","kind":"message"},"author":"user","text":"captured"}]}]}`
 	params, rpcErr := parseTurnParams(Request{Params: json.RawMessage(valid)})
 	if rpcErr != nil {
 		t.Fatalf("valid continuity input: %v", rpcErr)
@@ -162,13 +162,15 @@ func TestTurnContinuityDecoding(t *testing.T) {
 	if params.continuity == nil || params.continuity.RequestID != "req-1" || len(params.continuity.References) != 1 || len(params.continuity.HistoryScope.SessionIDs) != 1 {
 		t.Fatalf("continuity = %#v", params.continuity)
 	}
-	if params.continuity.References[0].ExpectedDigest != "d1" {
+	if len(params.continuity.References[0].ExpectedItems) != 1 || params.continuity.References[0].ExpectedItems[0].Text != "captured" {
 		t.Fatalf("reference = %#v", params.continuity.References[0])
 	}
 }
 
 func TestTurnContinuityRejectsForgedBodies(t *testing.T) {
 	for _, body := range []string{
+		// Removed digest authority has no compatibility reader.
+		`{"session_id":"B","text":"hi","request_id":"r","references":[{"selection":{"source_session_id":"A","refs":[{"session_id":"A","message_id":"m1","kind":"message"}]},"expected_digest":"retired"}]}`,
 		// references without request_id
 		`{"session_id":"B","text":"hi","references":[{"selection":{"source_session_id":"A","refs":[{"session_id":"A","message_id":"m1"}]}}]}`,
 		// forged items inside a reference selection
@@ -189,7 +191,7 @@ func TestTurnContinuityRejectsForgedBodies(t *testing.T) {
 
 func TestReferenceGetRoutedWithOperatorAuthority(t *testing.T) {
 	ops := &fakeReferenceOps{view: domain.ReferenceView{
-		Reference:    domain.ContextReference{ID: "ref-1", DestinationSessionID: "B", DestinationRunID: "run-1", SourceSessionID: "A", CapturedAt: 1, Digest: "d1", Origin: "user_selection"},
+		Reference:    domain.ContextReference{ID: "ref-1", DestinationSessionID: "B", DestinationRunID: "run-1", SourceSessionID: "A", CapturedAt: 1, Origin: "user_selection"},
 		SourceStatus: "ok",
 		FeedStatus:   "included",
 	}}

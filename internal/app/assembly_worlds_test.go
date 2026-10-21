@@ -129,13 +129,13 @@ func (recorder *recordingWorldVersions) RecordMutation(_ context.Context, _ doma
 	recorder.path = path
 }
 
-func (recorder *recordingWorldVersions) TrackAccess(_ context.Context, _ domain.SessionID, path string, _ int64) {
+func (recorder *recordingWorldVersions) TrackAccess(_ context.Context, _ domain.SessionID, _ string, path string, _ domain.FileReadState) {
 	recorder.tracked++
 	recorder.path = path
 }
 
-func (*recordingWorldVersions) LastAccess(context.Context, domain.SessionID, string) (int64, bool, error) {
-	return 0, false, nil
+func (*recordingWorldVersions) LastAccess(context.Context, domain.SessionID, string, string) (*domain.FileReadState, bool, error) {
+	return nil, false, nil
 }
 
 func TestGeneratedToolWorldWritesPreserveFileVersionHistory(t *testing.T) {
@@ -165,5 +165,43 @@ func TestGeneratedToolWorldWritesPreserveFileVersionHistory(t *testing.T) {
 	}
 	if string(content) != "new content" || recorder.mutations != 1 || recorder.tracked != 1 || recorder.path != "nested/file.txt" {
 		t.Fatalf("write = %q, mutations=%d tracked=%d path=%q", content, recorder.mutations, recorder.tracked, recorder.path)
+	}
+}
+
+func TestGeneratedToolWorldNoOpRechecksStateAndGrant(t *testing.T) {
+	for _, revoke := range []bool{false, true} {
+		t.Run(map[bool]string{false: "changed-bytes", true: "revoked-grant"}[revoke], func(t *testing.T) {
+			root := t.TempDir()
+			target := filepath.Join(root, "file.txt")
+			if err := os.WriteFile(target, []byte("AAA"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			host := generatedWorldHost{grants: map[module.Grant][]string{module.GrantFSWrite: nil}, lookup: func(context.Context) (string, error) { return root, nil }, ctx: context.Background()}
+			writer, err := host.OpenWrite("file.txt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if revoke {
+				delete(host.grants, module.GrantFSWrite)
+			} else {
+				if err := os.WriteFile(target, []byte("BBB"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := writer.Write([]byte("AAA")); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err == nil {
+				t.Fatal("stale or unauthorized no-op reported success")
+			}
+			expected := "BBB"
+			if revoke {
+				expected = "AAA"
+			}
+			got, err := os.ReadFile(target)
+			if err != nil || string(got) != expected {
+				t.Fatalf("target changed: %s %v", got, err)
+			}
+		})
 	}
 }

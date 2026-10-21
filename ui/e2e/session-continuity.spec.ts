@@ -19,12 +19,13 @@ import {
 const SENTINEL = 'SENTINEL-UNRELATED-SESSION';
 const REPORT_BYTES = 'REPORT-BYTES\n';
 let deliverySessionId = '';
+let personaReady = false;
 
 type Json = Record<string, unknown>;
 
 let modelServer: http.Server;
 test.beforeAll(async () => {
-  modelServer = await startLoopbackModel();
+  modelServer = await startLoopbackModel({ titleText: 'Continuity acceptance' });
 });
 test.afterAll(() => {
   modelServer.close();
@@ -33,27 +34,10 @@ test.describe.configure({ mode: 'serial' });
 
 async function rpc(page: Page, method: string, params: Json): Promise<Json> {
   return page.evaluate(async ({ method, params }) => {
-    const bootstrap = await (await fetch('/rpc/bootstrap', { cache: 'no-store' })).json() as { websocket_path: string; token: string };
-    const wsURL = new URL(bootstrap.websocket_path, location.origin);
-    wsURL.searchParams.set('token', bootstrap.token);
-    const socket = await new Promise<WebSocket>((resolve, reject) => {
-      const candidate = new WebSocket(wsURL.toString());
-      candidate.onopen = () => resolve(candidate);
-      candidate.onerror = () => reject(new Error('websocket connect failed'));
-    });
-    try {
-      return await new Promise<Json>((resolve, reject) => {
-        socket.onmessage = (event) => {
-          const reply = JSON.parse(String(event.data)) as { id?: string; result?: Json; error?: { code: number; message: string } };
-          if (reply.error) reject(new Error(`rpc ${method}: ${reply.error.code} ${reply.error.message}`));
-          else if (reply.id) resolve(reply.result ?? {});
-        };
-        socket.send(JSON.stringify({ jsonrpc: '2.0', id: 'e2e', method, params }));
-        setTimeout(() => reject(new Error(`rpc ${method} timeout`)), 10_000);
-      });
-    } finally {
-      socket.close();
-    }
+    const modulePath = '/src/lib/rpc.ts';
+    const { getRpcClient } = await import(/* @vite-ignore */ modulePath);
+    const client = await getRpcClient();
+    return client.call(method, params);
   }, { method, params });
 }
 
@@ -61,17 +45,31 @@ async function newChat(page: Page): Promise<string> {
   await page.addInitScript(() => localStorage.setItem('vivy.ui.welcome.completed', '1'));
   await page.goto('/');
   await expect(page.locator('article').first().or(page.getByText('Start a new conversation'))).toBeVisible({ timeout: 15_000 });
+  const previousSession = await page.evaluate(() => localStorage.getItem('vivy.ui.activeSession'));
   await page.getByRole('button', { name: 'New session' }).first().click();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('vivy.ui.activeSession'))).not.toBe(previousSession);
   await expect(page.getByText('Start a new conversation')).toBeVisible();
   const sessionId = await page.evaluate(() => localStorage.getItem('vivy.ui.activeSession'));
   if (!sessionId) throw new Error('no active session after new chat');
+  if (!personaReady) {
+    const initialized = await rpc(page, 'module.action.invoke', {
+      module_id: 'vivy/diva-cognitive', action_id: 'diva.cognitive.persona.initialize',
+      input: { session_id: sessionId, initialization: {
+        identity: 'Synthetic continuity test persona', relationship: 'Test fixture',
+        redline: 'Only use the disposable workspace', user: 'Test operator', world: 'Isolated acceptance',
+      } },
+    });
+    expect(initialized.status).toBe('ok');
+    personaReady = true;
+  }
   return sessionId;
 }
 
 async function send(page: Page, text: string): Promise<void> {
   const composer = page.getByRole('combobox', { name: 'Message' });
   await composer.fill(text);
-  await composer.press('Enter');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByText(text, { exact: true }).first()).toBeVisible();
 }
 
 test('coding delivery loop: card, verify, preview and byte-exact download', async ({ page }) => {
@@ -124,8 +122,8 @@ test('partial group, second same-path group and changed-file state', async ({ pa
   await page.getByRole('button', { name: 'Verify report.txt' }).click();
   await expect(page.getByText('file changed since delivery').first()).toBeVisible({ timeout: 15_000 });
 
-  // Each run gets a private workspace: write the file again in this run so
-  // the group comes out partial (one committed item + one missing path).
+  // An unbound session allocates a distinct private root for the next Run.
+  // A same-named new file must not inherit the first root's read marker.
   await setModelScript([
     toolCall('call-4', 'write_file', { path: 'report.txt', content: 'SECOND-BYTES\n' }),
     toolCall('call-5', 'present_files', {
@@ -143,6 +141,7 @@ test('partial group, second same-path group and changed-file state', async ({ pa
   await expect(page.getByText('1 failed')).toBeVisible();
   await expect(page.getByText('partial').first()).toBeVisible();
   await expect(page.getByText('ghost.txt')).toBeVisible();
+  expect(fs.readFileSync(path.join(runDir, 'report.txt'), 'utf8')).toBe(`${REPORT_BYTES}tampered`);
 
   // Reconnect/restart replay: the immutable groups reload from the journal
   // exactly once — no duplicate cards from the replay/live union.

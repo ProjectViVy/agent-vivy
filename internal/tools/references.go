@@ -28,7 +28,7 @@ func NewReferenceContext(ops ReferenceOperations) Tool { return &referenceContex
 func (t *referenceContextTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
 		Name:        ReferenceContextName,
-		Description: "Attaches a bounded, sanitized snapshot of explicitly selected authorized history records to this run's context.",
+		Description: "Attaches the exact bounded authorized records previously returned by history_read or reference preview. Supply those records as expected_items; changed source values conflict.",
 		Readonly:    false,
 		Keywords:    []string{"reference", "context", "attach", "history"},
 		Schema:      json.RawMessage(referenceContextSchema),
@@ -36,14 +36,13 @@ func (t *referenceContextTool) Spec() domain.ToolSpec {
 }
 
 type referenceContextArgs struct {
-	Selection      domain.HistorySelection `json:"selection"`
-	ExpectedDigest string                  `json:"expected_digest"`
-	Description    string                  `json:"description"`
+	Selection     domain.HistorySelection `json:"selection"`
+	ExpectedItems []domain.HistoryItem    `json:"expected_items"`
+	Description   string                  `json:"description"`
 }
 
 type referenceContextResult struct {
 	ReferenceID string               `json:"reference_id"`
-	Digest      string               `json:"digest"`
 	Origin      string               `json:"origin"`
 	ItemCount   int                  `json:"item_count"`
 	Excerpt     []domain.HistoryItem `json:"excerpt"`
@@ -58,15 +57,14 @@ func (t *referenceContextTool) InvokableRun(ctx context.Context, args json.RawMe
 		return "", err
 	}
 	reference, err := t.ops.Attach(ctx, domain.ReferenceSelection{
-		Selection:      input.Selection,
-		ExpectedDigest: input.ExpectedDigest,
+		Selection:     input.Selection,
+		ExpectedItems: input.ExpectedItems,
 	})
 	if err != nil {
 		return "", err
 	}
 	return marshalToolResult(referenceContextResult{
 		ReferenceID: reference.ID,
-		Digest:      reference.Digest,
 		Origin:      reference.Origin,
 		ItemCount:   len(reference.Items),
 		Excerpt:     reference.Items,
@@ -96,8 +94,8 @@ const referenceContextSchema = `{
       },
       "required":["source_session_id"]
     },
-    "expected_digest":{"type":"string","maxLength":128},
+    "expected_items":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"object"}},
     "description":{"type":"string","maxLength":512}
   },
-  "required":["selection"]
+  "required":["selection","expected_items"]
 }`

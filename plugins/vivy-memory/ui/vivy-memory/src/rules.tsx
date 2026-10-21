@@ -11,7 +11,7 @@ const KNOWN_RULES_SOURCE = new Set(['default', 'file']);
 interface RulesView {
   readonly content: string;
   readonly source: string;
-  readonly revision: string;
+  readonly exists: boolean;
 }
 
 interface RulesPanelProps {
@@ -20,8 +20,8 @@ interface RulesPanelProps {
 }
 
 /**
- * MEMRULES handbook editor. rules.write is guarded by a content-digest CAS:
- * the token from the latest rules.read goes back as base_revision, and a
+ * MEMRULES handbook editor. rules.write is guarded by exact content and existence CAS:
+ * the values from the latest rules.read go back as preconditions, and a
  * conflict reloads the authoritative copy instead of overwriting it.
  */
 export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
@@ -38,7 +38,7 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
     try {
       const outcome = await client.rulesRead();
       if (outcome.status === 'listed') {
-        setView({ content: outcome.content ?? '', source: outcome.source ?? 'file', revision: outcome.revision ?? '' });
+        setView({ content: outcome.content ?? '', source: outcome.source ?? 'file', exists: outcome.exists === true });
       } else {
         setError(outcome.reason ?? outcome.status);
       }
@@ -59,7 +59,7 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
     setError(null);
     setConflict(false);
     try {
-      const outcome = await client.rulesWrite({ content: draft, base_revision: view.revision });
+      const outcome = await client.rulesWrite({ content: draft, expected_content: view.content, expected_exists: view.exists });
       if (outcome.status === 'applied') {
         setDraft(null);
         await load();

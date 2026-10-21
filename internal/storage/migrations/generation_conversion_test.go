@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,13 +52,13 @@ func TestGenerationCopiedBaselineConversionPreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyManifest(ctx, source, SQLite, base); err != nil {
+	if err := applyManifest(ctx, source, SQLite, base); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := source.Exec(generationHistoryFixture); err != nil {
 		t.Fatal(err)
 	}
-	if err := Apply(ctx, source, SQLite); !errors.Is(err, ErrUpgradeRequired) {
+	if err := Apply(ctx, source, SQLite); !errors.Is(err, ErrUnsupportedSourceFormat) {
 		t.Fatalf("baseline runtime open = %v", err)
 	}
 	source.Close()
@@ -74,7 +75,7 @@ func TestGenerationCopiedBaselineConversionPreservesHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer target.Close()
-	if err := ApplyManifest(ctx, target, SQLite, manifest); err != nil {
+	if err := applyManifest(ctx, target, SQLite, manifest); err != nil {
 		t.Fatal(err)
 	}
 	present, err := sourceColumnExists(ctx, target, SQLite, "generations", "artifact_sha256")
@@ -114,7 +115,7 @@ func TestGenerationCopyMigrationRollbackAndIntermediateRefusal(t *testing.T) {
 	}
 	db := openMigrationTestDB(t)
 	base := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:35], Postgres: manifest.Migrations(Postgres)[:35]}}
-	if err := ApplyManifest(ctx, db, SQLite, base); err != nil {
+	if err := applyManifest(ctx, db, SQLite, base); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(generationHistoryFixture); err != nil {
@@ -123,7 +124,7 @@ func TestGenerationCopyMigrationRollbackAndIntermediateRefusal(t *testing.T) {
 	if _, err := db.Exec("CREATE INDEX generation_failure_guard ON generations(artifact_sha256)"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyManifest(ctx, db, SQLite, manifest); err == nil {
+	if err := applyManifest(ctx, db, SQLite, manifest); err == nil {
 		t.Fatal("target column-drop fault unexpectedly succeeded")
 	}
 	var count int
@@ -134,13 +135,15 @@ func TestGenerationCopyMigrationRollbackAndIntermediateRefusal(t *testing.T) {
 	if err != nil || !present {
 		t.Fatalf("drop-column failure did not roll back: %v %v", present, err)
 	}
-	if err := Apply(ctx, db, SQLite); !errors.Is(err, ErrUpgradeRequired) {
-		t.Fatalf("verified intermediate037 runtime accepted: %v", err)
+	// A known D12 three-column target may advance through the same runner;
+	// the dependent index still prevents 038 and its marker from committing.
+	if err := Apply(ctx, db, SQLite); err == nil {
+		t.Fatal("guarded intermediate target unexpectedly advanced")
 	}
 	if _, err := db.Exec("DROP INDEX generation_failure_guard"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyManifest(ctx, db, SQLite, manifest); err != nil {
+	if err := applyManifest(ctx, db, SQLite, manifest); err != nil {
 		t.Fatal(err)
 	}
 	if err := Apply(ctx, db, SQLite); err != nil {
@@ -156,7 +159,7 @@ func TestGenerationBaselineShapeDriftRefusesBeforeWrites(t *testing.T) {
 	}
 	db := openMigrationTestDB(t)
 	base := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:35], Postgres: manifest.Migrations(Postgres)[:35]}}
-	if err := ApplyManifest(ctx, db, SQLite, base); err != nil {
+	if err := applyManifest(ctx, db, SQLite, base); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec("ALTER TABLE generations DROP COLUMN artifact_sha256"); err != nil {
@@ -168,5 +171,80 @@ func TestGenerationBaselineShapeDriftRefusesBeforeWrites(t *testing.T) {
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 35 {
 		t.Fatalf("drift refusal wrote metadata: %d: %v", count, err)
+	}
+}
+
+func TestGenerationLegacyMetadataRefusesDamageBeforeWrites(t *testing.T) {
+	ctx := context.Background()
+	manifest, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, head := range []int{35, 36} {
+		for _, missing := range []string{"", "artifact_sha256", "source_ref"} {
+			t.Run(fmt.Sprintf("head%d-missing-%s", head, missing), func(t *testing.T) {
+				db := openMigrationTestDB(t)
+				base := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:head], Postgres: manifest.Migrations(Postgres)[:head]}}
+				if err := applyManifest(ctx, db, SQLite, base); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`ALTER TABLE schema_migrations ADD COLUMN checksum TEXT NOT NULL DEFAULT 'historical'`); err != nil {
+					t.Fatal(err)
+				}
+				if missing != "" {
+					if _, err := db.Exec("ALTER TABLE generations DROP COLUMN " + missing); err != nil {
+						t.Fatal(err)
+					}
+				}
+				want := ErrUpgradeRequired
+				if missing != "" {
+					want = ErrUnsupportedSourceFormat
+				}
+				for _, apply := range []func() error{func() error { return Apply(ctx, db, SQLite) }, func() error { return ApplyManifest(ctx, db, SQLite, manifest) }} {
+					if err := apply(); !errors.Is(err, want) {
+						t.Fatalf("legacy classification: got %v want %v", err, want)
+					}
+				}
+				var actual int
+				if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&actual); err != nil || actual != head {
+					t.Fatalf("refusal changed metadata: %d %v", actual, err)
+				}
+			})
+		}
+	}
+}
+func TestGenerationD12TargetPublicAdvancePreservesHistory(t *testing.T) {
+	ctx := context.Background()
+	manifest, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := openMigrationTestDB(t)
+	prefix := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:36], Postgres: manifest.Migrations(Postgres)[:36]}}
+	if err := applyManifest(ctx, db, SQLite, prefix); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(generationHistoryFixture); err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatal(err)
+	}
+	var head int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != len(manifest.Migrations(SQLite)) {
+		t.Fatalf("public advance: %d %v", head, err)
+	}
+	var ref string
+	if err := db.QueryRow(`SELECT source_ref FROM generations WHERE id='legacy-candidate'`).Scan(&ref); err != nil || ref != "file:/custom/output/body.exe" {
+		t.Fatalf("history changed: %q %v", ref, err)
+	}
+	for table, want := range map[string]int{"generations": 2, "eval_runs": 1, "promotions": 1, "studio_events": 1} {
+		var got int
+		if err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&got); err != nil || got != want {
+			t.Fatalf("%s lost history: %d %v", table, got, err)
+		}
+	}
+	if err := Apply(ctx, db, SQLite); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -403,7 +403,7 @@ func TestPlanGoalIntegratedPauseInFlightAndReopen(t *testing.T) {
 	assertWorkEventCount(t, restarted, sessionID, domain.WorkEventGoalPaused, 1)
 }
 
-func TestPlanGoalIntegratedReadsConvertedVersion23SQLite(t *testing.T) {
+func TestPlanGoalIntegratedOpensConvertedSQLite(t *testing.T) {
 	planGoalTestProvider(t, newPlanGoalScriptServer(t, nil).URL)
 	cfg, _ := planGoalTestConfig(t, nil)
 	manifest, err := migrations.Embedded()
@@ -415,10 +415,10 @@ func TestPlanGoalIntegratedReadsConvertedVersion23SQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range manifest.Migrations(migrations.SQLite)[:23] {
+	for _, migration := range manifest.Migrations(migrations.SQLite) {
 		tx, err := db.Begin()
 		if err != nil {
 			t.Fatal(err)
@@ -427,7 +427,7 @@ func TestPlanGoalIntegratedReadsConvertedVersion23SQLite(t *testing.T) {
 			_ = tx.Rollback()
 			t.Fatalf("seed migration %d: %v", migration.Version, err)
 		}
-		if _, err := tx.Exec(`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.Checksum, int64(1)); err != nil {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations(version,name,applied_at) VALUES(?,?,?)`, migration.Version, migration.Name, int64(1)); err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}
@@ -441,38 +441,6 @@ func TestPlanGoalIntegratedReadsConvertedVersion23SQLite(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	sourcePath := cfg.Storage.SQLite.Path
-	before, err := os.ReadFile(sourcePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	refused, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway())
-	if refused != nil {
-		_ = refused.Close()
-	}
-	if !errors.Is(err, migrations.ErrUpgradeRequired) {
-		t.Fatalf("old runtime open = %v", err)
-	}
-	after, err := os.ReadFile(sourcePath)
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("refusal changed source: %v", err)
-	}
-	// Conversion is explicit and operates only on a new disposable copy.
-	cfg.Storage.SQLite.Path = filepath.Join(t.TempDir(), "converted.db")
-	if err := os.WriteFile(cfg.Storage.SQLite.Path, before, 0600); err != nil {
-		t.Fatal(err)
-	}
-	target, err := sql.Open("sqlite", cfg.Storage.SQLite.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.ApplyManifest(context.Background(), target, migrations.SQLite, manifest); err != nil {
-		target.Close()
-		t.Fatal(err)
-	}
-	if err := target.Close(); err != nil {
-		t.Fatal(err)
-	}
 	a := openPlanGoalTestApp(t, cfg)
 	client, err := a.DialControl(context.Background(), nil)
 	if err != nil {
@@ -481,7 +449,7 @@ func TestPlanGoalIntegratedReadsConvertedVersion23SQLite(t *testing.T) {
 	defer client.Close()
 	session := callControl(t, client, "session/get", map[string]any{"session_id": "legacy-app-session"})
 	if session["session"].(map[string]any)["title"] != "preserved" {
-		t.Fatalf("old session not preserved by copied-target conversion: %v", session)
+		t.Fatalf("converted session not preserved by app.New: %v", session)
 	}
 	work := callControl(t, client, "session/work/get", map[string]any{"session_id": "legacy-app-session"})
 	if work["version"] != float64(0) {
@@ -497,11 +465,50 @@ func TestPlanGoalIntegratedReadsConvertedVersion23SQLite(t *testing.T) {
 	defer check.Close()
 	var count int
 	if err := check.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil || count != len(manifest.Migrations(migrations.SQLite)) {
-		t.Fatalf("converted target migration count = %d / %v", count, err)
+		t.Fatalf("app.New migration count = %d / %v", count, err)
 	}
-	unchanged, err := os.ReadFile(sourcePath)
-	if err != nil || !bytes.Equal(before, unchanged) {
-		t.Fatalf("conversion changed source: %v", err)
+}
+
+func TestPlanGoalIntegratedRefusesVersion23SQLite(t *testing.T) {
+	planGoalTestProvider(t, newPlanGoalScriptServer(t, nil).URL)
+	cfg, _ := planGoalTestConfig(t, nil)
+	db, err := sql.Open("sqlite", cfg.Storage.SQLite.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,checksum TEXT NOT NULL,applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := migrations.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range manifest.Migrations(migrations.SQLite)[:23] {
+		if _, err := db.Exec(item.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations VALUES(?,?,'old-format',1)`, item.Version, item.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(cfg.Storage.SQLite.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway())
+	if a != nil {
+		_ = a.Close()
+	}
+	if !errors.Is(err, migrations.ErrUpgradeRequired) {
+		t.Fatalf("old app source=%v", err)
+	}
+	after, err := os.ReadFile(cfg.Storage.SQLite.Path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("refused app source changed: %v", err)
 	}
 }
 

@@ -65,7 +65,7 @@ func (b *Backend) GetReview(ctx context.Context, id string) (domain.ReviewItem, 
 func (b *Backend) listApprovalReviews(ctx context.Context, filter storage.ReviewFilter, limit int) ([]domain.ReviewItem, error) {
 	query := `SELECT a.id, a.run_id, a.tool_call_id, a.decision, a.expires_at,
 		 a.created_at, a.decided_at, a.actor, a.decision_reason, a.stale_reason,
-		 a.tool_name, a.action, a.target, a.precondition_hash, a.preview,
+		 a.tool_name, a.action, a.target, a.preview,
 		 a.risk_findings_json, r.session_id, s.title
 		 FROM approvals a JOIN runs r ON r.id = a.run_id JOIN sessions s ON s.id = r.session_id`
 	where, args := reviewWhere(filter, "approval", "a.decision", "a.expires_at", "r.session_id")
@@ -84,7 +84,7 @@ func (b *Backend) listApprovalReviews(ctx context.Context, filter storage.Review
 		var reason, staleReason, risk []byte
 		if err := rows.Scan(&item.ID, &rid, &item.ToolCallID, &decision, &item.ExpiresAt,
 			&item.CreatedAt, &item.DecidedAt, &item.Actor, &reason, &staleReason,
-			&item.ToolName, &item.Action, &item.Target, &item.PreconditionHash, &item.Preview,
+			&item.ToolName, &item.Action, &item.Target, &item.Preview,
 			&risk, &sessionID, &title); err != nil {
 			return nil, fmt.Errorf("storage: scan approval review: %w", err)
 		}

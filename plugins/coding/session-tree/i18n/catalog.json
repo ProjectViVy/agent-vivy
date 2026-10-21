@@ -80,14 +80,6 @@
       "placeholders": [],
       "messages": { "en": "Action failed", "zh": "操作失败" }
     },
-    "plugin.vivy/session-tree.verifyFailed": {
-      "description": "Session tree page copy: digest mismatch on download",
-      "placeholders": [],
-      "messages": {
-        "en": "Downloaded file failed digest verification",
-        "zh": "下载的文件未通过摘要校验"
-      }
-    },
     "plugin.vivy/session-tree.selectHint": {
       "description": "Session tree page copy: row hint",
       "placeholders": [],

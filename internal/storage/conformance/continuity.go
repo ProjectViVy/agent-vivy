@@ -21,7 +21,7 @@ func continuityStore(t *testing.T, b storage.Engine) storage.ContinuityStore {
 	return c
 }
 
-func continuityAdmission(sid domain.SessionID, runID domain.RunID, messageID, requestID, hash string) storage.ContinuityAdmission {
+func continuityAdmission(sid domain.SessionID, runID domain.RunID, messageID, requestID, intended string) storage.ContinuityAdmission {
 	scope, err := domain.NewAcceptedHistoryScope(sid, []domain.SessionID{sid})
 	if err != nil {
 		panic(err)
@@ -43,7 +43,7 @@ func continuityAdmission(sid domain.SessionID, runID domain.RunID, messageID, re
 			{RunID: runID, Type: domain.EventContextReferenceAttached, CreatedAt: 7, PayloadVersion: 1, Payload: []byte(`{}`)},
 		},
 		Scope:   scope,
-		Receipt: domain.ContinuityReceipt{SessionID: sid, RunID: runID, Operation: storage.ContinuityOperationAdmission, RequestID: requestID, InputHash: hash},
+		Receipt: domain.ContinuityReceipt{SessionID: sid, RunID: runID, Operation: storage.ContinuityOperationAdmission, RequestID: requestID, Input: []byte(intended)},
 	}
 }
 
@@ -68,7 +68,7 @@ func AssertContinuityAtomic(t *testing.T, slot Slot) {
 			if err != nil {
 				t.Fatalf("reopen writer: %v", err)
 			}
-			admission := continuityAdmission(sid, domain.RunID("r-"+step), "m-"+step, "req-"+step, "hash-"+step)
+			admission := continuityAdmission(sid, domain.RunID("r-"+step), "m-"+step, "req-"+step, "input-"+step)
 			admission.TestFaultHook = func(got string) error {
 				if got == step {
 					return fmt.Errorf("injected fault after %s", step)
@@ -112,7 +112,7 @@ func AssertContinuityAtomic(t *testing.T, slot Slot) {
 	}
 	defer func() { _ = b.Close() }()
 	store := continuityStore(t, b)
-	admission := continuityAdmission(sid, "r-ok", "m-ok", "req-ok", "hash-ok")
+	admission := continuityAdmission(sid, "r-ok", "m-ok", "req-ok", "input-ok")
 	result, err := store.CommitContinuityRun(ctx, admission)
 	if err != nil {
 		t.Fatalf("CommitContinuityRun: %v", err)
@@ -150,13 +150,13 @@ func AssertContinuityRetry(t *testing.T, slot Slot) {
 	const sid = domain.SessionID("continuity-retry")
 	createHistorySession(t, b, sid)
 
-	first, err := store.CommitContinuityRun(ctx, continuityAdmission(sid, "r-first", "m-first", "req-dup", "hash-dup"))
+	first, err := store.CommitContinuityRun(ctx, continuityAdmission(sid, "r-first", "m-first", "req-dup", "input-dup"))
 	if err != nil {
 		t.Fatalf("first CommitContinuityRun: %v", err)
 	}
 	// A retry carries a fresh run/message identity but the same request id
-	// and input hash — the queueing path reissues submission, not identity.
-	retryAdmission := continuityAdmission(sid, "r-retry", "m-retry", "req-dup", "hash-dup")
+	// and input input — the queueing path reissues submission, not identity.
+	retryAdmission := continuityAdmission(sid, "r-retry", "m-retry", "req-dup", "input-dup")
 	retry, err := store.CommitContinuityRun(ctx, retryAdmission)
 	if err != nil {
 		t.Fatalf("retry CommitContinuityRun: %v", err)
@@ -190,10 +190,10 @@ func AssertContinuityRetry(t *testing.T, slot Slot) {
 		t.Fatalf("duplicate user rows: %d", len(messages))
 	}
 
-	// Same request id with a different input hash is a conflict.
-	conflict := continuityAdmission(sid, "r-conflict", "m-conflict", "req-dup", "hash-other")
+	// Same request id with a different input input is a conflict.
+	conflict := continuityAdmission(sid, "r-conflict", "m-conflict", "req-dup", "input-other")
 	if _, err := store.CommitContinuityRun(ctx, conflict); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("different hash must be conflict: %v", err)
+		t.Fatalf("different input must be conflict: %v", err)
 	}
 
 	// Guarded operations: replay returns the original committed event even
@@ -205,8 +205,7 @@ func AssertContinuityRetry(t *testing.T, slot Slot) {
 			RunID: first.RunID, Type: domain.EventContextReferenceAttached,
 			CreatedAt: 8, PayloadVersion: 1, Payload: []byte(`{"op":1}`),
 		},
-		InputHash: "op-hash-1",
-		Receipt:   domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "r-first:tc-1", InputHash: "op-hash-1"},
+		Receipt: domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "r-first:tc-1", Input: []byte("op-input-1")},
 	}
 	committed, err := store.CommitContinuityOperation(ctx, mutation)
 	if err != nil {
@@ -239,12 +238,11 @@ func AssertContinuityRetry(t *testing.T, slot Slot) {
 			RunID: first.RunID, Type: domain.EventContextReferenceAttached,
 			CreatedAt: 10, PayloadVersion: 1, Payload: []byte(`{"op":2}`),
 		},
-		InputHash: "op-hash-2",
-		Receipt:   domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "r-first:tc-2", InputHash: "op-hash-2"},
+		Receipt: domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "r-first:tc-2", Input: []byte("op-input-2")},
 	}); !errors.Is(err, storage.ErrRunClosed) {
 		t.Fatalf("new mutation after terminal must fail run closed: %v", err)
 	}
-	// Same receipt identity with a changed hash is a conflict.
+	// Same receipt identity with a changed input is a conflict.
 	if _, err := store.CommitContinuityOperation(ctx, storage.ContinuityMutation{
 		SessionID: sid,
 		RunID:     first.RunID,
@@ -252,10 +250,34 @@ func AssertContinuityRetry(t *testing.T, slot Slot) {
 			RunID: first.RunID, Type: domain.EventContextReferenceAttached,
 			CreatedAt: 11, PayloadVersion: 1, Payload: []byte(`{"op":3}`),
 		},
-		InputHash: "op-hash-other",
-		Receipt:   domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "r-first:tc-1", InputHash: "op-hash-other"},
+		Receipt: domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "r-first:tc-1", Input: []byte("op-input-other")},
 	}); !errors.Is(err, storage.ErrConflict) {
-		t.Fatalf("changed operation hash must be conflict: %v", err)
+		t.Fatalf("changed operation input must be conflict: %v", err)
+	}
+	// Reopening must preserve the exact input and original terminal-safe result.
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := slot.Reopen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	replayed, err = continuityStore(t, reopened).CommitContinuityOperation(ctx, mutation)
+	if err != nil || replayed.NewlyCommitted || !replayed.Receipt.MatchesInput(mutation.Receipt.Input) {
+		t.Fatalf("reopen receipt mismatch: %v", err)
+	}
+	changed := mutation
+	changed.Receipt.Input = append([]byte(nil), mutation.Receipt.Input...)
+	changed.Receipt.Input[len(changed.Receipt.Input)-1] ^= 1
+	if _, err := continuityStore(t, reopened).CommitContinuityOperation(ctx, changed); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("same-size changed input replayed: %v", err)
+	}
+	if err := reopened.DeleteSession(ctx, sid); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := continuityStore(t, reopened).FindContinuityReceipt(ctx, sid, mutation.Receipt.Operation, mutation.Receipt.RequestID); err != nil || found {
+		t.Fatalf("private receipt survived destination deletion: found=%v err=%v", found, err)
 	}
 }
 
@@ -272,13 +294,13 @@ func AssertContinuityExpectations(t *testing.T, slot Slot) {
 	createHistorySession(t, b, sid)
 	createHistorySession(t, b, src)
 
-	admission := continuityAdmission(sid, "r-exp", "m-exp", "req-exp", "hash-exp")
+	admission := continuityAdmission(sid, "r-exp", "m-exp", "req-exp", "input-exp")
 	scope, err := domain.NewAcceptedHistoryScope(sid, []domain.SessionID{sid, src})
 	if err != nil {
 		t.Fatalf("scope: %v", err)
 	}
 	admission.Scope = scope
-	admission.Expectations = []storage.SourceExpectation{{SourceSessionID: src, TruncationMarkers: 0, Digest: "d1"}}
+	admission.Expectations = []storage.SourceExpectation{{SourceSessionID: src, TruncationMarkers: 0}}
 	if _, err := store.CommitContinuityRun(ctx, admission); err != nil {
 		t.Fatalf("admission with valid expectations: %v", err)
 	}
@@ -293,21 +315,55 @@ func AssertContinuityExpectations(t *testing.T, slot Slot) {
 	if _, err := rewinder.CommitSessionRewind(ctx, marker, ev(domain.EventSessionTruncated)); err != nil {
 		t.Fatalf("CommitSessionRewind: %v", err)
 	}
-	stale := continuityAdmission(sid, "r-exp2", "m-exp2", "req-exp2", "hash-exp2")
+	stale := continuityAdmission(sid, "r-exp2", "m-exp2", "req-exp2", "input-exp2")
 	stale.Scope = scope
-	stale.Expectations = []storage.SourceExpectation{{SourceSessionID: src, TruncationMarkers: 0, Digest: "d1"}}
+	stale.Expectations = []storage.SourceExpectation{{SourceSessionID: src, TruncationMarkers: 0}}
 	if _, err := store.CommitContinuityRun(ctx, stale); !errors.Is(err, storage.ErrSourceChanged) {
 		t.Fatalf("rewound source must fail expectation: %v", err)
 	}
 
-	// A deleted source fails admission outright.
+	// A deleted source fails a new admission, but never hides an existing outcome.
 	if err := b.DeleteSession(ctx, src); err != nil {
 		t.Fatalf("DeleteSession: %v", err)
 	}
-	deleted := continuityAdmission(sid, "r-exp3", "m-exp3", "req-exp3", "hash-exp3")
+	replay, err := store.CommitContinuityRun(ctx, admission)
+	if err != nil || replay.NewlyCommitted || replay.RunID != admission.Run.ID {
+		t.Fatalf("source deletion hid committed admission: %v", err)
+	}
+	deleted := continuityAdmission(sid, "r-exp3", "m-exp3", "req-exp3", "input-exp3")
 	deleted.Scope = scope
-	deleted.Expectations = []storage.SourceExpectation{{SourceSessionID: src, TruncationMarkers: 1, Digest: "d1"}}
+	deleted.Expectations = []storage.SourceExpectation{{SourceSessionID: src, TruncationMarkers: 1}}
 	if _, err := store.CommitContinuityRun(ctx, deleted); !errors.Is(err, storage.ErrSourceChanged) {
 		t.Fatalf("deleted source must fail expectation: %v", err)
+	}
+	// Existing operation transaction also fences visibility changes after a read.
+	source := domain.SessionID("continuity-op-source")
+	createHistorySession(t, b, source)
+	mutation := storage.ContinuityMutation{SessionID: sid, RunID: admission.Run.ID,
+		Event:        domain.RunEvent{RunID: admission.Run.ID, Type: domain.EventContextReferenceAttached, Payload: []byte(`{"copied":"exact selected text"}`), PayloadVersion: 1},
+		Receipt:      domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "op-source", Input: []byte(`{"selected":"exact selected text"}`)},
+		Expectations: []storage.SourceExpectation{{SourceSessionID: source, TruncationMarkers: 0}}}
+	if _, err := store.CommitContinuityOperation(ctx, mutation); err != nil {
+		t.Fatalf("valid source operation: %v", err)
+	}
+	if err := b.DeleteSession(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := store.CommitContinuityOperation(ctx, mutation); err != nil || result.NewlyCommitted {
+		t.Fatalf("source deletion hid committed operation: %v", err)
+	}
+	mutation.Receipt.RequestID = "op-source-new"
+	if _, err := store.CommitContinuityOperation(ctx, mutation); !errors.Is(err, storage.ErrSourceChanged) {
+		t.Fatalf("deleted source allowed new operation: %v", err)
+	}
+	source = "continuity-op-rewind"
+	createHistorySession(t, b, source)
+	mutation.Expectations = []storage.SourceExpectation{{SourceSessionID: source, TruncationMarkers: 0}}
+	mutation.Receipt.RequestID = "op-rewind"
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: source, CutoffMessageID: "x", TailMessageID: "x", Reason: storage.TruncationRewind, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitContinuityOperation(ctx, mutation); !errors.Is(err, storage.ErrSourceChanged) {
+		t.Fatalf("rewound source allowed new operation: %v", err)
 	}
 }

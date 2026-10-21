@@ -1,5 +1,5 @@
-// 显式交付传输（SC-D4 §12）：下载只走 digest 绑定的 deliverables/read +
-// deliverables/close，序列化分片直到 EOF，组装后校验字节数与 sha256，
+// 显式交付传输（SC-D4 §12）：下载只走条目及不可变传输绑定的 deliverables/read +
+// deliverables/close，顺序读取同一个 TransferID 的分片并校验字节数与 EOF，
 // 只有全部成立才触发浏览器保存；没有成功前不产生 object URL。
 // HTML/SVG 只以文本形式预览或作为附件落盘，从不在应用源内执行。
 
@@ -24,6 +24,7 @@ export interface DeliverableTransferRpc {
 }
 
 const CHUNK_LENGTH = 256 * 1024;
+const MAX_DELIVERY_BYTES = 32 * 1024 * 1024;
 export const DELIVERY_PREVIEW_BYTES = 64 * 1024;
 
 const TEXT_PREVIEW_TYPES = new Set([
@@ -46,8 +47,11 @@ export function isTextPreviewable(mediaType: string): boolean {
   return base.startsWith('text/') || TEXT_PREVIEW_TYPES.has(base);
 }
 
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
+function decodeBase64(value: string, limit: number): Uint8Array {
+  if (typeof value !== 'string' || value.length > Math.ceil(limit / 3) * 4) throw new DeliverableTransferError('mismatch');
+  let binary: string;
+  try { binary = atob(value); } catch { throw new DeliverableTransferError('mismatch'); }
+  if (binary.length > limit) throw new DeliverableTransferError('mismatch');
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return bytes;
@@ -72,16 +76,10 @@ function aborted(signal?: AbortSignal): boolean {
   return signal?.aborted === true;
 }
 
-async function sha256Hex(data: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', data.slice().buffer);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
 async function readChunk(item: Deliverable, sessionId: string, rpc: DeliverableTransferRpc, request: { offset: number; length: number; transferId?: string }): Promise<DeliveryChunk> {
   try {
     return await rpc.read(sessionId, {
       item_id: item.id,
-      expected_digest: item.sha256,
       transfer_id: request.transferId === '' || request.transferId === undefined ? undefined : request.transferId,
       offset: request.offset,
       length: request.length,
@@ -91,16 +89,29 @@ async function readChunk(item: Deliverable, sessionId: string, rpc: DeliverableT
   }
 }
 
-function assertChunkFrame(chunk: DeliveryChunk, item: Deliverable, offset: number): void {
-  if (chunk.item_id !== item.id || chunk.digest !== item.sha256 || chunk.offset !== offset) {
+function validateItem(item: Deliverable): void {
+  if (!Number.isSafeInteger(item.size) || item.size < 0 || item.size > MAX_DELIVERY_BYTES) {
     throw new DeliverableTransferError('mismatch');
   }
+}
+
+function checkedChunk(chunk: DeliveryChunk, item: Deliverable, offset: number, length: number, transferId: string): Uint8Array {
+  if (typeof chunk.transfer_id !== 'string' || chunk.transfer_id === '' || chunk.transfer_id !== transferId || chunk.item_id !== item.id || chunk.offset !== offset) {
+    throw new DeliverableTransferError('mismatch');
+  }
+  const bytes = decodeBase64(chunk.data_base64, length);
+  const end = offset + bytes.length;
+  if (end > item.size || chunk.eof !== (end === item.size) || (bytes.length === 0 && !chunk.eof)) {
+    throw new DeliverableTransferError('mismatch');
+  }
+  return bytes;
 }
 
 /** 保存下载：顺序取片到 EOF，整体验证后走 object URL；任何中止/不匹配
  * 都关传输且不留半成品。 */
 export async function downloadDeliverable(item: Deliverable, sessionId: string, rpc: DeliverableTransferRpc, signal?: AbortSignal): Promise<void> {
   if (aborted(signal)) throw new DeliverableTransferError('aborted');
+  validateItem(item);
   let transferId = '';
   let offset = 0;
   let total = 0;
@@ -109,11 +120,9 @@ export async function downloadDeliverable(item: Deliverable, sessionId: string, 
     for (;;) {
       if (aborted(signal)) throw new DeliverableTransferError('aborted');
       const chunk = await readChunk(item, sessionId, rpc, { offset, length: CHUNK_LENGTH, transferId });
-      transferId = chunk.transfer_id;
+      if (transferId === '' && typeof chunk.transfer_id === 'string') transferId = chunk.transfer_id;
       if (aborted(signal)) throw new DeliverableTransferError('aborted');
-      assertChunkFrame(chunk, item, offset);
-      const bytes = decodeBase64(chunk.data_base64);
-      if (bytes.length === 0 && !chunk.eof) throw new DeliverableTransferError('mismatch');
+      const bytes = checkedChunk(chunk, item, offset, CHUNK_LENGTH, transferId);
       parts.push(bytes);
       total += bytes.length;
       offset += bytes.length;
@@ -122,6 +131,7 @@ export async function downloadDeliverable(item: Deliverable, sessionId: string, 
   } finally {
     if (transferId !== '') await rpc.close(sessionId, transferId).catch(() => undefined);
   }
+  if (aborted(signal)) throw new DeliverableTransferError('aborted');
   if (total !== item.size) throw new DeliverableTransferError('mismatch');
   const assembled = new Uint8Array(total);
   let at = 0;
@@ -129,7 +139,6 @@ export async function downloadDeliverable(item: Deliverable, sessionId: string, 
     assembled.set(part, at);
     at += part.length;
   }
-  if ((await sha256Hex(assembled)) !== item.sha256) throw new DeliverableTransferError('mismatch');
   const url = URL.createObjectURL(new Blob([assembled.slice().buffer], { type: item.media_type }));
   try {
     const anchor = document.createElement('a');
@@ -146,25 +155,29 @@ export async function downloadDeliverable(item: Deliverable, sessionId: string, 
 /** 有界文本预览：只读文件头一段；失败原因与下载一致。 */
 export async function readDeliveryPreview(item: Deliverable, sessionId: string, rpc: DeliverableTransferRpc, signal?: AbortSignal): Promise<string> {
   if (aborted(signal)) throw new DeliverableTransferError('aborted');
+  validateItem(item);
   let transferId = '';
   try {
     const chunk = await readChunk(item, sessionId, rpc, { offset: 0, length: Math.min(Math.max(item.size, 1), DELIVERY_PREVIEW_BYTES) });
-    transferId = chunk.transfer_id;
-    assertChunkFrame(chunk, item, 0);
-    return new TextDecoder('utf-8', { fatal: false }).decode(decodeBase64(chunk.data_base64));
+    if (typeof chunk.transfer_id === 'string') transferId = chunk.transfer_id;
+    if (aborted(signal)) throw new DeliverableTransferError('aborted');
+    const bytes = checkedChunk(chunk, item, 0, Math.min(Math.max(item.size, 1), DELIVERY_PREVIEW_BYTES), transferId);
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   } finally {
     if (transferId !== '') await rpc.close(sessionId, transferId).catch(() => undefined);
   }
 }
 
-/** 可用性探针：一个 digest 绑定的起始读，成功即证明当前内容与快照一致。 */
+/** 可用性探针：起始读由服务端比对私有呈现字节并创建不可变传输。 */
 export async function checkDeliverable(item: Deliverable, sessionId: string, rpc: DeliverableTransferRpc, signal?: AbortSignal): Promise<void> {
   if (aborted(signal)) throw new DeliverableTransferError('aborted');
+  validateItem(item);
   let transferId = '';
   try {
     const chunk = await readChunk(item, sessionId, rpc, { offset: 0, length: Math.min(Math.max(item.size, 1), 4096) });
-    transferId = chunk.transfer_id;
-    assertChunkFrame(chunk, item, 0);
+    if (typeof chunk.transfer_id === 'string') transferId = chunk.transfer_id;
+    if (aborted(signal)) throw new DeliverableTransferError('aborted');
+    checkedChunk(chunk, item, 0, Math.min(Math.max(item.size, 1), 4096), transferId);
   } finally {
     if (transferId !== '') await rpc.close(sessionId, transferId).catch(() => undefined);
   }

@@ -40,6 +40,12 @@ describe('typed Vivy API', () => {
     expect(api.RPC_METHODS).toContain('cron/trigger');
     expect(api.RPC_METHODS).toContain('cron/stop');
   });
+  it('addresses immutable exports and delivery snapshots without digest authority', async () => {
+    await api.readExport('export_opaque.html');
+    expect(call).toHaveBeenLastCalledWith('exports/read', { name: 'export_opaque.html' });
+    await api.deliverablesRead('session-1', { item_id: 'item-1', transfer_id: 'transfer-1', offset: 4, length: 8 });
+    expect(call).toHaveBeenLastCalledWith('deliverables/read', { session_id: 'session-1', item_id: 'item-1', transfer_id: 'transfer-1', offset: 4, length: 8 });
+  });
   it('maps workspace selection and browsing to their wire methods', async () => {
     await api.createSession('', '/code/vivy');
     expect(call).toHaveBeenLastCalledWith('session/create', { title: '', workspace_path: '/code/vivy' });

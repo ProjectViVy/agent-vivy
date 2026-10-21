@@ -220,10 +220,10 @@ describe('MemoryView', () => {
     }]);
   });
 
-  it('reads and writes MEMRULES under the digest CAS token', async () => {
+  it('reads and writes MEMRULES under exact content and existence CAS', async () => {
     const host = makeHost(async (_m, params) => {
       const actionId = (params as { action_id?: string }).action_id;
-      if (actionId === 'vivy.memory.rules.read') return { status: 'listed', content: 'rule one', source: 'file', revision: 'deadbeef' };
+      if (actionId === 'vivy.memory.rules.read') return { status: 'listed', content: 'rule one', source: 'file', exists: true };
       if (actionId === 'vivy.memory.rules.write') return { status: 'applied', entry: null };
       if (actionId === 'vivy.memory.status') return { status: 'listed', available: true };
       return { status: 'listed', entries: [ENTRY] };
@@ -258,7 +258,7 @@ describe('MemoryView', () => {
     expect(calls).toContainEqual(['module.action.invoke', {
       module_id: 'vivy/memory-bml',
       action_id: 'vivy.memory.rules.write',
-      input: { content: 'rule one\nrule two', base_revision: 'deadbeef' },
+      input: { content: 'rule one\nrule two', expected_content: 'rule one', expected_exists: true },
     }]);
   });
 });

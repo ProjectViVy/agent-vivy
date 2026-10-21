@@ -36,6 +36,42 @@ func TestSandboxManagerPerCallMode(t *testing.T) {
 	}
 }
 
+func TestSandboxManagerMissingAncestorsRemainConfined(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	mgr, err := NewSandboxManager(domain.SandboxModeWorkspaceWrite, root, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(root, "missing", "nested", "file.txt")
+	if err := mgr.ValidatePath(inside, FileOpRead); err != nil {
+		t.Fatalf("missing inside read: %v", err)
+	}
+	if err := mgr.ValidatePath(inside, FileOpWrite); err != nil {
+		t.Fatalf("missing inside write: %v", err)
+	}
+	if err := mgr.ValidatePathWithMode(inside, FileOpWrite, domain.SandboxModeReadOnly); !errors.Is(err, ErrSandboxDenied) {
+		t.Fatalf("read-only missing write: %v", err)
+	}
+	if err := mgr.ValidatePath(filepath.Join(outside, "missing", "nested", "file.txt"), FileOpRead); !errors.Is(err, ErrSandboxDenied) {
+		t.Fatalf("missing outside: %v", err)
+	}
+	link := filepath.Join(root, "outside-link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := mgr.ValidatePath(filepath.Join(link, "missing", "file.txt"), FileOpRead); !errors.Is(err, ErrSandboxDenied) {
+		t.Fatalf("symlink escape: %v", err)
+	}
+	dangling := filepath.Join(root, "dangling")
+	if err := os.Symlink(filepath.Join(outside, "absent"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.ValidatePath(filepath.Join(dangling, "missing", "file.txt"), FileOpRead); err == nil {
+		t.Fatal("dangling symlink was treated as missing directory")
+	}
+}
+
 // Using the process default root instead of the resolved session root must
 // fail this test when a web conversation mounts a selected project.
 func TestSandboxManagerValidatesAgainstResolvedWorkspaceRoot(t *testing.T) {

@@ -26,10 +26,10 @@ func TestContinuityLimitsExactBounds(t *testing.T) {
 	if err := (PresentRequest{Files: []PresentFile{{Path: "a", Description: strings.Repeat("d", limits.DescriptionBytes+1)}}}).Validate(limits); err == nil {
 		t.Fatal("accepted oversized description")
 	}
-	if err := (DeliveryReadRequest{ItemID: "item", ExpectedDigest: "digest", Length: limits.BinaryPageBytes}).Validate(limits); err != nil {
+	if err := (DeliveryReadRequest{ItemID: "item", Length: limits.BinaryPageBytes}).Validate(limits); err != nil {
 		t.Fatalf("binary page at exact maximum: %v", err)
 	}
-	if err := (DeliveryReadRequest{ItemID: "item", ExpectedDigest: "digest", Length: limits.BinaryPageBytes + 1}).Validate(limits); err == nil {
+	if err := (DeliveryReadRequest{ItemID: "item", Length: limits.BinaryPageBytes + 1}).Validate(limits); err == nil {
 		t.Fatal("accepted oversized binary page")
 	}
 }
@@ -65,13 +65,13 @@ func TestContinuityRejectsInvalidUTF8AndUnknownValues(t *testing.T) {
 	}
 }
 
-func TestContinuityCanonicalHistoryScopeHash(t *testing.T) {
+func TestContinuityCanonicalHistoryScopeValues(t *testing.T) {
 	accepted, err := NewAcceptedHistoryScope("destination", []SessionID{"b", "a", "b"})
 	if err != nil {
 		t.Fatalf("new scope: %v", err)
 	}
-	if got, want := accepted.ScopeHash, "a88372eb32c67959bcfaef072e689f46a9c86b8e8498b23f2e8fce0d528d4fc0"; got != want {
-		t.Fatalf("scope hash = %q, want %q", got, want)
+	if accepted.DestinationSessionID != "destination" || len(accepted.SourceSessionIDs) != 2 || accepted.SourceSessionIDs[0] != "a" || accepted.SourceSessionIDs[1] != "b" {
+		t.Fatalf("scope values not canonical: %+v", accepted)
 	}
 	if err := accepted.Validate(); err != nil {
 		t.Fatalf("canonical scope rejected: %v", err)
@@ -143,7 +143,7 @@ func TestContinuityAggregateLimits(t *testing.T) {
 func TestContinuityDeliveryChunkPageBound(t *testing.T) {
 	limits := DefaultContinuityLimits()
 	data := strings.Repeat("x", limits.BinaryPageBytes)
-	chunk := DeliveryChunk{TransferID: "transfer", ItemID: "item", Digest: "digest", DataBase64: base64.StdEncoding.EncodeToString([]byte(data))}
+	chunk := DeliveryChunk{TransferID: "transfer", ItemID: "item", DataBase64: base64.StdEncoding.EncodeToString([]byte(data))}
 	if err := chunk.Validate(limits); err != nil {
 		t.Fatalf("chunk at exact maximum: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestContinuityEffectiveBudgetDoesNotExceedWireFrame(t *testing.T) {
 func validContextReference(id, text string) ContextReference {
 	return ContextReference{
 		ID: id, DestinationSessionID: "destination", DestinationRunID: "run", SourceSessionID: "source",
-		SourceWorkspace: "workspace", Digest: "digest", Origin: "user_selection",
+		SourceWorkspace: "workspace", Origin: "user_selection",
 		Items: []HistoryItem{{Ref: SourceRef{SessionID: "source", Kind: SourceKindMessage}, Author: HistoryAuthorUser, Text: text}},
 	}
 }
@@ -170,6 +170,6 @@ func validContextReference(id, text string) ContextReference {
 func validDeliverable(path string, size int64) Deliverable {
 	return Deliverable{
 		ID: path, SessionID: "session", RunID: "run", WorkspaceID: "workspace", Path: path, Name: path,
-		SHA256: "digest", MediaType: "text/plain", Size: size, OriginToolCallID: "call",
+		MediaType: "text/plain", Size: size, OriginToolCallID: "call",
 	}
 }

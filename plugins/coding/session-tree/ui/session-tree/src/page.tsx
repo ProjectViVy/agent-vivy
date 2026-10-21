@@ -3,16 +3,15 @@
  *
  * The page renders the kernel's session/tree read model and drives the
  * session/clone, session/import, session/export, and exports/read verbs
- * through the face API. Export downloads are digest-bound: the browser
- * verifies the received bytes against the sha256 the export result
- * reported before a blob URL is ever created.
+ * through the face API. Export downloads address the immutable publication
+ * by name and check its complete declared size before creating a blob URL.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, GitFork, RefreshCw, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
-import { decodeBase64, flattenTree, sha256Hex, type TreeRow } from './tree';
+import { decodeExport, flattenTree, type TreeRow } from './tree';
 
 const CHAT_ROUTE = '/';
 
@@ -79,20 +78,18 @@ export function SessionTreePage() {
     setError('');
     try {
       const result = await host.api.exportSession(selectedId);
-      const read = await host.api.readExport(result.name, result.sha256);
-      const bytes = decodeBase64(read.data_base64);
-      const actual = await sha256Hex(bytes);
-      if (actual !== result.sha256 || actual !== read.digest) {
-        setNotice(t('plugin.vivy/session-tree.verifyFailed'));
-        return;
-      }
+      const read = await host.api.readExport(result.name);
+      const bytes = decodeExport(result, read);
       const blob = new Blob([bytes.slice().buffer], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = result.name;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      try {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = result.name;
+        anchor.click();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
       setNotice(t('plugin.vivy/session-tree.exported', { name: result.name }));
     } catch (err) {
       setNotice(t('plugin.vivy/session-tree.actionFailed'));

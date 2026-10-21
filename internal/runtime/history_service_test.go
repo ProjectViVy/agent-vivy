@@ -90,11 +90,11 @@ func TestHistoryToolEventProjectionUsesSafeFields(t *testing.T) {
 	}
 }
 
-func TestHistoryCursorIsProcessLocalAndBoundToCut(t *testing.T) {
+func TestHistoryCursorIsStatelessAndBoundToCut(t *testing.T) {
 	cut := storage.HistoryCut{Sessions: []storage.HistorySessionCut{{SessionID: "B", Position: 10}}}
 	first := NewHistoryService(nil, nil)
 	state := historyCursorState{
-		Destination: "B", ScopeHash: "scope", FilterHash: "filter", Cut: cut,
+		Destination: "B", Scope: []domain.SessionID{"B"}, Filter: historyCursorFilter{Kind: "search"}, Cut: cut,
 		Phase: historyPhaseMessages, After: storage.HistoryPosition{},
 	}
 	cursor, err := first.encodeCursor(state)
@@ -102,12 +102,12 @@ func TestHistoryCursorIsProcessLocalAndBoundToCut(t *testing.T) {
 		t.Fatalf("encode cursor: %v", err)
 	}
 	decoded, err := first.decodeCursor(cursor)
-	if err != nil || decoded.ScopeHash != "scope" || decoded.Cut.Sessions[0].Position != 10 {
+	if err != nil || !slices.Equal(decoded.Scope, []domain.SessionID{"B"}) || decoded.Cut.Sessions[0].Position != 10 {
 		t.Fatalf("decode cursor = %#v, err=%v", decoded, err)
 	}
 	second := NewHistoryService(nil, nil)
-	if _, err := second.decodeCursor(cursor); err == nil {
-		t.Fatal("cursor survived a process-local key change")
+	if _, err := second.decodeCursor(cursor); err != nil {
+		t.Fatal("valid cursor did not survive restart")
 	}
 	if _, err := first.decodeCursor(strings.Repeat("x", historyCursorTransportMax+1)); err == nil {
 		t.Fatal("oversized cursor was accepted")
@@ -327,7 +327,7 @@ func TestHistoryFixtureCursorGuards(t *testing.T) {
 		t.Fatalf("capture cut: %v", err)
 	}
 	foreign, err := f.service.encodeCursor(historyCursorState{
-		Version: historyCursorVersion, Destination: "B", ScopeHash: "foreign", FilterHash: "foreign",
+		Version: historyCursorVersion, Destination: "B", Scope: []domain.SessionID{"C"}, Filter: historyCursorFilter{Kind: "search", Query: "release"},
 		Phase: historyPhaseMessages, Cut: cut,
 	})
 	if err != nil {
@@ -347,7 +347,7 @@ func TestHistoryFixtureWildcardQueryIsLiteral(t *testing.T) {
 	}
 }
 
-func TestHistoryFixtureReadSelectionDigest(t *testing.T) {
+func TestHistoryFixtureReadCompleteSelection(t *testing.T) {
 	f := newHistoryFixture(t)
 	safeRef := domain.SourceRef{SessionID: "A", MessageID: "a-safe", Kind: string(domain.SourceKindMessage)}
 	page := f.ReadAsRun(t, domain.HistoryReadRequest{Selection: &domain.HistorySelection{
@@ -356,17 +356,11 @@ func TestHistoryFixtureReadSelectionDigest(t *testing.T) {
 	if page.Status != string(domain.HistoryStatusOK) || len(page.Items) != 1 || page.NextCursor != "" {
 		t.Fatalf("complete read page = %#v", page)
 	}
-	if page.SelectionDigest == "" || page.SelectionDigest != CanonicalHistorySelectionDigest(page.Items) {
-		t.Fatalf("selection digest = %q", page.SelectionDigest)
-	}
 	legacyRef := domain.SourceRef{SessionID: "A", MessageID: "a-legacy", Kind: string(domain.SourceKindMessage)}
 	page = f.ReadAsRun(t, domain.HistoryReadRequest{
 		Selection: &domain.HistorySelection{SourceSessionID: "A", Refs: []domain.SourceRef{safeRef, legacyRef}},
 		Limit:     1,
 	})
-	if page.SelectionDigest != "" {
-		t.Fatal("partial page exposed a selection digest")
-	}
 	if page.NextCursor == "" {
 		t.Fatal("partial page omitted the continuation cursor")
 	}

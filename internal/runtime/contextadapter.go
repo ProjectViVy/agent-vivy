@@ -205,7 +205,6 @@ func userFeedMessage(msg domain.Message) *schema.AgenticMessage {
 type ReferenceInclusion struct {
 	ReferenceID string `json:"reference_id"`
 	State       string `json:"state"`
-	Digest      string `json:"digest,omitempty"`
 }
 
 const (
@@ -246,7 +245,7 @@ func ProjectReferenceContext(ctx context.Context, host *contexthost.Host, refs [
 			ContentID: ref.ID,
 			MediaType: "text/plain",
 			Content:   rendered[ref.ID],
-			Version:   ref.Digest,
+			Version:   ref.ID, // Reference IDs own one immutable captured copy.
 		})
 	}
 	included := make(map[string]bool, len(snapshots))
@@ -290,10 +289,10 @@ func ProjectReferenceContext(ctx context.Context, host *contexthost.Host, refs [
 			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionUnavailable})
 			parts = append(parts, agenticTextBlock(referenceMarkerText(ref, ReferenceInclusionUnavailable)))
 		case included[ref.ID]:
-			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionIncluded, Digest: ref.Digest})
+			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionIncluded})
 			parts = append(parts, agenticTextBlock(rendered[ref.ID]))
 		default:
-			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionElidedBudget, Digest: ref.Digest})
+			inclusions = append(inclusions, ReferenceInclusion{ReferenceID: ref.ID, State: ReferenceInclusionElidedBudget})
 			parts = append(parts, agenticTextBlock(referenceMarkerText(ref, ReferenceInclusionElidedBudget)))
 		}
 	}
@@ -301,13 +300,13 @@ func ProjectReferenceContext(ctx context.Context, host *contexthost.Host, refs [
 }
 
 // referenceProjectable reports whether the stored copy can be rendered. A
-// snapshot missing identity, digest, or items is an explicit unavailable,
+// snapshot missing identity or items is an explicit unavailable,
 // never an empty substituted block.
 func referenceProjectable(ref domain.ContextReference) bool {
-	if ref.ID == "" || ref.Digest == "" || len(ref.Items) == 0 {
+	if ref.ID == "" || len(ref.Items) == 0 {
 		return false
 	}
-	for _, field := range []string{ref.ID, ref.Digest, string(ref.SourceSessionID), ref.Origin} {
+	for _, field := range []string{ref.ID, string(ref.SourceSessionID), ref.Origin} {
 		if !utf8.ValidString(field) {
 			return false
 		}
@@ -324,8 +323,8 @@ func referenceProjectable(ref domain.ContextReference) bool {
 // authors are labels inside the text, never message roles or tool calls.
 func renderReferenceBlock(ref domain.ContextReference) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n\n[imported reference: %s | origin=%s | source=%s | digest=%s | captured=%s]\n",
-		ref.ID, ref.Origin, ref.SourceSessionID, ref.Digest,
+	fmt.Fprintf(&b, "\n\n[imported reference: %s | origin=%s | source=%s | captured=%s]\n",
+		ref.ID, ref.Origin, ref.SourceSessionID,
 		time.UnixMilli(ref.CapturedAt).UTC().Format("2006-01-02T15:04:05Z"))
 	for _, item := range ref.Items {
 		fmt.Fprintf(&b, "- [%s] %s\n", item.Author, item.Text)

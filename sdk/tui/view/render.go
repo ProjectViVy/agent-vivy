@@ -1600,9 +1600,6 @@ func (m Model) renderGateMetadata(gate *surface.Gate, width int, p Palette) []st
 	if target := m.sanitizeApprovalTarget(gate.Target); target != "" {
 		lines = append(lines, p.DialogFooter.Render(truncate(m.translator.T("vivy.tui.gate.target", map[string]any{"target": target}), width)))
 	}
-	if hash := shortPreconditionHash(gate.PreconditionHash); hash != "" {
-		lines = append(lines, p.DialogFooter.Render(m.translator.T("vivy.tui.gate.base", map[string]any{"hash": hash})))
-	}
 	for i, risk := range gate.Risks {
 		if i == 3 {
 			lines = append(lines, p.ToolFail.Render(m.translator.T("vivy.tui.gate.moreRisks", map[string]any{"count": len(gate.Risks) - i})))
@@ -1613,19 +1610,6 @@ func (m Model) renderGateMetadata(gate *surface.Gate, width int, p Palette) []st
 		}
 	}
 	return lines
-}
-
-func shortPreconditionHash(hash string) string {
-	hash = strings.TrimSpace(hash)
-	if len(hash) != 64 {
-		return ""
-	}
-	for _, r := range hash {
-		if !strings.ContainsRune("0123456789abcdefABCDEF", r) {
-			return ""
-		}
-	}
-	return strings.ToLower(hash[:12]) + "…"
 }
 
 func sanitizeInline(text string) string {
@@ -1860,9 +1844,6 @@ func gateMetadataLineCount(gate *surface.Gate) int {
 		count++
 	}
 	if sanitizeInline(gate.Target) != "" {
-		count++
-	}
-	if shortPreconditionHash(gate.PreconditionHash) != "" {
 		count++
 	}
 	count += min(len(gate.Risks), 4)

@@ -48,12 +48,13 @@ func TestWorkflowDefinitionUpgradeFrom034(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open raw sqlite: %v", err)
 	}
+	t.Cleanup(func() { _ = raw.Close() })
 	manifest, err := migrations.Embedded()
 	if err != nil {
 		t.Fatalf("manifest: %v", err)
 	}
 	if _, err := raw.ExecContext(ctx, `CREATE TABLE schema_migrations (
-		version BIGINT PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at BIGINT NOT NULL)`); err != nil {
+		version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
 		t.Fatalf("create schema_migrations: %v", err)
 	}
 	var applied int64
@@ -65,8 +66,8 @@ func TestWorkflowDefinitionUpgradeFrom034(t *testing.T) {
 			t.Fatalf("apply %d %s: %v", m.Version, m.Name, err)
 		}
 		if _, err := raw.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?,?,?,?)`,
-			m.Version, m.Name, m.Checksum, time.Now().UnixMilli()); err != nil {
+			`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)`,
+			m.Version, m.Name, time.Now().UnixMilli()); err != nil {
 			t.Fatalf("record %d: %v", m.Version, err)
 		}
 		applied = m.Version
@@ -75,9 +76,7 @@ func TestWorkflowDefinitionUpgradeFrom034(t *testing.T) {
 		t.Fatalf("fixture stopped at migration %d, want 34", applied)
 	}
 	// Explicit disposable conversion; production Open refuses old sources.
-	if err := migrations.ApplyManifest(ctx, raw, migrations.SQLite, manifest); err != nil {
-		t.Fatalf("convert fixture: %v", err)
-	}
+	finishMigrationFixture(t, ctx, raw, manifest, 34)
 	if err := raw.Close(); err != nil {
 		t.Fatalf("close fixture db: %v", err)
 	}

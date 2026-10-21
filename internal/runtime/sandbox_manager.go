@@ -181,18 +181,9 @@ func (m *SandboxManager) ValidatePathWithinRoot(workspaceRoot, path string, op F
 	}
 
 	// Resolve symlinks to prevent escape via symlink chains.
-	realPath, err := filepath.EvalSymlinks(abs)
+	realPath, err := resolveExistingAncestor(abs)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("runtime: resolve symlinks: %w", err)
-		}
-		// If the target doesn't exist yet (e.g., new file), use the parent.
-		parent := filepath.Dir(abs)
-		realParent, err := filepath.EvalSymlinks(parent)
-		if err != nil {
-			return fmt.Errorf("runtime: resolve parent symlinks: %w", err)
-		}
-		realPath = filepath.Join(realParent, filepath.Base(abs))
+		return fmt.Errorf("runtime: resolve symlinks: %w", err)
 	}
 
 	// Deny writes in read-only mode.
@@ -212,6 +203,37 @@ func (m *SandboxManager) ValidatePathWithinRoot(workspaceRoot, path string, op F
 	}
 
 	return nil
+}
+
+// resolveExistingAncestor resolves every existing path component, then restores
+// the missing suffix. A dangling symlink is an error, not an absent directory.
+func resolveExistingAncestor(path string) (string, error) {
+	candidate := path
+	var suffix []string
+	for {
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return resolved, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		if _, statErr := os.Lstat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			if statErr != nil {
+				return "", statErr
+			}
+			return "", err
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(candidate))
+		candidate = parent
+	}
 }
 
 // ConfineCommand checks whether a command is allowed under the current

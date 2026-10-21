@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"agent-vivy/internal/buildinfo"
+	"agent-vivy/internal/exportfile"
 	"agent-vivy/internal/logging"
 )
 
@@ -116,23 +116,19 @@ func (h *controlHandler) diagnosticsBundle(ctx context.Context, request Request)
 	if len(page.Records) == 0 {
 		b.WriteString("(no runtime log records)\n")
 	}
-	name := fmt.Sprintf("bug-%s.md", now.Format("20060102-150405"))
-	if sessionID := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
-			return r
-		default:
+	prefix := "bug"
+	if params.SessionID != "" {
+		prefix += "-" + strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.' {
+				return r
+			}
 			return '-'
-		}
-	}, params.SessionID); sessionID != "" {
-		name = fmt.Sprintf("bug-%s-%s.md", sessionID, now.Format("20060102-150405"))
+		}, params.SessionID)
 	}
-	if err := os.MkdirAll(h.deps.DiagnosticsBundleDir, 0o700); err != nil {
+	name, err := exportfile.Write(h.deps.DiagnosticsBundleDir, prefix, ".md", []byte(b.String()))
+	if err != nil {
 		return nil, internalError(err)
 	}
 	path := filepath.Join(h.deps.DiagnosticsBundleDir, name)
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
-		return nil, internalError(err)
-	}
 	return map[string]any{"path": path, "records": len(page.Records)}, nil
 }

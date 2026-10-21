@@ -2,9 +2,7 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
@@ -130,11 +128,6 @@ func (f *deliverableFixture) operatorCtx(session domain.SessionID) context.Conte
 	return WithHistoryOperator(tools.WithSessionID(context.Background(), session))
 }
 
-func sha256HexBytes(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
 func presentOne(t *testing.T, f *deliverableFixture, runID domain.RunID, callID string, files ...domain.PresentFile) domain.DeliverySet {
 	t.Helper()
 	set, err := f.svc.Present(f.modelCtx(runID, callID), domain.PresentRequest{Files: files})
@@ -158,8 +151,8 @@ func TestDeliverablePresentPartialAndImmutableSets(t *testing.T) {
 	if set.Status != "partial" || len(set.Items) != 2 || len(set.Failures) != 1 {
 		t.Fatalf("dishonest presentation: %+v", set)
 	}
-	if set.Items[0].SHA256 != sha256HexBytes([]byte("release notes v1")) {
-		t.Fatalf("sha = %q", set.Items[0].SHA256)
+	if captured, err := f.backend.ReadDeliverablePresentation(context.Background(), "B", set.Items[0].ID); err != nil || string(captured) != "release notes v1" {
+		t.Fatalf("capture=%q err=%v", captured, err)
 	}
 	if set.Items[0].OriginToolCallID != "call-p1" || set.Items[0].FileVersionID != "" {
 		t.Fatalf("fabricated provenance: %+v", set.Items[0])
@@ -177,14 +170,14 @@ func TestDeliverablePresentPartialAndImmutableSets(t *testing.T) {
 		t.Fatalf("identical call minted a second set: %s vs %s", replay.ID, set.ID)
 	}
 	// A genuinely new call appends a second immutable set; changing the file
-	// between calls proves both fingerprints are retained.
+	// between calls preserves distinct item identities and private captures.
 	f.clock = f.clock.Add(time.Second)
 	f.writeFile(t, "run-deliv-1", "out/report.txt", []byte("release notes v2"))
 	second := presentOne(t, f, "run-deliv-1", "call-p2",
 		domain.PresentFile{Path: "out/report.txt", Description: "the report"},
 	)
 	oldItem, newItem := set.Items[0], second.Items[0]
-	if oldItem.SHA256 == newItem.SHA256 {
+	if oldItem.ID == newItem.ID {
 		t.Fatal("fixture must change bytes")
 	}
 	page, err := f.svc.List(f.operatorCtx("B"), "B", "", 10)
@@ -276,18 +269,18 @@ func TestDeliverableReadServesVerifiedSnapshot(t *testing.T) {
 	)
 	item := set.Items[0]
 	ctx := f.operatorCtx("B")
-	first, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 150})
+	first, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, Length: 150})
 	if err != nil {
 		t.Fatalf("first read: %v", err)
 	}
-	if first.TransferID == "" || first.ItemID != item.ID || first.Digest != item.SHA256 || first.Offset != 0 || first.EOF {
+	if first.TransferID == "" || first.ItemID != item.ID || first.Offset != 0 || first.EOF {
 		t.Fatalf("first chunk = %+v", first)
 	}
 	data, err := base64.StdEncoding.DecodeString(first.DataBase64)
 	if err != nil || string(data) != string(body[:150]) {
 		t.Fatalf("first chunk bytes mismatch")
 	}
-	second, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, TransferID: first.TransferID, Offset: 150, Length: 300})
+	second, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, TransferID: first.TransferID, Offset: 150, Length: 300})
 	if err != nil {
 		t.Fatalf("second read: %v", err)
 	}
@@ -296,12 +289,12 @@ func TestDeliverableReadServesVerifiedSnapshot(t *testing.T) {
 		t.Fatalf("second chunk = %+v", second)
 	}
 	// The same last chunk may be retried after a lost reply.
-	replay, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, TransferID: first.TransferID, Offset: 150, Length: 300})
+	replay, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, TransferID: first.TransferID, Offset: 150, Length: 300})
 	if err != nil || replay.DataBase64 != second.DataBase64 {
 		t.Fatalf("last-chunk replay = %v", err)
 	}
 	// Offset skipping is refused.
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, TransferID: first.TransferID, Offset: 700, Length: 10})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, TransferID: first.TransferID, Offset: 700, Length: 10})
 	var derr DeliverableError
 	if err == nil || !errors.As(err, &derr) {
 		t.Fatalf("offset skip accepted: %v", err)
@@ -321,7 +314,7 @@ func TestDeliverableReadRejectsChangedMissingAndLinkedFile(t *testing.T) {
 	item := set.Items[0]
 	ctx := f.operatorCtx("B")
 	f.writeFile(t, "run-deliv-drift", "stable.txt", []byte("mutated bytes!!"))
-	_, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 100})
+	_, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, Length: 100})
 	var derr DeliverableError
 	if err == nil || !errors.As(err, &derr) || derr.Status != "changed" {
 		t.Fatalf("changed file served: %v", err)
@@ -335,7 +328,7 @@ func TestDeliverableReadRejectsChangedMissingAndLinkedFile(t *testing.T) {
 	if err := os.Remove(filepath.Join(f.workspaceOf("run-deliv-drift"), "stable.txt")); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 100})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, Length: 100})
 	if err == nil || !errors.As(err, &derr) || derr.Status != "missing" {
 		t.Fatalf("removed file reported %+v", derr)
 	}
@@ -351,7 +344,7 @@ func TestDeliverableReadRejectsChangedMissingAndLinkedFile(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(f.workspaceOf("run-deliv-drift"), "stable.txt")); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 100})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, Length: 100})
 	if err == nil || !errors.As(err, &derr) || derr.Status != "forbidden" {
 		t.Fatalf("link replacement followed: %+v", derr)
 	}
@@ -366,7 +359,7 @@ func TestDeliverableReadMissingWorkspace(t *testing.T) {
 	if err := os.RemoveAll(f.workspaceOf("run-deliv-nows")); err != nil {
 		t.Fatalf("remove workspace: %v", err)
 	}
-	_, err := f.svc.Read(f.operatorCtx("B"), domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 10})
+	_, err := f.svc.Read(f.operatorCtx("B"), domain.DeliveryReadRequest{ItemID: item.ID, Length: 10})
 	var derr DeliverableError
 	if err == nil || !errors.As(err, &derr) || derr.Status != "workspace_unavailable" {
 		t.Fatalf("missing workspace = %+v", derr)
@@ -378,20 +371,20 @@ func TestDeliverableReadMissingWorkspace(t *testing.T) {
 	}
 }
 
-func TestDeliverableReadRequiresOwnerAndDigest(t *testing.T) {
+func TestDeliverableReadRequiresOwnerAndItem(t *testing.T) {
 	f := newDeliverableFixture(t)
 	f.createLiveRun(t, "run-deliv-own")
 	f.writeFile(t, "run-deliv-own", "a.txt", []byte("a"))
 	set := presentOne(t, f, "run-deliv-own", "call-o1", domain.PresentFile{Path: "a.txt", Description: "d"})
 	item := set.Items[0]
-	_, err := f.svc.Read(f.operatorCtx("A"), domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 10})
+	_, err := f.svc.Read(f.operatorCtx("A"), domain.DeliveryReadRequest{ItemID: item.ID, Length: 10})
 	var derr DeliverableError
 	if err == nil || !errors.As(err, &derr) || derr.Status != "forbidden" && derr.Status != "not_found" {
 		t.Fatalf("foreign owner read = %+v", derr)
 	}
-	_, err = f.svc.Read(f.operatorCtx("B"), domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: strings.Repeat("0", 64), Length: 10})
-	if err == nil || !errors.As(err, &derr) || derr.Status != "conflict" {
-		t.Fatalf("stale digest read = %+v", derr)
+	_, err = f.svc.Read(f.operatorCtx("B"), domain.DeliveryReadRequest{ItemID: "missing-item", Length: 10})
+	if err == nil || !errors.As(err, &derr) || derr.Status != "not_found" {
+		t.Fatalf("unknown item read = %+v", derr)
 	}
 }
 
@@ -403,27 +396,27 @@ func TestDeliverableTransferReplacementAndExpiry(t *testing.T) {
 	setA := presentOne(t, f, "run-deliv-xfer", "call-t1", domain.PresentFile{Path: "one.txt", Description: "1"})
 	setB := presentOne(t, f, "run-deliv-xfer", "call-t2", domain.PresentFile{Path: "two.txt", Description: "2"})
 	ctx := f.operatorCtx("B")
-	first, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setA.Items[0].ID, ExpectedDigest: setA.Items[0].SHA256, Length: 3})
+	first, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setA.Items[0].ID, Length: 3})
 	if err != nil {
 		t.Fatalf("read one: %v", err)
 	}
 	// One active transfer per owner: a new first-read replaces it.
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setB.Items[0].ID, ExpectedDigest: setB.Items[0].SHA256, Length: 3})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setB.Items[0].ID, Length: 3})
 	if err != nil {
 		t.Fatalf("read two: %v", err)
 	}
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setA.Items[0].ID, ExpectedDigest: setA.Items[0].SHA256, TransferID: first.TransferID, Offset: 3, Length: 1})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setA.Items[0].ID, TransferID: first.TransferID, Offset: 3, Length: 1})
 	var derr DeliverableError
 	if err == nil || !errors.As(err, &derr) {
 		t.Fatalf("replaced transfer still serves: %v", err)
 	}
 	// Idle expiry under a fake clock.
-	third, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setB.Items[0].ID, ExpectedDigest: setB.Items[0].SHA256, Length: 3})
+	third, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setB.Items[0].ID, Length: 3})
 	if err != nil {
 		t.Fatalf("read three: %v", err)
 	}
 	f.clock = f.clock.Add(61 * time.Second)
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setB.Items[0].ID, ExpectedDigest: setB.Items[0].SHA256, TransferID: third.TransferID, Offset: 3, Length: 1})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: setB.Items[0].ID, TransferID: third.TransferID, Offset: 3, Length: 1})
 	if err == nil || !errors.As(err, &derr) {
 		t.Fatalf("expired transfer still serves: %v", err)
 	}
@@ -436,7 +429,7 @@ func TestDeliverableCloseTransferAndSessionHook(t *testing.T) {
 	set := presentOne(t, f, "run-deliv-close", "call-c1", domain.PresentFile{Path: "a.txt", Description: "d"})
 	item := set.Items[0]
 	ctx := f.operatorCtx("B")
-	chunk, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 2})
+	chunk, err := f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, Length: 2})
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -447,18 +440,18 @@ func TestDeliverableCloseTransferAndSessionHook(t *testing.T) {
 	if err := f.svc.CloseTransfer(ctx, chunk.TransferID); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, TransferID: chunk.TransferID, Offset: 2, Length: 2})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, TransferID: chunk.TransferID, Offset: 2, Length: 2})
 	var derr DeliverableError
 	if err == nil || !errors.As(err, &derr) {
 		t.Fatalf("closed transfer still serves: %v", err)
 	}
 	// Session deletion cancels every live transfer of that session.
-	chunk, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 2})
+	chunk, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, Length: 2})
 	if err != nil {
 		t.Fatalf("re-read: %v", err)
 	}
 	f.svc.CloseSessionTransfers("B")
-	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, TransferID: chunk.TransferID, Offset: 2, Length: 2})
+	_, err = f.svc.Read(ctx, domain.DeliveryReadRequest{ItemID: item.ID, TransferID: chunk.TransferID, Offset: 2, Length: 2})
 	if err == nil {
 		t.Fatal("session-deleted transfer still serves")
 	}
@@ -557,7 +550,7 @@ func TestDeliverableReadSnapshotWriteFailure(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(f.scratch, 0o700) })
-	_, err := f.svc.Read(f.operatorCtx("B"), domain.DeliveryReadRequest{ItemID: item.ID, ExpectedDigest: item.SHA256, Length: 4})
+	_, err := f.svc.Read(f.operatorCtx("B"), domain.DeliveryReadRequest{ItemID: item.ID, Length: 4})
 	if err == nil {
 		t.Fatal("read succeeded against unwritable scratch")
 	}

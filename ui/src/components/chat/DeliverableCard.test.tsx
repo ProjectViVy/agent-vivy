@@ -16,7 +16,6 @@ const deliverable = (overrides: Partial<api.Deliverable> = {}): api.Deliverable 
   name: '报告.txt',
   description: 'final report',
   size: 12,
-  sha256: 'a'.repeat(64),
   media_type: 'text/plain',
   captured_at: 1700000000,
   origin_tool_call_id: 'call_1',
@@ -94,19 +93,19 @@ describe('DeliverableCard', () => {
 
   it('verify probes deliverables/read and flips the item to verified', async () => {
     const read = vi.spyOn(api, 'deliverablesRead').mockResolvedValue({
-      transfer_id: 'xfr_1', item_id: 'itm_1', digest: 'a'.repeat(64), offset: 0, data_base64: btoa('x'), eof: false, expires_at: 0,
+      transfer_id: 'xfr_1', item_id: 'itm_1', offset: 0, data_base64: btoa('x'), eof: false, expires_at: 0,
     });
     const close = vi.spyOn(api, 'deliverablesClose').mockResolvedValue(undefined);
     await act(async () => root.render(<DeliverableCard set={set()} />));
     const verify = document.querySelector<HTMLElement>('button[aria-label="Verify 报告.txt"]')!;
     await act(async () => { verify.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(read).toHaveBeenCalledWith('ses_1', expect.objectContaining({ item_id: 'itm_1', expected_digest: 'a'.repeat(64), offset: 0 }));
+    expect(read).toHaveBeenCalledWith('ses_1', expect.objectContaining({ item_id: 'itm_1', offset: 0 }));
     expect(close).toHaveBeenCalledWith('ses_1', 'xfr_1');
     byText('[data-delivery-item="itm_1"]', 'verified');
   });
 
   it('changed probe renders the explanatory state and keeps a retry affordance', async () => {
-    vi.spyOn(api, 'deliverablesRead').mockRejectedValue(new Error('deliverables/read failed: changed: digest mismatch'));
+    vi.spyOn(api, 'deliverablesRead').mockRejectedValue(new Error('deliverables/read failed: changed: file content differs'));
     vi.spyOn(api, 'deliverablesClose').mockResolvedValue(undefined);
     await act(async () => root.render(<DeliverableCard set={set()} />));
     const verify = document.querySelector<HTMLElement>('button[aria-label="Verify 报告.txt"]')!;
@@ -118,12 +117,12 @@ describe('DeliverableCard', () => {
 
   it('preview toggles a bounded text excerpt inside the card', async () => {
     vi.spyOn(api, 'deliverablesRead').mockResolvedValue({
-      transfer_id: 'xfr_p', item_id: 'itm_1', digest: 'a'.repeat(64), offset: 0, data_base64: btoa('hello preview'), eof: false, expires_at: 0,
+      transfer_id: 'xfr_p', item_id: 'itm_1', offset: 0, data_base64: btoa('hello world!'), eof: true, expires_at: 0,
     });
     vi.spyOn(api, 'deliverablesClose').mockResolvedValue(undefined);
     await act(async () => root.render(<DeliverableCard set={set()} />));
     const preview = document.querySelector<HTMLElement>('button[aria-label="Preview 报告.txt"]')!;
     await act(async () => { preview.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(document.querySelector('[data-delivery-preview="itm_1"]')?.textContent).toBe('hello preview');
+    expect(document.querySelector('[data-delivery-preview="itm_1"]')?.textContent).toBe('hello world!');
   });
 });

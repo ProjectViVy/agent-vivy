@@ -195,8 +195,16 @@ func postgresForkSourceID(childID domain.SessionID, markers []storage.SessionTru
 }
 
 func postgresInsertMarker(ctx context.Context, tx *sql.Tx, t storage.SessionTruncation) error {
+	if t.Reason == storage.TruncationRewind || t.Reason == storage.TruncationEdit {
+		if err := postgresLockContinuitySessions(ctx, tx, storage.ContinuityAdmission{SessionID: t.SessionID}); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO session_truncations (session_id,run_id,cutoff_message_id,tail_message_id,work_seq,reason,fork_session_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, t.SessionID, t.RunID, t.CutoffMessageID, t.TailMessageID, int64(t.WorkSeq), t.Reason, t.ForkSessionID, t.CreatedAt); err != nil {
 		return fmt.Errorf("storage: record session truncation: %w", err)
+	}
+	if t.Reason == storage.TruncationRewind || t.Reason == storage.TruncationEdit {
+		return storage.PruneDeliverablePresentations(ctx, tx, t.SessionID, "$1", "$2")
 	}
 	return nil
 }

@@ -8,6 +8,39 @@ import (
 	"testing"
 )
 
+func TestIntegratedStableMetadataPrefixesRequireFiniteUpgradeWithoutWrites(t *testing.T) {
+	ctx := context.Background()
+	manifest, err := Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, head := range []int{37, 38} {
+		t.Run(fmt.Sprintf("stable-%d", head), func(t *testing.T) {
+			db := openMigrationTestDB(t)
+			prefix := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:head], Postgres: manifest.Migrations(Postgres)[:head]}}
+			if err := applyManifest(ctx, db, SQLite, prefix); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`ALTER TABLE schema_migrations ADD COLUMN checksum TEXT NOT NULL DEFAULT 'historical'; INSERT INTO sessions(id,title,created_at) VALUES('preserved','stable history',123)`); err != nil {
+				t.Fatal(err)
+			}
+			for _, apply := range []func() error{func() error { return Apply(ctx, db, SQLite) }, func() error { return ApplyManifest(ctx, db, SQLite, manifest) }} {
+				if err := apply(); !errors.Is(err, ErrUpgradeRequired) {
+					t.Fatalf("accepted stable prefix classification: %v", err)
+				}
+			}
+			var actual int
+			var title string
+			if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&actual); err != nil || actual != head {
+				t.Fatalf("source metadata changed: %d %v", actual, err)
+			}
+			if err := db.QueryRow(`SELECT title FROM sessions WHERE id='preserved'`).Scan(&title); err != nil || title != "stable history" {
+				t.Fatalf("source data changed: %q %v", title, err)
+			}
+		})
+	}
+}
+
 func TestApplyPreflightRefusesOldAndUnknownWithoutWrites(t *testing.T) {
 	for _, fixture := range []struct{ name, sql, want string }{
 		{"unexplained", `CREATE TABLE unknown_data (value TEXT); INSERT INTO unknown_data VALUES ('preserve')`, "unsupported_source_format"},
@@ -42,12 +75,15 @@ func TestApplyPreflightRefusesOldAndUnknownWithoutWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, head := range []int{1, 16, 17, 23, 35, 36} {
+	for head := 1; head <= 36; head++ {
 		t.Run(fmt.Sprintf("old-prefix-%d", head), func(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()
 			old := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:head], Postgres: manifest.Migrations(Postgres)[:head]}}
-			if err := ApplyManifest(ctx, db, SQLite, old); err != nil {
+			if err := applyManifest(ctx, db, SQLite, old); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`ALTER TABLE schema_migrations ADD COLUMN checksum TEXT NOT NULL DEFAULT 'frozen-old-format'`); err != nil {
 				t.Fatal(err)
 			}
 			err := Apply(ctx, db, SQLite)
@@ -67,12 +103,12 @@ func TestApplyPreflightRejectsUnexplainedTablesOnKnownMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, head := range []int{35, 36, 37, 38} {
+	for _, head := range []int{35, 36} {
 		t.Run(fmt.Sprintf("head-%d", head), func(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()
 			fixture := Manifest{byDialect: map[Dialect][]Migration{SQLite: manifest.Migrations(SQLite)[:head], Postgres: manifest.Migrations(Postgres)[:head]}}
-			if err := ApplyManifest(ctx, db, SQLite, fixture); err != nil {
+			if err := applyManifest(ctx, db, SQLite, fixture); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := db.Exec(`CREATE TABLE unlisted_source_data (value TEXT); INSERT INTO unlisted_source_data VALUES ('preserve')`); err != nil {

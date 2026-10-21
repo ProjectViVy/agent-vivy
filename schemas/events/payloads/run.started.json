@@ -60,17 +60,9 @@
             "minLength": 1,
             "maxLength": 512
           }
-        },
-        "scope_hash": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
         }
       },
-      "required": [
-        "destination_session_id",
-        "source_session_ids",
-        "scope_hash"
-      ],
+      "required": ["destination_session_id", "source_session_ids"],
       "additionalProperties": false
     },
     "collaboration_mode": {

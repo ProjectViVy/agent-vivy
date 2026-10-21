@@ -257,7 +257,6 @@ var englishCatalog = map[string]string{
 	"vivy.tui.gate.diffFooter":                 "{{mode}} · t view · f fullscreen · ↑↓/pg scroll · enter/y approve · esc/n deny",
 	"vivy.tui.gate.action":                     "action: {{action}}",
 	"vivy.tui.gate.target":                     "target: {{target}}",
-	"vivy.tui.gate.base":                       "base: {{hash}}",
 	"vivy.tui.gate.moreRisks":                  "warning: {{count}} more findings",
 	"vivy.tui.gate.risk":                       "warning: {{risk}}",
 	"vivy.tui.attachment.image":                "[image: {{name}}]",

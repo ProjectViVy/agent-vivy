@@ -16,12 +16,11 @@ type ToolCall struct {
 // Skill, HTTP, MCP, and process tools can share the same HITL lifecycle while
 // keeping their domain validation in the owning adapter.
 type ToolProposal struct {
-	Action           string
-	Target           string
-	PreconditionHash string
-	Preview          string
-	RiskFindings     []string
-	Data             json.RawMessage
+	Action       string
+	Target       string
+	Preview      string
+	RiskFindings []string
+	Data         json.RawMessage
 }
 
 // ToolSpec describes a registered tool. Readonly tools auto-execute;
@@ -135,12 +134,11 @@ type Approval struct {
 	ToolName     string
 	// Proposal fields make the human review auditable and allow the resumed
 	// tool to fail closed when the approved target has changed.
-	Action           string
-	Target           string
-	PreconditionHash string
-	Preview          string
-	RiskFindings     []string
-	ProposalData     json.RawMessage
+	Action       string
+	Target       string
+	Preview      string
+	RiskFindings []string
+	ProposalData json.RawMessage
 	// Sandbox fields control permission boundaries (D-021).
 	SandboxMode    string // read_only | workspace_write | danger_full_access
 	ApprovalPolicy string // ask | never | auto
