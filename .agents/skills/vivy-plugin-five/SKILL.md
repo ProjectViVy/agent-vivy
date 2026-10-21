@@ -1,6 +1,6 @@
 ---
 name: vivy-plugin-five
-description: Use when an older Vivy request mentions plugin five-step, hello-fs, vivy-plugin.json, Seam, or the pre-v1 pack workflow.
+description: Redirect a request to implement the obsolete plugin five-step/v0 pack workflow to current Vivy v1 development. Current hello-fs work, historical discussion and prose mentions alone do not trigger this redirect.
 ---
 
 # Legacy plugin workflow redirect
@@ -8,7 +8,8 @@ description: Use when an older Vivy request mentions plugin five-step, hello-fs,
 The five-step workflow targeted the rejected, unreleased v0 API. Do not use,
 extend, emulate, or preserve it.
 
-**REQUIRED REPLACEMENT SKILL:** Use `vivy-plugin`.
+For actual Module/Port implementation, use the applicable `vivy-plugin` method.
+Historical explanation or instruction edits do not start that workflow.
 
 `vivy.plugin/v0`, `vivy-plugin.json`, `Seam`, `sdk/plugin.Plugin`, and the old
 `pack --with` contract are not valid targets and have no migration path. If the

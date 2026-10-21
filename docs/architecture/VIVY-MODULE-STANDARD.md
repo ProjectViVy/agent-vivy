@@ -325,14 +325,17 @@ representative real failure path.
 
 ## 10. Eino decision boundary
 
-For model execution, agent orchestration, middleware, context/RAG, checkpoint,
-MCP adaptation, OAuth, callbacks, and multi-agent behavior:
+For new or replacement model execution, agent orchestration, middleware,
+context/RAG, checkpoint, MCP, OAuth, callback or multi-agent capability:
 
 1. inspect the repository-pinned Eino/EinoExt version and cite the concrete
    package and API;
 2. if a suitable capability exists, adapt it behind `internal/runtime` or
    `internal/provider`;
 3. if it does not exist, mark that capability `DEFERRED-INDEFINITE`.
+
+An existing adapter fix reuses its established decision and checks only affected
+upstream interfaces. Root AGENTS.md owns the shared decision and validation rules.
 
 The plugin platform itself remains Vivy-owned because Eino does not provide
 Module Descriptor, Trust, Grant, Generation provenance, Port catalog, or
@@ -351,9 +354,12 @@ track:
 - existing first-party behavior is directly re-expressed as v1 Modules and
   Ports, without preserving the old ABI.
 
-## 12. Non-negotiable review questions
+## 12. Public contract review
 
-Every Module or Port change must answer:
+New or changed public Ports and authority/lifecycle contracts address the relevant
+questions below in their existing design. A Provider using an established Port
+inherits that contract and records changed behavior, Recipe and necessary checks;
+routine fixes do not repeat the platform questionnaire.
 
 1. Who provides it?
 2. Who consumes it?
@@ -368,8 +374,7 @@ Every Module or Port change must answer:
 11. If the Module exposes UI or a `label_key`, is its catalog present,
     source-confined, and owned by the literal `plugin.<module-id>.*` namespace?
 
-An unanswered question is a specification failure, not an implementation
-detail.
+Resolve missing ownership or failure behavior before exposing a new contract.
 
 ## SCX architecture direction (2026-09-12)
 

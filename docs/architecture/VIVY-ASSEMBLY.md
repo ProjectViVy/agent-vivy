@@ -307,10 +307,12 @@ Eino is an internal implementation framework, not the Assembly system.
 Assembly may select an internal adapter Module, but public contracts never
 contain Eino types.
 
-For an Eino-scoped capability, the implementation phase records the exact
+For a new or replacement Eino-scoped capability, implementation records the exact
 pinned package/API inspected. A suitable upstream primitive is adapted. A
 missing primitive produces `DEFERRED-INDEFINITE`; it does not authorize a
 parallel Vivy orchestration, Provider, OAuth, RAG, or MCP implementation.
+An existing adapter fix reuses its established decision and checks only affected
+interfaces; it does not reopen full framework research.
 
 Vivy-owned Assembly remains justified because Eino has no authority contract
 for Module identity, dependency graph, Trust, Grants, public SDK firewall,

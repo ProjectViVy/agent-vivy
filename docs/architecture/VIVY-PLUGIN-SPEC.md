@@ -395,10 +395,12 @@ New work MUST NOT:
 
 ## 12. Completion definition
 
-A public plugin feature is complete only when its Port is `SUPPORTED`, the
-Module passes its focused Conformance Suite, the complete Recipe passes
-Generation conformance, Inspect proves provenance and authority, failure-path
-tests pass, `just ci` is green, and the iteration log records human acceptance.
+A public plugin feature uses a `SUPPORTED` Port and verifies its changed behavior,
+Host/Port failure cases and explicitly selected Recipe through the existing SDK
+and Inspect path. A Provider on an established Port reuses its contract; new or
+changed public Ports establish their own complete support contract. Root
+AGENTS.md owns check scope, Epic closeout and proportional delivery records;
+ordinary plugin work does not repeat the full platform matrix.
 
 Localization completion also requires deterministic catalog generation and
 Manifest evidence. No runtime or v0 fallback may substitute for a failed

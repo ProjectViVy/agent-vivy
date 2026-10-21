@@ -9,8 +9,8 @@
 - The default empty `vivy-config.json` is correct for Vite development because
   the proxy preserves the same-origin browser contract. Edit it only when
   serving a static build against a separately addressed headless backend.
-- The embedded UI is validated by `just ci` and packaged by the normal Vivy
-  build; it is the release/smoke path, not the development server.
+- The embedded UI is packaged by the normal Vivy build and exercised at product
+  closeout under root validation policy; it is not the development server.
 
 - `src/lib/rpc.ts` is the sole JSON-RPC WebSocket transport implementation.
 - `src/lib/api.ts` defines the backend-authoritative wire types and typed API (including the `settings/providers*` registry RPCs).
@@ -19,11 +19,13 @@
 - `demo-api.ts` serves only the Notebook, Persona, Cron, Skills, and planning pages marked as “demo / local mock,” and may use only `vivy.demo.*` localStorage keys.
 
 - **The shell is assembled, not hand-wired.** Which sidebar entries and pages
-  exist is decided by `recipes/default.vivy.yml`; the SDK's Assembler writes
+  exist is decided by the selected Recipe (`recipes/default.vivy.yml` when
+  unset); the SDK's Assembler writes
   `src/generated/assembly.ts` plus the staged Module sources under
   `src/generated/ui/`. Every `dev`, `build`, `typecheck` and `test` run stages
   that projection first (`ui/scripts/stage-ui-assembly.mjs` → `go run ./sdk
-  stage-ui`), so the checkout always builds the Recipe it ships. Never
+  stage-ui`). A composed validation session stages its chosen projection once
+  and runs the applicable direct checks. Never
   hand-edit `src/generated/**`; change the Recipe or the Module. Staged Module
   sources are generated copies and are gitignored — edit
   `plugins/<module>/ui/<module>/src/**` instead, and re-run `pnpm run stage:ui`

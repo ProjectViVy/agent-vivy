@@ -1,6 +1,6 @@
 ---
 name: vivy-plugin
-description: Use when planning, implementing, reviewing, verifying, packing, or inspecting a Vivy v1 Module, Port, plugin, Recipe, or Generation.
+description: Develop a Vivy v1 Module or Port, change Recipe composition, or use SDK verify, pack and Inspect. Reuse established Port contracts for ordinary Providers; prose mentions and instruction-only edits do not trigger the development workflow.
 ---
 
 # Vivy plugin v1 development
@@ -10,17 +10,20 @@ description: Use when planning, implementing, reviewing, verifying, packing, or 
 Build one typed contribution to one Vivy body. Preserve the single generated
 Assembly, `Service.Run`, Journal, Policy, and Host path.
 
-Read `docs/architecture/VIVY-MODULE-STANDARD.md`,
-`VIVY-PORT-CATALOG.md`, `VIVY-PLUGIN-SPEC.md`, `VIVY-ASSEMBLY.md`, and the
-scheduled phase under `docs/plans/plugin-platform/` before editing.
+Read the affected contract, not the entire platform documentation set:
+`docs/architecture/VIVY-MODULE-STANDARD.md` for Module boundaries,
+`VIVY-PORT-CATALOG.md` for a Port contract, `VIVY-PLUGIN-SPEC.md` for SDK behavior,
+and `VIVY-ASSEMBLY.md` for composition/compiler changes. Consult the active
+`docs/plans/plugin-platform/` task only when changing that planned capability.
+Root AGENTS.md owns shared process, validation and delivery policy.
 
 ## Route the work
 
 | Change | Route |
 |---|---|
-| Module/Port/Compiler/Host or product contract | Use `vivy-kernel-ci` to select the applicable environment/checks |
-| Eino-scoped adapter | **REQUIRED SUB-SKILL:** use `vivy-eino` |
-| Web UI Module implementation | **REQUIRED SUB-SKILL:** use `oil-frontend` |
+| Verification needs host or Recipe guidance | Consult `vivy-kernel-ci` |
+| New/replacement Eino capability or changed upstream interface | Consult the relevant API through `vivy-eino` |
+| Web UI implementation needing frontend guidance | Use the applicable `oil-frontend` rules |
 | Public Module using a supported Port | Stay in its source boundary; verify, pack the explicit Recipe, and inspect |
 | Port is only `SPECIFIED` or phase is `UNSCHEDULED` | Stop implementation and report the unmet Gate; never fall back to v0 |
 
@@ -39,11 +42,11 @@ New Port decisions:
 5. lifecycle, timeout, cleanup, and failure result;
 6. Definition, SDK, Provider, Consumer, Failure Model, Conformance, and Inspect
    artifacts;
-7. the scheduled plan task and its failing test.
+7. meaningful checks for the changed contract and representative failures.
 
-For Provider/model/OAuth/orchestration/RAG/MCP adapter work, cite the concrete
-pinned Eino/EinoExt package/API. Adapt it when present; otherwise record
-`DEFERRED-INDEFINITE` and add no custom substitute.
+New or replacement runtime adapters follow the Eino decision order in root
+AGENTS.md. Small fixes reuse the existing decision and inspect affected APIs;
+they do not repeat full framework research.
 
 ## Non-negotiable boundaries
 
@@ -64,18 +67,16 @@ pinned Eino/EinoExt package/API. Adapt it when present; otherwise record
 
 ## Placement rule: universal stays internal
 
-**"Universal" means every Generation selects it.** A capability that every
-Recipe picks (file/shell/ask_user/skills tools, and universal enhancements
-such as todo, notes, http_request, download, sequential_thinking) is kernel
-inventory, not a plugin: wrapping it in a Module adds source pinning,
-descriptor, and binding maintenance for zero variation — it would be
-selected in every Generation anyway.
+Keep required core capabilities internal. A new Module needs an actual consumer
+or variation boundary that justifies its descriptor, source pin and binding
+maintenance. Being first-party or currently selected by the default Recipe does
+not make a capability mandatory in every Generation.
 
 Plugin categories exist for capability that a real Recipe boundary drops:
 
 | Category | Holds | Examples |
 |---|---|---|
-| `internal/` | Universal: selected by every Generation | protected tools, todo, notes |
+| `internal/` | Required kernel ownership | protected tools and shared Hosts |
 | `plugins/infra/` | Local daemon discovery/health/lifecycle | infra/llm (ollama, llama.cpp…), future asr/tts/vad |
 | `plugins/coding/` | Programming-specialized capability | lsp, session-tree, coding tools |
 | `plugins/provider/` | Cloud provider/credential adapters | future OAuth login flows |
@@ -96,13 +97,15 @@ its source/reference/Grant in Inspect.
 
 ## Completion
 
-Use test-first implementation. A browser refresh never installs a Module.
+Verify changed behavior and representative failures; add a regression for a
+reproducible bug. Instruction/prose-only changes need relevant static checks.
+A browser refresh never installs a Module.
 
 From the repository root, the supported quick workflow is:
 
 ```text
 go run ./sdk verify plugins/hello-fs
-go run ./sdk pack --recipe recipes/minimal.vivy.yml --output <new-output-directory>
+go run ./sdk pack --recipe examples/minimal-plus-hello-fs/recipe.vivy.yml --output <new-output-directory>
 go run ./sdk inspect-artifact <output-directory>
 ```
 
@@ -124,12 +127,12 @@ go test ./sdk/internal/assembly -run 'Test(CompilePluginV1GraphFixtures|StartFai
 go test ./internal/toolhost -run 'TestMiddleware(TimeoutFailsClosed|PanicAndInvalidDecisionFailClosed)' -count=1
 ```
 
-Use root AGENTS.md for scoped validation and proportional records. Verify the
-real selected product path; full product CI is the final Epic closeout stage.
+Use root AGENTS.md for validation and proportional records. Verify the actual
+selected product path when behavior changes.
 
 `verify` is static and never starts Provider code. `pack` consumes the
 checked-in behavior-conformance result bundle; it does not execute
 the suites. Unattested third-party Providers remain packable but receive no
-conformance record in Inspect. The bundle makes no source-authenticity claim. Advance it only when the executable
-reproduction gate, focused suites, and Generation matrix match the same
-release evidence set.
+conformance record in Inspect. The bundle makes no source-authenticity claim.
+Updating that shared bundle requires its own reproduction checks; a Provider
+change that leaves it unchanged does not acquire a release-evidence ceremony.

@@ -1,43 +1,26 @@
 ---
 name: vivy-advance-dev-env
-description: Analyze, establish, or repair the Vivy development environment across Windows, WSL2, Linux, and Docker, and decide which daily verification gates the current host can actually satisfy. Use when onboarding a machine; when just doctor or just dev fails; when deciding whether to install or use WSL2 or Docker; when a Docker build fails on missing inputs; before claiming just ci, race, real Postgres, Docker smoke, or Windows .exe acceptance; or when the user says 开发环境 / 环境配置 / 能不能跑 just ci / WSL / Docker.
+description: Diagnose or prepare a Vivy host when onboarding, a development command fails, or an affected check needs unavailable WSL/Linux, Docker, Postgres or Windows support. Reuse established readiness for routine work; mentioning CI or editing instructions does not trigger environment setup.
 ---
 
 # Vivy Advance Dev Env
 
 ## Restored baseline
 
-Restored from `7b42b292` onto stable on 2026-10-21. The owner then authorized
-portable WSL verification wiring and dedicated minimal-kernel CI. Use the
-current `justfile` and these actual entry points:
+Root AGENTS.md owns validation scope; this skill guides venue and readiness.
+Use the current justfile and dependency declarations. The restored 2026-10-21
+baseline and old command tables are historical context in
+`references/verification-layers.md`, not requirements to recreate a former host.
+Check that a referenced command/script exists before using it. In particular,
+do not run an old full `--apply` route whose setup owner is absent.
 
-- `node scripts/ensure-laputa.mjs` prepares the pinned sibling through one
-  portable owner. The PowerShell entry only forwards. `just doctor` validates
-  the local toolchain and clean source pin; readiness is not test acceptance.
-- `just wiring-ci` runs bootstrap/evidence guards and kernel compiler/source/
-  runtime Assembly wiring. `just kernel-ci` vets/tests kernel owners and packs,
-  inspects and boots only the nine-module usable minimal Recipe, without installing
-  or building UI. It proves protected read/list and provider composition; the separate D13 browser gate certifies usable chat. It does not claim default parity.
-- `just d02-ci` covers affected runtime/RPC/Face contracts, the causal App probe
-  separately, shutdown and native CODE fixtures. `just d02-web-ci` separately
-  stages the actual UI, typechecks it and tests affected Web/selected-UI paths.
-- `just race-ci` is the Linux/WSL kernel race lane. `just test-postgres` requires
-  a real disposable DSN and actual required cases; an unset DSN fails closed.
-- Run those scoped gates from a separate Linux-filesystem WSL/Linux checkout,
-  with its own pinned Laputa and dependencies. Windows retains focused native
-  acceptance. Do not replace the owner's scope with Windows full-CI reruns.
-- Full-product `just ci`, the dev launcher and Docker packaging are still
-  legacy platform recipes. Do not advertise them as portable scoped gates.
-  `scripts/setup.mjs`, isolated `:8788/:3016` launcher and release-conformance
-  are not restored. The full `--apply` path still needs that setup owner.
-- The manual split remains backend `127.0.0.1:8787` and Vite
-  `127.0.0.1:3015`; use an explicit disposable home. Never use tenant Journals.
-
-The older reference tables are historical environment notes. Root AGENTS.md
-owns current validation policy; this skill guides venue and readiness only.
+`node scripts/ensure-laputa.mjs` prepares the pinned sibling; `just doctor`
+checks readiness rather than acceptance. Prepare only dependencies needed by the
+affected lane. Kernel-only work does not need UI installation or browser startup.
+Browser work uses disposable backend `:8787` and Vite `:3015` homes.
 ## Host model
 
-Vivy uses three venues. Keep the split; do not collapse it into one host.
+Choose the venue for the affected check; this table does not require every venue.
 
 | Venue | Role | Owns |
 | --- | --- | --- |
@@ -46,7 +29,8 @@ Vivy uses three venues. Keep the split; do not collapse it into one host.
 | Linux (or macOS) | the WSL line without the Windows prefix | backend/UI/race; Windows acceptance is external |
 | Docker | dependency services and packaging | real Postgres, image build, empty-`/data` startup smoke; not the inner loop |
 
-The split is a resource decision, not a correctness escape hatch. A Windows-only host may run `just ci` but must not claim the Linux race or a Windows acceptance it did not run. A WSL-only host must not claim native `.exe` acceptance.
+Report only the acceptance actually exercised. WSL/Linux cannot establish native
+Windows `.exe` acceptance; host readiness cannot establish a product test pass.
 
 ## Procedure
 
@@ -86,13 +70,9 @@ The split is a resource decision, not a correctness escape hatch. A Windows-only
    Install UI dependencies only for an affected UI lane. The minimal lane has
    no UI dependency installation. Keep Go proxy changes process-local.
 
-6. Select the scoped verification ladder above in proportion to the change.
-   Run one heavy lane at a time. Record every skip and its owner. Optional
-   modules, full-product packaging and native Windows acceptance remain
-   distinct from a passing minimal kernel. A zero-test selector never passes.
-7. Record evidence outside the chat.
-
-   Use the proportional delivery records in root AGENTS.md. Distinguish implemented, verified, and unverified. A skipped race, Postgres, Docker, or Windows lane is not green. Keep a transferable patch, bundle, or commit so the result does not depend on this conversation.
+6. Return to the affected checks under root validation policy. Run one heavy
+   lane at a time. Record missing acceptance only when required by this task;
+   do not invent a checklist of unrelated unrun platforms. Use root delivery rules.
 
 ## Installation and isolation rules
 
@@ -106,14 +86,9 @@ The split is a resource decision, not a correctness escape hatch. A Windows-only
 
 ## Common failure signatures
 
-The full table lives in `references/verification-layers.md`. The highest-frequency ones:
-
-- `just dev` reads the wrong config or home: `VIVY_CONFIG` must resolve to `scripts/dev.config.yaml`, and `VIVY_USER_HOME` to `.workspace/dev/home`.
-- Docker build reaches the registry during an "offline" check: every pnpm layer needs the corepack cache mount, not only `corepack prepare`.
-- Docker build fails on CA or apt: copy the CA bundle from the Go image, keep the runtime free of apt, and use a bash `/dev/tcp` healthcheck.
-- WSL or container DNS returns `198.18.x.x` while the Windows proxy listens on `127.0.0.1:7890`: that proxy is unreachable from WSL/containers. Seed BuildKit caches and build with `--network=none`; that proves input completeness, not registry reachability.
-- WSL resolves an old Node or loses nvm after `bash -lc`: the shell rc guard skips nvm for non-interactive shells. Use an interactive shell or source nvm explicitly.
-- A failed `docker run <image> version` hangs: the Vivy binary ignores `version` and starts the server. Smoke through the healthcheck or the product script.
+Consult `references/verification-layers.md` only for a matching observed symptom.
+Confirm that its original host/version conditions still apply; old network,
+temporary-directory or upstream failures do not mandate permanent workarounds.
 
 ## Resources
 

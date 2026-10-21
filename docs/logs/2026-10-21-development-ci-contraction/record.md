@@ -77,3 +77,37 @@ The user can review the isolated codex/development-ci-contraction branch and
 then publish through the normal PR route. Revert this focused change to restore
 previous development policy/CI wiring; no data migration or product rollback is
 needed. No release artifact is introduced by this tooling delivery.
+
+## Instruction and trigger follow-up
+
+The owner's checklist exposed omissions after the initial implementation. The
+original workspace remains on stable; this delivery is in the isolated
+`codex/development-ci-contraction` worktree and has not been merged into it.
+That visibility difference did not account for all omissions: the plugin
+completion contract still required full CI, Module review still imposed a
+platform questionnaire on every edit, and skill routing still cascaded broadly.
+
+| Checklist area | Result |
+| --- | --- |
+| Repeated full CI and split startup | Root owns scope. Plugin completion now references it; browser startup applies only to browser behavior. No CI file was changed or product CI run during this follow-up. |
+| Fixed three-file delivery and generic numeric thresholds | Removed in the initial rule contraction; ordinary delivery uses one record, minor instructions can use a commit. |
+| Old machine paths, click coordinates and approval bypass | Removed from testing-vivy-ui in the initial pass. Environment skill now routes matching symptoms to conditional historical references instead of repeating workarounds in routine guidance. |
+| First-party defaults and ordinary Provider work | Explicit Recipes choose capabilities. Providers inherit an established Port; only new/changed public contracts need platform design. The residual every-edit questionnaire and fixed test-first instruction were removed. |
+| Eino checks | New/replacement capabilities inspect pinned APIs. Existing adapter fixes reuse the decision and inspect affected interfaces. Root, skill and architecture clauses now agree. |
+| Skill triggers and reading | Narrowed kernel, plugin, UI, Eino, environment and legacy redirect descriptions. No automatic workflow from prose mentions; no blanket four-document read or cascading required subskills. External caches remain untouched. |
+| Ownership and evidence ritual | Root retains one authority and derived copies. Evidence machinery must name a consumer and decision; unused producers, projections and exclusive checks retire together. No universal per-fact conformance dossier remains. |
+| Existing runtime hash/evidence mechanism deletion | Not delivered here. The ban on new mechanisms is a rule change, not evidence that existing mechanisms were removed. Issue #91 and its existing deletion plan remain open. |
+
+A bounded source inspection confirmed that Port support state affects
+`sdk/internal/assembly/compiler.go` selection through `requireSelectablePort`,
+and Provider suite results feed that state through
+`sdk/internal/conformance/generation.go`. Evidence identifiers also enter
+validation and Inspect projections. These are consumers, but their existence
+alone does not justify every field or the whole mechanism. A complete field-by-
+field deletion audit was not performed. Existing open board entries, including
+ISSUE-91-DELETION and UI-MODULE-DEPS-NOT-INSTALLED, retain that runtime work;
+this instruction cleanup does not claim to close them.
+
+Follow-up verification: diff/wording review passed; all six changed skill
+entrypoints passed quick_validate; `git diff --check` passed. No product code, dependency,
+Recipe, CI workflow or CI command implementation changed in this follow-up.

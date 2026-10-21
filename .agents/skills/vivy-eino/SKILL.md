@@ -1,6 +1,6 @@
 ---
 name: vivy-eino
-description: Inspect repository-pinned Eino and EinoExt APIs when adding or replacing Vivy runtime/provider capabilities, or fixing an existing adapter. Load only references relevant to the affected API.
+description: Inspect repository-pinned Eino/EinoExt APIs for new or replacement runtime/provider capabilities, or an adapter fix that changes an upstream interface. Reuse established decisions for other fixes; documentation mentions alone do not trigger research.
 ---
 
 # Vivy and Eino
@@ -42,7 +42,9 @@ Vivy today: `internal/provider` builds models (`einoopenai.NewChatModel`), `inte
 4. **Orchestrate**: `NewChain` or `NewGraph`; `AppendChatTemplate(...).AppendChatModel(...).AppendToolsNode(...)`; or `AddChatModelNode` / `AddToolsNode` / `AddEdge`; compile with `r, err := g.Compile(ctx)`.
 5. **Run**: `r.Invoke(ctx, in)` or `r.Stream(ctx, in)`; consume `*schema.StreamReader` with `Recv()` until `io.EOF`, `defer Close()`.
 6. **Observe**: `callbacks.NewHandlerBuilder().OnStartFn(...).Build()`; register via `callbacks.AppendGlobalHandlers` or `compose.WithCallbacks`.
-7. **Verify**: follow root AGENTS.md and vivy-kernel-ci for affected checks; full CI belongs to final Epic closeout.
+
+Use only the steps relevant to the existing seam; this is an API example, not a
+mandatory implementation sequence. Root AGENTS.md owns verification scope.
 
 ## Vivy hard rules (read before coding)
 

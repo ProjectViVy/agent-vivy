@@ -1,6 +1,6 @@
 ---
 name: vivy-kernel-ci
-description: Guide environment-aware Vivy validation, composing small CI during development and full product CI for the final Epic candidate. Use for kernel, control-plane, UI or integration verification.
+description: Choose and execute affected Vivy checks on the actual host, or validate a final Epic candidate. Use when verification needs environment or Recipe guidance; skill, instruction and prose-only edits need only relevant static checks.
 ---
 
 # Vivy environment and layered CI
@@ -8,6 +8,8 @@ description: Guide environment-aware Vivy validation, composing small CI during 
 Root AGENTS.md owns acceptance policy; .github/ci-scopes.json owns check
 associations. This skill guides their execution. Keep working in the authorized
 checkout, with disposable data; never use tenant Journals as test fixtures.
+Do not start a verification session merely because this skill or its instructions
+are being edited. Use root AGENTS.md for that change's scope.
 
 ## Development
 
@@ -23,9 +25,7 @@ just ci-small --base <ref> --scope <additional-scope>
 Choose the actual comparison baseline. Scopes are additive. A changed shared
 owner widens coverage beyond a feature Recipe. Linux-filesystem WSL/Linux runs
 kernel/Face/race/Postgres checks with independent pinned Laputa; Windows owns
-native acceptance. Its full-CI UI recipes isolate TEMP/TMP in their own child
-process to avoid esbuild system-temp cleanup failures; do not carry that override
-into Go tests or project-instruction discovery. A missing venue or service remains unverified.
+native acceptance. A missing venue or service remains unverified.
 
 For browser behavior, start `just dev`, or `just run` plus `cd ui; pnpm dev`,
 and exercise http://127.0.0.1:3015 with an explicit disposable home. Set

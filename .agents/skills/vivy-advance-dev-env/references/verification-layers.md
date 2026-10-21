@@ -1,6 +1,13 @@
 > Current validation policy: follow root AGENTS.md and vivy-kernel-ci. The
 > commands and records below describe their original host context; they do not
 > require full-product CI during ordinary development.
+>
+> Historical context: restored from `7b42b292` on 2026-10-21. Original tooling
+> included unrecovered setup/apply routes and `:8788/:3016` assumptions. Confirm
+> commands against the current justfile before use. Failure signatures below are
+> conditional reports, not default workarounds. For native Windows UI builds that
+> fail on esbuild system-TEMP cleanup, the current UI recipes use a child-local
+> scratch directory; that setting must not leak into Go instruction discovery.
 
 # Verification layers
 

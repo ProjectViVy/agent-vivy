@@ -1,11 +1,12 @@
 ---
 name: testing-vivy-ui
-description: Exercise Vivy browser behavior through an isolated split backend/Vite and an explicit Recipe, using deterministic local models or authorized real-provider runs.
+description: Exercise changed Vivy browser interactions through an isolated split backend/Vite and an explicit Recipe. Use for browser behavior or a reported UI regression, not backend-only, instruction or prose changes.
 ---
 
 # Testing Vivy UI
 
-Use root AGENTS.md and vivy-kernel-ci for check scope and completion policy.
+Root AGENTS.md owns check scope and completion policy. Consult vivy-kernel-ci
+only if host or Recipe execution needs clarification.
 Keep an explicit disposable VIVY_USER_HOME and configuration; do not inspect
 or modify daily tenant Journals. Use backend :8787 and Vite :3015, which proxies
 /rpc. Set VIVY_UI_RECIPE for the selected development Recipe.

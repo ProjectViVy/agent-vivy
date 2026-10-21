@@ -62,8 +62,13 @@ checks once affected risks and required acceptance are covered.
   not acquire extra approval, document or delegation stages from optional
   external workflows. Do not edit their installed caches or personal settings.
   Follow applicable project-specific skills below.
-- Before environment diagnosis or CI/race/Postgres/Docker/Windows acceptance,
-  read `.agents/skills/vivy-advance-dev-env/SKILL.md`. Prefer a Linux-filesystem
+- Select skills for the procedure the task actually needs; mentioning a related
+  directory, framework or command does not trigger its entire workflow. Read only
+  affected contracts and references. Shared validation and delivery policy lives
+  here; skills explain methods without adding universal gates.
+- For environment diagnosis, onboarding or an uncertain host capability, use
+  `.agents/skills/vivy-advance-dev-env/SKILL.md`. Reuse established host readiness
+  for routine checks. Prefer a Linux-filesystem
   WSL checkout for Go/Node verification and an independent Windows checkout for
   native acceptance. Check the skill's restored-baseline boundary and actual
   recipe availability; follow the owner's requested verification scope.
@@ -110,8 +115,10 @@ Remove redundant hand-maintained copies instead of adding synchronization.
 Immutable admitted snapshots may capture an authority at a specific revision.
 Displayed capabilities derive from the backend, with unavailable features
 explicitly marked. Shipped runtime data belongs to declared artifact inputs,
-never a fixtures/samples tree. Keep evidence only where a real decision consumes
-it; a digest or test record cannot substitute for observed product behavior.
+never a fixtures/samples tree. Evidence fields and dedicated generators/checks
+need a named consumer and a concrete decision they change. Retire unused fields
+together with their producers, projections and exclusive checks; a digest or test
+record cannot substitute for observed product behavior.
 
 ## Commit Rule for AI agents
 
@@ -197,9 +204,10 @@ Normative sources are `docs/architecture/VIVY-MODULE-STANDARD.md`,
 `docs/architecture/VIVY-PORT-CATALOG.md`,
 `docs/architecture/VIVY-PLUGIN-SPEC.md`, and
 `docs/architecture/VIVY-ASSEMBLY.md`. The executable program plan is
-`docs/plans/plugin-platform/README.md`. Use `.agents/skills/vivy-plugin` for
-any Module, Port, plugin, Recipe, Generation, `vivy-sdk`, pack, or Inspect
-work.
+`docs/plans/plugin-platform/README.md`. Use `.agents/skills/vivy-plugin` when
+changing Module/Port composition or using SDK verify, pack or Inspect; a mention
+in documentation alone does not require the workflow. Existing Providers reuse
+their Port contract; only new or changed public contracts need platform design.
 
 - Design in the order **Module -> typed Port -> Provider/Consumer -> Recipe ->
   generated Assembly -> Generation evidence**. Do not recreate a God `Plugin`
@@ -225,9 +233,11 @@ work.
   or authorization prompt. Backend inputs remain untrusted and server-side
   identity, schema, Policy, Grant, approval, Run, Tool, and Journal checks stay
   authoritative.
-- For Provider/model/OAuth/orchestration/RAG/MCP adapter capability, inspect
-  and cite the pinned Eino/EinoExt API. Adapt it when present; otherwise mark
-  the capability `DEFERRED-INDEFINITE`. Do not build a custom substitute.
+- For new or replacement Provider/model/OAuth/orchestration/RAG/MCP capability,
+  apply the Eino decision order above. Existing adapter fixes inspect affected
+  interfaces and reuse the established decision. If no suitable upstream adapter
+  exists for a public capability, mark it `DEFERRED-INDEFINITE` rather than
+  inventing a public substitute.
 - A Port is supported only with Definition, SDK Contract, Host Consumer, real
   Provider, Failure Model, Conformance Suite, and Inspect Projection.
 
