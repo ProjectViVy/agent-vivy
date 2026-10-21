@@ -3881,23 +3881,22 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		}
 	}
 	approval := domain.Approval{
-		ID:               newPrefixedID("apr_"),
-		RunID:            runID,
-		ToolCallID:       details.ToolCallID,
-		ToolName:         details.ToolName,
-		Decision:         domain.ApprovalPending,
-		ExpiresAt:        expiresAt,
-		CreatedAt:        time.Now().UnixMilli(),
-		ResumeTarget:     details.ResumeTarget,
-		Action:           proposal.Action,
-		Target:           proposal.Target,
-		PreconditionHash: proposal.PreconditionHash,
-		Preview:          proposal.Preview,
-		RiskFindings:     append([]string(nil), proposal.RiskFindings...),
-		ProposalData:     boundProposalData,
-		Kind:             approvalKind,
-		SandboxMode:      string(sandboxMode(ctx)),
-		ApprovalPolicy:   string(approvalPolicy(ctx)),
+		ID:             newPrefixedID("apr_"),
+		RunID:          runID,
+		ToolCallID:     details.ToolCallID,
+		ToolName:       details.ToolName,
+		Decision:       domain.ApprovalPending,
+		ExpiresAt:      expiresAt,
+		CreatedAt:      time.Now().UnixMilli(),
+		ResumeTarget:   details.ResumeTarget,
+		Action:         proposal.Action,
+		Target:         proposal.Target,
+		Preview:        proposal.Preview,
+		RiskFindings:   append([]string(nil), proposal.RiskFindings...),
+		ProposalData:   boundProposalData,
+		Kind:           approvalKind,
+		SandboxMode:    string(sandboxMode(ctx)),
+		ApprovalPolicy: string(approvalPolicy(ctx)),
 	}
 	if err := s.deps.Approvals.CreateApproval(persistCtx, approval); err != nil {
 		fail(err)
@@ -3905,23 +3904,22 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 
 	ev := m.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
-		ApprovalID:       approval.ID,
-		ToolCallID:       details.ToolCallID,
-		ToolName:         details.ToolName,
-		Args:             redactedApprovalArguments(details.Args),
-		ExpiresAt:        expiresAt,
-		SelectedTools:    append([]string(nil), selectedTools...),
-		Mode:             string(mode),
-		Face:             string(runFace(ctx)),
-		PolicyProfile:    string(policyProfile(ctx)),
-		PolicyHash:       policySnapshot(ctx).Hash,
-		SandboxMode:      string(sandboxMode(ctx)),
-		ApprovalPolicy:   string(approvalPolicy(ctx)),
-		Action:           approval.Action,
-		Target:           approval.Target,
-		PreconditionHash: approval.PreconditionHash,
-		Preview:          approval.Preview,
-		RiskFindings:     append([]string(nil), approval.RiskFindings...),
+		ApprovalID:     approval.ID,
+		ToolCallID:     details.ToolCallID,
+		ToolName:       details.ToolName,
+		Args:           redactedApprovalArguments(details.Args),
+		ExpiresAt:      expiresAt,
+		SelectedTools:  append([]string(nil), selectedTools...),
+		Mode:           string(mode),
+		Face:           string(runFace(ctx)),
+		PolicyProfile:  string(policyProfile(ctx)),
+		PolicyHash:     policySnapshot(ctx).Hash,
+		SandboxMode:    string(sandboxMode(ctx)),
+		ApprovalPolicy: string(approvalPolicy(ctx)),
+		Action:         approval.Action,
+		Target:         approval.Target,
+		Preview:        approval.Preview,
+		RiskFindings:   append([]string(nil), approval.RiskFindings...),
 	})
 	_, err := s.appendRunEvent(persistCtx, ev, false)
 	if err != nil {
@@ -4274,7 +4272,7 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
-			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.PreconditionHash, approval.ID, nil)
+			approval.RunID, approval.ToolCallID, approval.ResumeTarget, decision, approval.ProposalData, approval.ID, nil)
 	}()
 	return nil
 }
@@ -4549,7 +4547,7 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 	go func() {
 		defer s.wg.Done()
 		s.resumeRun(p.runCtx, p.sessionID, p.workspaceID, toolName, p.selectedTools, p.mounted, p.mode, p.profile, p.snapshot, p.sandboxMode, p.approvalPolicy, p.face, p.ledger, p.engine, p.execution,
-			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", "", nil)
+			question.RunID, question.ToolCallID, question.ResumeTarget, answer, nil, "", nil)
 	}()
 	return nil
 }
@@ -4614,7 +4612,7 @@ func (s *Service) ledgerForRun(runID domain.RunID) *BudgetLedger {
 
 // resumeRun feeds the response back into the engine and maps the resumed
 // events into the same journal (the journal continues the seq).
-func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, eng *Engine, execution runExecutionOptions, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, preconditionHash, approvalID string, resumeBatchIDs []string) {
+func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, workspaceID, toolName string, selectedTools []string, mounted *tools.MountedTools, mode domain.RunMode, profile domain.PolicyProfile, snapshot domain.PolicySnapshot, sandboxMode domain.SandboxMode, approvalPolicy domain.ApprovalPolicy, face domain.Face, ledger *BudgetLedger, eng *Engine, execution runExecutionOptions, runID domain.RunID, toolCallID, resumeTarget, resumeValue string, proposalData []byte, approvalID string, resumeBatchIDs []string) {
 	s.mu.Lock()
 	if s.runTools[runID] == nil {
 		selected := make(map[string]struct{}, len(selectedTools))
@@ -4705,7 +4703,6 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 		ctx = withApprovedToolCall(ctx, toolCallID)
 	}
 	ctx = tools.WithWorkspaceID(ctx, workspaceID)
-	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
 	if approvalID != "" {
 		ctx = tools.WithProposalStaleReporter(ctx, func(reason string) {
 			if lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore); ok {

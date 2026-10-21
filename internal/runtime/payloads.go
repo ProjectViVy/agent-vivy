@@ -286,23 +286,22 @@ type payloadToolMounted struct {
 // payloadToolApprovalRequired is committed in the single journal commit
 // that follows a durable checkpoint (D-029 write order).
 type payloadToolApprovalRequired struct {
-	ApprovalID       string         `json:"approval_id"`
-	ToolCallID       string         `json:"tool_call_id"`
-	ToolName         string         `json:"tool_name"`
-	Args             map[string]any `json:"args"`
-	ExpiresAt        int64          `json:"expires_at"`
-	SelectedTools    []string       `json:"selected_tools,omitempty"`
-	Mode             string         `json:"mode,omitempty"`
-	Face             string         `json:"face"`
-	PolicyProfile    string         `json:"policy_profile,omitempty"`
-	PolicyHash       string         `json:"policy_hash,omitempty"`
-	SandboxMode      string         `json:"sandbox_mode,omitempty"`
-	ApprovalPolicy   string         `json:"approval_policy,omitempty"`
-	Action           string         `json:"action,omitempty"`
-	Target           string         `json:"target,omitempty"`
-	PreconditionHash string         `json:"precondition_hash,omitempty"`
-	Preview          string         `json:"preview,omitempty"`
-	RiskFindings     []string       `json:"risk_findings,omitempty"`
+	ApprovalID     string         `json:"approval_id"`
+	ToolCallID     string         `json:"tool_call_id"`
+	ToolName       string         `json:"tool_name"`
+	Args           map[string]any `json:"args"`
+	ExpiresAt      int64          `json:"expires_at"`
+	SelectedTools  []string       `json:"selected_tools,omitempty"`
+	Mode           string         `json:"mode,omitempty"`
+	Face           string         `json:"face"`
+	PolicyProfile  string         `json:"policy_profile,omitempty"`
+	PolicyHash     string         `json:"policy_hash,omitempty"`
+	SandboxMode    string         `json:"sandbox_mode,omitempty"`
+	ApprovalPolicy string         `json:"approval_policy,omitempty"`
+	Action         string         `json:"action,omitempty"`
+	Target         string         `json:"target,omitempty"`
+	Preview        string         `json:"preview,omitempty"`
+	RiskFindings   []string       `json:"risk_findings,omitempty"`
 }
 
 type payloadUserQuestionRequired struct {

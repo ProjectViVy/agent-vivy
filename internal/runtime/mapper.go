@@ -915,8 +915,8 @@ func boundToolFinishedEventPayload(payload payloadToolFinished, budget int) payl
 }
 
 func boundApprovalEventPayload(payload payloadToolApprovalRequired, budget int) payloadToolApprovalRequired {
-	payload.Action, payload.Target, payload.PreconditionHash, payload.Preview, payload.RiskFindings = boundApprovalReviewFields(
-		payload.Action, payload.Target, payload.PreconditionHash, payload.Preview, payload.RiskFindings, budget,
+	payload.Action, payload.Target, payload.Preview, payload.RiskFindings = boundApprovalReviewFields(
+		payload.Action, payload.Target, payload.Preview, payload.RiskFindings, budget,
 	)
 	encoded, _ := json.Marshal(payload)
 	if len(encoded) <= budget {
@@ -953,13 +953,13 @@ func boundApprovalEventPayload(payload payloadToolApprovalRequired, budget int) 
 }
 
 func boundToolProposalReview(proposal domain.ToolProposal, budget int) domain.ToolProposal {
-	proposal.Action, proposal.Target, proposal.PreconditionHash, proposal.Preview, proposal.RiskFindings = boundApprovalReviewFields(
-		proposal.Action, proposal.Target, proposal.PreconditionHash, proposal.Preview, proposal.RiskFindings, budget,
+	proposal.Action, proposal.Target, proposal.Preview, proposal.RiskFindings = boundApprovalReviewFields(
+		proposal.Action, proposal.Target, proposal.Preview, proposal.RiskFindings, budget,
 	)
 	return proposal
 }
 
-func boundApprovalReviewFields(action, target, hash, preview string, risks []string, budget int) (string, string, string, string, []string) {
+func boundApprovalReviewFields(action, target, preview string, risks []string, budget int) (string, string, string, []string) {
 	const (
 		maxPreview = 64 << 10
 		maxRisks   = 16
@@ -970,7 +970,7 @@ func boundApprovalReviewFields(action, target, hash, preview string, risks []str
 		for i := range boundedRisks {
 			boundedRisks[i] = tools.RedactSensitive(boundedRisks[i])
 		}
-		return action, tools.RedactSensitive(target), hash, tools.RedactSensitive(preview), boundedRisks
+		return action, tools.RedactSensitive(target), tools.RedactSensitive(preview), boundedRisks
 	}
 	target = tools.RedactSensitive(target)
 	preview = tools.RedactSensitive(preview)
@@ -980,7 +980,6 @@ func boundApprovalReviewFields(action, target, hash, preview string, risks []str
 	}
 	action = clampEscapedText(action, 1024)
 	target = clampEscapedText(target, 4096)
-	hash = clampEscapedText(hash, 256)
 	reviewBudget := max(0, budget-8192)
 	riskBudget := min(16<<10, reviewBudget/4)
 	boundedRisks := make([]string, 0, min(len(risks), maxRisks)+1)
@@ -998,7 +997,7 @@ func boundApprovalReviewFields(action, target, hash, preview string, risks []str
 	}
 	previewBudget := min(maxPreview, max(0, reviewBudget-used))
 	preview = clampEscapedTextWithMarker(preview, previewBudget, "\n[preview truncated]\n")
-	return action, target, hash, preview, boundedRisks
+	return action, target, preview, boundedRisks
 }
 
 func clampEscapedTextWithMarker(value string, budget int, marker string) string {

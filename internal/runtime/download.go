@@ -2,12 +2,8 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -69,14 +65,12 @@ func (b *DownloadBackend) Download(ctx context.Context, runID domain.RunID, inpu
 			return tools.DownloadResult{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}
-	var old []byte
-	if existing, readErr := os.ReadFile(path); readErr == nil {
-		old = existing
-	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return tools.DownloadResult{}, fmt.Errorf("download: read existing %s: %w", displayPath(root, path), readErr)
+	before, err := captureFileBefore(ctx, root, path, b.maxBytes)
+	if err != nil {
+		return tools.DownloadResult{}, err
 	}
-	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
-		return tools.DownloadResult{}, errors.New("download: proposal stale: target changed after human review")
+	if err := checkReviewedFileBefore(ctx, displayPath(root, path), before, b.maxBytes); err != nil {
+		return tools.DownloadResult{}, err
 	}
 
 	client := *b.client
@@ -113,17 +107,19 @@ func (b *DownloadBackend) Download(ctx context.Context, runID domain.RunID, inpu
 		return tools.DownloadResult{}, fmt.Errorf("download: create temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	sink := &hashingWriter{w: tmp, hash: sha256.New()}
-	_, copyErr := io.Copy(sink, io.LimitReader(resp.Body, b.maxBytes+1))
+	copied, copyErr := io.Copy(tmp, io.LimitReader(resp.Body, b.maxBytes+1))
+	if copyErr == nil {
+		copyErr = tmp.Sync()
+	}
 	closeErr := tmp.Close()
 	if copyErr == nil {
 		copyErr = closeErr
 	}
-	if copyErr == nil && sink.n > b.maxBytes {
+	if copyErr == nil && copied > b.maxBytes {
 		copyErr = fmt.Errorf("download: response exceeds %d byte limit", b.maxBytes)
 	}
 	if copyErr == nil {
-		copyErr = renameInto(tmpName, path, fileMode(path))
+		copyErr = renameInto(tmpName, path, fileMode(path), func() error { return b.files.recheckFileBefore(ctx, runID, input.Path, before, b.maxBytes) })
 	}
 	if copyErr != nil {
 		_ = os.Remove(tmpName)
@@ -131,10 +127,9 @@ func (b *DownloadBackend) Download(ctx context.Context, runID domain.RunID, inpu
 	}
 	return tools.DownloadResult{
 		Path:        displayPath(root, path),
-		Bytes:       sink.n,
-		SHA256:      hex.EncodeToString(sink.hash.Sum(nil)),
+		Bytes:       copied,
 		ContentType: resp.Header.Get("Content-Type"),
-		Overwritten: len(old) > 0,
+		Overwritten: before.exists,
 	}, nil
 }
 
@@ -148,11 +143,19 @@ func (b *DownloadBackend) PrepareDownload(ctx context.Context, runID domain.RunI
 	if _, err := validatePublicURL(req.URL); err != nil {
 		return domain.ToolProposal{}, err
 	}
+	before, err := captureFileBefore(ctx, root, path, b.maxBytes)
+	if err != nil {
+		return domain.ToolProposal{}, err
+	}
 	warnings := []string{"writes remote content into the workspace"}
-	if info, statErr := os.Stat(path); statErr == nil && info.Size() > 0 {
+	if before.exists {
 		warnings = append(warnings, "overwrites existing file")
 	}
-	data, _ := json.Marshal(req)
+	data, err := encodeFileBefore(displayPath(root, path), before)
+	if err != nil {
+		return domain.ToolProposal{}, err
+	}
+
 	target := displayPath(root, path)
 	return domain.ToolProposal{
 		Action: tools.DownloadName, Target: target,
@@ -175,34 +178,17 @@ func (b *DownloadBackend) resolveTarget(ctx context.Context, runID domain.RunID,
 	return root, abs, nil
 }
 
-// hashingWriter hashes and counts everything that reached the disk.
-type hashingWriter struct {
-	w    io.Writer
-	hash hash.Hash
-	n    int64
-}
-
-func (h *hashingWriter) Write(p []byte) (int, error) {
-	n, err := h.w.Write(p)
-	h.hash.Write(p[:n])
-	h.n += int64(n)
-	return n, err
-}
-
 // renameInto mirrors atomicWrite's durable tail for content that was already
 // streamed to a temp file.
-func renameInto(tmpName, path string, mode os.FileMode) error {
+func renameInto(tmpName, path string, mode os.FileMode, check func() error) error {
 	if mode == 0 {
 		mode = 0o600
 	}
 	if err := os.Chmod(tmpName, mode.Perm()); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
-		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return err
-		}
-		return os.Rename(tmpName, path)
+	if err := check(); err != nil {
+		return err
 	}
-	return nil
+	return os.Rename(tmpName, path)
 }

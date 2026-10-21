@@ -294,7 +294,7 @@ func TestGenerationD12TargetPublicAdvancePreservesHistoryPostgres(t *testing.T) 
 		t.Fatal(err)
 	}
 	var head int
-	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 37 {
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != len(manifest.Migrations(migrations.Postgres)) {
 		t.Fatalf("public advance: %d %v", head, err)
 	}
 	for table, want := range map[string]int{"generations": 1, "eval_runs": 1, "promotions": 1} {

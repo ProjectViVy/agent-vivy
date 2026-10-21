@@ -765,7 +765,6 @@ func TestSplitDiffDistinguishesHeadersFromContentAndShortAxisForcesFullscreen(t 
 		}
 	}
 	gate.Target = "src/main.go"
-	gate.PreconditionHash = strings.Repeat("a", 64)
 	gate.Risks = []string{"one", "two", "three", "four", "five"}
 	dialog := m.renderGateDialog(gate, computeLayout(160, 21), DefaultPalette())
 	if lines := len(strings.Split(dialog, "\n")); lines > 21 {

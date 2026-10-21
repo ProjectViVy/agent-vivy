@@ -231,7 +231,7 @@ func TestGenerationD12TargetPublicAdvancePreservesHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	var head int
-	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != 37 {
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&head); err != nil || head != len(manifest.Migrations(SQLite)) {
 		t.Fatalf("public advance: %d %v", head, err)
 	}
 	var ref string

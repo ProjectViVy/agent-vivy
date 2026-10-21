@@ -43,21 +43,21 @@ func (r *FileVersionRecorder) RecordMutation(ctx context.Context, sessionID doma
 
 // TrackAccess moves the stale-read marker forward; failures are logged,
 // never propagated.
-func (r *FileVersionRecorder) TrackAccess(ctx context.Context, sessionID domain.SessionID, path string, at int64) {
+func (r *FileVersionRecorder) TrackAccess(ctx context.Context, sessionID domain.SessionID, path string, state domain.FileReadState) {
 	if r == nil || r.store == nil || sessionID == "" || path == "" {
 		return
 	}
-	if err := r.store.TrackFileAccess(ctx, sessionID, path, at); err != nil {
+	if err := r.store.TrackFileAccess(ctx, sessionID, path, state); err != nil {
 		r.logger.Warn("file access tracking failed (best-effort)",
 			"session", string(sessionID), "path", path, "error", err)
 	}
 }
 
-// LastAccess reports the marker timestamp; a failed lookup reads as "never
-// tracked" so the stale-read guard fails open.
-func (r *FileVersionRecorder) LastAccess(ctx context.Context, sessionID domain.SessionID, path string) (int64, bool, error) {
+// LastAccess returns exact state. Lookup errors and unavailable old state
+// cannot authorize an overwrite; the backend requests another read.
+func (r *FileVersionRecorder) LastAccess(ctx context.Context, sessionID domain.SessionID, path string) (*domain.FileReadState, bool, error) {
 	if r == nil || r.store == nil || sessionID == "" || path == "" {
-		return 0, false, nil
+		return nil, false, nil
 	}
 	return r.store.LastFileAccess(ctx, sessionID, path)
 }

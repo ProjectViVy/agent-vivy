@@ -65,7 +65,6 @@ export function ReviewCard({ review, busy, onRespond }: { review: ReviewItem; bu
           <dt className="text-muted-foreground">{t('approvals.createdAt')}</dt><dd className="min-w-0 break-words">{new Date(review.created_at).toLocaleString(dateTimeLocale())}</dd>
           <dt className="text-muted-foreground">{t('approvals.expiresAt')}</dt><dd className="min-w-0 break-words">{new Date(review.expires_at).toLocaleString(dateTimeLocale())}</dd>
           {review.decided_at ? <><dt className="text-muted-foreground">{t('approvals.decidedAt')}</dt><dd className="min-w-0 break-words">{new Date(review.decided_at).toLocaleString(dateTimeLocale())}</dd></> : null}
-          {review.precondition_hash ? <><dt className="text-muted-foreground">{t('approvals.precondition')}</dt><dd className="min-w-0 break-all"><code>{review.precondition_hash}</code></dd></> : null}
           {review.stale_reason ? <><dt className="text-muted-foreground">{t('approvals.staleReason')}</dt><dd className="min-w-0 break-words">{review.stale_reason}</dd></> : null}
           {review.decision_reason ? <><dt className="text-muted-foreground">{t('approvals.decisionReason')}</dt><dd className="min-w-0 break-words">{review.decision_reason}</dd></> : null}
           {review.error ? <><dt className="text-muted-foreground">{t('approvals.errorLabel')}</dt><dd className="min-w-0 break-words text-destructive">{review.error}</dd></> : null}

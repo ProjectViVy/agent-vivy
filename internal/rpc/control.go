@@ -791,33 +791,32 @@ type questionResult struct {
 }
 
 type reviewResult struct {
-	ID               string              `json:"id"`
-	Kind             domain.ReviewKind   `json:"kind"`
-	Status           domain.ReviewStatus `json:"status"`
-	SessionID        domain.SessionID    `json:"session_id"`
-	SessionTitle     string              `json:"session_title,omitempty"`
-	RunID            domain.RunID        `json:"run_id"`
-	ToolCallID       string              `json:"tool_call_id,omitempty"`
-	ToolName         string              `json:"tool_name,omitempty"`
-	Source           string              `json:"source,omitempty"`
-	Actor            string              `json:"actor,omitempty"`
-	CreatedAt        int64               `json:"created_at"`
-	ExpiresAt        int64               `json:"expires_at"`
-	DecidedAt        int64               `json:"decided_at,omitempty"`
-	Action           string              `json:"action,omitempty"`
-	Target           string              `json:"target,omitempty"`
-	PreconditionHash string              `json:"precondition_hash,omitempty"`
-	Preview          string              `json:"preview,omitempty"`
-	RiskFindings     []string            `json:"risk_findings,omitempty"`
-	Arguments        json.RawMessage     `json:"arguments,omitempty"`
-	Prompt           string              `json:"prompt,omitempty"`
-	DecisionReason   string              `json:"decision_reason,omitempty"`
-	StaleReason      string              `json:"stale_reason,omitempty"`
-	Error            string              `json:"error,omitempty"`
-	Effect           string              `json:"effect,omitempty"`
-	Reversibility    string              `json:"reversibility,omitempty"`
-	Scope            string              `json:"scope,omitempty"`
-	Trust            string              `json:"trust,omitempty"`
+	ID             string              `json:"id"`
+	Kind           domain.ReviewKind   `json:"kind"`
+	Status         domain.ReviewStatus `json:"status"`
+	SessionID      domain.SessionID    `json:"session_id"`
+	SessionTitle   string              `json:"session_title,omitempty"`
+	RunID          domain.RunID        `json:"run_id"`
+	ToolCallID     string              `json:"tool_call_id,omitempty"`
+	ToolName       string              `json:"tool_name,omitempty"`
+	Source         string              `json:"source,omitempty"`
+	Actor          string              `json:"actor,omitempty"`
+	CreatedAt      int64               `json:"created_at"`
+	ExpiresAt      int64               `json:"expires_at"`
+	DecidedAt      int64               `json:"decided_at,omitempty"`
+	Action         string              `json:"action,omitempty"`
+	Target         string              `json:"target,omitempty"`
+	Preview        string              `json:"preview,omitempty"`
+	RiskFindings   []string            `json:"risk_findings,omitempty"`
+	Arguments      json.RawMessage     `json:"arguments,omitempty"`
+	Prompt         string              `json:"prompt,omitempty"`
+	DecisionReason string              `json:"decision_reason,omitempty"`
+	StaleReason    string              `json:"stale_reason,omitempty"`
+	Error          string              `json:"error,omitempty"`
+	Effect         string              `json:"effect,omitempty"`
+	Reversibility  string              `json:"reversibility,omitempty"`
+	Scope          string              `json:"scope,omitempty"`
+	Trust          string              `json:"trust,omitempty"`
 }
 
 type backgroundResult struct {
@@ -4200,7 +4199,7 @@ func toReviewResult(item domain.ReviewItem) reviewResult {
 		ID: item.ID, Kind: item.Kind, Status: item.Status, SessionID: item.SessionID, SessionTitle: item.SessionTitle,
 		RunID: item.RunID, ToolCallID: item.ToolCallID, ToolName: item.ToolName, Source: item.Source, Actor: item.Actor,
 		CreatedAt: item.CreatedAt, ExpiresAt: item.ExpiresAt, DecidedAt: item.DecidedAt, Action: item.Action, Target: item.Target,
-		PreconditionHash: item.PreconditionHash, Preview: item.Preview, RiskFindings: item.RiskFindings, Arguments: item.Arguments,
+		Preview: item.Preview, RiskFindings: item.RiskFindings, Arguments: item.Arguments,
 		Prompt: item.Prompt, DecisionReason: item.DecisionReason, StaleReason: item.StaleReason, Error: item.Error,
 		Effect: item.Effect, Reversibility: item.Reversibility, Scope: item.Scope, Trust: item.Trust,
 	}

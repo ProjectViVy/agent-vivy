@@ -3,9 +3,6 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,13 +11,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	udiff "github.com/aymanbagabas/go-udiff"
 	einofs "github.com/cloudwego/eino/adk/filesystem"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
 )
 
@@ -222,8 +219,8 @@ func (b *EinoFilesystemBackend) ReadFile(ctx context.Context, runID domain.RunID
 	// Successful read: move the stale-read marker forward (RB-1
 	// filetracker). Best-effort and only meaningful inside a session run.
 	if b.fileVersions != nil {
-		if sessionID := tools.SessionIDFromContext(ctx); sessionID != "" {
-			b.fileVersions.TrackAccess(ctx, sessionID, displayPath(root, path), time.Now().UnixMilli())
+		if sessionID := tools.SessionIDFromContext(ctx); sessionID != "" && len(data) <= storage.FileVersionMaxBytes {
+			b.fileVersions.TrackAccess(ctx, sessionID, displayPath(root, path), domain.FileReadState{Exists: true, Content: data})
 		}
 	}
 	result := tools.FileReadResult{Path: displayPath(root, path), Bytes: len(data)}
@@ -359,30 +356,32 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 	if len(req.Content) > b.maxFileBytes {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: content exceeds %d bytes", b.maxFileBytes)
 	}
-	var old []byte
-	if existing, readErr := os.ReadFile(path); readErr == nil {
-		old = existing
-	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: read existing %s: %w", displayPath(root, path), readErr)
+	before, err := captureFileBefore(ctx, root, path, int64(b.maxFileBytes))
+	if err != nil {
+		return tools.FileMutationResult{}, err
 	}
-	// Stale-read guard (RB-1 filetracker): reject when the file changed on
-	// disk after the session's last tracked read. Never-tracked paths fail
-	// open — the guard is advisory against stale edits, not a
-	// read-before-write requirement.
+	old := before.content
+	if err := checkReviewedFileBefore(ctx, displayPath(root, path), before, int64(b.maxFileBytes)); err != nil {
+		return tools.FileMutationResult{}, err
+	}
+
+	// Never-tracked paths keep the existing advisory behavior. Historical
+	// timestamps and lookup failures cannot authorize a tracked stale write.
 	if b.fileVersions != nil {
 		if sessionID := tools.SessionIDFromContext(ctx); sessionID != "" {
-			if at, ok, err := b.fileVersions.LastAccess(ctx, sessionID, displayPath(root, path)); err == nil && ok {
-				if info, statErr := os.Stat(path); statErr == nil && info.ModTime().UnixMilli() > at {
-					return tools.FileMutationResult{}, fmt.Errorf("filesystem: %s changed on disk after the last read; read it again before editing", displayPath(root, path))
-				}
+			state, tracked, err := b.fileVersions.LastAccess(ctx, sessionID, displayPath(root, path))
+			if err != nil {
+				return tools.FileMutationResult{}, fmt.Errorf("filesystem: read state unavailable: %w", err)
+			}
+			if tracked && (state == nil || state.Exists != before.exists || !bytes.Equal(state.Content, before.content)) {
+				return tools.FileMutationResult{}, fmt.Errorf("filesystem: %s changed on disk after the last read or read state is unavailable; read it again before editing", displayPath(root, path))
 			}
 		}
 	}
-	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
-		err := fmt.Errorf("filesystem: proposal stale: target changed after human review")
-		return tools.FileMutationResult{}, err
-	}
-	if bytes.Equal(old, []byte(req.Content)) {
+	if before.exists && bytes.Equal(old, []byte(req.Content)) {
+		if err := b.recheckFileBefore(ctx, runID, req.Path, before, int64(b.maxFileBytes)); err != nil {
+			return tools.FileMutationResult{}, err
+		}
 		return mutationResult(root, path, old, false), nil
 	}
 	if req.CreateParents {
@@ -402,7 +401,7 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 			return tools.FileMutationResult{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}
-	if err := atomicWrite(path, []byte(req.Content), fileMode(path)); err != nil {
+	if err := atomicWriteChecked(path, []byte(req.Content), fileMode(path), func() error { return b.recheckFileBefore(ctx, runID, req.Path, before, int64(b.maxFileBytes)) }); err != nil {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: write %s: %w", displayPath(root, path), err)
 	}
 	// Successful mutation: archive the version chain and move the stale
@@ -411,7 +410,7 @@ func (b *EinoFilesystemBackend) WriteFile(ctx context.Context, runID domain.RunI
 	if b.fileVersions != nil {
 		if sessionID := tools.SessionIDFromContext(ctx); sessionID != "" {
 			b.fileVersions.RecordMutation(ctx, sessionID, runID, displayPath(root, path), old, []byte(req.Content))
-			b.fileVersions.TrackAccess(ctx, sessionID, displayPath(root, path), time.Now().UnixMilli())
+			b.fileVersions.TrackAccess(ctx, sessionID, displayPath(root, path), domain.FileReadState{Exists: true, Content: []byte(req.Content)})
 		}
 	}
 	result := mutationResult(root, path, []byte(req.Content), true)
@@ -435,16 +434,27 @@ func (b *EinoFilesystemBackend) PatchFile(ctx context.Context, runID domain.RunI
 	if err != nil {
 		return tools.FileMutationResult{}, err
 	}
-	old, err := os.ReadFile(path)
+	before, err := captureFileBefore(ctx, root, path, int64(b.maxFileBytes))
 	if err != nil {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: read patch target: %w", err)
+		return tools.FileMutationResult{}, err
 	}
+	if !before.exists {
+		return tools.FileMutationResult{}, fmt.Errorf("filesystem: target is missing: %w", os.ErrNotExist)
+	}
+	old := before.content
+	if err := checkReviewedFileBefore(ctx, displayPath(root, path), before, int64(b.maxFileBytes)); err != nil {
+		return tools.FileMutationResult{}, err
+	}
+	if len(tools.ProposalDataFromContext(ctx)) == 0 {
+		data, err := encodeFileBefore(displayPath(root, path), before)
+		if err != nil {
+			return tools.FileMutationResult{}, err
+		}
+		ctx = tools.WithProposalData(ctx, data)
+	}
+
 	if isBinary(old) {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: patch target is binary")
-	}
-	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
-		err := fmt.Errorf("filesystem: proposal stale: target changed after human review")
-		return tools.FileMutationResult{}, err
 	}
 	newContent, _, err := applyStringPatch(string(old), req.OldString, req.NewString, req.ReplaceAll)
 	if err != nil {
@@ -467,21 +477,29 @@ func (b *EinoFilesystemBackend) PrepareWriteFile(ctx context.Context, runID doma
 	if len(req.Content) > b.maxFileBytes {
 		return domain.ToolProposal{}, fmt.Errorf("filesystem: content exceeds %d bytes", b.maxFileBytes)
 	}
-	old, err := readExistingFile(path)
+	before, err := captureFileBefore(ctx, root, path, int64(b.maxFileBytes))
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
-	oldHash := sha256Hex(old)
+	old := before.content
+
 	warnings := []string{}
-	if len(old) == 0 {
+	if !before.exists {
 		warnings = append(warnings, "creates a new file")
 	} else {
 		warnings = append(warnings, "replaces existing file content")
 	}
-	data, _ := json.Marshal(req)
+	data, err := encodeFileBefore(displayPath(root, path), before)
+	if err != nil {
+		return domain.ToolProposal{}, err
+	}
+	preview := boundedDiff(displayPath(root, path), string(old), req.Content)
+	if isBinary(old) {
+		preview = fmt.Sprintf("replace existing binary file (%d bytes) with %d bytes", len(old), len(req.Content))
+	}
 	return domain.ToolProposal{
-		Action: "write_file", Target: displayPath(root, path), PreconditionHash: oldHash,
-		Preview: boundedDiff(displayPath(root, path), string(old), req.Content), RiskFindings: warnings, Data: data,
+		Action: "write_file", Target: displayPath(root, path),
+		Preview: preview, RiskFindings: warnings, Data: data,
 	}, nil
 }
 
@@ -499,10 +517,14 @@ func (b *EinoFilesystemBackend) PreparePatchFile(ctx context.Context, runID doma
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
-	old, err := os.ReadFile(path)
+	before, err := captureFileBefore(ctx, root, path, int64(b.maxFileBytes))
 	if err != nil {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: read patch target: %w", err)
+		return domain.ToolProposal{}, err
 	}
+	if !before.exists {
+		return domain.ToolProposal{}, fmt.Errorf("filesystem: target is missing: %w", os.ErrNotExist)
+	}
+	old := before.content
 	if isBinary(old) {
 		return domain.ToolProposal{}, fmt.Errorf("filesystem: patch target is binary")
 	}
@@ -510,13 +532,16 @@ func (b *EinoFilesystemBackend) PreparePatchFile(ctx context.Context, runID doma
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
-	data, _ := json.Marshal(req)
+	data, err := encodeFileBefore(displayPath(root, path), before)
+	if err != nil {
+		return domain.ToolProposal{}, err
+	}
 	warnings := []string{}
 	if req.ReplaceAll {
 		warnings = append(warnings, fmt.Sprintf("replaces %d occurrences", occurrences))
 	}
 	return domain.ToolProposal{
-		Action: "patch", Target: displayPath(root, path), PreconditionHash: sha256Hex(old),
+		Action: "patch", Target: displayPath(root, path),
 		Preview: boundedDiff(displayPath(root, path), string(old), newContent), RiskFindings: warnings, Data: data,
 	}, nil
 }
@@ -535,15 +560,27 @@ func (b *EinoFilesystemBackend) MultiPatchFile(ctx context.Context, runID domain
 	if err != nil {
 		return tools.FileMutationResult{}, err
 	}
-	old, err := os.ReadFile(path)
+	before, err := captureFileBefore(ctx, root, path, int64(b.maxFileBytes))
 	if err != nil {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: read multiedit target: %w", err)
+		return tools.FileMutationResult{}, err
 	}
+	if !before.exists {
+		return tools.FileMutationResult{}, fmt.Errorf("filesystem: target is missing: %w", os.ErrNotExist)
+	}
+	old := before.content
+	if err := checkReviewedFileBefore(ctx, displayPath(root, path), before, int64(b.maxFileBytes)); err != nil {
+		return tools.FileMutationResult{}, err
+	}
+	if len(tools.ProposalDataFromContext(ctx)) == 0 {
+		data, err := encodeFileBefore(displayPath(root, path), before)
+		if err != nil {
+			return tools.FileMutationResult{}, err
+		}
+		ctx = tools.WithProposalData(ctx, data)
+	}
+
 	if isBinary(old) {
 		return tools.FileMutationResult{}, fmt.Errorf("filesystem: multiedit target is binary")
-	}
-	if expected := tools.ProposalPreconditionFromContext(ctx); expected != "" && sha256Hex(old) != expected {
-		return tools.FileMutationResult{}, fmt.Errorf("filesystem: proposal stale: target changed after human review")
 	}
 	content := string(old)
 	for i, item := range req.Edits {
@@ -571,10 +608,14 @@ func (b *EinoFilesystemBackend) PrepareMultiPatchFile(ctx context.Context, runID
 	if err != nil {
 		return domain.ToolProposal{}, err
 	}
-	old, err := os.ReadFile(path)
+	before, err := captureFileBefore(ctx, root, path, int64(b.maxFileBytes))
 	if err != nil {
-		return domain.ToolProposal{}, fmt.Errorf("filesystem: read multiedit target: %w", err)
+		return domain.ToolProposal{}, err
 	}
+	if !before.exists {
+		return domain.ToolProposal{}, fmt.Errorf("filesystem: target is missing: %w", os.ErrNotExist)
+	}
+	old := before.content
 	if isBinary(old) {
 		return domain.ToolProposal{}, fmt.Errorf("filesystem: multiedit target is binary")
 	}
@@ -586,9 +627,12 @@ func (b *EinoFilesystemBackend) PrepareMultiPatchFile(ctx context.Context, runID
 			return domain.ToolProposal{}, fmt.Errorf("filesystem: edit %d: %w", i+1, err)
 		}
 	}
-	data, _ := json.Marshal(req)
+	data, err := encodeFileBefore(displayPath(root, path), before)
+	if err != nil {
+		return domain.ToolProposal{}, err
+	}
 	return domain.ToolProposal{
-		Action: "multiedit", Target: displayPath(root, path), PreconditionHash: sha256Hex(old),
+		Action: "multiedit", Target: displayPath(root, path),
 		Preview:      boundedDiff(displayPath(root, path), string(old), content),
 		RiskFindings: []string{fmt.Sprintf("applies %d edits in one write", len(req.Edits))}, Data: data,
 	}, nil
@@ -819,6 +863,10 @@ func protectedPath(rel string) bool {
 }
 
 func atomicWrite(path string, content []byte, mode os.FileMode) error {
+	return atomicWriteChecked(path, content, mode, nil)
+}
+
+func atomicWriteChecked(path string, content []byte, mode os.FileMode, check func() error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".vivy-write-*")
 	if err != nil {
 		return err
@@ -843,7 +891,15 @@ func atomicWrite(path string, content []byte, mode os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
+	}
 	if err := os.Rename(tmpName, path); err != nil {
+		if check != nil {
+			return err
+		}
 		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			return err
 		}
@@ -861,26 +917,7 @@ func fileMode(path string) os.FileMode {
 }
 
 func mutationResult(root, path string, content []byte, changed bool) tools.FileMutationResult {
-	return tools.FileMutationResult{Path: displayPath(root, path), Changed: changed, Bytes: len(content), SHA256: sha256Hex(content)}
-}
-
-func readExistingFile(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("filesystem: read existing file: %w", err)
-	}
-	if isBinary(data) {
-		return nil, fmt.Errorf("filesystem: target file is binary")
-	}
-	return data, nil
-}
-
-func sha256Hex(content []byte) string {
-	hash := sha256.Sum256(content)
-	return hex.EncodeToString(hash[:])
+	return tools.FileMutationResult{Path: displayPath(root, path), Changed: changed, Bytes: len(content)}
 }
 
 // boundedDiff renders a standard unified diff (go-udiff, three context

@@ -1,10 +1,9 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -27,14 +26,14 @@ func (b *Backend) RecordFileMutation(ctx context.Context, sessionID domain.Sessi
 	defer func() { _ = tx.Rollback() }()
 
 	var latestVersion int64
-	var latestHash string
+	var latestContent []byte
 	err = tx.QueryRowContext(ctx, `
-		SELECT version, content_hash FROM file_versions
+		SELECT version, content FROM file_versions
 		WHERE session_id = ? AND path = ? ORDER BY version DESC LIMIT 1`,
-		sessionID, path).Scan(&latestVersion, &latestHash)
+		sessionID, path).Scan(&latestVersion, &latestContent)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		latestVersion, latestHash = 0, ""
+		latestVersion, latestContent = 0, nil
 	case err != nil:
 		return fmt.Errorf("storage: read file version head %s: %w", path, err)
 	}
@@ -42,17 +41,17 @@ func (b *Backend) RecordFileMutation(ctx context.Context, sessionID domain.Sessi
 	// Archive the pre-mutation content: as the baseline on first sight, as
 	// an intermediate state when the file moved under the chain.
 	next := latestVersion
-	latestAfterOld := latestHash
-	if latestVersion == 0 || latestHash != fileContentHash(oldContent) {
+	latestAfterOld := latestContent
+	if latestVersion == 0 || !bytes.Equal(latestContent, oldContent) {
 		if len(oldContent) <= storage.FileVersionMaxBytes {
 			next++
 			if err := insertFileVersion(ctx, tx, sessionID, runID, path, next, oldContent); err != nil {
 				return err
 			}
-			latestAfterOld = fileContentHash(oldContent)
+			latestAfterOld = oldContent
 		}
 	}
-	if newHash := fileContentHash(newContent); len(newContent) <= storage.FileVersionMaxBytes && newHash != latestAfterOld {
+	if len(newContent) <= storage.FileVersionMaxBytes && (next == 0 || !bytes.Equal(newContent, latestAfterOld)) {
 		next++
 		if err := insertFileVersion(ctx, tx, sessionID, runID, path, next, newContent); err != nil {
 			return err
@@ -88,40 +87,48 @@ func insertFileVersion(ctx context.Context, tx *sql.Tx, sessionID domain.Session
 		content = []byte{}
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO file_versions (session_id, run_id, path, version, content_hash, content, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		sessionID, runID, path, version, fileContentHash(content), content, time.Now().UnixMilli()); err != nil {
+		INSERT INTO file_versions (session_id, run_id, path, version, content, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		sessionID, runID, path, version, content, time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("storage: insert file version %s@%d: %w", path, version, err)
 	}
 	return nil
 }
 
-// TrackFileAccess upserts the stale-read marker (the filetracker).
-func (b *Backend) TrackFileAccess(ctx context.Context, sessionID domain.SessionID, path string, at int64) error {
+// TrackFileAccess records bounded actual bytes, with absence distinct from empty.
+func (b *Backend) TrackFileAccess(ctx context.Context, sessionID domain.SessionID, path string, state domain.FileReadState) error {
+	if len(state.Content) > storage.FileVersionMaxBytes || (!state.Exists && len(state.Content) != 0) {
+		return fmt.Errorf("storage: invalid file read state")
+	}
+	content := state.Content
+	if content == nil {
+		content = []byte{}
+	}
+	exists := 0
+	if state.Exists {
+		exists = 1
+	}
 	if _, err := b.db.ExecContext(ctx, `
-		INSERT INTO file_reads (session_id, path, read_at) VALUES (?, ?, ?)
-		ON CONFLICT(session_id, path) DO UPDATE SET read_at = excluded.read_at`,
-		sessionID, path, at); err != nil {
+ INSERT INTO file_reads(session_id,path,read_at,read_exists,read_content) VALUES(?,?,?,?,?)
+ ON CONFLICT(session_id,path) DO UPDATE SET read_at=excluded.read_at,read_exists=excluded.read_exists,read_content=excluded.read_content`, sessionID, path, time.Now().UnixMilli(), exists, content); err != nil {
 		return fmt.Errorf("storage: track file access %s: %w", path, err)
 	}
 	return nil
 }
 
-// LastFileAccess returns the marker timestamp; ok=false when never tracked.
-func (b *Backend) LastFileAccess(ctx context.Context, sessionID domain.SessionID, path string) (int64, bool, error) {
-	var at int64
-	err := b.db.QueryRowContext(ctx,
-		`SELECT read_at FROM file_reads WHERE session_id = ? AND path = ?`, sessionID, path).Scan(&at)
+// LastFileAccess distinguishes never tracked from historical unavailable bytes.
+func (b *Backend) LastFileAccess(ctx context.Context, sessionID domain.SessionID, path string) (*domain.FileReadState, bool, error) {
+	var exists sql.NullInt64
+	var content []byte
+	err := b.db.QueryRowContext(ctx, `SELECT read_exists,read_content FROM file_reads WHERE session_id=? AND path=?`, sessionID, path).Scan(&exists, &content)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("storage: last file access %s: %w", path, err)
+		return nil, false, fmt.Errorf("storage: last file access %s: %w", path, err)
 	}
-	return at, true, nil
-}
-
-func fileContentHash(content []byte) string {
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:])
+	if !exists.Valid || content == nil || (exists.Int64 != 0 && exists.Int64 != 1) || len(content) > storage.FileVersionMaxBytes || (exists.Int64 == 0 && len(content) > 0) {
+		return nil, true, nil
+	}
+	return &domain.FileReadState{Exists: exists.Int64 == 1, Content: content}, true, nil
 }

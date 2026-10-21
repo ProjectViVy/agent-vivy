@@ -25,7 +25,6 @@ type DownloadRequest struct {
 type DownloadResult struct {
 	Path        string `json:"path"`
 	Bytes       int64  `json:"bytes"`
-	SHA256      string `json:"sha256"`
 	ContentType string `json:"content_type,omitempty"`
 	Overwritten bool   `json:"overwritten"`
 }

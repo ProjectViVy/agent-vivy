@@ -12,7 +12,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -171,8 +170,19 @@ func (host generatedWorldHost) OpenRead(name string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	if host.recorder != nil {
-		if info, statErr := file.Stat(); statErr == nil {
-			host.recorder.TrackAccess(host.ctx, tools.SessionIDFromContext(host.ctx), path.Clean(name), info.ModTime().UnixMilli())
+		content, err := io.ReadAll(io.LimitReader(file, storage.FileVersionMaxBytes+1))
+		if err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		if len(content) <= storage.FileVersionMaxBytes {
+			_ = file.Close()
+			host.recorder.TrackAccess(host.ctx, tools.SessionIDFromContext(host.ctx), path.Clean(name), domain.FileReadState{Exists: true, Content: content})
+			return io.NopCloser(bytes.NewReader(content)), nil
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			_ = file.Close()
+			return nil, err
 		}
 	}
 	return file, nil
@@ -188,21 +198,40 @@ func (host generatedWorldHost) OpenWrite(name string) (io.WriteCloser, error) {
 	if err := os.MkdirAll(filepath.Dir(resolved), 0o700); err != nil {
 		return nil, err
 	}
-	var old []byte
-	if existing, readErr := os.ReadFile(resolved); readErr == nil {
-		old = existing
-	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return nil, readErr
+	before, err := readWorldFileState(resolved)
+	if err != nil {
+		return nil, err
 	}
 	if host.recorder != nil {
-		sessionID := tools.SessionIDFromContext(host.ctx)
-		if at, ok, accessErr := host.recorder.LastAccess(host.ctx, sessionID, path.Clean(name)); accessErr == nil && ok {
-			if info, statErr := os.Stat(resolved); statErr == nil && info.ModTime().UnixMilli() > at {
-				return nil, fmt.Errorf("app: %s changed on disk after the last read", path.Clean(name))
-			}
+		state, tracked, err := host.recorder.LastAccess(host.ctx, tools.SessionIDFromContext(host.ctx), path.Clean(name))
+		if err != nil {
+			return nil, fmt.Errorf("app: read state unavailable: %w", err)
+		}
+		if tracked && (state == nil || state.Exists != before.Exists || !bytes.Equal(state.Content, before.Content)) {
+			return nil, fmt.Errorf("app: %s changed on disk after the last read or read state unavailable", path.Clean(name))
 		}
 	}
-	return &generatedWorldWriter{ctx: host.ctx, path: resolved, display: path.Clean(name), old: old, recorder: host.recorder}, nil
+	check := func() error {
+		if _, ok := host.grants[module.GrantFSWrite]; !ok {
+			return toolworldport.ErrDenied
+		}
+		currentPath, err := host.resolveGranted(name, module.GrantFSWrite)
+		if err != nil {
+			return err
+		}
+		if currentPath != resolved {
+			return toolworldport.ErrDenied
+		}
+		current, err := readWorldFileState(currentPath)
+		if err != nil {
+			return err
+		}
+		if current.Exists != before.Exists || !bytes.Equal(current.Content, before.Content) {
+			return fmt.Errorf("app: %s changed before write", path.Clean(name))
+		}
+		return nil
+	}
+	return &generatedWorldWriter{ctx: host.ctx, path: resolved, display: path.Clean(name), old: before.Content, exists: before.Exists, check: check, recorder: host.recorder}, nil
 }
 func (host generatedWorldHost) Spawn(ctx context.Context, spec toolworldport.SpawnSpec) (toolworldport.Proc, error) {
 	commands, ok := host.grants[module.GrantProcSpawn]
@@ -331,6 +360,8 @@ type generatedWorldWriter struct {
 	path     string
 	display  string
 	old      []byte
+	exists   bool
+	check    func() error
 	recorder tools.FileVersionRecorder
 	buffer   bytes.Buffer
 	closed   bool
@@ -352,7 +383,10 @@ func (writer *generatedWorldWriter) Close() error {
 	}
 	writer.closed = true
 	content := writer.buffer.Bytes()
-	if bytes.Equal(writer.old, content) {
+	if writer.exists && bytes.Equal(writer.old, content) {
+		if writer.check != nil {
+			return writer.check()
+		}
 		return nil
 	}
 	mode := os.FileMode(0o600)
@@ -376,13 +410,18 @@ func (writer *generatedWorldWriter) Close() error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
+	if writer.check != nil {
+		if err := writer.check(); err != nil {
+			return err
+		}
+	}
 	if err := os.Rename(temporaryName, writer.path); err != nil {
 		return err
 	}
 	if writer.recorder != nil {
 		sessionID := tools.SessionIDFromContext(writer.ctx)
 		writer.recorder.RecordMutation(writer.ctx, sessionID, tools.RunIDFromContext(writer.ctx), writer.display, writer.old, append([]byte(nil), content...))
-		writer.recorder.TrackAccess(writer.ctx, sessionID, writer.display, time.Now().UnixMilli())
+		writer.recorder.TrackAccess(writer.ctx, sessionID, writer.display, domain.FileReadState{Exists: true, Content: content})
 	}
 	return nil
 }
@@ -425,4 +464,24 @@ func schemaParams(raw json.RawMessage) map[string]domain.ToolParam {
 		params[name] = domain.ToolParam{Type: property.Type, Desc: property.Description, Required: required[name]}
 	}
 	return params
+}
+
+// readWorldFileState bounds private state in the existing ToolWorld Host.
+func readWorldFileState(path string) (domain.FileReadState, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return domain.FileReadState{}, nil
+	}
+	if err != nil {
+		return domain.FileReadState{}, err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, storage.FileVersionMaxBytes+1))
+	if err != nil {
+		return domain.FileReadState{}, err
+	}
+	if len(content) > storage.FileVersionMaxBytes {
+		return domain.FileReadState{}, fmt.Errorf("app: ToolWorld before-state exceeds %d bytes", storage.FileVersionMaxBytes)
+	}
+	return domain.FileReadState{Exists: true, Content: content}, nil
 }

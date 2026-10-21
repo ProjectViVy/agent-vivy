@@ -54,7 +54,7 @@ func noticeBytes(notice Notice) int {
 	size := len(notice.SubscriptionID) + len(notice.RunID) + len(notice.Kind) + len(notice.ToolCallID) + len(notice.Line) + len(notice.Delta) + len(notice.Message)
 	if notice.Gate != nil {
 		size += len(notice.Gate.Kind) + len(notice.Gate.ID) + len(notice.Gate.ToolCallID) + len(notice.Gate.Title) + len(notice.Gate.Body)
-		size += len(notice.Gate.Action) + len(notice.Gate.Target) + len(notice.Gate.PreconditionHash) + len(notice.Gate.Preview)
+		size += len(notice.Gate.Action) + len(notice.Gate.Target) + len(notice.Gate.Preview)
 		for _, risk := range notice.Gate.Risks {
 			size += len(risk)
 		}

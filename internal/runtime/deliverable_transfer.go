@@ -43,11 +43,12 @@ var (
 // secureFile is one validated, root-bound regular-file handle. Callers read
 // and hash through this descriptor only; reopening by name is never trusted.
 type secureFile struct {
-	file  *os.File
-	info  os.FileInfo
-	clean string // normalized workspace-relative path, forward slashes
-	real  string // canonical absolute path inside the real root
-	root  *os.Root
+	file           *os.File
+	info           os.FileInfo
+	clean          string // normalized workspace-relative path, forward slashes
+	real           string // canonical absolute path inside the real root
+	root           *os.Root
+	allowSensitive bool
 }
 
 // openWorkspaceFileSecure resolves rel against a trusted workspace root with
@@ -56,11 +57,17 @@ type secureFile struct {
 // the opened descriptor. A name swapped between the checks is either refused
 // by the root handle or caught by the post-read identity recheck.
 func openWorkspaceFileSecure(root, rel string) (*secureFile, error) {
+	return openWorkspaceFile(root, rel, false)
+}
+
+// Private mutation state has already passed the filesystem policy. Delivery
+// paths retain their separate sensitive-file restriction.
+func openWorkspaceFile(root, rel string, allowSensitive bool) (*secureFile, error) {
 	clean, err := workspaceRelPath(rel)
 	if err != nil {
 		return nil, &secureOpenError{public: "invalid workspace-relative path", cause: err}
 	}
-	if SensitiveWorkspacePath(clean) {
+	if !allowSensitive && SensitiveWorkspacePath(clean) {
 		return nil, &secureOpenError{public: "path is sensitive", cause: errSecureSensitive}
 	}
 	rootAbs, err := filepath.Abs(root)
@@ -86,7 +93,7 @@ func openWorkspaceFileSecure(root, rel string) (*secureFile, error) {
 	if err != nil {
 		return nil, &secureOpenError{public: "workspace is unavailable", cause: err}
 	}
-	sf := &secureFile{clean: clean, root: rootHandle}
+	sf := &secureFile{clean: clean, root: rootHandle, allowSensitive: allowSensitive}
 	if err := sf.preflight(rootAbs, rootReal); err != nil {
 		_ = rootHandle.Close()
 		return nil, err
@@ -129,7 +136,7 @@ func (s *secureFile) preflight(rootAbs, rootReal string) error {
 	if err != nil {
 		return &secureOpenError{public: "file cannot be opened", cause: err}
 	}
-	if SensitiveWorkspacePath(canonicalRel) {
+	if !s.allowSensitive && SensitiveWorkspacePath(canonicalRel) {
 		return &secureOpenError{public: "path is sensitive", cause: errSecureSensitive}
 	}
 	lexicalReal, err := filepath.Abs(filepath.Join(rootReal, native))
@@ -170,7 +177,7 @@ func (s *secureFile) recheckIdentity(rootReal string) error {
 	}
 	postReal, absErr := filepath.Abs(postReal)
 	postRel, relErr := filepath.Rel(rootReal, postReal)
-	if absErr != nil || relErr != nil || !sameFilePath(s.real, postReal) || SensitiveWorkspacePath(postRel) || !os.SameFile(s.info, postInfo) {
+	if absErr != nil || relErr != nil || !sameFilePath(s.real, postReal) || (!s.allowSensitive && SensitiveWorkspacePath(postRel)) || !os.SameFile(s.info, postInfo) {
 		return &secureOpenError{public: "file changed while reading", cause: errSecureChanged}
 	}
 	return nil

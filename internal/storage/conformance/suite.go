@@ -2155,20 +2155,32 @@ func cnFileVersionChain(t *testing.T, h Harness) {
 	if _, ok, err := b.LastFileAccess(ctx, "sess-fv", "a.go"); ok || err != nil {
 		t.Fatalf("LastFileAccess before tracking = ok=%v err=%v, want ok=false err=nil", ok, err)
 	}
-	if err := b.TrackFileAccess(ctx, "sess-fv", "a.go", 100); err != nil {
+	if err := b.TrackFileAccess(ctx, "sess-fv", "a.go", domain.FileReadState{Exists: true, Content: []byte("old")}); err != nil {
 		t.Fatalf("TrackFileAccess: %v", err)
 	}
-	if err := b.TrackFileAccess(ctx, "sess-fv", "a.go", 200); err != nil {
+	if err := b.TrackFileAccess(ctx, "sess-fv", "a.go", domain.FileReadState{Exists: true, Content: []byte("new")}); err != nil {
 		t.Fatalf("TrackFileAccess (upsert): %v", err)
 	}
 	at, ok, err := b.LastFileAccess(ctx, "sess-fv", "a.go")
-	if err != nil || !ok || at != 200 {
-		t.Fatalf("LastFileAccess = (%d, %v, %v), want (200, true, nil)", at, ok, err)
+	if err != nil || !ok || at == nil || !at.Exists || string(at.Content) != "new" {
+		t.Fatalf("LastFileAccess = (%+v, %v, %v), want (new, true, nil)", at, ok, err)
 	}
 	if _, ok, _ := b.LastFileAccess(ctx, "sess-fv", "other.go"); ok {
 		t.Fatalf("LastFileAccess for untracked path = ok, want not ok")
 	}
 
+	for _, state := range []domain.FileReadState{{Exists: true, Content: []byte{}}, {Exists: false, Content: []byte{}}} {
+		if err := b.TrackFileAccess(ctx, "sess-fv", "empty.go", state); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := b.LastFileAccess(ctx, "sess-fv", "empty.go")
+		if err != nil || !ok || got == nil || got.Exists != state.Exists || len(got.Content) != 0 {
+			t.Fatalf("empty/absent state collapsed: %+v %v %v", got, ok, err)
+		}
+	}
+	if err := b.TrackFileAccess(ctx, "sess-fv", "too-big.go", domain.FileReadState{Exists: true, Content: make([]byte, storage.FileVersionMaxBytes+1)}); err == nil {
+		t.Fatal("oversized private read state accepted")
+	}
 	// Session deletion cascades both tables in one transaction.
 	if err := b.DeleteSession(ctx, "sess-fv"); err != nil {
 		t.Fatalf("DeleteSession: %v", err)

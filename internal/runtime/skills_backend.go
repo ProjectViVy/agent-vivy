@@ -264,7 +264,7 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 	data, _ := json.Marshal(struct {
 		RevisionID string `json:"revision_id"`
 	}{RevisionID: revisionID})
-	return domain.ToolProposal{Action: "skill_" + req.Action, Target: targetRel, PreconditionHash: baseHash,
+	return domain.ToolProposal{Action: "skill_" + req.Action, Target: targetRel,
 		Preview: preview, RiskFindings: warnings, Data: data}, nil
 }
 
@@ -345,7 +345,7 @@ func (b *EinoSkillBackend) prepareRollbackProposal(ctx context.Context, runID do
 		return domain.ToolProposal{}, err
 	}
 	data, _ := json.Marshal(map[string]string{"revision_id": revisionID})
-	return domain.ToolProposal{Action: "skill_rollback", Target: targetRel, PreconditionHash: baseHash, Preview: preview, RiskFindings: warnings, Data: data}, nil
+	return domain.ToolProposal{Action: "skill_rollback", Target: targetRel, Preview: preview, RiskFindings: warnings, Data: data}, nil
 }
 
 type loadedSkill struct {
@@ -995,4 +995,10 @@ func (b *EinoSkillBackend) applyRollbackMutation(source domain.SkillRevision, ta
 		return err
 	}
 	return atomicWrite(target, after, fileMode(target))
+}
+
+// Existing skill/cognitive digest seam remains owned by gated D10/D11.
+func sha256Hex(content []byte) string {
+	hash := sha256.Sum256(content)
+	return hex.EncodeToString(hash[:])
 }

@@ -49,9 +49,9 @@ func TestProjectionCarriesApprovalPreviewIntoGateAndToolCard(t *testing.T) {
 	risks := []string{"overwrite"}
 	p.Apply(Notice{Kind: "gate", Gate: &GatePrompt{
 		Kind: "approval", ID: "a1", ToolCallID: "call-1", Title: "write", Body: "arguments", Action: "write", Target: "a.go",
-		PreconditionHash: strings.Repeat("a", 64), Preview: "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new", Risks: risks,
+		Preview: "--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new", Risks: risks,
 	}}, nextID)
-	if p.Gate == nil || p.Gate.Action != "write" || p.Gate.Target != "a.go" || len(p.Gate.PreconditionHash) != 64 || len(p.Gate.Risks) != 1 {
+	if p.Gate == nil || p.Gate.Action != "write" || p.Gate.Target != "a.go" || len(p.Gate.Risks) != 1 {
 		t.Fatalf("gate = %+v", p.Gate)
 	}
 	if len(p.Messages) != 1 || p.Messages[0].Tool == nil || !strings.Contains(p.Messages[0].Tool.Preview, "+new") || strings.Contains(p.Messages[0].Tool.Preview, "must-not-survive") {

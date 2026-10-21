@@ -105,7 +105,6 @@ type FileMutationResult struct {
 	Path    string `json:"path"`
 	Changed bool   `json:"changed"`
 	Bytes   int    `json:"bytes"`
-	SHA256  string `json:"sha256"`
 	Diff    string `json:"diff,omitempty"`
 	// Diagnostics carries post-write lint/type findings collected from
 	// tool-world plugins (VC-3 backfill). Empty unless a source is wired
@@ -125,18 +124,18 @@ type WriteDiagnosticsSource interface {
 // FileVersionRecorder is the optional file-history seam (RB-1 record
 // side): the session version chain plus the stale-read marker. The
 // filesystem backend treats it as best-effort — recording failures never
-// fail a mutation — with one exception: a stale-read rejection, which is
-// the filetracker doing its job.
+// fail a mutation. The read guard rejects stale, unavailable or unreadable
+// tracked state so history failures cannot authorize an overwrite.
 type FileVersionRecorder interface {
 	// RecordMutation archives the pre/post-mutation contents onto the
 	// (session, path) version chain. Implementations log and drop errors.
 	RecordMutation(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, path string, oldContent, newContent []byte)
 	// TrackAccess moves the stale-read marker forward after a successful
 	// read or write. Implementations log and drop errors.
-	TrackAccess(ctx context.Context, sessionID domain.SessionID, path string, at int64)
-	// LastAccess reports the marker timestamp; ok=false when the path was
-	// never tracked.
-	LastAccess(ctx context.Context, sessionID domain.SessionID, path string) (at int64, ok bool, err error)
+	TrackAccess(ctx context.Context, sessionID domain.SessionID, path string, state domain.FileReadState)
+	// LastAccess reports exact state; nil with ok=true requires re-reading.
+	// ok=false when the path was never tracked.
+	LastAccess(ctx context.Context, sessionID domain.SessionID, path string) (state *domain.FileReadState, ok bool, err error)
 }
 
 // attachWriteDiagnostics fills result.Diagnostics from the ops surface

@@ -1025,7 +1025,6 @@ export interface FaceReviewItem {
   readonly decided_at?: number;
   readonly action?: string;
   readonly target?: string;
-  readonly precondition_hash?: string;
   readonly preview?: string;
   readonly risk_findings?: string[];
   readonly arguments?: Record<string, unknown>;

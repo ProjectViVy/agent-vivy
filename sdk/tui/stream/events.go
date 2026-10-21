@@ -239,16 +239,15 @@ func (t *ModelCompletionTracker) ObserveNotice(notice Notice) error {
 
 // GatePrompt is the normalized interaction overlay attached to a notice.
 type GatePrompt struct {
-	Kind             string // approval | question
-	ID               string
-	ToolCallID       string
-	Title            string
-	Body             string
-	Action           string
-	Target           string
-	PreconditionHash string
-	Preview          string
-	Risks            []string
+	Kind       string // approval | question
+	ID         string
+	ToolCallID string
+	Title      string
+	Body       string
+	Action     string
+	Target     string
+	Preview    string
+	Risks      []string
 }
 
 // StreamError is the control message emitted when durable replay itself
@@ -380,8 +379,7 @@ func Interpret(event Event) Notice {
 		base.Gate = &GatePrompt{
 			Kind: "approval", ID: id, ToolCallID: PayloadString(event.Payload, "tool_call_id"), Title: name, Body: body,
 			Action: PayloadString(event.Payload, "action"), Target: PayloadString(event.Payload, "target"),
-			PreconditionHash: PayloadString(event.Payload, "precondition_hash"),
-			Preview:          authoritativePreview, Risks: PayloadStrings(event.Payload, "risk_findings"),
+			Preview: authoritativePreview, Risks: PayloadStrings(event.Payload, "risk_findings"),
 		}
 		return base
 	case "user.question_required":
