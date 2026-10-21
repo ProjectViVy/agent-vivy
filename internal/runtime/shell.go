@@ -48,11 +48,11 @@ type shellHookBinding struct {
 	Hooks        []string      `json:"hooks"`
 }
 type shellState struct {
-	Kind       string            `json:"kind"`
-	Args       json.RawMessage   `json:"args"`
-	SessionID  domain.SessionID  `json:"session_id"`
-	PolicyHash string            `json:"policy_hash"`
-	Hooks      *shellHookBinding `json:"hook_binding"`
+	Kind      string                `json:"kind"`
+	Args      json.RawMessage       `json:"args"`
+	SessionID domain.SessionID      `json:"session_id"`
+	Policy    domain.PolicySnapshot `json:"policy"`
+	Hooks     *shellHookBinding     `json:"hook_binding"`
 }
 
 func cloneShellState(state shellState) shellState {
@@ -283,8 +283,7 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	// model generation and must never pretend otherwise in audit data.
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Mode: string(domain.RunModeNormal), Face: string(domain.FaceTui),
-		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
-		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		PolicyProfile: string(profile), SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 		NoContext: noContext,
 	})
 	if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
@@ -360,7 +359,7 @@ func (s *Service) runShell(ctx context.Context, p shellPendingRun, approved bool
 	var finalArgs json.RawMessage
 	var err error
 	if approved {
-		finalArgs, err = s.authorizeApprovedShell(ctx, adapter, p.args, p.reviewed, p.snapshot.Hash)
+		finalArgs, err = s.authorizeApprovedShell(ctx, adapter, p.args, p.reviewed, p.snapshot)
 	} else {
 		finalArgs, err = s.authorizeShell(ctx, adapter, p.args, false)
 	}
@@ -441,7 +440,7 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 		evaluation.Decision = domain.PolicyDeny
 		evaluation.Reason = "approval policy is 'never': all effectful tools are denied"
 	}
-	emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision), Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: evaluation.Reason})
+	emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision), Profile: profile, Reason: evaluation.Reason})
 	if evaluation.Decision == domain.PolicyDeny {
 		if runMode(ctx) == domain.RunModePlan && !spec.Readonly {
 			return nil, fmt.Errorf("%w: %s", ErrPlanModeToolDenied, spec.Name)
@@ -468,7 +467,7 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 			if err != nil {
 				return nil, err
 			}
-			emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision), Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "post-hook argument rewrite: " + evaluation.Reason})
+			emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision), Profile: profile, Reason: "post-hook argument rewrite: " + evaluation.Reason})
 			if evaluation.Decision != domain.PolicyAllow {
 				if evaluation.Decision == domain.PolicyDeny {
 					return nil, fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name)
@@ -490,7 +489,7 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 			return nil, fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, reason)
 		}
 		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto && !approved {
-			emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow), Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved"})
+			emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow), Profile: profile, Reason: "safe read-only invocation auto-approved"})
 			return args, nil
 		}
 	}
@@ -516,9 +515,9 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 // authorizeApprovedShell revalidates the exact reviewed arguments without
 // re-running pre-tool hooks. A hook rewrite is part of the approved payload;
 // running the hook again could turn approved script A into unreviewed B.
-func (s *Service) authorizeApprovedShell(ctx context.Context, adapter *toolAdapter, args json.RawMessage, reviewed *shellState, policyHash string) (json.RawMessage, error) {
+func (s *Service) authorizeApprovedShell(ctx context.Context, adapter *toolAdapter, args json.RawMessage, reviewed *shellState, admitted domain.PolicySnapshot) (json.RawMessage, error) {
 	current, canonErr := canonicalToolArguments(args)
-	if reviewed == nil || reviewed.Kind != "vivy.shell-state/v2" || reviewed.Hooks == nil || canonErr != nil || !bytes.Equal(current, reviewed.Args) || reviewed.PolicyHash != policyHash || !sameShellHooks(*reviewed.Hooks, shellHookDeclaration(adapter.hooks)) {
+	if reviewed == nil || reviewed.Kind != "vivy.shell-state/v2" || reviewed.Hooks == nil || canonErr != nil || !bytes.Equal(current, reviewed.Args) || reviewed.Policy != admitted || !sameShellHooks(*reviewed.Hooks, shellHookDeclaration(adapter.hooks)) {
 		return nil, fmt.Errorf("%w: approved shell arguments changed", ErrPolicyDenied)
 	}
 	if err := validateDirectShellArgs(args); err != nil {
@@ -535,7 +534,7 @@ func (s *Service) authorizeApprovedShell(ctx context.Context, adapter *toolAdapt
 	if err != nil {
 		return nil, err
 	}
-	if evaluation.Snapshot.Hash != policyHash {
+	if evaluation.Snapshot != admitted {
 		return nil, fmt.Errorf("%w: shell policy generation changed after approval", ErrPolicyDenied)
 	}
 	if evaluation.Decision == domain.PolicyDeny || approvalPolicy(ctx) == domain.ApprovalPolicyNever {
@@ -593,7 +592,7 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 		return err
 	}
 	hooks := shellHookDeclaration(s.engine.cfg.ToolHooks)
-	state := shellState{Kind: "vivy.shell-state/v2", Args: canonical, SessionID: p.sessionID, PolicyHash: p.snapshot.Hash, Hooks: &hooks}
+	state := shellState{Kind: "vivy.shell-state/v2", Args: canonical, SessionID: p.sessionID, Policy: p.snapshot, Hooks: &hooks}
 	if err := s.storeShellState(ctx, stateRef, state); err != nil {
 		return err
 	}
@@ -641,8 +640,7 @@ func (s *Service) openShellApproval(ctx context.Context, p shellPendingRun, args
 	ev := p.mapper.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
 		ApprovalID: approval.ID, ToolCallID: p.toolCallID, ToolName: tools.BashName,
 		Args: shellAuditArgs(args), ExpiresAt: expiresAt, SelectedTools: []string{tools.BashName},
-		Mode: string(p.mode), Face: string(p.face), PolicyProfile: string(p.profile), PolicyHash: p.snapshot.Hash,
-		SandboxMode: string(p.sandboxMode), ApprovalPolicy: string(p.approvalPolicy),
+		Mode: string(p.mode), Face: string(p.face), PolicyProfile: string(p.profile), SandboxMode: string(p.sandboxMode), ApprovalPolicy: string(p.approvalPolicy),
 		Action: approval.Action, Target: approval.Target, Preview: approval.Preview,
 		RiskFindings: append([]string(nil), approval.RiskFindings...),
 	})
@@ -830,7 +828,7 @@ func (s *Service) loadShellState(ctx context.Context, ref string) (shellState, b
 	if err := json.Unmarshal(data, &state); err != nil {
 		return shellState{}, false, fmt.Errorf("runtime: decode protected shell state: %w", err)
 	}
-	if state.Kind != "vivy.shell-state/v2" || state.Hooks == nil || state.SessionID == "" || state.PolicyHash == "" || len(state.Args) == 0 || len(state.Args) > maxShellScriptBytes+4096 {
+	if state.Kind != "vivy.shell-state/v2" || state.Hooks == nil || state.SessionID == "" || state.Policy.Definition == "" || !state.Policy.Profile.Valid() || len(state.Args) == 0 || len(state.Args) > maxShellScriptBytes+4096 {
 		return shellState{}, false, errors.New("runtime: protected shell state arguments are invalid")
 	}
 	s.mu.Lock()
@@ -958,9 +956,11 @@ func (s *Service) rebuildShellPending(ctx context.Context, run domain.Run, appro
 		return fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, tools.BashName, reason)
 	}
 	profile, snapshot, mode, face, sandboxMode, approvalPolicy := s.shellRecoveryMetadata(ctx, run.ID, approval)
-	if state.Hooks == nil || state.PolicyHash != snapshot.Hash || !sameShellHooks(*state.Hooks, shellHookDeclaration(s.engine.cfg.ToolHooks)) {
+	current, err := s.engine.cfg.Policy.Snapshot(profile)
+	if err != nil || state.Policy.Profile != profile || current != state.Policy || state.Hooks == nil || !sameShellHooks(*state.Hooks, shellHookDeclaration(s.engine.cfg.ToolHooks)) {
 		return errors.New("runtime: protected shell state or governance generation does not match approval")
 	}
+	snapshot = state.Policy
 	ledger, err := s.recoverShellBudgetLedger(ctx, run.ID)
 	if err != nil {
 		return err
@@ -1046,9 +1046,6 @@ func (s *Service) shellRecoveryMetadata(ctx context.Context, runID domain.RunID,
 					mode = domain.RunMode(started.Mode)
 				}
 				profile = recoveredProfile(mode, started.PolicyProfile)
-				if started.PolicyHash != "" {
-					snapshot = domain.PolicySnapshot{Profile: profile, Hash: started.PolicyHash}
-				}
 				if domain.Face(started.Face).Valid() {
 					face = domain.Face(started.Face)
 				}
@@ -1066,9 +1063,6 @@ func (s *Service) shellRecoveryMetadata(ctx context.Context, runID domain.RunID,
 					mode = domain.RunMode(required.Mode)
 				}
 				profile = recoveredProfile(mode, required.PolicyProfile)
-				if required.PolicyHash != "" {
-					snapshot = domain.PolicySnapshot{Profile: profile, Hash: required.PolicyHash}
-				}
 				if domain.Face(required.Face).Valid() {
 					face = domain.Face(required.Face)
 				}

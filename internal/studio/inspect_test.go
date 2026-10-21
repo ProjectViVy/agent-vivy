@@ -17,7 +17,6 @@ func testLive() LiveView {
 	return LiveView{
 		Provider:      "test",
 		PolicyProfile: domain.PolicyProfileDefault,
-		PolicyHash:    "hash-default",
 		Tools: []domain.ToolSpec{
 			{Name: "echo_info", Readonly: true},
 			{Name: "write_note", Readonly: false},

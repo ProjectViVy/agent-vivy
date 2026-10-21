@@ -265,7 +265,7 @@ func TestPlanDecisionHandoffUsesOriginTerminalBeforeGoalAdmission(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+			svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 				Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 				PrimaryRuns: backend, GoalRuns: backend, Work: backend, Sink: newTestSink(),
 			})

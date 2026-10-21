@@ -651,16 +651,19 @@ func (s *Service) resumeSteeredAsync(ctx context.Context, m *eventMapper, sessio
 		if m.interrupt != nil {
 			info = m.interrupt.Raw
 		}
-		next := s.resumeSteeredRun(context.Background(), runID, items, info)
+		// A boundary cancellation ends the old leg, not its admitted authority.
+		// Preserve the Run-owned prompt, policy and tool bindings for Eino's
+		// checkpoint read; only the cancellation and nudge leg state are fresh.
+		steerState := newNudgeState()
+		steerCtx := withNudgeEmitter(withNudgeState(context.WithoutCancel(ctx), steerState), s.nudgeEmitter(m, sessionID))
+		next := s.resumeSteeredRun(steerCtx, runID, items, info)
 		if next == nil {
 			s.demoteSteerItems(context.Background(), sessionID, items)
 			steerCtx := withNudgeEmitter(withNudgeState(context.Background(), newNudgeState()), s.nudgeEmitter(m, sessionID))
 			s.emitTerminal(steerCtx, m, m.build(domain.EventRunCancelled, payloadRunCancelled{Reason: "steer resume unavailable"}))
 			return
 		}
-		steerState := newNudgeState()
 		m.setNudgeState(steerState)
-		steerCtx := withNudgeEmitter(withNudgeState(context.Background(), steerState), s.nudgeEmitter(m, sessionID))
 		s.consume(steerCtx, m, sessionID, selectedTools, mode, ledger, next, steerState, beforeComplete, execution)
 	}()
 }

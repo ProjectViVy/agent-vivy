@@ -85,7 +85,7 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	} else if err != nil {
 		return domain.RunEvent{}, fmt.Errorf("storage: lock primary session: %w", err)
 	}
-	if err := b.postgresValidateAdmissionCapture(ctx, &Tx{SQL: tx}, admission.ExpectedMask); err != nil {
+	if err := b.postgresValidateAdmissionCapture(ctx, &Tx{SQL: tx}, admission.ExpectedMask, admission.Prompt); err != nil {
 		return domain.RunEvent{}, err
 	}
 	message := admission.Message

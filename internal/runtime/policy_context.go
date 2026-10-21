@@ -3,8 +3,10 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 )
 
 type runIDContextKey struct{}
@@ -75,6 +77,30 @@ func withPolicySnapshot(ctx context.Context, snapshot domain.PolicySnapshot) con
 func policySnapshot(ctx context.Context) domain.PolicySnapshot {
 	snapshot, _ := ctx.Value(policySnapshotContextKey{}).(domain.PolicySnapshot)
 	return snapshot
+}
+
+// validateAdmittedPolicy preserves the selected definition across a settings
+// reload. Current rules may revoke a continuation, but cannot silently replace
+// its admitted authority. Standalone non-Run adapters carry no admission.
+func validateAdmittedPolicy(ctx context.Context, current domain.PolicySnapshot) error {
+	admitted := policySnapshot(ctx)
+	if prompt, ok := runPrompt(ctx); ok {
+		payload, err := storage.ValidateRunPromptSnapshot(prompt)
+		if err != nil {
+			return err
+		}
+		admitted = payload.Policy
+		if admitted.Definition == "" {
+			return fmt.Errorf("%w: admitted policy is unavailable", ErrPolicyDenied)
+		}
+	}
+	if admitted.Profile == "" && admitted.Definition == "" {
+		return nil
+	}
+	if admitted.Definition == "" || admitted != current {
+		return fmt.Errorf("%w: current policy differs from the admitted definition", ErrPolicyDenied)
+	}
+	return nil
 }
 
 func withSandboxMode(ctx context.Context, mode domain.SandboxMode) context.Context {

@@ -41,12 +41,11 @@ func (a *toolAdapter) applyGovernedMiddleware(
 			return err
 		}
 		emitGovernanceEvent(ctx, GovernanceEvent{
-			Type:       domain.EventPolicyEvaluated,
-			ToolName:   spec.Name,
-			Decision:   string(next.Decision),
-			Profile:    profile,
-			PolicyHash: next.Snapshot.Hash,
-			Reason:     "post-middleware argument rewrite: " + next.Reason,
+			Type:     domain.EventPolicyEvaluated,
+			ToolName: spec.Name,
+			Decision: string(next.Decision),
+			Profile:  profile,
+			Reason:   "post-middleware argument rewrite: " + next.Reason,
 		})
 		if next.Decision == domain.PolicyDeny {
 			// A denied rewrite is a per-call refusal: the middleware result is
@@ -54,7 +53,6 @@ func (a *toolAdapter) applyGovernedMiddleware(
 			return refuseCall(
 				"rewritten arguments for "+spec.Name+" are denied by policy: "+next.Reason,
 				fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name),
-				next.Snapshot.Hash,
 				toolFailureReasonPolicyDenied,
 			)
 		}

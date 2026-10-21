@@ -1,8 +1,6 @@
 package runtime
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +35,6 @@ type PolicyDefinition struct {
 // PolicyEngine is immutable after construction and safe to share across runs.
 type PolicyEngine struct {
 	profiles map[domain.PolicyProfile]PolicyDefinition
-	hashes   map[domain.PolicyProfile]string
 }
 
 type PolicyEvaluation struct {
@@ -70,29 +67,22 @@ func NewPolicyEngine(definitions map[domain.PolicyProfile]PolicyDefinition) (*Po
 			Rules:   append([]PolicyRule(nil), definition.Rules...),
 		}
 	}
-	hashes := make(map[domain.PolicyProfile]string, len(profiles))
-	for profile, definition := range profiles {
-		encoded, err := json.Marshal(struct {
-			Profile domain.PolicyProfile
-			Config  PolicyDefinition
-		}{profile, definition})
-		if err != nil {
-			return nil, fmt.Errorf("runtime: hash policy %q: %w", profile, err)
-		}
-		digest := sha256.Sum256(encoded)
-		hashes[profile] = hex.EncodeToString(digest[:])
-	}
-	return &PolicyEngine{profiles: profiles, hashes: hashes}, nil
+	return &PolicyEngine{profiles: profiles}, nil
 }
 
 func (e *PolicyEngine) Snapshot(profile domain.PolicyProfile) (domain.PolicySnapshot, error) {
 	if e == nil {
 		return domain.PolicySnapshot{Profile: profile}, nil
 	}
-	if _, ok := e.profiles[profile]; !ok {
+	definition, ok := e.profiles[profile]
+	if !ok {
 		return domain.PolicySnapshot{}, fmt.Errorf("%w: %q", ErrInvalidPolicyProfile, profile)
 	}
-	return domain.PolicySnapshot{Profile: profile, Hash: e.hashes[profile]}, nil
+	encoded, err := json.Marshal(definition)
+	if err != nil {
+		return domain.PolicySnapshot{}, fmt.Errorf("runtime: encode policy %q: %w", profile, err)
+	}
+	return domain.PolicySnapshot{Profile: profile, Definition: string(encoded)}, nil
 }
 
 func (e *PolicyEngine) Evaluate(profile domain.PolicyProfile, spec domain.ToolSpec, args []byte) (PolicyEvaluation, error) {

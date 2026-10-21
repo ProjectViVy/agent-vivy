@@ -1,8 +1,8 @@
 # Issue #91: Complete deletion planning package
 
-Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Current baseline: `stable@fde3c1f96f086507a35e52689e58fc6e4db981b4` · Earlier planning branches: `feat/agent-loop-deletion`, `codex/agent-loop-deletion`.
+Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Continuation implementation baseline: `stable@c065a82b4618e34dddd32893abd0557bd79c5b44` · Earlier planning branches: `feat/agent-loop-deletion`, `codex/agent-loop-deletion`.
 
-**Current outcome (2026-10-21):** D02 and D03 are accepted through the owner-authorized scoped WSL route; the Story table below owns their evidence and remaining boundaries. #91 keeps deletion/contraction work; #93 retains nudge, warming and steering pending first-party plugin extraction. C11 supersedes the earlier EXP placement/default-exclusion plan. Final upgrade publication and #91 closure remain open.
+**Current outcome (2026-10-21):** D02, D03 and D08 are accepted through the owner-authorized scoped WSL route; the Story table below owns their evidence and remaining boundaries. #91 keeps deletion/contraction work; #93 retains nudge, warming and steering pending first-party plugin extraction. C11 supersedes the earlier EXP placement/default-exclusion plan. Final upgrade publication and #91 closure remain open.
 
 Phase/handoff: [stable loop and gated feature re-intake](../../../plans/2026-10-19-stable-loop-reintake-handoff.md). This supplement sets phase applicability, not a second technical specification.
 
@@ -108,7 +108,7 @@ No rewrite of AGENTS, current product requirements or mandatory gates is perform
 
 ## Story index (sole status/dependency record)
 
-Planned = concrete plan exists, awaiting implementation handoff or accepted prerequisites. Blocked = exact decision/data/dependency missing. Ready requires settled shared decisions, accepted immediate outputs and implementation authorization. Review/Done require observed evidence; no Story is Done in this delivery.
+Planned = concrete plan exists, awaiting implementation handoff or accepted prerequisites. Blocked = exact decision/data/dependency missing. Ready requires settled shared decisions, accepted immediate outputs and implementation authorization. Review/Done require observed evidence; accepted Stories and their limits are recorded individually below.
 
 | Story | Epic / requirement | Outcome | Immediate predecessors | Plan | Status | Evidence / blocker |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -116,16 +116,16 @@ Planned = concrete plan exists, awaiting implementation handoff or accepted prer
 | D01 | E1 / R1,R5 | Delete digest audit and unused experimental hash code | D00 | [D01](D01.md) | Implemented — acceptance open | Focused regression and independent code review passed. Full CI failed; changed-source conformance evidence requires successful regeneration. [Verification](../../../logs/2026-10-20-issue91-d01/verification.md). |
 | D02 | E1 / R1,R2,R5 | Remove model completion and request hash protocols across Faces | D00 | [D02](D02.md) | Accepted | Stable integration, byte-only live/replay contract and prerequisite repairs pass the owner-authorized WSL wiring/kernel/affected Face/Web route, real PostgreSQL, strict conformance and race. Independent findings have RED/GREEN corrections. [Final evidence and limits](../../../logs/2026-10-21-wsl-kernel-ci/verification.md); historical failures retained, no full-product release or #91 closure claimed. |
 | D03 | E2 / R1,R2,R3,R4 | Bind tool operations and approval to exact private inputs | D00 | [D03](D03.md) | Accepted | Exact private inputs, typed atomic outcomes, v2 approvals, native cached sibling recovery and paired 036 conversion fixtures pass SQLite/real Postgres, hard-kill/race, scoped WSL kernel and real split-browser checks. Independent review clear after corrections. [Evidence](../../../logs/2026-10-21-issue91-d03/verification.md). D08/D12/D14 retain final upgrade publication. |
-| D04 | E3 / R1,R2,R3,R5,R6 | Settle the typed seam and remove nudge FNV/handoff with coaching retained | D02, D03, D06 | [D04](D04.md) | Blocked | Accepted D02/D03/D06 outputs; re-anchor factory bindings to revised C11 and typed agentic APIs |
+| D04 | E3 / R1,R2,R3,R5,R6 | Settle the typed seam and remove nudge FNV/handoff with coaching retained | D02, D03, D06 | [D04](D04.md) | Blocked | D02/D03 accepted; D06 remains Blocked with no accepted integration in this index. Runtime lane stops after D08. Re-anchor factory bindings to revised C11 and typed agentic APIs once D06 is accepted. |
 | D05 | E3 / R1,R2,R3,R5,R6 | Settle the warming/steering seam and remove confirmed hash/duplicate coupling | D04 | [D05](D05.md) | Blocked | Accepted D04 output; reconcile proposed bindings while preserving stable behavior |
 | D06 | E4 / R1,R5,R6 | Delete source, Assembly and UI evidence generation end to end | D00 | [D06](D06.md) | Blocked | Accepted D00/implementation handoff; current Studio consumer inspection pending for affected closure only, not independent core generation/seam proof |
 | D07 | E4 / R1,R3,R4,R5 | Replace bundle and toolkit content addressing with owned releases | — | [D07](D07.md) | Retained — explanatory | Owner decision 2026-10-19: baseline A has no bundle/toolkit subsystem, so no deletion here; D07 is the re-intake checkpoint (resolve content-addressed identity/consent before a batch from `backup/main-pre-rollback-20261019` merges) |
-| D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03 | [D08](D08.md) | Blocked | §11.7 checkpoint/Run transition fixed; accepted D03 output, no D07 baseline dependency |
+| D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03 | [D08](D08.md) | Accepted | Host direct values, private immutable prompt/policy, v2 Run/snapshot checkpoint binding and paired 037 copied conversion pass WSL wiring/minimal kernel, real PostgreSQL (123 cases, zero skips), race and split-browser approve/deny/hard-restart checks. Independent review clear after closing the stale continuity TODO. [Evidence and limits](../../../logs/2026-10-21-issue91-d08/verification.md). D11/D12/D14 retain final upgrade publication. D04 waits for accepted D06. |
 | D09 | E2 / R1,R3,R4,R5 | Remove file, history, reference and deliverable hash authority | D03 | [D09](D09.md) | Blocked | §11.6 storage/cursor contract fixed; accepted D03 output |
 | D10 | E5 / R1,R3,R4,R5 | Preserve skill, memory and cognitive revision CAS without hashes | D08, D12 | [D10](D10.md) | Blocked | Accepted D08/D12; inspect actual baseline-A Laputa APIs, then require upstream delivery only for a confirmed incompatible seam |
 | D11 | E5 / R1,R3,R4,R5 | Remove baseline Work, workflow and notes business digests | D03, D08 | [D11](D11.md) | Blocked | Coordinated hash-free INOFY version/pin plus accepted D03/D08 |
 | D12 | E2 / R1,R3,R4,R5 | Remove migration checksums and convert the independent BML format | D00 | [D12](D12.md) | Planned | §11.7–11.9 format/metadata/BML design fixed; accepted D00 and implementation handoff |
-| D13 | E6 / R2,R6,R7 | Ship usable minimal, a tiny real-token Face and runnable examples | D05, D06, D08 | [D13](D13.md) | Blocked | Core contraction accepted; repository gate changes require explicit approval |
+| D13 | E6 / R2,R6,R7 | Ship usable minimal, a tiny real-token Face and runnable examples | D05, D06, D08 | [D13](D13.md) | Blocked | Accepted D05/D06/D08 plus usable-tool/UI composition required. Scoped mock browser verification is authorized; final real-token proof remains D14. |
 | D14 | E7 / R1–R8 | Accept one final candidate through independent behavior and residue audits | D01, D09, D10, D11, D13 | [D14](D14.md) | Blocked | All predecessors accepted; real-token environment; fresh independent auditors |
 
 ## Immediate dependency contracts

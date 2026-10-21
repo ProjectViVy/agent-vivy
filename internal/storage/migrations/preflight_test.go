@@ -42,7 +42,7 @@ func TestApplyPreflightRefusesOldAndUnknownWithoutWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, head := range []int{1, 16, 17, 23, 35} {
+	for _, head := range []int{1, 16, 17, 23, 35, 36} {
 		t.Run(fmt.Sprintf("old-prefix-%d", head), func(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()
@@ -67,7 +67,7 @@ func TestApplyPreflightRejectsUnexplainedTablesOnKnownMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, head := range []int{35, 36} {
+	for _, head := range []int{35, 36, 37} {
 		t.Run(fmt.Sprintf("head-%d", head), func(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()

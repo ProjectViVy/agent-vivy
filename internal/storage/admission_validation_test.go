@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"testing"
 
@@ -13,16 +11,15 @@ func validAdmissionFixture(t *testing.T) RunAdmission {
 	t.Helper()
 	runID := domain.RunID("run-admission-test")
 	sessionID := domain.SessionID("session-admission-test")
-	payload, err := json.Marshal(RunPromptPayload{Instruction: "authoritative instruction"})
+	payload, err := json.Marshal(RunPromptPayload{Instruction: "authoritative instruction", Policy: domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Definition: `{"Default":"","Rules":null}`}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(payload)
 	snapshot := &RunPromptSnapshot{
 		RunID: runID, SchemaVersion: 1, ComposerVersion: "mask-prompt/1", GenerationID: "generation-test",
-		Payload: payload, PayloadSHA256: hex.EncodeToString(sum[:]),
+		Payload: payload,
 	}
-	marker, err := json.Marshal(map[string]any{"prompt_schema": snapshot.SchemaVersion, "prompt_digest": snapshot.PayloadSHA256})
+	marker, err := json.Marshal(map[string]any{"prompt_schema": snapshot.SchemaVersion})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +37,7 @@ func TestValidateRunAdmissionRequiresPromptMarkerPair(t *testing.T) {
 		t.Fatalf("valid admission rejected: %v", err)
 	}
 
-	in.Started.Payload = []byte(`{"prompt_schema":1,"prompt_digest":"different"}`)
+	in.Started.Payload = []byte(`{"prompt_schema":2}`)
 	if err := ValidateRunAdmissionInput(in); err == nil {
 		t.Fatal("prompt marker mismatch was accepted")
 	}
@@ -67,12 +64,10 @@ func TestValidateRunPromptSnapshotRejectsNonCanonicalPayload(t *testing.T) {
 		t.Fatal("fixture did not include a prompt snapshot")
 	}
 
-	// Keep the payload semantically equivalent and update its digest. v1
+	// Keep the payload semantically equivalent. Run-owned
 	// snapshots are persisted from json.Marshal's deterministic bytes, so a
 	// later reader must not silently normalize a different representation.
 	in.Prompt.Payload = append(in.Prompt.Payload, '\n')
-	sum := sha256.Sum256(in.Prompt.Payload)
-	in.Prompt.PayloadSHA256 = hex.EncodeToString(sum[:])
 	if _, err := ValidateRunPromptSnapshot(*in.Prompt); err == nil {
 		t.Fatal("non-canonical prompt payload was accepted")
 	}

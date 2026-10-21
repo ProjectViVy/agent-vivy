@@ -102,7 +102,7 @@ provider-invented key.
 | `exact-version` | `ResourceReference.VersionMode` = `VersionExact` | Advertise only if the backend resolves a pinned revision or returns `contextsource.ErrVersionUnavailable`; returning current bytes under an old label is a contract violation (`ResourceReference` doc comment) |
 | `async-extraction` | Delivery-state split (§2) + task/run entry through `controlaction.Host.StartRun` or the Service/task path (REQ-MEM-10) | Advertise only if expensive extraction runs as separately budgeted operations; `Query` must never start unbounded model work (spec decision 5) |
 | `graph` | Provider-native relational structure surfaced through ordinary `recall`/`evidence-read` | Advertise only if the backend maintains traversable relations (e.g. BML `supersedes` chains); graph results still arrive as bounded `Candidate`s under ContextHost authority |
-| `skill` | `skillsource.Provider` on `std/skill-source@v1` (`List`/`Get`) | Advertise only if emitted skill content is versioned (`Summary.Version`, `SourceHash`) and loading grants no Tool/authority — `skillsource` package contract |
+| `skill` | `skillsource.Provider` on `std/skill-source@v1` (`List`/`Get`) | Advertise only if emitted skill content uses actual values and explicit provider versions when available (`Summary.Version`); loading grants no Tool/authority — `skillsource` package contract |
 
 Truthful-advertisement rules (REQ-MEM-7):
 

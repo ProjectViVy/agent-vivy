@@ -240,7 +240,7 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 		}
 		workspaceID = resolvedWorkspaceID
 	}
-	if childSnapshot.Hash != snapshot.Hash || childSnapshot.Profile != snapshot.Profile {
+	if childSnapshot.Definition != snapshot.Definition || childSnapshot.Profile != snapshot.Profile {
 		err = errors.New("runtime: child authority changed during admission")
 		s.failAdmittedChildRun(ctx, child, err)
 		return OneShotChildResult{}, err

@@ -18,7 +18,7 @@ import (
 // promptMiddleware binds the immutable prompt captured for a run to Eino's
 // per-execution instruction and checks the final projected model input. The
 // middleware is deliberately run-local: the Engine's static instruction is
-// retained as the legacy/no-snapshot fallback and is never mutated.
+// retained for non-durable embedders and is never mutated.
 //
 // It must be registered after every other user handler. Eino registers the
 // first handler as the outermost WrapModel layer, so placing this handler last
@@ -44,8 +44,8 @@ func (m *promptMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.ChatMode
 	}
 	snapshot, ok := runPrompt(ctx)
 	if !ok {
-		// Legacy runs have no prompt marker and retain the static engine
-		// instruction. This is the only path that bypasses snapshot checks.
+		// Non-durable embedders retain the static engine instruction.
+		// Checkpoint writes and recovery independently require an admission.
 		return ctx, runCtx, nil
 	}
 	instruction, err := promptInstruction(snapshot)
@@ -170,7 +170,7 @@ func promptInstruction(snapshot storage.RunPromptSnapshot) (string, error) {
 func promptInstructionReservation(ctx context.Context) (int, error) {
 	snapshot, ok := runPrompt(ctx)
 	if !ok {
-		// Legacy runs still receive the Engine's static instruction. Reserve
+		// Non-durable embedders still receive the Engine's static instruction. Reserve
 		// that fixed system message during history selection as well; otherwise
 		// a full transcript can pass the early budget and be rejected only at
 		// the final model boundary.

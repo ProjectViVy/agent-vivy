@@ -1244,7 +1244,6 @@ export interface FaceSpeciesInspect {
   readonly ui_artifact_sha256?: string;
   readonly recipe: FaceRecipe;
   readonly policy_profile: string;
-  readonly policy_hash: string;
   readonly tools: { readonly name: string; readonly readonly: boolean }[];
   readonly grants: string[];
 }

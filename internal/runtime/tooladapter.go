@@ -130,7 +130,6 @@ type toolRefusal struct {
 	durableResult *string
 	cause         error
 	reason        string
-	policyHash    string
 	// classification is the §5 refusal vocabulary word the site assigns
 	// explicitly (invalid_arguments, policy_denied); it is never inferred
 	// from the human-readable reason text.
@@ -143,14 +142,14 @@ type toolRefusal struct {
 func (r *toolRefusal) Error() string { return r.reason }
 func (r *toolRefusal) Unwrap() error { return r.cause }
 
-func refuseCall(reason string, cause error, policyHash string, classification string) error {
-	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash, classification: classification}
+func refuseCall(reason string, cause error, classification string) error {
+	return &toolRefusal{cause: cause, reason: reason, classification: classification}
 }
 
 // refuseJournaledCall refuses a call whose reason was already journaled as the
 // evaluation decision for that call.
-func refuseJournaledCall(reason string, cause error, policyHash string, classification string) error {
-	return &toolRefusal{cause: cause, reason: reason, policyHash: policyHash, classification: classification, journaled: true}
+func refuseJournaledCall(reason string, cause error, classification string) error {
+	return &toolRefusal{cause: cause, reason: reason, classification: classification, journaled: true}
 }
 
 // asToolRefusal classifies an error raised before or by a tool invocation.
@@ -500,13 +499,9 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 	if !refusal.journaled {
 		// The refusal is recorded as a policy decision at the moment it
 		// happens, so the run inspector shows why the call did not run.
-		policyHash := refusal.policyHash
-		if policyHash == "" {
-			policyHash = policySnapshot(ctx).Hash
-		}
 		emitGovernanceEvent(ctx, GovernanceEvent{
 			Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyDeny),
-			Profile: policyProfile(ctx), PolicyHash: policyHash, Reason: reason,
+			Profile: policyProfile(ctx), Reason: reason,
 		})
 	}
 	if refusal.durableResult != nil {
@@ -551,7 +546,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		return result, err
 	}
 	if workToolCallFenced(ctx) {
-		return "", refuseCall("a terminal work-control action has been committed for this run; no further tool calls are allowed", ErrWorkRunTerminal, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
+		return "", refuseCall("a terminal work-control action has been committed for this run; no further tool calls are allowed", ErrWorkRunTerminal, toolFailureReasonPolicyDenied)
 	}
 	if allowed, scoped := selectedToolSet(ctx); scoped {
 		_, ok := allowed[spec.Name]
@@ -580,17 +575,20 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 	// invocation never reaches the tool, and the model is told what was wrong
 	// so it can correct the arguments instead of losing the whole run.
 	if err := tools.ValidateArgs(spec, json.RawMessage(argumentsInJSON)); err != nil {
-		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonInvalidArguments)
+		return "", refuseCall(err.Error(), err, toolFailureReasonInvalidArguments)
 	}
 	// Shape-level hazards (NUL bytes, path traversal, blocked command syntax)
 	// are refused exactly like the deny table: the call does not run, and the
 	// run continues. Script-level hazards are the shell classifier's to judge.
 	if err := tools.ValidateArgsSafety(spec, json.RawMessage(argumentsInJSON)); err != nil {
-		return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
+		return "", refuseCall(err.Error(), err, toolFailureReasonPolicyDenied)
 	}
 	evaluation, err := a.policy.Evaluate(profile, spec, []byte(argumentsInJSON))
 	if err != nil {
 		return "", err
+	}
+	if err := validateAdmittedPolicy(ctx, evaluation.Snapshot); err != nil {
+		return "", refuseCall("admitted policy is no longer available", err, toolFailureReasonPolicyDenied)
 	}
 	if approvalPolicyDeniesEffectful(ctx, spec) {
 		evaluation.Decision = domain.PolicyDeny
@@ -598,7 +596,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 	}
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
-		Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: evaluation.Reason,
+		Profile: profile, Reason: evaluation.Reason,
 	})
 	if evaluation.Decision == domain.PolicyDeny {
 		if runMode(ctx) == domain.RunModePlan && !spec.Readonly {
@@ -607,7 +605,6 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			return "", refuseCall(
 				"plan mode runs read-only tools; describe the change instead of applying it",
 				fmt.Errorf("%w: %s", ErrPlanModeToolDenied, spec.Name),
-				evaluation.Snapshot.Hash,
 				toolFailureReasonPolicyDenied,
 			)
 		}
@@ -615,7 +612,6 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		return "", refuseJournaledCall(
 			evaluation.Reason,
 			fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason),
-			evaluation.Snapshot.Hash,
 			toolFailureReasonPolicyDenied,
 		)
 	}
@@ -635,10 +631,10 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		}
 		emitGovernanceEvent(ctx, GovernanceEvent{
 			Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
-			Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "revalidated persisted tool operation",
+			Profile: profile, Reason: "revalidated persisted tool operation",
 		})
 		if evaluation.Decision == domain.PolicyDeny {
-			return "", refuseJournaledCall(evaluation.Reason, fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
+			return "", refuseJournaledCall(evaluation.Reason, fmt.Errorf("%w: %s (%s)", ErrPolicyDenied, spec.Name, evaluation.Reason), toolFailureReasonPolicyDenied)
 		}
 	} else if a.hooks != nil {
 		args, err = a.hooks.PreToolUse(ctx, ToolHookCall{
@@ -648,10 +644,10 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			return "", err
 		}
 		if err := tools.ValidateArgs(spec, args); err != nil {
-			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonInvalidArguments)
+			return "", refuseCall(err.Error(), err, toolFailureReasonInvalidArguments)
 		}
 		if err := tools.ValidateArgsSafety(spec, args); err != nil {
-			return "", refuseCall(err.Error(), err, policySnapshot(ctx).Hash, toolFailureReasonPolicyDenied)
+			return "", refuseCall(err.Error(), err, toolFailureReasonPolicyDenied)
 		}
 		// A hook rewrite is untrusted input. The policy must see the final
 		// arguments before the tool can observe them.
@@ -662,14 +658,14 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			}
 			emitGovernanceEvent(ctx, GovernanceEvent{
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
-				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "post-hook argument rewrite: " + evaluation.Reason,
+				Profile: profile, Reason: "post-hook argument rewrite: " + evaluation.Reason,
 			})
 			if evaluation.Decision != domain.PolicyAllow {
 				reason := "rewritten arguments for " + spec.Name + " are denied by policy: " + evaluation.Reason
 				if evaluation.Decision == domain.PolicyPrompt {
 					reason = "rewritten arguments for " + spec.Name + " need an approval a post-hook rewrite cannot request"
 				}
-				return "", refuseCall(reason, fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
+				return "", refuseCall(reason, fmt.Errorf("%w: rewritten arguments for %s", ErrPolicyDenied, spec.Name), toolFailureReasonPolicyDenied)
 			}
 		}
 	}
@@ -721,12 +717,12 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			// receives the refusal as the tool result (the same shape a human
 			// denial uses) so it can choose another approach. The call never
 			// reaches the tool, on any profile or approval policy.
-			return "", refuseCall(reason, nil, evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
+			return "", refuseCall(reason, nil, toolFailureReasonPolicyDenied)
 		}
 		if class == tools.InvocationSafe && evaluation.Decision == domain.PolicyPrompt && approvalPolicy(ctx) == domain.ApprovalPolicyAuto && !middlewareRequiresApproval {
 			emitGovernanceEvent(ctx, GovernanceEvent{
 				Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(domain.PolicyAllow),
-				Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "safe read-only invocation auto-approved",
+				Profile: profile, Reason: "safe read-only invocation auto-approved",
 			})
 			if operation == nil && coordinator != nil && !isModelWorkTool(spec.Name) {
 				admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))
@@ -795,7 +791,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 				return a.run(ctx, string(args), operation)
 			}
 			if !approvalEval.ShouldAsk {
-				return "", refuseCall(approvalEval.Reason, fmt.Errorf("%w: %s", ErrPolicyDenied, spec.Name), evaluation.Snapshot.Hash, toolFailureReasonPolicyDenied)
+				return "", refuseCall(approvalEval.Reason, fmt.Errorf("%w: %s", ErrPolicyDenied, spec.Name), toolFailureReasonPolicyDenied)
 			}
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {

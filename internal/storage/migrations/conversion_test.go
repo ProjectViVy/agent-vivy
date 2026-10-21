@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,6 +45,16 @@ func TestCopiedBaselineConversionPreservesUnboundHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := source.ExecContext(ctx, `
+ INSERT INTO runs(id,session_id,status,created_at) VALUES('accepted','s','accepted',2),('queued','s','queued',2);
+ INSERT INTO questions(id,run_id,tool_call_id,prompt,status,expires_at) VALUES
+ ('question','active','call',CAST('preserved private bytes' AS BLOB),'pending',50),('answered','active','call',CAST('preserved private bytes' AS BLOB),'answered',50),('question-history','terminal','call',CAST('preserved private bytes' AS BLOB),'pending',50);
+ INSERT INTO checkpoint_generations(id,generation,blob) VALUES ('ckpt-active',1,CAST('preserved private bytes' AS BLOB)),('private-owner',1,CAST('preserved private bytes' AS BLOB));
+ INSERT INTO checkpoints(id,generation,checksum,created_at) VALUES ('ckpt-active',1,'old-checksum',1),('private-owner',1,'old-checksum',1);
+ `); err != nil {
+		t.Fatal(err)
+	}
+
 	historicalPayload := []byte(`{"operation_id":"completed","tool_name":"write_note","state":"completed","request_digest":"historical-request","arguments_digest":"historical-effective"}`)
 	if _, err := source.Exec(`INSERT INTO run_events(run_id,seq,type,created_at,payload_version,payload) VALUES('active',1,'tool.operation',12,1,?)`, historicalPayload); err != nil {
 		t.Fatal(err)
@@ -71,6 +82,11 @@ func TestCopiedBaselineConversionPreservesUnboundHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settlement, err := os.ReadFile("transition/sqlite/settle_baseline_runs.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// D08/D14 supplies the complete settlement in one target transaction.
 	// Deliberate rollback proves approval revocation cannot commit alone.
 	settle := func(commit bool) {
@@ -83,9 +99,7 @@ func TestCopiedBaselineConversionPreservesUnboundHistory(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, string(fragment), 100); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE runs SET status='failed' WHERE id='active';
-			INSERT INTO run_events(run_id,seq,type,created_at,payload_version,payload)
-			VALUES ('active',2,'run.failed',100,1,'{"reason":"upgrade_recovery_required"}')`); err != nil {
+		if _, err := tx.ExecContext(ctx, strings.ReplaceAll(string(settlement), "?1", "100")); err != nil {
 			t.Fatal(err)
 		}
 		if commit {
@@ -102,7 +116,41 @@ func TestCopiedBaselineConversionPreservesUnboundHistory(t *testing.T) {
 	if err := target.QueryRow(`SELECT status FROM runs WHERE id='active'`).Scan(&status); err != nil || status != "active" {
 		t.Fatalf("rollback Run=%s %v", status, err)
 	}
+	var pointerCount int
+	if err := target.QueryRow(`SELECT COUNT(*) FROM checkpoints WHERE id='ckpt-active'`).Scan(&pointerCount); err != nil || pointerCount != 1 {
+		t.Fatalf("rollback checkpoint=%d %v", pointerCount, err)
+	}
+	var questionStatus string
+	if err := target.QueryRow(`SELECT status FROM questions WHERE id='question'`).Scan(&questionStatus); err != nil || questionStatus != "pending" {
+		t.Fatalf("rollback question=%s %v", questionStatus, err)
+	}
+
 	settle(true)
+	for id, want := range map[string]string{"active": "failed", "accepted": "cancelled", "queued": "cancelled", "terminal": "completed"} {
+		var actual string
+		query := `SELECT status FROM runs WHERE id = ?`
+		if err := target.QueryRowContext(ctx, query, id).Scan(&actual); err != nil || actual != want {
+			t.Fatalf("converted Run %s=%s, want %s: %v", id, actual, want, err)
+		}
+		var count int
+		if err := target.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_events WHERE run_id=? AND type IN ('run.completed','run.failed','run.cancelled')`, id).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("terminal %s=%d %v", id, count, err)
+		}
+	}
+	for id, want := range map[string]string{"question": "expired", "answered": "answered", "question-history": "pending"} {
+		var actual string
+		if err := target.QueryRowContext(ctx, `SELECT status FROM questions WHERE id=?`, id).Scan(&actual); err != nil || actual != want {
+			t.Fatalf("converted question %s=%s %v", id, actual, err)
+		}
+	}
+	var pointers, generations int
+	if err := target.QueryRow(`SELECT COUNT(*) FROM checkpoints`).Scan(&pointers); err != nil || pointers != 1 {
+		t.Fatalf("private blob pointer changed: %d %v", pointers, err)
+	}
+	if err := target.QueryRow(`SELECT COUNT(*) FROM checkpoint_generations`).Scan(&generations); err != nil || generations != 2 {
+		t.Fatalf("historical bytes lost: %d %v", generations, err)
+	}
+
 	var preservedPayload []byte
 	if err := target.QueryRow(`SELECT payload FROM run_events WHERE run_id='active' AND seq=1`).Scan(&preservedPayload); err != nil || !bytes.Equal(preservedPayload, historicalPayload) {
 		t.Fatalf("historical lifecycle payload changed: %s %v", preservedPayload, err)

@@ -49,7 +49,7 @@ func TestServiceSessionPinRestoresSkillMountedTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
@@ -122,7 +122,7 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
@@ -147,7 +147,7 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new second engine: %v", err)
 	}
-	svc2 := NewService(eng2, "scripted", "scripted-v0", ServiceDeps{
+	svc2 := NewService(eng2, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})

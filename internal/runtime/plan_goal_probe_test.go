@@ -49,7 +49,7 @@ func TestPlanGoalProbePlanGuidanceAfterEnterPlanMode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
 	})
@@ -119,7 +119,7 @@ func TestPlanGoalProbeReportFencesLaterToolInSameBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: backend, Work: backend, Sink: newTestSink(),
 	})
@@ -194,7 +194,7 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
 	})
@@ -250,7 +250,7 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: state.Plan.SubmissionID,
 		PlanAction: domain.PlanDecisionRevise, PlanFeedback: "clarify the rollback step",
 	}
-	restarted := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	restarted := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
 	})
@@ -359,7 +359,7 @@ func TestPlanSubmissionSurvivesToolApprovalGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, Work: backend, Approvals: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),

@@ -2,8 +2,7 @@ package contexthost
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math"
@@ -83,8 +82,7 @@ type Request struct {
 
 type Candidate struct {
 	contextsource.Candidate
-	ProvenanceID string
-	Tokens       int
+	Tokens int
 }
 
 type Failure struct {
@@ -107,11 +105,10 @@ type Result struct {
 }
 
 type ViewItem struct {
-	SourceID     string
-	ContentID    string
-	Version      string
-	ProvenanceID string
-	Treatment    contextsource.Treatment
+	SourceID  string
+	ContentID string
+	Version   string
+	Treatment contextsource.Treatment
 }
 
 type View struct {
@@ -380,7 +377,8 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 		return collected[i].Confidence > collected[j].Confidence
 	})
 
-	seenContent := make(map[string]struct{}, len(collected))
+	type contentKey struct{ mediaType, content, sourceID, contentID string }
+	seenContent := make(map[contentKey]struct{}, len(collected))
 	for _, candidate := range collected {
 		if err := ctx.Err(); err != nil {
 			result.Failures = append(result.Failures, Failure{Cause: err})
@@ -389,11 +387,11 @@ func (host *Host) query(ctx context.Context, request Request, sources []contexts
 			result.Tokens = 0
 			return result, nil
 		}
-		dedupKey := contentHash(candidate.MediaType, candidate.Content)
+		dedupKey := contentKey{mediaType: strings.TrimSpace(candidate.MediaType), content: candidate.Content}
 		if candidate.Content == "" {
 			// Empty snapshots carry identity even though their body has no
-			// content hash. Two distinct files must remain explicit parts.
-			dedupKey = candidate.SourceID + "\x00" + candidate.ContentID
+			// bytes. Two distinct files must remain explicit parts.
+			dedupKey = contentKey{sourceID: candidate.SourceID, contentID: candidate.ContentID}
 		}
 		if _, duplicate := seenContent[dedupKey]; duplicate {
 			result.DroppedDuplicate++
@@ -465,21 +463,11 @@ func treatmentRank(treatment contextsource.Treatment) int {
 }
 
 func makeView(request Request, candidates []Candidate) View {
-	view := View{TenantID: request.TenantID, WorkspaceID: request.WorkspaceID, SessionID: request.SessionID, Items: make([]ViewItem, 0, len(candidates))}
-	hash := sha256.New()
-	for _, value := range []string{request.TenantID, request.WorkspaceID, request.SessionID} {
-		_, _ = hash.Write([]byte(value))
-		_, _ = hash.Write([]byte{0})
-	}
+	view := View{ID: "ctx_" + rand.Text(), TenantID: request.TenantID, WorkspaceID: request.WorkspaceID, SessionID: request.SessionID, Items: make([]ViewItem, 0, len(candidates))}
 	for _, candidate := range candidates {
-		item := ViewItem{SourceID: candidate.SourceID, ContentID: candidate.ContentID, Version: candidate.Version, ProvenanceID: candidate.ProvenanceID, Treatment: candidate.Treatment}
+		item := ViewItem{SourceID: candidate.SourceID, ContentID: candidate.ContentID, Version: candidate.Version, Treatment: candidate.Treatment}
 		view.Items = append(view.Items, item)
-		for _, value := range []string{item.SourceID, item.ContentID, item.Version, item.ProvenanceID, string(item.Treatment)} {
-			_, _ = hash.Write([]byte(value))
-			_, _ = hash.Write([]byte{0})
-		}
 	}
-	view.ID = hex.EncodeToString(hash.Sum(nil))
 	return view
 }
 
@@ -669,7 +657,6 @@ func (host *Host) normalizeCandidate(sourceID string, raw contextsource.Candidat
 	if projected.Tokens < 0 {
 		return Candidate{}, false
 	}
-	projected.ProvenanceID = provenanceID(candidate)
 	return projected, true
 }
 
@@ -722,18 +709,4 @@ func validMetadataValue(value string) bool {
 
 func isBidiControl(r rune) bool {
 	return r == '\u061c' || r == '\u200e' || r == '\u200f' || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
-}
-
-func provenanceID(candidate contextsource.Candidate) string {
-	hash := sha256.New()
-	for _, value := range []string{candidate.SourceID, candidate.ContentID, candidate.Version, candidate.MediaType, contentHash(candidate.MediaType, candidate.Content)} {
-		_, _ = hash.Write([]byte(value))
-		_, _ = hash.Write([]byte{0})
-	}
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-func contentHash(mediaType, content string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(mediaType) + "\x00" + content))
-	return hex.EncodeToString(sum[:])
 }

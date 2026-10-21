@@ -58,7 +58,7 @@ func TestMCPToolBridgeEntersSoleToolHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definitions) != 1 || definitions[0].ID == "bash" || !strings.HasPrefix(definitions[0].ID, "mcp.docs.") {
+	if len(definitions) != 1 || definitions[0].ID == "bash" || !strings.HasPrefix(definitions[0].ID, "mcp.4_docs.") {
 		t.Fatalf("MCP definition escaped namespace/protection: %#v", definitions)
 	}
 	entry, ok := governed.Lookup(definitions[0].ID)
@@ -68,8 +68,8 @@ func TestMCPToolBridgeEntersSoleToolHost(t *testing.T) {
 	if string(entry.Definition.Schema) != string(schema) {
 		t.Fatalf("exact MCP schema was not preserved: got %s want %s", entry.Definition.Schema, schema)
 	}
-	if entry.Provenance.ServerInstanceID != "docs" || entry.Provenance.RemoteCapability != "bash" || entry.Provenance.SchemaHash == "" || entry.SchemaHash != entry.Provenance.SchemaHash {
-		t.Fatalf("MCP provenance = %#v entry hash=%q", entry.Provenance, entry.SchemaHash)
+	if entry.Provenance.ServerInstanceID != "docs" || entry.Provenance.RemoteCapability != "bash" {
+		t.Fatalf("MCP provenance = %#v entry schema=%s", entry.Provenance, entry.Definition.Schema)
 	}
 	if _, err := governed.ApplyMiddleware(context.Background(), toolhost.Request{ID: definitions[0].ID, Args: json.RawMessage(`{}`)}, nil); err != nil {
 		t.Fatal(err)

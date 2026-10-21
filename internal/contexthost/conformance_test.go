@@ -42,7 +42,7 @@ func TestContextSourceConformance(t *testing.T) {
 		if strings.Contains(first.Candidates[0].Content, "sk-test-") {
 			t.Fatalf("secret-like content crossed the Host boundary: %q", first.Candidates[0].Content)
 		}
-		if first.Candidates[0].ProvenanceID == "" || first.Candidates[0].ProvenanceID != second.Candidates[0].ProvenanceID {
+		if first.Candidates[0].SourceID == "" || first.Candidates[0].Content != second.Candidates[0].Content || first.Candidates[0].ContentID != second.Candidates[0].ContentID {
 			t.Fatalf("provenance is not deterministic: %#v / %#v", first.Candidates[0], second.Candidates[0])
 		}
 	})

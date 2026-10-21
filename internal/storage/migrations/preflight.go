@@ -59,6 +59,18 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		return err
 	}
 	if len(applied) < len(items) {
+		// The exact accepted D03 target is also a finite source for D08.
+		// Historical 036-043 lineages with other names/checksums were already
+		// rejected by readApplied; a number alone does not identify this shape.
+		if len(applied) == 36 {
+			if err := validateOperationShape(ctx, db, dialect, true); err != nil {
+				return err
+			}
+			if err := validateSnapshotColumns(ctx, db, dialect, true); err != nil {
+				return err
+			}
+			return ErrUpgradeRequired
+		}
 		if len(applied) > 35 {
 			return fmt.Errorf("%w: unlisted post-baseline source", ErrUnsupportedSourceFormat)
 		}
@@ -70,7 +82,23 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		return ErrUpgradeRequired
 	}
 	// A migration number alone is never evidence of the converted target.
-	return validateOperationShape(ctx, db, dialect, true)
+	if err := validateOperationShape(ctx, db, dialect, true); err != nil {
+		return err
+	}
+	return validateSnapshotColumns(ctx, db, dialect, false)
+}
+
+func validateSnapshotColumns(ctx context.Context, db *sql.DB, dialect Dialect, legacy bool) error {
+	for table, column := range map[string]string{"run_prompt_snapshots": "payload_sha256", "checkpoints": "checksum"} {
+		exists, err := sourceColumnExists(ctx, db, dialect, table, column)
+		if err != nil {
+			return err
+		}
+		if exists != legacy {
+			return fmt.Errorf("%w: unexpected admitted snapshot shape", ErrUnsupportedSourceFormat)
+		}
+	}
+	return nil
 }
 
 func validateOperationShape(ctx context.Context, db *sql.DB, dialect Dialect, bound bool) error {

@@ -13,11 +13,12 @@ type Request struct {
 }
 
 type Summary struct {
-	ID             string
-	Name           string
-	Description    string
+	ID          string
+	Name        string
+	Description string
+	// Version is an explicit provider revision when available. Empty means
+	// unversioned current content; it never acts as a mutation precondition.
 	Version        string
-	SourceHash     string
 	Available      bool
 	DisabledReason string
 	Dependencies   []string
@@ -35,7 +36,6 @@ type Skill struct {
 	Name           string
 	Description    string
 	Version        string
-	SourceHash     string
 	Content        string
 	Available      bool
 	DisabledReason string
@@ -69,8 +69,7 @@ func (skill Skill) Summary() Summary {
 	clone := skill.Clone()
 	return Summary{
 		ID: clone.ID, Name: clone.Name, Description: clone.Description,
-		Version: clone.Version, SourceHash: clone.SourceHash,
-		Available: clone.Available, DisabledReason: clone.DisabledReason,
+		Version: clone.Version, Available: clone.Available, DisabledReason: clone.DisabledReason,
 		Dependencies: clone.Dependencies, Always: clone.Always,
 		UserInvocable: clone.UserInvocable, DeclaredTools: clone.DeclaredTools,
 		Context: clone.Context, Agent: clone.Agent, Model: clone.Model,

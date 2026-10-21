@@ -1,4 +1,4 @@
-# D03 transition fragments
+# D03/D08 transition fragments
 
 These paired SQL resources are deliberately outside the runtime migration
 embed glob. They are not a runner or a publishable upgrade tool.
@@ -16,7 +16,19 @@ approved authority on nonterminal Runs expires with
 `upgrade_recovery_required`. Terminal history is preserved. Expiry does not
 assert that an operation had no effect; claimed operations remain fenced.
 
+Migration 037 drops the prompt payload digest and written-only Blob checksum.
+`settle_baseline_runs.sql` disables only `ckpt-` pointers, preserving their
+generations and unrelated private Blob owners. It expires pending questions
+and commits one terminal per old nonterminal Run: active becomes failed,
+accepted/queued becomes cancelled. Existing terminal history stays unchanged.
+The D03 expiry fragment must execute first in the same transaction. D11's
+Work/Plan and workflow settlement and D12's final metadata must join this
+transaction when D14 assembles the finite artifact; these fragments alone
+are not a publishable upgrade tool. No source database is modified.
+
 D12 owns final metadata and D14 owns the finite conversion artifact and its
 acceptance. `ApplyManifest` remains the existing explicit disposable-fixture
 conversion seam; runtime `Apply` refuses old or unsupported stores before any
-write. D03 alone does not make final upgrade publication possible.
+write. Accepted D03 target 036 is an explicitly recognized upgrade source;
+unlisted historical 036–043 formats remain unsupported. Neither D03 nor D08
+alone makes final upgrade publication possible.

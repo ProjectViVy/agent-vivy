@@ -700,16 +700,20 @@ func newContractHarness(t *testing.T, script []*schema.AgenticMessage, opts cont
 		specs = append(specs, tl.Spec())
 		byName[tl.Spec().Name] = tl
 	}
+	policy, err := NewPolicyEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	eng := &Engine{
 		runner:      runner,
-		cfg:         EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 1 << 20, Checkpoints: checkpointStore},
+		cfg:         EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 1 << 20, Checkpoints: checkpointStore, Policy: policy},
 		chatModel:   h.model,
 		toolSpecs:   specs,
 		activeTools: allTools,
 		toolByName:  byName,
 	}
 
-	h.svc = NewService(eng, "contract", "contract-v0", ServiceDeps{
+	h.svc = NewService(eng, "contract", "contract-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: h.journal, ToolOperations: backend, Runs: backend, Messages: backend, Notes: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})

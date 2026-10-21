@@ -191,7 +191,7 @@ func newD15CrashFixture(t *testing.T) d15CrashFixture {
 	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "D15 crash", CreatedAt: time.Now().UnixMilli()}); err != nil {
 		t.Fatalf("create crash-test session: %v", err)
 	}
-	prompt, err := buildPromptSnapshot(PromptInput{
+	prompt, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: runID, GenerationID: service.deps.GenerationID,
 		Capture: maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}},
 	})
@@ -201,8 +201,8 @@ func newD15CrashFixture(t *testing.T) d15CrashFixture {
 	mapper := newEventMapper(runID, 64<<10)
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: "test", Model: "test-model", Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
-		PolicyProfile: string(domain.PolicyProfileDefault), PolicyHash: "d15-crash-policy",
-		PromptSchema: prompt.SchemaVersion, PromptDigest: prompt.PayloadSHA256,
+		PolicyProfile: string(domain.PolicyProfileDefault),
+		PromptSchema:  prompt.SchemaVersion,
 	})
 	_, err = backend.CommitRunAdmission(ctx, storage.RunAdmission{
 		Message: domain.Message{ID: newMessageID(), SessionID: sessionID, RunID: runID, Role: domain.RoleUser,

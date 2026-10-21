@@ -84,7 +84,7 @@ func TestHostDiscoveryHonorsTimeout(t *testing.T) {
 	}
 }
 
-func TestHostInvalidatesDynamicSchemaHashOnRediscovery(t *testing.T) {
+func TestHostRefreshesDynamicSchemaOnRediscovery(t *testing.T) {
 	world := &testWorldProvider{id: "fixture.world", discoveries: [][]toolworld.ToolDefinition{
 		{{ID: "remote.echo", Schema: json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`)}},
 		{{ID: "remote.echo", Schema: json.RawMessage(`{"type":"object","properties":{"b":{"type":"string"}}}`)}},
@@ -107,8 +107,8 @@ func TestHostInvalidatesDynamicSchemaHashOnRediscovery(t *testing.T) {
 	if !ok {
 		t.Fatal("remote.echo missing after rediscovery")
 	}
-	if first.SchemaHash == second.SchemaHash {
-		t.Fatalf("schema hash did not change: %q", first.SchemaHash)
+	if string(first.Definition.Schema) == string(second.Definition.Schema) {
+		t.Fatalf("actual schema did not change: %q", first.Definition.Schema)
 	}
 }
 
@@ -140,17 +140,17 @@ func TestHostFailedDiscoveryClearsPreviousDynamicBindings(t *testing.T) {
 	}
 }
 
-func TestToolSchemaHashPreservesLargeJSONNumbers(t *testing.T) {
-	first := hashDefinition(porttool.Definition{
+func TestToolSchemaPreservesLargeJSONNumbers(t *testing.T) {
+	first := normalizedToolDefinition(porttool.Definition{
 		ID:     "large-number",
 		Schema: json.RawMessage(`{"type":"number","minimum":9007199254740992}`),
 	})
-	second := hashDefinition(porttool.Definition{
+	second := normalizedToolDefinition(porttool.Definition{
 		ID:     "large-number",
 		Schema: json.RawMessage(`{"type":"number","minimum":9007199254740993}`),
 	})
-	if first == second {
-		t.Fatalf("large JSON numbers collapsed to one ToolHost schema hash: %q", first)
+	if string(first.Schema) == string(second.Schema) {
+		t.Fatalf("large JSON numbers collapsed to one ToolHost schema: %s", first.Schema)
 	}
 }
 

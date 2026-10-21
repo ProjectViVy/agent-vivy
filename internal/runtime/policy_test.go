@@ -1,10 +1,55 @@
 package runtime
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"agent-vivy/internal/domain"
 )
+
+func defaultPolicyForTest(t *testing.T, profile domain.PolicyProfile) domain.PolicySnapshot {
+	t.Helper()
+	engine, err := NewPolicyEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := engine.Snapshot(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
+}
+
+func TestAdmittedPolicyRetainsPrivateDefinitionAndRejectsDrift(t *testing.T) {
+	const private = "D08-private-policy-path-canary"
+	engine, err := NewPolicyEngine(map[domain.PolicyProfile]PolicyDefinition{
+		domain.PolicyProfileDefault: {Rules: []PolicyRule{{Tool: "write_note", Field: "path", Prefix: private, Decision: domain.PolicyDeny}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := engine.Snapshot(domain.PolicyProfileDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actual PolicyDefinition
+	if err := json.Unmarshal([]byte(admitted.Definition), &actual); err != nil || len(actual.Rules) != 1 || actual.Rules[0].Prefix != private {
+		t.Fatal("snapshot did not preserve actual policy")
+	}
+	ctx := withPolicySnapshot(context.Background(), admitted)
+	if err := validateAdmittedPolicy(ctx, admitted); err != nil {
+		t.Fatal(err)
+	}
+	changed := defaultPolicyForTest(t, domain.PolicyProfileDefault)
+	if err := validateAdmittedPolicy(ctx, changed); !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("policy drift accepted: %v", err)
+	}
+	if policySnapshot(ctx) != admitted {
+		t.Fatal("current configuration replaced admission")
+	}
+}
 
 func TestPolicyDenyWinsOverAllowRegardlessOfRuleOrder(t *testing.T) {
 	engine, err := NewPolicyEngine(map[domain.PolicyProfile]PolicyDefinition{
@@ -80,8 +125,8 @@ func TestPolicySnapshotChangesWhenDefinitionChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Hash == second.Hash || first.Hash == "" {
-		t.Fatalf("snapshots = %+v / %+v, want distinct non-empty hashes", first, second)
+	if first.Definition == second.Definition || first.Definition == "" {
+		t.Fatalf("snapshots = %+v / %+v, want distinct exact definitions", first, second)
 	}
 }
 

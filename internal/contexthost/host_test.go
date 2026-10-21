@@ -214,7 +214,7 @@ func TestHostRedactsSecretsAndBuildsStableProvenance(t *testing.T) {
 	if len(first.Candidates) != 1 || first.Candidates[0].Content == candidate.Content {
 		t.Fatalf("secret content was not redacted: %#v", first.Candidates)
 	}
-	if first.Candidates[0].ProvenanceID == "" || first.Candidates[0].ProvenanceID != second.Candidates[0].ProvenanceID {
+	if first.Candidates[0].SourceID == "" || first.Candidates[0].Content != second.Candidates[0].Content || first.Candidates[0].ContentID != second.Candidates[0].ContentID {
 		t.Fatalf("unstable provenance: %#v vs %#v", first.Candidates[0], second.Candidates[0])
 	}
 }

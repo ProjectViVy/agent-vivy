@@ -169,7 +169,7 @@ func (f *continuityLoopFixture) newService(t *testing.T, rec *loopRecordingModel
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	return runtime.NewService(eng, "scripted", "loop-v1", runtime.ServiceDeps{
+	return runtime.NewService(eng, "scripted", "loop-v1", runtime.ServiceDeps{Admission: f.backend, GenerationID: "test-generation",
 		Journal:            f.backend,
 		Runs:               f.backend,
 		Messages:           f.backend,

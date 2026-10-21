@@ -16,8 +16,7 @@ import (
 // Host-owned decisions.
 func TestSkillSourceConformance(t *testing.T) {
 	skill := skillsource.Skill{
-		ID: "review-v2", Name: "Review", Version: "v2", SourceHash: "source-v2",
-		Available: true, Always: true, Content: "Use bash with token sk-test-12345678901234567890",
+		ID: "review-v2", Name: "Review", Version: "v2", Available: true, Always: true, Content: "Use bash with token sk-test-12345678901234567890",
 		DeclaredTools: []string{"bash"},
 	}
 	provider := &fixtureSkillSource{id: "first-party", summaries: []skillsource.Summary{skill.Summary()}, skills: map[string]skillsource.Skill{skill.ID: skill}}
@@ -41,7 +40,7 @@ func TestSkillSourceConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.ID != skill.ID || resolved.ProvenanceID == "" || strings.Contains(resolved.Content, "sk-test-") {
+	if resolved.ID != skill.ID || resolved.SourceID == "" || strings.Contains(resolved.Content, "sk-test-") {
 		t.Fatalf("SkillHost projection lost identity, provenance, or redaction: %#v", resolved)
 	}
 	if len(resolved.DeclaredTools) != 1 || resolved.DeclaredTools[0] != "bash" {

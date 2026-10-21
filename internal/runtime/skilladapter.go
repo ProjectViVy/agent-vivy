@@ -51,11 +51,11 @@ func localLoadedSkill(item loadedSkill) skillsource.Skill {
 		origin = tools.SkillOriginUser
 	}
 	return skillsource.Skill{
-		ID:             item.name,
-		Name:           item.front.Name,
-		Description:    item.front.Description,
-		Version:        item.hash,
-		SourceHash:     item.hash,
+		ID:          item.name,
+		Name:        item.front.Name,
+		Description: item.front.Description,
+		// The local source has no semantic version. Mutation preconditions are
+		// owned by the protected backend, not fabricated for this read view.
 		Content:        item.content,
 		Available:      item.enabled,
 		DisabledReason: disabledReason,

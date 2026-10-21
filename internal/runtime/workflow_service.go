@@ -313,8 +313,8 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	mapper.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: providerName, Model: modelID, Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
-		PolicyProfile: string(snapshot.Profile), PolicyHash: snapshot.Hash,
-		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		PolicyProfile: string(snapshot.Profile),
+		SandboxMode:   string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 	})
 	started.CreatedAt = now
 	revision := domain.WorkflowRevision{
@@ -481,11 +481,11 @@ func (s *Service) launchINOFYWorkflow(ctx context.Context, result WorkflowStartR
 }
 
 type persistedWorkflowAuthority struct {
-	PolicyProfile  domain.PolicyProfile  `json:"policy_profile"`
-	PolicyHash     string                `json:"policy_hash"`
-	SandboxMode    domain.SandboxMode    `json:"sandbox_mode"`
-	ApprovalPolicy domain.ApprovalPolicy `json:"approval_policy"`
-	ToolNames      []string              `json:"tool_names"`
+	PolicyProfile    domain.PolicyProfile  `json:"policy_profile"`
+	PolicyDefinition string                `json:"policy_definition"`
+	SandboxMode      domain.SandboxMode    `json:"sandbox_mode"`
+	ApprovalPolicy   domain.ApprovalPolicy `json:"approval_policy"`
+	ToolNames        []string              `json:"tool_names"`
 	// TrustedStrategy classifies a host-bound strategy run. Empty keeps the
 	// authored read-only ceiling; a non-empty value is only ever written by
 	// the code-owned trusted admission path, never from caller input.
@@ -537,7 +537,7 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	}
 	canonicalTools := authority.ToolNames
 	snapshot, err := s.engine.cfg.Policy.Snapshot(authority.PolicyProfile)
-	if err != nil || snapshot.Hash != authority.PolicyHash {
+	if err != nil || snapshot.Definition != authority.PolicyDefinition {
 		return errors.New("runtime: workflow policy snapshot is no longer compatible")
 	}
 	session, err := s.deps.Sessions.GetSession(ctx, run.SessionID)
@@ -632,7 +632,7 @@ func workflowAuthorityRecord(snapshot domain.PolicySnapshot, sandbox domain.Sand
 		return nil, "", err
 	}
 	encoded, err := json.Marshal(persistedWorkflowAuthority{
-		PolicyProfile: snapshot.Profile, PolicyHash: snapshot.Hash, SandboxMode: sandbox,
+		PolicyProfile: snapshot.Profile, PolicyDefinition: snapshot.Definition, SandboxMode: sandbox,
 		ApprovalPolicy: approval, ToolNames: canonical,
 	})
 	if err != nil {
@@ -653,19 +653,19 @@ func decodeWorkflowAuthority(revision domain.WorkflowRevision) (persistedWorkflo
 		return authority, errors.New("runtime: stored workflow authority has trailing data")
 	}
 	canonicalTools, err := domain.CanonicalToolNames(authority.ToolNames)
-	if err != nil || authority.PolicyHash == "" || !authority.PolicyProfile.Valid() || !sameStrings(canonicalTools, authority.ToolNames) {
+	if err != nil || authority.PolicyDefinition == "" || !authority.PolicyProfile.Valid() || !sameStrings(canonicalTools, authority.ToolNames) {
 		return authority, errors.New("runtime: stored workflow authority is incomplete")
 	}
 	var canonicalAuthority []byte
 	var authorityDigest string
 	if authority.TrustedStrategy != "" {
 		canonicalAuthority, authorityDigest, err = trustedWorkflowAuthorityRecord(
-			domain.PolicySnapshot{Profile: authority.PolicyProfile, Hash: authority.PolicyHash},
+			domain.PolicySnapshot{Profile: authority.PolicyProfile, Definition: authority.PolicyDefinition},
 			authority.SandboxMode, authority.ApprovalPolicy, authority.TrustedStrategy,
 		)
 	} else {
 		canonicalAuthority, authorityDigest, err = workflowAuthorityRecord(
-			domain.PolicySnapshot{Profile: authority.PolicyProfile, Hash: authority.PolicyHash},
+			domain.PolicySnapshot{Profile: authority.PolicyProfile, Definition: authority.PolicyDefinition},
 			authority.SandboxMode, authority.ApprovalPolicy, canonicalTools,
 		)
 	}

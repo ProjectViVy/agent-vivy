@@ -37,9 +37,10 @@ func (d PolicyDecision) Valid() bool {
 	}
 }
 
-// PolicySnapshot identifies the exact policy selected for a run. The hash is
-// metadata only; the policy definition remains process configuration.
+// PolicySnapshot contains the exact admitted policy. Definition is canonical
+// JSON from the policy owner, held only in private execution state. Public
+// projections must use Profile rather than serialize this value.
 type PolicySnapshot struct {
-	Profile PolicyProfile
-	Hash    string
+	Profile    PolicyProfile
+	Definition string
 }

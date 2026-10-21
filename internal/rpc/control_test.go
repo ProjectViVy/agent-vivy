@@ -454,7 +454,6 @@ func newControlTestEnv(t *testing.T, mutators ...func(*ControlDeps)) *controlTes
 		Live: studio.LiveView{
 			Provider:      "test",
 			PolicyProfile: domain.PolicyProfileDefault,
-			PolicyHash:    "policy-hash-test",
 			Tools:         liveTools,
 		},
 		Eval: eval.NewRunner(eval.Runner{

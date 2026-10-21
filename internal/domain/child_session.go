@@ -75,11 +75,11 @@ type ChildSessionBinding struct {
 // ChildAuthorityCeiling is the immutable maximum policy and tool set granted
 // to a continuable child. Each activation may select a strict subset.
 type ChildAuthorityCeiling struct {
-	PolicyProfile  PolicyProfile  `json:"policy_profile"`
-	PolicyHash     string         `json:"policy_hash"`
-	SandboxMode    SandboxMode    `json:"sandbox_mode"`
-	ApprovalPolicy ApprovalPolicy `json:"approval_policy"`
-	ToolNames      []string       `json:"tool_names"`
+	PolicyProfile    PolicyProfile  `json:"policy_profile"`
+	PolicyDefinition string         `json:"policy_definition"`
+	SandboxMode      SandboxMode    `json:"sandbox_mode"`
+	ApprovalPolicy   ApprovalPolicy `json:"approval_policy"`
+	ToolNames        []string       `json:"tool_names"`
 }
 
 // CanonicalToolNames returns a sorted, duplicate-free tool list and rejects
@@ -103,7 +103,7 @@ func CanonicalToolNames(names []string) ([]string, error) {
 }
 
 func (c ChildAuthorityCeiling) CanonicalJSON() ([]byte, error) {
-	if !c.PolicyProfile.Valid() || strings.TrimSpace(c.PolicyHash) == "" || !c.SandboxMode.Valid() || !c.ApprovalPolicy.Valid() {
+	if !c.PolicyProfile.Valid() || strings.TrimSpace(c.PolicyDefinition) == "" || !c.SandboxMode.Valid() || !c.ApprovalPolicy.Valid() {
 		return nil, errors.New("domain: child authority ceiling is incomplete")
 	}
 	toolNames, err := CanonicalToolNames(c.ToolNames)

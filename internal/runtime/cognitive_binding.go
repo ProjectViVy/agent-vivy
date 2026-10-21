@@ -135,7 +135,7 @@ func trustedStrategyCatalog() (inofy.Catalog, error) {
 func trustedWorkflowAuthorityRecord(snapshot domain.PolicySnapshot, sandbox domain.SandboxMode,
 	approval domain.ApprovalPolicy, strategyID string) ([]byte, string, error) {
 	encoded, err := json.Marshal(persistedWorkflowAuthority{
-		PolicyProfile: snapshot.Profile, PolicyHash: snapshot.Hash, SandboxMode: sandbox,
+		PolicyProfile: snapshot.Profile, PolicyDefinition: snapshot.Definition, SandboxMode: sandbox,
 		ApprovalPolicy: approval, TrustedStrategy: strategyID,
 	})
 	if err != nil {

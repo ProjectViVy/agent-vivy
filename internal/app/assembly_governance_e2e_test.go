@@ -438,7 +438,7 @@ func TestProductionMCPGovernancePathUsesToolHostOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	sink := &appEventSink{}
-	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
@@ -532,7 +532,7 @@ func TestToolApprovalFailsClosedWhenMiddlewareRewriteDriftsOnResume(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
 	})
 	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-drift", Title: "fixture", CreatedAt: 1}); err != nil {
@@ -629,7 +629,7 @@ func TestToolApprovalBindingCannotBeBypassedWhenResumeBecomesAllowed(t *testing.
 			if test.legacyData {
 				approvals = &legacyProposalApprovalStore{Backend: backend}
 			}
-			service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
+			service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
 				Journal: backend, Runs: backend, Messages: backend, Approvals: approvals, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
 			})
 			if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-allow-bypass", Title: "fixture", CreatedAt: 1}); err != nil {
@@ -689,7 +689,7 @@ func TestToolApprovalJournalRedactsMiddlewareInjectedSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
 	})
 	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-secret", Title: "fixture", CreatedAt: 1}); err != nil {
@@ -730,7 +730,7 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	governed, ok := registry.Lookup("mcp.docs.write")
+	governed, ok := registry.Lookup("mcp.4_docs.write")
 	if !ok {
 		t.Fatalf("real MCP tool missing from ToolHost catalog: %#v", registry.Specs())
 	}
@@ -755,7 +755,7 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := runtime.NewScriptedModel(
-		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-production-mcp", "mcp.docs.write", `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
+		runtime.ScriptedToolCalls(runtime.ScriptedCall("call-production-mcp", "mcp.4_docs.write", `{"mode":"safe","items":[1],"config":{"enabled":true}}`)),
 		runtime.ScriptedText("governed"),
 	)
 	callables := make([]tools.Tool, 0, len(registry.Specs()))
@@ -775,7 +775,7 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	sink := &appEventSink{}
-	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
@@ -1003,7 +1003,7 @@ func assertGovernedToolEnvelope(t *testing.T, registry *tools.Registry, toolID s
 		t.Fatal(err)
 	}
 	sink := &appEventSink{}
-	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{
+	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})

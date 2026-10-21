@@ -36,16 +36,16 @@ func contextCandidateBytes(candidate contexthost.Candidate) int {
 
 func contextCandidateLabel(candidate contexthost.Candidate) string {
 	if candidate.Version == "" {
-		return fmt.Sprintf("\n\n[context: %s/%s provenance=%s]\n", candidate.SourceID, candidate.ContentID, candidate.ProvenanceID)
+		return fmt.Sprintf("\n\n[context: %s/%s]\n", candidate.SourceID, candidate.ContentID)
 	}
-	return fmt.Sprintf("\n\n[context: %s/%s version=%s provenance=%s]\n", candidate.SourceID, candidate.ContentID, candidate.Version, candidate.ProvenanceID)
+	return fmt.Sprintf("\n\n[context: %s/%s version=%s]\n", candidate.SourceID, candidate.ContentID, candidate.Version)
 }
 
 func validContextProjectionCandidate(candidate contexthost.Candidate) bool {
-	if candidate.SourceID == "" || candidate.ContentID == "" || candidate.ProvenanceID == "" || !utf8.ValidString(candidate.Content) {
+	if candidate.SourceID == "" || candidate.ContentID == "" || !utf8.ValidString(candidate.Content) {
 		return false
 	}
-	for _, value := range []string{candidate.SourceID, candidate.ContentID, candidate.ProvenanceID} {
+	for _, value := range []string{candidate.SourceID, candidate.ContentID} {
 		if len(value) > 1024 || !utf8.ValidString(value) {
 			return false
 		}

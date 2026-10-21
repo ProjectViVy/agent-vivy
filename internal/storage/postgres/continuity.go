@@ -223,6 +223,9 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 	if err := postgresCheckExpectations(ctx, tx, a.Expectations); err != nil {
 		return storage.ContinuityResult{}, err
 	}
+	if err := b.postgresValidateAdmissionCapture(ctx, &Tx{SQL: tx}, a.ExpectedMask, a.Prompt); err != nil {
+		return storage.ContinuityResult{}, err
+	}
 	if err := postgresInsertMessageTx(ctx, tx, a.Message); err != nil {
 		return storage.ContinuityResult{}, err
 	}
@@ -247,6 +250,14 @@ func (b *Backend) CommitContinuityRun(ctx context.Context, a storage.ContinuityA
 		return storage.ContinuityResult{}, fmt.Errorf("storage: insert continuity run %s: %w", a.Run.ID, err)
 	}
 	if err := postgresFault(a.TestFaultHook, "run"); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if a.Prompt != nil {
+		if err := postgresInsertAdmissionPrompt(ctx, &Tx{SQL: tx}, *a.Prompt); err != nil {
+			return storage.ContinuityResult{}, err
+		}
+	}
+	if err := postgresFault(a.TestFaultHook, "prompt"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
 	events := append([]domain.RunEvent(nil), a.Events...)

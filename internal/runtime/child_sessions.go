@@ -201,7 +201,7 @@ func (s *Service) AdmitChildSession(ctx context.Context, request ChildSessionReq
 	}
 	sandboxMode, approvalPolicy := parentSession.EffectiveSandbox()
 	ceiling := domain.ChildAuthorityCeiling{
-		PolicyProfile: snapshot.Profile, PolicyHash: snapshot.Hash,
+		PolicyProfile: snapshot.Profile, PolicyDefinition: snapshot.Definition,
 		SandboxMode: sandboxMode, ApprovalPolicy: approvalPolicy, ToolNames: parentTools,
 	}
 	ceilingDigest, err := ceiling.Digest()
@@ -274,7 +274,7 @@ func (s *Service) AdmitChildSessionActivation(ctx context.Context, request Child
 		return ChildSessionResult{}, err
 	}
 	sandboxMode, approvalPolicy := parentSession.EffectiveSandbox()
-	if parent.SessionID != binding.OriginParentSessionID || snapshot.Profile != binding.AuthorityCeiling.PolicyProfile || snapshot.Hash != binding.AuthorityCeiling.PolicyHash ||
+	if parent.SessionID != binding.OriginParentSessionID || snapshot.Profile != binding.AuthorityCeiling.PolicyProfile || snapshot.Definition != binding.AuthorityCeiling.PolicyDefinition ||
 		sandboxMode != binding.AuthorityCeiling.SandboxMode || approvalPolicy != binding.AuthorityCeiling.ApprovalPolicy {
 		return ChildSessionResult{}, storage.ErrChildAdmissionConflict
 	}
@@ -465,7 +465,7 @@ func (s *Service) childMailboxActor(ctx context.Context, childSessionID domain.S
 			return domain.ChildSessionBinding{}, domain.Run{}, err
 		}
 		sandbox, approval := parentSession.EffectiveSandbox()
-		if snapshot.Profile != binding.AuthorityCeiling.PolicyProfile || snapshot.Hash != binding.AuthorityCeiling.PolicyHash ||
+		if snapshot.Profile != binding.AuthorityCeiling.PolicyProfile || snapshot.Definition != binding.AuthorityCeiling.PolicyDefinition ||
 			sandbox != binding.AuthorityCeiling.SandboxMode || approval != binding.AuthorityCeiling.ApprovalPolicy {
 			return domain.ChildSessionBinding{}, domain.Run{}, storage.ErrChildAdmissionConflict
 		}
@@ -618,7 +618,7 @@ func (s *Service) buildChildRunAdmission(session domain.Session, run domain.Run,
 		built, err := buildPromptSnapshot(PromptInput{
 			RunID: run.ID, GenerationID: s.deps.GenerationID,
 			Capture: maskcontract.Capture{Selection: maskcontract.Selection{SessionID: session.ID}},
-			Face:    domain.FaceWeb,
+			Face:    domain.FaceWeb, Policy: snapshot,
 		})
 		if err != nil {
 			return storage.RunAdmission{}, fmt.Errorf("runtime: build child prompt snapshot: %w", err)
@@ -628,15 +628,14 @@ func (s *Service) buildChildRunAdmission(session domain.Session, run domain.Run,
 	mapper := newEventMapper(run.ID, s.engine.cfg.MaxEventPayloadBytes)
 	mapper.setRunScope(s.deps.TenantID, workspaceID, string(session.ID))
 	mapper.setUsageRoutes(providerName, modelID, s.engine.cfg.SummaryModelID)
-	promptSchema, promptDigest := 0, ""
+	promptSchema := 0
 	if prompt != nil {
-		promptSchema, promptDigest = prompt.SchemaVersion, prompt.PayloadSHA256
+		promptSchema = prompt.SchemaVersion
 	}
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: providerName, Model: modelID, Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
-		PolicyProfile: string(snapshot.Profile), PolicyHash: snapshot.Hash,
-		SandboxMode: string(mode), ApprovalPolicy: string(approvalPolicy),
-		PromptSchema: promptSchema, PromptDigest: promptDigest,
+		PolicyProfile: string(snapshot.Profile), SandboxMode: string(mode), ApprovalPolicy: string(approvalPolicy),
+		PromptSchema: promptSchema,
 	})
 	now := run.CreatedAt
 	return storage.RunAdmission{

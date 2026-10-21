@@ -123,7 +123,7 @@ func TestMCPToolWorldProviderTracksLiveBackendReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first) != 1 || first[0].ID != "mcp.docs.old" {
+	if len(first) != 1 || first[0].ID != "mcp.4_docs.old" {
 		t.Fatalf("initial MCP projection = %#v", first)
 	}
 
@@ -132,10 +132,10 @@ func TestMCPToolWorldProviderTracksLiveBackendReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second) != 1 || second[0].ID != "mcp.docs.new" {
+	if len(second) != 1 || second[0].ID != "mcp.4_docs.new" {
 		t.Fatalf("replacement MCP projection = %#v", second)
 	}
-	if _, err := provider.Invoke(context.Background(), nil, "mcp.docs.old", nil); !errors.Is(err, mcphost.ErrUnknownTool) {
+	if _, err := provider.Invoke(context.Background(), nil, "mcp.4_docs.old", nil); !errors.Is(err, mcphost.ErrUnknownTool) {
 		t.Fatalf("old MCP projection invoke error = %v, want ErrUnknownTool", err)
 	}
 }
@@ -172,7 +172,7 @@ func TestMCPHostHTTPSessionTerminationRecoversUnderHostRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MCPHost discovery did not recover from HTTP session termination: %v", err)
 	}
-	if len(projected) != 1 || projected[0].ID != "mcp.docs.recovered" {
+	if len(projected) != 1 || projected[0].ID != "mcp.4_docs.recovered" {
 		t.Fatalf("recovered projection = %#v", projected)
 	}
 	if listCalls != 2 {

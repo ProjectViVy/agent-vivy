@@ -121,7 +121,7 @@ func newOverflowService(t *testing.T, m *overflowScriptedModel) (*Service, *sqli
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "test", "test-model", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 		Compactions: backend,
@@ -295,7 +295,7 @@ func TestOverflowDisabledPolicyAcceptsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "test", "test-model", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		Sink: newTestSink(), Compactions: backend,
 	})

@@ -16,7 +16,6 @@ const BuiltinGenerationID = "builtin"
 type LiveView struct {
 	Provider      string
 	PolicyProfile domain.PolicyProfile
-	PolicyHash    string
 	Tools         []domain.ToolSpec
 }
 
@@ -29,7 +28,6 @@ type Report struct {
 	UIArtifactSHA256 string                `json:"ui_artifact_sha256,omitempty"`
 	Recipe           domain.AssemblyRecipe `json:"recipe"`
 	PolicyProfile    string                `json:"policy_profile"`
-	PolicyHash       string                `json:"policy_hash"`
 	Tools            []ToolReport          `json:"tools"`
 	Grants           []string              `json:"grants"`
 }
@@ -47,7 +45,6 @@ func (s *Service) Inspect(ctx context.Context, live LiveView) (Report, error) {
 		BinaryID:      buildinfo.Version,
 		GenerationID:  BuiltinGenerationID,
 		PolicyProfile: string(live.PolicyProfile),
-		PolicyHash:    live.PolicyHash,
 		Tools:         []ToolReport{},
 		Grants:        []string{},
 		Recipe: domain.AssemblyRecipe{

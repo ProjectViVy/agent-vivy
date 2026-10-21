@@ -65,7 +65,7 @@ func (b *Backend) CommitChildSessionAdmission(ctx context.Context, in storage.Ch
 	if err := postgresInsertChildSession(ctx, tx, in.Session); err != nil {
 		return result, err
 	}
-	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.Admission.ExpectedMask); err != nil {
+	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.Admission.ExpectedMask, in.Admission.Prompt); err != nil {
 		return result, err
 	}
 	if exists, err := postgresMessageExists(ctx, tx, in.Admission.Message.ID); err != nil {
@@ -210,7 +210,7 @@ func (b *Backend) CommitChildSessionActivation(ctx context.Context, in storage.C
 	if err := postgresCheckChildConcurrency(ctx, tx, parent.ID); err != nil {
 		return result, err
 	}
-	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.Admission.ExpectedMask); err != nil {
+	if err := b.postgresValidateAdmissionCapture(ctx, tx, in.Admission.ExpectedMask, in.Admission.Prompt); err != nil {
 		return result, err
 	}
 	if exists, err := postgresMessageExists(ctx, tx, in.Admission.Message.ID); err != nil {

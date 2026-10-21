@@ -805,7 +805,6 @@ export interface SpeciesInspect {
   artifact_sha256?: string;
   recipe: { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] };
   policy_profile: string;
-  policy_hash: string;
   tools: Array<{ name: string; readonly: boolean }>;
   grants: string[];
 }
@@ -847,7 +846,6 @@ export interface Preflight {
   mode: RunMode;
   face?: Face;
   policy_profile: string;
-  policy_hash?: string;
   selected_tools: string[];
   tool_decisions: Array<{ tool_name: string; decision: string; reason: string }>;
   context_bytes: number;

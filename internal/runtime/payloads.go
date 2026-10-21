@@ -16,17 +16,14 @@ type payloadRunStarted struct {
 	Mode           string `json:"mode"`
 	Face           string `json:"face"`
 	PolicyProfile  string `json:"policy_profile,omitempty"`
-	PolicyHash     string `json:"policy_hash,omitempty"`
 	SandboxMode    string `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy string `json:"approval_policy,omitempty"`
 	// HistoryScope is accepted, host-resolved metadata. Its absence preserves
 	// legacy run.started encoding and means no continuity scope was admitted.
 	HistoryScope *domain.AcceptedHistoryScope `json:"history_scope,omitempty"`
-	// PromptSchema and PromptDigest identify the immutable prompt admitted
-	// beside this run. They are omitted for legacy embedders that do not wire
-	// RunAdmissionStore, preserving the v1 event shape on that path.
+	// PromptSchema marks the private Run-owned admission beside this event.
+	// Embedders without RunAdmissionStore omit it and cannot save checkpoints.
 	PromptSchema         int    `json:"prompt_schema,omitempty"`
-	PromptDigest         string `json:"prompt_digest,omitempty"`
 	CollaborationMode    string `json:"collaboration_mode,omitempty"`
 	CollaborationVersion int    `json:"collaboration_version,omitempty"`
 	// NoContext marks a run whose journal events project to the transcript
@@ -51,14 +48,10 @@ type payloadDeliverablesPresented struct {
 	Mode                 string             `json:"mode"`
 	Face                 string             `json:"face"`
 	PolicyProfile        string             `json:"policy_profile,omitempty"`
-	PolicyHash           string             `json:"policy_hash,omitempty"`
 	SandboxMode          string             `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy       string             `json:"approval_policy,omitempty"`
-	// PromptSchema and PromptDigest identify the immutable prompt admitted
-	// beside this run. They are omitted for legacy embedders that do not wire
-	// RunAdmissionStore, preserving the v1 event shape on that path.
-	PromptSchema int    `json:"prompt_schema,omitempty"`
-	PromptDigest string `json:"prompt_digest,omitempty"`
+	// PromptSchema marks the private Run-owned admission beside this event.
+	PromptSchema int `json:"prompt_schema,omitempty"`
 }
 
 type payloadModelDelta struct {
@@ -295,7 +288,6 @@ type payloadToolApprovalRequired struct {
 	Mode             string         `json:"mode,omitempty"`
 	Face             string         `json:"face"`
 	PolicyProfile    string         `json:"policy_profile,omitempty"`
-	PolicyHash       string         `json:"policy_hash,omitempty"`
 	SandboxMode      string         `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy   string         `json:"approval_policy,omitempty"`
 	Action           string         `json:"action,omitempty"`
@@ -315,7 +307,6 @@ type payloadUserQuestionRequired struct {
 	Mode           string   `json:"mode,omitempty"`
 	Face           string   `json:"face"`
 	PolicyProfile  string   `json:"policy_profile,omitempty"`
-	PolicyHash     string   `json:"policy_hash,omitempty"`
 	SandboxMode    string   `json:"sandbox_mode,omitempty"`
 	ApprovalPolicy string   `json:"approval_policy,omitempty"`
 }
@@ -324,7 +315,6 @@ type payloadPolicyEvaluated struct {
 	ToolName string `json:"tool_name"`
 	Decision string `json:"decision"`
 	Profile  string `json:"profile"`
-	Hash     string `json:"policy_hash,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
 

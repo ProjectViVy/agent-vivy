@@ -16,7 +16,7 @@ func TestSkillTextReceivesNoImplicitGrant(t *testing.T) {
 
 func TestSkillCloneCopiesSlicesAndMetadata(t *testing.T) {
 	skill := Skill{
-		ID: "review", Name: "review", Description: "Review code", Version: "v1", SourceHash: "abc", Content: "body",
+		ID: "review", Name: "review", Description: "Review code", Version: "v1", Content: "body",
 		Dependencies: []string{"base"}, Metadata: map[string]string{"origin": "test"},
 	}
 	clone := skill.Clone()
@@ -35,7 +35,7 @@ func TestSummaryContainsNoContent(t *testing.T) {
 }
 
 func TestSkillClonePreservesLiteralIdentityForHostValidation(t *testing.T) {
-	skill := Skill{ID: " review ", Name: "review", Version: " v1 ", SourceHash: "hash"}
+	skill := Skill{ID: " review ", Name: "review", Version: " v1 "}
 	clone := skill.Clone()
 	if clone.ID != skill.ID || clone.Version != skill.Version {
 		t.Fatalf("Clone normalized stable identity/version: %#v", clone)

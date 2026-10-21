@@ -34,7 +34,7 @@ func newQuestionService(t *testing.T) (*Service, *sqlite.Backend, *testSink) {
 		t.Fatalf("new engine: %v", err)
 	}
 	sink := newTestSink()
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
@@ -117,7 +117,7 @@ func restartQuestionService(t *testing.T, backend *sqlite.Backend) *Service {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	return NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	return NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})

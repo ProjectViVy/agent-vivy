@@ -152,15 +152,21 @@ func TestToolOperationEnhancedCachedSiblingBeforeFinished(t *testing.T) {
 			if err := h.backend.CreateSession(ctx, domain.Session{ID: session, CreatedAt: 1}); err != nil {
 				t.Fatal(err)
 			}
-			if err := h.backend.CreateRun(ctx, domain.Run{ID: run, SessionID: session, Status: domain.RunActive, CreatedAt: 2}); err != nil {
+			prompt, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault), RunID: run, GenerationID: h.svc.deps.GenerationID, Capture: promptCapture(nil), Face: domain.FaceWeb})
+			if err != nil {
 				t.Fatal(err)
 			}
 			m := newEventMapper(run, 64<<10)
 			m.setRunScope("", "", string(session))
-			start := m.build(domain.EventRunStarted, payloadRunStarted{Provider: "test", Model: "test", Mode: string(domain.RunModeNormal), PolicyProfile: string(domain.PolicyProfileDefault)})
-			if _, err := h.backend.Append(ctx, storage.Commit{RunID: run, Events: []domain.RunEvent{start}}); err != nil {
+			start := m.build(domain.EventRunStarted, payloadRunStarted{Provider: "test", Model: "test", Mode: string(domain.RunModeNormal), PolicyProfile: string(domain.PolicyProfileDefault), PromptSchema: prompt.SchemaVersion})
+			if _, err := h.backend.CommitRunAdmission(ctx, storage.RunAdmission{
+				Run:     domain.Run{ID: run, SessionID: session, CreatedAt: 2},
+				Message: domain.Message{ID: "cached-gap-input", SessionID: session, RunID: run, Role: domain.RoleUser, Content: "exercise cached sibling"},
+				Started: start, Prompt: &prompt,
+			}); err != nil {
 				t.Fatal(err)
 			}
+			ctx = withRunPrompt(ctx, prompt)
 			ctx = withSelectedTools(withSessionID(withRunID(ctx, run), session), []string{name, tools.WriteNoteName})
 			ctx = withSessionSandbox(ctx, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk)
 			ctx = withNudgeState(ctx, newNudgeState())
@@ -203,7 +209,7 @@ func TestToolOperationEnhancedCachedSiblingBeforeFinished(t *testing.T) {
 				t.Fatalf("producer op=%+v %v", op, err)
 			}
 			approval := waitForPendingApproval(t, h.backend, run)
-			fresh := NewService(h.svc.engine, "test", "test", ServiceDeps{Journal: h.backend, Runs: h.backend, Messages: h.backend, Sessions: h.backend, Approvals: h.backend, Questions: h.backend, ToolOperations: h.backend, Sink: newTestSink()})
+			fresh := NewService(h.svc.engine, "test", "test", ServiceDeps{Admission: h.backend, GenerationID: h.svc.deps.GenerationID, Journal: h.backend, Runs: h.backend, Messages: h.backend, Sessions: h.backend, Approvals: h.backend, Questions: h.backend, ToolOperations: h.backend, Sink: newTestSink()})
 			t.Cleanup(func() { fresh.CancelAll(); fresh.WaitIdle(context.Background()) })
 			if err := fresh.Recover(ctx); err != nil {
 				t.Fatal(err)
@@ -419,7 +425,7 @@ func TestToolApprovalShellMissingGovernanceAndBound(t *testing.T) {
 		t.Fatal("missing binding treated as explicit nil-chain")
 	}
 	hooks := shellHookBinding{ChainPresent: true, Hooks: []string{strings.Repeat("x", maxShellScriptBytes+4096)}}
-	if err := fresh.storeShellState(ctx, "oversized-owned-state", shellState{Kind: "vivy.shell-state/v2", Args: intended, SessionID: f.sessionID, PolicyHash: "policy", Hooks: &hooks}); err == nil {
+	if err := fresh.storeShellState(ctx, "oversized-owned-state", shellState{Kind: "vivy.shell-state/v2", Args: intended, SessionID: f.sessionID, Policy: domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Definition: "policy"}, Hooks: &hooks}); err == nil {
 		t.Fatal("oversized binding accepted")
 	}
 	if _, ok, err := f.backend.Blobs().Get(ctx, "oversized-owned-state"); err != nil || ok {
@@ -488,7 +494,7 @@ func TestToolApprovalOpaqueProviderAndContextCopies(t *testing.T) {
 
 func TestToolOperationRefusalLiveResultMatchesDurable(t *testing.T) {
 	tool := newContractTool(func(context.Context, json.RawMessage) (string, error) {
-		return "", refuseCall(strings.Repeat("refusal diagnostic ", 6000), nil, "", domain.ToolReasonPolicyDenied)
+		return "", refuseCall(strings.Repeat("refusal diagnostic ", 6000), nil, domain.ToolReasonPolicyDenied)
 	})
 	h := newContractHarness(t, []*schema.AgenticMessage{testToolCalls(testCall("long-refusal", contractToolName, `{"text":"test"}`)), testAssistant("handled")}, contractHarnessOpts{enhanced: true, streaming: true, prodNudge: true, noBarrier: true, extraTools: []tools.Tool{tool}})
 	run, err := h.svc.Run(context.Background(), "refusal-result", "invoke tool")

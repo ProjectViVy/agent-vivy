@@ -211,12 +211,11 @@ type ServiceDeps struct {
 	// MaskResolver is the selected generation's narrow runtime-facing mask
 	// seam. Runtime never holds the provider's control-plane Manager.
 	MaskResolver maskcontract.Resolver
-	// MaskFrame and MaskFrameDigest are immutable provider assets copied by the
+	// MaskFrame contains the immutable provider asset copied by the
 	// composition root. Keeping them separate prevents runtime from reaching
 	// through the control-plane service for prompt data.
-	MaskFrame       string
-	MaskFrameDigest string
-	GenerationID    string
+	MaskFrame    string
+	GenerationID string
 	// Crons persists the control plane's scheduled jobs. Nil keeps the
 	// whole cron family (scheduler + cron/* RPCs) disabled.
 	Crons storage.CronStore
@@ -1042,10 +1041,9 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			}
 			if capture.Mask != nil && !maskcontract.IsBuiltinID(capture.Mask.ID) {
 				expectedMask.DefinitionRevision = capture.Mask.DefinitionRevision
-				expectedMask.DefinitionDigest = capture.Mask.Digest
 			}
 		}
-		var frozenText, frozenDigest string
+		var frozenText string
 		if b := s.deps.Cognitive; face != domain.FaceCode && b != nil && b.Primary != nil {
 			// The coding face keeps its project instruction contract and
 			// does not require companion-persona onboarding.
@@ -1061,12 +1059,12 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			if prepareErr != nil {
 				return "", fmt.Errorf("runtime: prepare session authority: %w", prepareErr)
 			}
-			frozenText, frozenDigest = prepared.Text, prepared.Digest
+			frozenText = prepared.Text
 		}
 		built, buildErr := buildPromptSnapshot(PromptInput{
 			RunID: runID, GenerationID: s.deps.GenerationID, Capture: capture,
-			Face: face, Frame: s.deps.MaskFrame, FrameDigest: s.deps.MaskFrameDigest,
-			FrozenText: frozenText, FrozenDigest: frozenDigest,
+			Face: face, Frame: s.deps.MaskFrame,
+			FrozenText: frozenText, Policy: snapshot,
 		})
 		if buildErr != nil {
 			return "", fmt.Errorf("runtime: build prompt snapshot: %w", buildErr)
@@ -1135,17 +1133,16 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		admittedScope = continuityScope
 	}
 	collaborationPayloadMode, collaborationPayloadVersion := collaborationPayload(collaborationMode, collaborationVersion)
-	promptSchema, promptDigest := 0, ""
+	promptSchema := 0
 	if prompt != nil {
-		promptSchema, promptDigest = prompt.SchemaVersion, prompt.PayloadSHA256
+		promptSchema = prompt.SchemaVersion
 	}
 	started := m.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: runProvider, Model: runModel, Mode: string(mode), Face: string(face),
 		CollaborationMode: collaborationPayloadMode, CollaborationVersion: collaborationPayloadVersion,
-		PolicyProfile: string(profile), PolicyHash: snapshot.Hash,
-		SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
+		PolicyProfile: string(profile), SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 		HistoryScope: admittedScope,
-		PromptSchema: promptSchema, PromptDigest: promptDigest,
+		PromptSchema: promptSchema,
 	})
 	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
 	var goalAdmissionEvent *domain.WorkEvent
@@ -1183,6 +1180,8 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			SessionID:    sessionID,
 			Message:      message,
 			Run:          run,
+			Prompt:       prompt,
+			ExpectedMask: expectedMask,
 			Events:       startupEvents,
 			Scope:        *continuityScope,
 			Expectations: continuityExpectations,
@@ -1999,7 +1998,7 @@ func (s *Service) WorkerParentAuthority(ctx context.Context, runID domain.RunID)
 		ledger = pending.ledger
 	}
 	s.mu.Unlock()
-	if snapshot.Profile == "" || snapshot.Hash == "" || ledger == nil {
+	if snapshot.Profile == "" || snapshot.Definition == "" || ledger == nil {
 		return domain.PolicySnapshot{}, nil, "", errors.New("runtime: worker parent authority is unavailable")
 	}
 	if s.deps.Workspaces == nil {
@@ -2051,7 +2050,7 @@ func (s *Service) WorkerChildAuthority(ctx context.Context, parentID, childID do
 // RegisterWorkerAuthority installs the in-process authority for a child so
 // that a grandchild can inherit from it without widening the parent tree.
 func (s *Service) RegisterWorkerAuthority(runID domain.RunID, snapshot domain.PolicySnapshot, ledger *BudgetLedger) error {
-	if runID == "" || snapshot.Profile == "" || snapshot.Hash == "" || ledger == nil {
+	if runID == "" || snapshot.Profile == "" || snapshot.Definition == "" || ledger == nil {
 		return errors.New("runtime: invalid worker authority")
 	}
 	s.mu.Lock()
@@ -2299,14 +2298,14 @@ func (s *Service) promptBlocksRecovery(ctx context.Context, runID domain.RunID) 
 }
 
 // promptSnapshotContext loads the durable prompt marker and snapshot before
-// any Eino checkpoint is read. Legacy runs have no marker and retain their
-// historical static instruction; a new-format run must have a matching,
-// same-generation snapshot or it is rejected fail-closed.
+// any Eino checkpoint is read. Model embedders without admission may use a
+// static instruction, but the checkpoint bridge requires a valid owned
+// snapshot on every write and resume.
 func (s *Service) promptSnapshotContext(ctx context.Context, runID domain.RunID) (context.Context, bool, error) {
 	if s.deps.Admission == nil {
 		return ctx, false, nil
 	}
-	schemaVersion, digest, marked, err := s.runPromptMarker(ctx, runID)
+	schemaVersion, marked, err := s.runPromptMarker(ctx, runID)
 	if err != nil {
 		return ctx, false, err
 	}
@@ -2320,7 +2319,7 @@ func (s *Service) promptSnapshotContext(ctx context.Context, runID domain.RunID)
 		}
 		return ctx, false, fmt.Errorf("runtime: load run prompt snapshot: %w", err)
 	}
-	if snapshot.RunID != runID || snapshot.SchemaVersion != schemaVersion || snapshot.PayloadSHA256 != digest {
+	if snapshot.RunID != runID || snapshot.SchemaVersion != schemaVersion {
 		return ctx, false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run prompt marker does not match snapshot"))
 	}
 	if s.deps.GenerationID == "" || snapshot.GenerationID != s.deps.GenerationID {
@@ -2351,13 +2350,30 @@ func (s *Service) promptSnapshotForRun(ctx context.Context, runID domain.RunID) 
 	return snapshot, true, nil
 }
 
-func (s *Service) runPromptMarker(ctx context.Context, runID domain.RunID) (schemaVersion int, digest string, marked bool, err error) {
+// admittedPolicyForRun reads authority only from the Run's private admission.
+// An unavailable snapshot stays unbound and cannot authorize a resumed call.
+func (s *Service) admittedPolicyForRun(ctx context.Context, runID domain.RunID, profile domain.PolicyProfile) domain.PolicySnapshot {
+	if s.deps.Admission == nil {
+		return domain.PolicySnapshot{Profile: profile}
+	}
+	snapshot, err := s.deps.Admission.LoadRunPrompt(ctx, runID)
+	if err != nil || snapshot.RunID != runID {
+		return domain.PolicySnapshot{Profile: profile}
+	}
+	payload, err := storage.ValidateRunPromptSnapshot(snapshot)
+	if err != nil || payload.Policy.Profile != profile {
+		return domain.PolicySnapshot{Profile: profile}
+	}
+	return payload.Policy
+}
+
+func (s *Service) runPromptMarker(ctx context.Context, runID domain.RunID) (schemaVersion int, marked bool, err error) {
 	if s.deps.Journal == nil {
-		return 0, "", false, errors.New("runtime: journal not wired")
+		return 0, false, errors.New("runtime: journal not wired")
 	}
 	it, err := s.deps.Journal.Replay(ctx, runID, 0)
 	if err != nil {
-		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+		return 0, false, fmt.Errorf("runtime: replay run.started: %w", err)
 	}
 	defer func() { _ = it.Close() }()
 	for it.Next() {
@@ -2367,20 +2383,20 @@ func (s *Service) runPromptMarker(ctx context.Context, runID domain.RunID) (sche
 		}
 		var payload payloadRunStarted
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			return 0, "", false, fmt.Errorf("runtime: decode run.started prompt marker: %w", err)
+			return 0, false, fmt.Errorf("runtime: decode run.started prompt marker: %w", err)
 		}
-		if payload.PromptSchema == 0 && payload.PromptDigest == "" {
-			return 0, "", false, nil
+		if payload.PromptSchema == 0 {
+			return 0, false, nil
 		}
-		if payload.PromptSchema <= 0 || strings.TrimSpace(payload.PromptDigest) == "" {
-			return 0, "", false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run.started prompt marker is incomplete"))
+		if payload.PromptSchema <= 0 {
+			return 0, false, maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("run.started prompt marker is incomplete"))
 		}
-		return payload.PromptSchema, payload.PromptDigest, true, nil
+		return payload.PromptSchema, true, nil
 	}
 	if err := it.Err(); err != nil {
-		return 0, "", false, fmt.Errorf("runtime: replay run.started: %w", err)
+		return 0, false, fmt.Errorf("runtime: replay run.started: %w", err)
 	}
-	return 0, "", false, storage.ErrNotFound
+	return 0, false, storage.ErrNotFound
 }
 
 // rebuildPending restores the in-memory suspend state of one run so the
@@ -2768,7 +2784,6 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 				face = domain.Face(p.Face)
 			}
 			profile = recoveredProfile(mode, p.PolicyProfile)
-			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
 			if domain.SandboxMode(p.SandboxMode).Valid() {
 				sandboxMode = domain.SandboxMode(p.SandboxMode)
 			}
@@ -2777,6 +2792,10 @@ func (s *Service) approvalDetails(ctx context.Context, runID domain.RunID) (stri
 			}
 		}
 	}
+	// SQLite's Journal iterator owns its sole connection until closed.
+	// Load the private authority only after releasing that cursor.
+	_ = it.Close()
+	snapshot = s.admittedPolicyForRun(ctx, runID, profile)
 	return name, selected, mode, face, profile, snapshot, sandboxMode, approvalPolicy
 }
 
@@ -2815,7 +2834,6 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 				face = domain.Face(p.Face)
 			}
 			profile = recoveredProfile(mode, p.PolicyProfile)
-			snapshot = domain.PolicySnapshot{Profile: profile, Hash: p.PolicyHash}
 			if domain.SandboxMode(p.SandboxMode).Valid() {
 				sandboxMode = domain.SandboxMode(p.SandboxMode)
 			}
@@ -2825,6 +2843,8 @@ func (s *Service) questionDetails(ctx context.Context, runID domain.RunID) (stri
 			resumeTarget = p.ResumeTarget
 		}
 	}
+	_ = it.Close()
+	snapshot = s.admittedPolicyForRun(ctx, runID, profile)
 	return name, selected, mode, face, profile, snapshot, sandboxMode, approvalPolicy, resumeTarget
 }
 
@@ -3914,7 +3934,6 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		Mode:             string(mode),
 		Face:             string(runFace(ctx)),
 		PolicyProfile:    string(policyProfile(ctx)),
-		PolicyHash:       policySnapshot(ctx).Hash,
 		SandboxMode:      string(sandboxMode(ctx)),
 		ApprovalPolicy:   string(approvalPolicy(ctx)),
 		Action:           approval.Action,
@@ -4026,7 +4045,6 @@ func (s *Service) handleQuestionInterrupt(ctx context.Context, m *eventMapper, s
 		Mode:           string(mode),
 		Face:           string(runFace(ctx)),
 		PolicyProfile:  string(policyProfile(ctx)),
-		PolicyHash:     policySnapshot(ctx).Hash,
 		SandboxMode:    string(sandboxMode(ctx)),
 		ApprovalPolicy: string(approvalPolicy(ctx)),
 	})
@@ -4682,12 +4700,25 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	if hasPrompt {
 		ctx = promptCtx
 	}
+	if approvalID != "" {
+		ctx = tools.WithProposalStaleReporter(ctx, func(reason string) {
+			if lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore); ok {
+				if _, err := lifecycle.MarkApprovalStale(context.Background(), approvalID, reason); err != nil {
+					slog.Warn("mark stale approval failed", "approval", approvalID, "err", err)
+				}
+			}
+			s.journalReviewEvent(context.Background(), runID, domain.EventToolProposalStale, payloadProposalStale{
+				ApprovalID: approvalID, Reason: reason,
+			})
+		})
+	}
 	var approvedArguments json.RawMessage
 	if approvalID != "" {
 		var unbindErr error
 		proposalData, approvedArguments, unbindErr = unbindToolApprovalProposal(proposalData)
 		if unbindErr != nil {
 			slog.Warn("resume rejected invalid tool approval binding", "run", string(runID), "approval", approvalID, "err", unbindErr)
+			tools.ReportProposalStale(ctx, "approval source binding is unavailable")
 			if isChildTerminal(ctx) {
 				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, unbindErr))
 				return
@@ -4706,18 +4737,6 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	}
 	ctx = tools.WithWorkspaceID(ctx, workspaceID)
 	ctx = tools.WithProposalPrecondition(ctx, preconditionHash)
-	if approvalID != "" {
-		ctx = tools.WithProposalStaleReporter(ctx, func(reason string) {
-			if lifecycle, ok := s.deps.Approvals.(storage.ApprovalLifecycleStore); ok {
-				if _, err := lifecycle.MarkApprovalStale(context.Background(), approvalID, reason); err != nil {
-					slog.Warn("mark stale approval failed", "approval", approvalID, "err", err)
-				}
-			}
-			s.journalReviewEvent(context.Background(), runID, domain.EventToolProposalStale, payloadProposalStale{
-				ApprovalID: approvalID, Reason: reason,
-			})
-		})
-	}
 	ctx = withGovernanceEventSink(ctx, s.governanceSink(m, sessionID, ledger))
 	ctx = withRunEventPublisher(ctx, s.deps.Sink)
 	var onDelta func(string)
@@ -5264,15 +5283,12 @@ func (s *Service) governanceSink(m *eventMapper, sessionID domain.SessionID, led
 		if event.Profile == "" {
 			event.Profile = policyProfile(ctx)
 		}
-		if event.PolicyHash == "" {
-			event.PolicyHash = policySnapshot(ctx).Hash
-		}
 		var payload any
 		switch event.Type {
 		case domain.EventPolicyEvaluated:
 			payload = payloadPolicyEvaluated{
 				ToolName: event.ToolName, Decision: event.Decision,
-				Profile: string(event.Profile), Hash: event.PolicyHash, Reason: event.Reason,
+				Profile: string(event.Profile), Reason: event.Reason,
 			}
 		case domain.EventHookStarted, domain.EventHookCompleted, domain.EventHookBlocked:
 			payload = payloadHookLifecycle{

@@ -40,7 +40,7 @@ const frozenSlotOrderText = "# mission\nMISSION BODY\n# identity\nIDENTITY BODY\
 // TestPrimaryFrozenCoreActualModelInput proves the session-frozen authority
 // reaches the real model request in slot order — mission first, world and
 // actmem never admitted — and that a reopened session's run carries the
-// identical prepared digest in the persisted prompt payload. A corrupt or
+// identical prepared body in the persisted prompt payload. A corrupt or
 // missing preparation gates inference with an error, never a partial core.
 func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	ctx := context.Background()
@@ -111,11 +111,11 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Frozen == nil || payload.Frozen.Digest != "frozen-digest-1" {
-		t.Fatalf("frozen payload = %#v, want digest frozen-digest-1", payload.Frozen)
+	if payload.Frozen == nil || payload.Frozen.Body != preparer.prepared.Text {
+		t.Fatalf("frozen payload = %#v, want the admitted body", payload.Frozen)
 	}
 
-	// Reopened run on the same session prepares the identical digest.
+	// Reopened run on the same session prepares the identical actual body.
 	runID2, err := svc.Run(ctx, "session-frozen", "again")
 	if err != nil {
 		t.Fatalf("second run: %v", err)
@@ -129,8 +129,8 @@ func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	if err := json.Unmarshal(snapshot2.Payload, &payload2); err != nil {
 		t.Fatal(err)
 	}
-	if payload2.Frozen == nil || payload2.Frozen.Digest != payload.Frozen.Digest {
-		t.Fatalf("reopened digest = %#v, want same %q", payload2.Frozen, payload.Frozen.Digest)
+	if payload2.Frozen == nil || payload2.Frozen.Body != payload.Frozen.Body {
+		t.Fatalf("reopened body = %#v, want same %q", payload2.Frozen, payload.Frozen.Body)
 	}
 	if preparer.calls != 2 {
 		t.Fatalf("prepare calls = %d, want 2", preparer.calls)

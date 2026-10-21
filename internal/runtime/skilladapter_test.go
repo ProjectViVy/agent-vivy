@@ -22,11 +22,11 @@ type recordingSkillSource struct {
 func (source *recordingSkillSource) ID() string { return "fixture.engine-skill" }
 func (source *recordingSkillSource) List(_ context.Context, request skillsource.Request) ([]skillsource.Summary, error) {
 	source.request <- request
-	return []skillsource.Summary{{ID: "engine-skill", Name: "engine-display", Version: "v1", SourceHash: "source", Available: true}}, nil
+	return []skillsource.Summary{{ID: "engine-skill", Name: "engine-display", Version: "v1", Available: true}}, nil
 }
 func (source *recordingSkillSource) Get(_ context.Context, request skillsource.Request, id string) (skillsource.Skill, error) {
 	source.request <- request
-	return skillsource.Skill{ID: id, Name: "engine-display", Version: "v1", SourceHash: "source", Available: true, Content: "engine body"}, nil
+	return skillsource.Skill{ID: id, Name: "engine-display", Version: "v1", Available: true, Content: "engine body"}, nil
 }
 
 func TestHostedSkillBackendListAndGetTraverseSkillHost(t *testing.T) {
