@@ -100,3 +100,30 @@ func TestFileVersionChainSemantics(t *testing.T) {
 		t.Fatalf("oversize post-content chain = %d rows, want 1", len(got))
 	}
 }
+
+func TestFileReadDistinguishesEmptyBlobFromNull(t *testing.T) {
+	ctx := context.Background()
+	b, err := Open(ctx, filepath.Join(t.TempDir(), "reads.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if err := b.TrackFileAccess(ctx, "s", "empty", domain.FileReadState{Exists: true, Content: []byte{}}); err != nil {
+		t.Fatal(err)
+	}
+	var isNull, byteCount int
+	if err := b.db.QueryRowContext(ctx, `SELECT read_content IS NULL,length(read_content) FROM file_reads WHERE session_id='s' AND path='empty'`).Scan(&isNull, &byteCount); err != nil || isNull != 0 || byteCount != 0 {
+		t.Fatalf("empty bytes not persisted: null=%d length=%d %v", isNull, byteCount, err)
+	}
+	state, tracked, err := b.LastFileAccess(ctx, "s", "empty")
+	if err != nil || !tracked || state == nil || !state.Exists || len(state.Content) != 0 {
+		t.Fatalf("empty BLOB treated as unavailable: %+v %v %v", state, tracked, err)
+	}
+	if _, err := b.db.ExecContext(ctx, `UPDATE file_reads SET read_content=NULL WHERE session_id='s' AND path='empty'`); err != nil {
+		t.Fatal(err)
+	}
+	state, tracked, err = b.LastFileAccess(ctx, "s", "empty")
+	if err != nil || !tracked || state != nil {
+		t.Fatalf("NULL content authorized empty bytes: %+v %v %v", state, tracked, err)
+	}
+}

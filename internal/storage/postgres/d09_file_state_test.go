@@ -62,6 +62,13 @@ func TestD09FileSchemaRollbackAndReopenPostgres(t *testing.T) {
 			t.Fatalf("read state collapsed: %+v %v %v", got, ok, err)
 		}
 	}
+	if _, err := db.ExecContext(ctx, `UPDATE file_reads SET read_exists=1,read_content=NULL WHERE session_id='s' AND path='old.txt'`); err != nil {
+		t.Fatal(err)
+	}
+	state, tracked, err = backend.LastFileAccess(ctx, "s", "old.txt")
+	if err != nil || !tracked || state != nil {
+		t.Fatalf("NULL content authorized empty bytes: %+v %v %v", state, tracked, err)
+	}
 	if err := migrations.Apply(ctx, db, migrations.Postgres); err != nil {
 		t.Fatal(err)
 	}

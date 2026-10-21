@@ -120,15 +120,19 @@ func (b *Backend) TrackFileAccess(ctx context.Context, sessionID domain.SessionI
 func (b *Backend) LastFileAccess(ctx context.Context, sessionID domain.SessionID, path string) (*domain.FileReadState, bool, error) {
 	var exists sql.NullInt64
 	var content []byte
-	err := b.db.QueryRowContext(ctx, `SELECT read_exists,read_content FROM file_reads WHERE session_id=? AND path=?`, sessionID, path).Scan(&exists, &content)
+	var available bool
+	err := b.db.QueryRowContext(ctx, `SELECT read_exists,read_content,read_content IS NOT NULL FROM file_reads WHERE session_id=? AND path=?`, sessionID, path).Scan(&exists, &content, &available)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("storage: last file access %s: %w", path, err)
 	}
-	if !exists.Valid || content == nil || (exists.Int64 != 0 && exists.Int64 != 1) || len(content) > storage.FileVersionMaxBytes || (exists.Int64 == 0 && len(content) > 0) {
+	if !exists.Valid || !available || (exists.Int64 != 0 && exists.Int64 != 1) || len(content) > storage.FileVersionMaxBytes || (exists.Int64 == 0 && len(content) > 0) {
 		return nil, true, nil
+	}
+	if content == nil {
+		content = []byte{}
 	}
 	return &domain.FileReadState{Exists: exists.Int64 == 1, Content: content}, true, nil
 }

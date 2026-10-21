@@ -40,3 +40,16 @@ Final native correction checks:
 - Independent read-only reviewer confirmed original findings closed after the
   correction, with no remaining issue in the reviewed first slice. Review did
   not replace test execution. Cursor/reference/presentation owners were excluded.
+
+
+Independent Linux candidate15cbf7f6: wiring PASS; kernel failed only storage
+conformance CN-18 because SQLite's driver scans both empty BLOB and NULL into
+nil []byte. Runtime tests passed. The script stopped before real PostgreSQL,
+Face/Web and strict conformance; those checks were not run by that attempt.
+
+A native storage-local regression confirmed SQL had persisted a non-NULL zero-
+length BLOB while LastFileAccess returned unavailable. Read `read_content IS NOT
+NULL` explicitly in both backends and normalize known-empty content after scan.
+Actual NULL remains unavailable. Native regression and CN-18 PASS2.311s after
+this correction; matching PostgreSQL NULL defense is included in the real matrix.
+No schema change or migration rewrite is needed for this driver-boundary fix.
