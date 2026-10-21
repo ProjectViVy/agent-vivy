@@ -298,16 +298,6 @@
         "zh": "声明：{{text}}"
       }
     },
-    "plugin.vivy/evolution.requests.baseHash": {
-      "description": "Evolution page copy: requests.baseHash",
-      "placeholders": [
-        "hash"
-      ],
-      "messages": {
-        "en": "Base hash: {{hash}}",
-        "zh": "基准哈希：{{hash}}"
-      }
-    },
     "plugin.vivy/evolution.requests.create": {
       "description": "Evolution page copy: requests.create",
       "placeholders": [],

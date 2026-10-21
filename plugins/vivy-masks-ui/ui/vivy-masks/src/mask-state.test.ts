@@ -7,7 +7,7 @@ import {
 
 describe('maskReducer editor draft safety', () => {
   it('does not replace a new draft with a late definition response', () => {
-    const definition = { id: 'custom/old', name: 'Old', description: '', body: 'old', revision: 1, digest: 'a'.repeat(64), built_in: false, generation_id: 'generation' };
+    const definition = { id: 'custom/old', name: 'Old', description: '', body: 'old', revision: 1, built_in: false, generation_id: 'generation' };
     let state = maskReducer(initialMaskState, { type: 'definition/load-start', id: definition.id });
     state = maskReducer(state, { type: 'draft/new' });
     state = maskReducer(state, { type: 'draft/change', field: 'name', value: 'My new mask' });
@@ -18,7 +18,7 @@ describe('maskReducer editor draft safety', () => {
   });
 
   it('only opens the most recently requested definition', () => {
-    const definition = { id: 'custom/old', name: 'Old', description: '', body: 'old', revision: 1, digest: 'a'.repeat(64), built_in: false, generation_id: 'generation' };
+    const definition = { id: 'custom/old', name: 'Old', description: '', body: 'old', revision: 1, built_in: false, generation_id: 'generation' };
     let state = maskReducer(initialMaskState, { type: 'definition/load-start', id: definition.id });
     state = maskReducer(state, { type: 'definition/load-start', id: 'custom/new' });
     state = maskReducer(state, { type: 'definition/loaded', definition });
@@ -43,10 +43,10 @@ describe('maskReducer editor draft safety', () => {
   it('preserves a stale editor draft when rereading a revision conflict', () => {
     const committed = {
       id: 'custom/one', name: 'One', description: '', body: 'server body', revision: 2,
-      digest: 'b'.repeat(64), built_in: false, generation_id: 'generation',
+      built_in: false, generation_id: 'generation',
     };
     let state: MaskState = maskReducer(initialMaskState, { type: 'definition/open', definition: {
-      ...committed, body: 'old body', revision: 1, digest: 'a'.repeat(64),
+      ...committed, body: 'old body', revision: 1,
     } });
     state = maskReducer(state, { type: 'draft/change', field: 'body', value: 'local draft' });
     state = maskReducer(state, { type: 'draft/save-start' });

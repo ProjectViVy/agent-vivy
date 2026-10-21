@@ -70,7 +70,7 @@ func TestEinoSkillBackendListGetAndView(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list Vivy skills: %v", err)
 	}
-	if len(items) != 1 || len(items[0].Warnings) == 0 || items[0].Hash == "" || items[0].Origin != tools.SkillOriginUser {
+	if len(items) != 1 || len(items[0].Warnings) == 0 || items[0].Origin != tools.SkillOriginUser {
 		t.Fatalf("summary = %+v", items)
 	}
 	view, err := backend.ViewSkill(context.Background(), "run_skill_test", "demo-skill", "references/guide.md")
@@ -206,7 +206,7 @@ func TestEinoSkillBackendDeclaredTools(t *testing.T) {
 		t.Fatalf("summary tools = %+v", items)
 	}
 
-	summary, err := backend.SetSkillEnabled(context.Background(), "tooled-skill", false, items[0].Hash)
+	summary, err := backend.SetSkillEnabled(context.Background(), skillEnableRequest(t, backend, "tooled-skill", false))
 	if err != nil {
 		t.Fatalf("set enabled: %v", err)
 	}
@@ -229,9 +229,9 @@ func TestEinoSkillBackendSetSkillEnabled(t *testing.T) {
 	if err != nil || len(items) != 1 || !items[0].Enabled {
 		t.Fatalf("ListSkills = %+v, err %v", items, err)
 	}
-	hash := items[0].Hash
+	request := skillEnableRequest(t, backend, "demo-skill", false)
 
-	summary, err := backend.SetSkillEnabled(context.Background(), "demo-skill", false, hash)
+	summary, err := backend.SetSkillEnabled(context.Background(), request)
 	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
@@ -243,12 +243,12 @@ func TestEinoSkillBackendSetSkillEnabled(t *testing.T) {
 		t.Fatalf("disabled skill still listed: %+v, err %v", front, err)
 	}
 
-	// The old hash is now stale: CAS must refuse instead of blind-writing.
-	if _, err := backend.SetSkillEnabled(context.Background(), "demo-skill", true, hash); err == nil || !strings.Contains(err.Error(), "changed since it was read") {
-		t.Fatalf("stale hash error = %v", err)
+	// The old read is now stale: CAS must refuse instead of blind-writing.
+	if _, err := backend.SetSkillEnabled(context.Background(), request); err == nil || !strings.Contains(err.Error(), "changed since it was read") {
+		t.Fatalf("stale read error = %v", err)
 	}
 
-	summary, err = backend.SetSkillEnabled(context.Background(), "demo-skill", true, summary.Hash)
+	summary, err = backend.SetSkillEnabled(context.Background(), skillEnableRequest(t, backend, "demo-skill", true))
 	if err != nil || !summary.Enabled {
 		t.Fatalf("enable = %+v, err %v", summary, err)
 	}
@@ -302,7 +302,7 @@ func TestEinoSkillBackendProjectOverlayAndCollision(t *testing.T) {
 		t.Fatal("nested SKILL.md must not be listed")
 	}
 
-	if _, err := backend.SetSkillEnabled(context.Background(), "project-only", false, byName["project-only"].Hash); !errors.Is(err, errSkillReadOnly) {
+	if _, err := backend.SetSkillEnabled(context.Background(), skillEnableRequest(t, backend, "project-only", false)); !errors.Is(err, errSkillReadOnly) {
 		t.Fatalf("enable project skill err = %v, want read-only", err)
 	}
 	_, err = backend.PrepareSkillProposal(context.Background(), "run", tools.SkillManageRequest{
@@ -398,4 +398,205 @@ func mustView(t *testing.T, backend *EinoSkillBackend, name string) string {
 		t.Fatal(err)
 	}
 	return view.Content
+}
+
+func TestSkillDeleteReviewBindsSupportingFiles(t *testing.T) {
+	backend, root, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "body")
+	ctx := context.Background()
+	proposal, err := backend.PrepareSkillProposal(ctx, "run", tools.SkillManageRequest{Action: "delete", SkillName: "demo-skill"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ref struct {
+		RevisionID string `json:"revision_id"`
+	}
+	_ = json.Unmarshal(proposal.Data, &ref)
+	path := filepath.Join(root, "demo-skill", "references", "guide.md")
+	if err := os.WriteFile(path, []byte("reference changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.ApplySkillRevision(ctx, "run", ref.RevisionID); err == nil {
+		t.Fatal("delete accepted changed supporting file")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("rejected delete mutated skill: %v", err)
+	}
+}
+func TestSkillWriteMissingReviewRejectsEmptyFile(t *testing.T) {
+	backend, root, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "body")
+	ctx := context.Background()
+	proposal, err := backend.PrepareSkillProposal(ctx, "run", tools.SkillManageRequest{Action: "write_file", SkillName: "demo-skill", Path: "references/new.md", Content: "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ref struct {
+		RevisionID string `json:"revision_id"`
+	}
+	_ = json.Unmarshal(proposal.Data, &ref)
+	path := filepath.Join(root, "demo-skill", "references", "new.md")
+	if err := os.WriteFile(path, []byte{}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.ApplySkillRevision(ctx, "run", ref.RevisionID); err == nil {
+		t.Fatal("missing and empty compared equal")
+	}
+	data, _ := os.ReadFile(path)
+	if len(data) != 0 {
+		t.Fatal("conflicting apply mutated empty file")
+	}
+}
+
+func skillEnableRequest(t *testing.T, b *EinoSkillBackend, name string, enabled bool) tools.SkillEnableRequest {
+	t.Helper()
+	view, err := b.ViewSkill(context.Background(), "", name, "SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tools.SkillEnableRequest{Name: name, Enabled: enabled, ExpectedExists: true, ExpectedContent: []byte(view.Content)}
+}
+func TestSkillToggleExactCASRestartAndFrontmatterOnly(t *testing.T) {
+	b, root, store := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", strings.Repeat("x", 256<<10))
+	request := skillEnableRequest(t, b, "demo-skill", false)
+	path := filepath.Join(root, "demo-skill", "SKILL.md")
+	changed := strings.Replace(string(request.ExpectedContent), "A test skill", "A TEST skill", 1)
+	if err := os.WriteFile(path, []byte(changed), 0600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewEinoSkillBackend(root, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restarted.SetSkillEnabled(context.Background(), request); err == nil {
+		t.Fatal("same-length frontmatter edit accepted")
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != changed {
+		t.Fatal("stale toggle mutated document")
+	}
+	fresh := skillEnableRequest(t, restarted, "demo-skill", false)
+	fresh.ExpectedExists = false
+	if _, err := restarted.SetSkillEnabled(context.Background(), fresh); err == nil {
+		t.Fatal("existence mismatch accepted")
+	}
+	fresh.ExpectedExists = true
+	if _, err := restarted.SetSkillEnabled(context.Background(), fresh); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestSkillDeleteRollbackRestartPreservesManifest(t *testing.T) {
+	b, root, store := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "body")
+	before, err := skillDirectoryState(filepath.Join(root, "demo-skill"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	proposal, err := b.PrepareSkillProposal(ctx, "run", tools.SkillManageRequest{Action: "delete", SkillName: "demo-skill"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ref struct {
+		RevisionID string `json:"revision_id"`
+	}
+	_ = json.Unmarshal(proposal.Data, &ref)
+	if _, err := b.ApplySkillRevision(ctx, "run", ref.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewEinoSkillBackend(root, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollback, err := restarted.PrepareSkillProposal(ctx, "run", tools.SkillManageRequest{Action: "rollback", SkillName: "demo-skill", RevisionID: ref.RevisionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(rollback.Data, &ref)
+	if _, err := restarted.ApplySkillRevision(ctx, "run", ref.RevisionID); err != nil {
+		t.Fatal(err)
+	}
+	after, err := skillDirectoryState(filepath.Join(root, "demo-skill"))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("restore changed manifest: %v", err)
+	}
+}
+
+func TestSkillReviewRejectAndHistoricalUnavailableDoNotMutate(t *testing.T) {
+	b, root, store := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "old body")
+	ctx := context.Background()
+	before, _ := os.ReadFile(filepath.Join(root, "demo-skill", "SKILL.md"))
+	for _, status := range []domain.SkillRevisionStatus{domain.SkillRevisionRejected, domain.SkillRevisionPending} {
+		revision := domain.SkillRevision{ID: string(status), RunID: "run", SkillName: "demo-skill", Action: "edit", TargetPath: "demo-skill/SKILL.md", Payload: []byte(`{"Action":"edit","SkillName":"demo-skill","Content":"replacement"}`), BeforePayload: before, Preview: "review", WarningsJSON: []byte(`[]`), Status: status}
+		if err := store.CreateSkillRevision(ctx, revision); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := b.ApplySkillRevision(ctx, "run", revision.ID); err == nil {
+			t.Fatalf("%s historical revision applied", status)
+		}
+		after, _ := os.ReadFile(filepath.Join(root, "demo-skill", "SKILL.md"))
+		if string(after) != string(before) {
+			t.Fatal("rejected revision mutated file")
+		}
+	}
+}
+func TestSkillSupportingWriteRollbackDistinguishesEmptyAndMissing(t *testing.T) {
+	for _, exists := range []bool{false, true} {
+		t.Run(map[bool]string{false: "missing", true: "empty"}[exists], func(t *testing.T) {
+			b, root, store := openSkillTestBackend(t)
+			writeSkillFixture(t, root, "demo-skill", "body")
+			ctx := context.Background()
+			path := filepath.Join(root, "demo-skill", "references", "new.md")
+			if exists {
+				if err := os.WriteFile(path, []byte{}, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			applied, err := b.ManageSkill(ctx, "run", tools.SkillManageRequest{Action: "write_file", SkillName: "demo-skill", Path: "references/new.md", Content: "reviewed"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			restarted, err := NewEinoSkillBackend(root, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := restarted.ManageSkill(ctx, "run", tools.SkillManageRequest{Action: "rollback", SkillName: "demo-skill", RevisionID: applied.RevisionID}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if exists {
+				if err != nil || len(data) != 0 {
+					t.Fatalf("empty file not restored: %q %v", data, err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("missing file not restored: %v", err)
+			}
+		})
+	}
+}
+
+func TestSkillSupportingSymlinkCannotCreateOutsideRoot(t *testing.T) {
+	b, root, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "body")
+	outside := t.TempDir()
+	link := filepath.Join(root, "demo-skill", "assets")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("host cannot create symlink: %v", err)
+	}
+	proposal, err := b.PrepareSkillProposal(context.Background(), "run", tools.SkillManageRequest{Action: "write_file", SkillName: "demo-skill", Path: "assets/new-dir/file.md", Content: "denied"})
+	if err != nil {
+		return
+	}
+	var ref struct {
+		RevisionID string `json:"revision_id"`
+	}
+	_ = json.Unmarshal(proposal.Data, &ref)
+	if _, err := b.ApplySkillRevision(context.Background(), "run", ref.RevisionID); err == nil {
+		t.Fatal("symlink write accepted")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "new-dir")); !os.IsNotExist(err) {
+		t.Fatalf("rejected write created external parent: %v", err)
+	}
 }

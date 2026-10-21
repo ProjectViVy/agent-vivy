@@ -35,7 +35,7 @@ describe('MaskClient', () => {
   it('keeps create operation ids caller-owned for safe retry after an ambiguous response', async () => {
     const definition: MaskDefinition = {
       id: 'custom/one', name: 'One', description: '', body: 'body', revision: 1,
-      digest: 'a'.repeat(64), built_in: false, generation_id: 'generation',
+      built_in: false, generation_id: 'generation',
     };
     const rpc = transport(definition);
     const client = new MaskClient(rpc);

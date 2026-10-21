@@ -21,11 +21,11 @@ type SkillRevision struct {
 	TargetPath    string
 	Payload       []byte
 	BeforePayload []byte
-	BaseHash      string
-	ContentHash   string
-	Preview       string
-	WarningsJSON  []byte
-	Status        SkillRevisionStatus
-	CreatedAt     int64
-	AppliedAt     int64
+	// BeforeExists is nil only for historical records lacking a safe precondition.
+	BeforeExists *bool
+	Preview      string
+	WarningsJSON []byte
+	Status       SkillRevisionStatus
+	CreatedAt    int64
+	AppliedAt    int64
 }

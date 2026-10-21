@@ -13,12 +13,15 @@ import (
 var _ storage.SkillRevisionStore = (*Backend)(nil)
 
 func (b *Backend) CreateSkillRevision(ctx context.Context, r domain.SkillRevision) error {
+	before := r.BeforePayload
+	if before == nil {
+		before = []byte{}
+	}
 	if _, err := b.db.ExecContext(ctx, `
 		INSERT INTO skill_revisions
-		(id, run_id, skill_name, action, target_path, payload, before_payload, base_hash, content_hash, preview, warnings_json, status, created_at, applied_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.RunID, r.SkillName, r.Action, r.TargetPath, r.Payload, r.BeforePayload, r.BaseHash,
-		r.ContentHash, r.Preview, r.WarningsJSON, r.Status, r.CreatedAt, r.AppliedAt); err != nil {
+		(id, run_id, skill_name, action, target_path, payload, before_payload, before_exists, preview, warnings_json, status, created_at, applied_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.RunID, r.SkillName, r.Action, r.TargetPath, r.Payload, before, r.BeforeExists, r.Preview, r.WarningsJSON, r.Status, r.CreatedAt, r.AppliedAt); err != nil {
 		return fmt.Errorf("storage: create skill revision %s: %w", r.ID, err)
 	}
 	return nil
@@ -28,10 +31,9 @@ func (b *Backend) GetSkillRevision(ctx context.Context, id string) (domain.Skill
 	var r domain.SkillRevision
 	var runID, status string
 	err := b.db.QueryRowContext(ctx, `
-		SELECT id, run_id, skill_name, action, target_path, payload, before_payload, base_hash, content_hash, preview, warnings_json, status, created_at, applied_at
+		SELECT id, run_id, skill_name, action, target_path, payload, before_payload, before_exists, preview, warnings_json, status, created_at, applied_at
 		FROM skill_revisions WHERE id = ?`, id).Scan(
-		&r.ID, &runID, &r.SkillName, &r.Action, &r.TargetPath, &r.Payload, &r.BeforePayload, &r.BaseHash,
-		&r.ContentHash, &r.Preview, &r.WarningsJSON, &status, &r.CreatedAt, &r.AppliedAt)
+		&r.ID, &runID, &r.SkillName, &r.Action, &r.TargetPath, &r.Payload, &r.BeforePayload, &r.BeforeExists, &r.Preview, &r.WarningsJSON, &status, &r.CreatedAt, &r.AppliedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.SkillRevision{}, storage.ErrNotFound
 	}
@@ -45,7 +47,7 @@ func (b *Backend) GetSkillRevision(ctx context.Context, id string) (domain.Skill
 
 func (b *Backend) ListPendingSkillRevisions(ctx context.Context) ([]domain.SkillRevision, error) {
 	rows, err := b.db.QueryContext(ctx, `
-		SELECT id, run_id, skill_name, action, target_path, payload, before_payload, base_hash, content_hash, preview, warnings_json, status, created_at, applied_at
+		SELECT id, run_id, skill_name, action, target_path, payload, before_payload, before_exists, preview, warnings_json, status, created_at, applied_at
 		FROM skill_revisions WHERE status = ? ORDER BY created_at DESC, id`, domain.SkillRevisionPending)
 	if err != nil {
 		return nil, fmt.Errorf("storage: list pending skill revisions: %w", err)
@@ -55,8 +57,7 @@ func (b *Backend) ListPendingSkillRevisions(ctx context.Context) ([]domain.Skill
 	for rows.Next() {
 		var r domain.SkillRevision
 		var runID, status string
-		if err := rows.Scan(&r.ID, &runID, &r.SkillName, &r.Action, &r.TargetPath, &r.Payload, &r.BeforePayload, &r.BaseHash,
-			&r.ContentHash, &r.Preview, &r.WarningsJSON, &status, &r.CreatedAt, &r.AppliedAt); err != nil {
+		if err := rows.Scan(&r.ID, &runID, &r.SkillName, &r.Action, &r.TargetPath, &r.Payload, &r.BeforePayload, &r.BeforeExists, &r.Preview, &r.WarningsJSON, &status, &r.CreatedAt, &r.AppliedAt); err != nil {
 			return nil, fmt.Errorf("storage: scan skill revision: %w", err)
 		}
 		r.RunID = domain.RunID(runID)

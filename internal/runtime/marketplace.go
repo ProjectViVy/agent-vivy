@@ -125,56 +125,55 @@ func (s *MarketplaceService) InstallMarketplace(ctx context.Context, id string, 
 	if mode != tools.MarketplaceInstallCreate && mode != tools.MarketplaceInstallUpgrade {
 		return tools.MarketplaceInstallResult{}, fmt.Errorf("marketplace: unknown install mode %q (want create or upgrade)", mode)
 	}
-	slug, snapshotHash, files, err := s.downloadSnapshot(ctx, id)
+	slug, files, err := s.downloadSnapshot(ctx, id)
 	if err != nil {
 		return tools.MarketplaceInstallResult{}, err
 	}
-	return s.installSnapshot(ctx, id, slug, snapshotHash, files, mode)
+	return s.installSnapshot(ctx, id, slug, files, mode)
 }
 
 // downloadSnapshot resolves owner/repo/slug, rejects slugs Vivy cannot host,
 // fetches the skills.sh file snapshot, and validates its JSON shape.
-func (s *MarketplaceService) downloadSnapshot(ctx context.Context, id string) (string, string, []snapshotFile, error) {
+func (s *MarketplaceService) downloadSnapshot(ctx context.Context, id string) (string, []snapshotFile, error) {
 	owner, repo, slug, err := parseMarketplaceSkillID(id)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	// Fail fast on slugs Vivy cannot host before spending a download.
 	if err := validSkillName(slug); err != nil {
-		return "", "", nil, fmt.Errorf("marketplace: installable slug is not valid for Vivy: %w", err)
+		return "", nil, fmt.Errorf("marketplace: installable slug is not valid for Vivy: %w", err)
 	}
 	encodedOwner, err := encodeMarketplaceSegment(owner)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	encodedRepo, err := encodeMarketplaceSegment(repo)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	encodedSlug, err := encodeMarketplaceSegment(slug)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	endpoint := fmt.Sprintf("%s/api/download/%s/%s/%s", s.baseURL, encodedOwner, encodedRepo, encodedSlug)
 	body, err := s.get(ctx, "download", endpoint)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	var snapshot struct {
 		Files []struct {
 			Path     string `json:"path"`
 			Contents string `json:"contents"`
 		} `json:"files"`
-		Hash string `json:"hash"`
 	}
 	if err := json.Unmarshal(body, &snapshot); err != nil {
-		return "", "", nil, fmt.Errorf("marketplace: download returned invalid JSON: %w", err)
+		return "", nil, fmt.Errorf("marketplace: download returned invalid JSON: %w", err)
 	}
 	files := make([]snapshotFile, 0, len(snapshot.Files))
 	for _, file := range snapshot.Files {
 		files = append(files, snapshotFile{path: file.Path, contents: file.Contents})
 	}
-	return slug, snapshot.Hash, files, nil
+	return slug, files, nil
 }
 
 type snapshotFile struct {
@@ -189,7 +188,6 @@ const marketplaceManifestName = ".vivy-skill.json"
 
 type marketplaceManifest struct {
 	MarketplaceID string `json:"marketplace_id"`
-	SnapshotHash  string `json:"snapshot_hash,omitempty"`
 	InstalledAt   string `json:"installed_at"`
 	UpgradedAt    string `json:"upgraded_at,omitempty"`
 }
@@ -220,7 +218,7 @@ func writeMarketplaceManifest(dir string, manifest marketplaceManifest) error {
 // loader (validSkillName, frontmatter name match, supporting-directory
 // restriction, size caps, binary rejection) so an installed package is
 // loadable on the very next turn without any engine restart.
-func (s *MarketplaceService) installSnapshot(ctx context.Context, id, slug, snapshotHash string, files []snapshotFile, mode tools.MarketplaceInstallMode) (tools.MarketplaceInstallResult, error) {
+func (s *MarketplaceService) installSnapshot(ctx context.Context, id, slug string, files []snapshotFile, mode tools.MarketplaceInstallMode) (tools.MarketplaceInstallResult, error) {
 	hosted, skipped, err := validateSnapshot(slug, files)
 	if err != nil {
 		return tools.MarketplaceInstallResult{}, err
@@ -231,7 +229,7 @@ func (s *MarketplaceService) installSnapshot(ctx context.Context, id, slug, snap
 	}
 	_, statErr := os.Lstat(dir)
 	if errors.Is(statErr, os.ErrNotExist) {
-		return s.createSkill(ctx, id, slug, snapshotHash, hosted, skipped)
+		return s.createSkill(ctx, id, slug, hosted, skipped)
 	}
 	if statErr != nil {
 		return tools.MarketplaceInstallResult{}, statErr
@@ -239,7 +237,7 @@ func (s *MarketplaceService) installSnapshot(ctx context.Context, id, slug, snap
 	if mode != tools.MarketplaceInstallUpgrade {
 		return tools.MarketplaceInstallResult{}, fmt.Errorf("skills: skill %q already exists", slug)
 	}
-	return s.upgradeSkill(ctx, id, slug, snapshotHash, hosted)
+	return s.upgradeSkill(ctx, id, slug, hosted)
 }
 
 // validateSnapshot applies the full loader-mirroring guard set to the raw
@@ -307,7 +305,7 @@ func validateSnapshot(slug string, files []snapshotFile) (map[string]string, []s
 	return hosted, skipped, nil
 }
 
-func (s *MarketplaceService) createSkill(ctx context.Context, id, slug, snapshotHash string, hosted map[string]string, skipped []string) (tools.MarketplaceInstallResult, error) {
+func (s *MarketplaceService) createSkill(ctx context.Context, id, slug string, hosted map[string]string, skipped []string) (tools.MarketplaceInstallResult, error) {
 	dir := filepath.Join(s.backend.root, slug)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return tools.MarketplaceInstallResult{}, fmt.Errorf("marketplace: create skill directory: %w", err)
@@ -316,7 +314,7 @@ func (s *MarketplaceService) createSkill(ctx context.Context, id, slug, snapshot
 		_ = os.RemoveAll(dir)
 		return tools.MarketplaceInstallResult{}, cause
 	}
-	manifest := marketplaceManifest{MarketplaceID: id, SnapshotHash: snapshotHash, InstalledAt: time.Now().UTC().Format(time.RFC3339)}
+	manifest := marketplaceManifest{MarketplaceID: id, InstalledAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := writeMarketplaceManifest(dir, manifest); err != nil {
 		return rollback(fmt.Errorf("marketplace: write manifest: %w", err))
 	}
@@ -346,7 +344,7 @@ func (s *MarketplaceService) createSkill(ctx context.Context, id, slug, snapshot
 // skill. The previous hosted files and manifest are held in memory as the
 // rollback state; writes go through atomicWrite so a crash mid-upgrade leaves
 // a loadable skill (old or new SKILL.md), never a broken one.
-func (s *MarketplaceService) upgradeSkill(ctx context.Context, id, slug, snapshotHash string, hosted map[string]string) (tools.MarketplaceInstallResult, error) {
+func (s *MarketplaceService) upgradeSkill(ctx context.Context, id, slug string, hosted map[string]string) (tools.MarketplaceInstallResult, error) {
 	dir := filepath.Join(s.backend.root, slug)
 	manifest, rawManifest, err := readMarketplaceManifest(dir)
 	if err != nil {
@@ -366,7 +364,7 @@ func (s *MarketplaceService) upgradeSkill(ctx context.Context, id, slug, snapsho
 		}
 		return tools.MarketplaceInstallResult{Skill: view, Outcome: tools.MarketplaceUpdateUpToDate}, nil
 	}
-	updated := marketplaceManifest{MarketplaceID: id, SnapshotHash: snapshotHash, InstalledAt: manifest.InstalledAt, UpgradedAt: time.Now().UTC().Format(time.RFC3339)}
+	updated := marketplaceManifest{MarketplaceID: id, InstalledAt: manifest.InstalledAt, UpgradedAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := applyHostedState(dir, hosted); err != nil {
 		restoreHostedState(dir, installed, rawManifest)
 		return tools.MarketplaceInstallResult{}, err
@@ -532,11 +530,10 @@ func (s *MarketplaceService) CheckMarketplaceUpdate(ctx context.Context, name st
 		return check, nil
 	}
 	check.MarketplaceID = manifest.MarketplaceID
-	slug, snapshotHash, files, err := s.downloadSnapshot(ctx, manifest.MarketplaceID)
+	slug, files, err := s.downloadSnapshot(ctx, manifest.MarketplaceID)
 	if err != nil {
 		return check, err
 	}
-	check.SnapshotHash = snapshotHash
 	hosted, _, err := validateSnapshot(slug, files)
 	if err != nil {
 		return check, err

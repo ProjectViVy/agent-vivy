@@ -257,8 +257,8 @@ func (s *Service) selectionViewForSelection(ctx context.Context, selection maskc
 func metadataOf(definition maskcontract.Definition) maskcontract.Metadata {
 	return maskcontract.Metadata{
 		ID: definition.ID, Name: definition.Name, Description: definition.Description,
-		Digest: definition.Digest, GenerationID: definition.GenerationID,
-		Revision: definition.Revision, BuiltIn: definition.BuiltIn,
+		GenerationID: definition.GenerationID,
+		Revision:     definition.Revision, BuiltIn: definition.BuiltIn,
 	}
 }
 
@@ -266,7 +266,6 @@ func cloneDefinition(in maskcontract.Definition) maskcontract.Definition {
 	in.Body = string([]byte(in.Body))
 	in.Name = string([]byte(in.Name))
 	in.Description = string([]byte(in.Description))
-	in.Digest = string([]byte(in.Digest))
 	in.GenerationID = string([]byte(in.GenerationID))
 	in.ID = string([]byte(in.ID))
 	return in

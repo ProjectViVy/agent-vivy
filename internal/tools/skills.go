@@ -36,7 +36,6 @@ type SkillSummary struct {
 	// skills_root / marketplace packages.
 	Origin   string   `json:"origin,omitempty"`
 	Enabled  bool     `json:"enabled"`
-	Hash     string   `json:"hash"`
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -64,8 +63,14 @@ type SkillManageResult struct {
 	SkillName  string   `json:"skill_name"`
 	Action     string   `json:"action"`
 	TargetPath string   `json:"target_path"`
-	Hash       string   `json:"hash,omitempty"`
 	Warnings   []string `json:"warnings,omitempty"`
+}
+
+type SkillEnableRequest struct {
+	Name            string
+	Enabled         bool
+	ExpectedExists  bool
+	ExpectedContent []byte
 }
 
 type SkillOperations interface {
@@ -75,9 +80,9 @@ type SkillOperations interface {
 	PrepareSkillProposal(context.Context, domain.RunID, SkillManageRequest) (domain.ToolProposal, error)
 	ApplySkillRevision(context.Context, domain.RunID, string) (SkillManageResult, error)
 	// SetSkillEnabled flips the frontmatter enabled flag of one installed
-	// Skill under compare-and-swap on the current content hash. It is a
+	// Skill under compare-and-swap on the exact current bytes and existence. It is a
 	// control-plane toggle, not a staged agent mutation.
-	SetSkillEnabled(context.Context, string, bool, string) (SkillSummary, error)
+	SetSkillEnabled(context.Context, SkillEnableRequest) (SkillSummary, error)
 }
 
 // MarketplaceSkill is one searchable entry from the skills.sh directory. ID
@@ -140,12 +145,11 @@ const (
 
 // MarketplaceUpdateCheck reports the version relationship between one
 // installed skill and the marketplace snapshot named in its provenance
-// manifest. SnapshotHash echoes the upstream hash when a download happened.
+// manifest. Actual hosted files determine update availability.
 type MarketplaceUpdateCheck struct {
 	Name          string `json:"name"`
 	Status        string `json:"status"`
 	MarketplaceID string `json:"marketplace_id,omitempty"`
-	SnapshotHash  string `json:"snapshot_hash,omitempty"`
 }
 
 // SkillsMarketplace is the control-plane surface over the skills.sh

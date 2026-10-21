@@ -5,9 +5,6 @@ package maskcontract
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -151,7 +148,6 @@ type Definition struct {
 	Description  string `json:"description"`
 	Body         string `json:"body"`
 	Revision     int64  `json:"revision"`
-	Digest       string `json:"digest"`
 	BuiltIn      bool   `json:"built_in"`
 	GenerationID string `json:"generation_id"`
 }
@@ -187,7 +183,6 @@ type Metadata struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	Description  string `json:"description"`
-	Digest       string `json:"digest"`
 	GenerationID string `json:"generation_id"`
 	Revision     int64  `json:"revision"`
 	BuiltIn      bool   `json:"built_in"`
@@ -366,50 +361,6 @@ func NormalizeSelection(in SetSelectionRequest) (SetSelectionRequest, error) {
 	return in, nil
 }
 
-// CreateRequestDigest returns the canonical SHA-256 identity of the original
-// request content. OperationID is intentionally excluded; description remains
-// part of create idempotency even though it is display-only in a definition
-// digest.
-func CreateRequestDigest(in CreateRequest) string {
-	request := struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Body        string `json:"body"`
-	}{
-		Name:        strings.TrimSpace(in.Name),
-		Description: in.Description,
-		Body:        normalizeLineEndings(in.Body),
-	}
-	return digestJSON(request)
-}
-
-// DefinitionDigest returns the canonical SHA-256 identity of the semantic
-// definition fields. Description and revision are deliberately excluded.
-func DefinitionDigest(id, name, body string) string {
-	definition := struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Body string `json:"body"`
-	}{
-		ID:   id,
-		Name: strings.TrimSpace(name),
-		Body: normalizeLineEndings(body),
-	}
-	return digestJSON(definition)
-}
-
-func digestJSON(value any) string {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		// The structs passed here contain only strings, so this is unreachable.
-		// Keep a deterministic value rather than returning an untyped error from
-		// a helper whose contract is a string.
-		return ""
-	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:])
-}
-
 // ValidateMaskID accepts a reserved built-in ID or a server-generated custom
 // ID. Empty is not a definition ID but is accepted by selection validation.
 func ValidateMaskID(id string) error {
@@ -465,8 +416,7 @@ func ValidateSelection(selection Selection) error {
 	return nil
 }
 
-// ValidateDefinition checks stored/embedded definition invariants, including
-// the digest over the normalized ID, name and body fields.
+// ValidateDefinition checks stored/embedded definition invariants.
 func ValidateDefinition(definition Definition) error {
 	if err := ValidateMaskID(definition.ID); err != nil {
 		return err
@@ -506,9 +456,6 @@ func ValidateDefinition(definition Definition) error {
 	}
 	if body != definition.Body {
 		return errors.New("definition body is not normalized")
-	}
-	if definition.Digest != DefinitionDigest(definition.ID, definition.Name, definition.Body) {
-		return errors.New("definition digest does not match content")
 	}
 	return nil
 }

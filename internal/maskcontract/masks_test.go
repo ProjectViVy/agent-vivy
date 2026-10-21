@@ -1,9 +1,6 @@
 package maskcontract
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -115,47 +112,6 @@ func TestMaskNormalizeSelectionAndList(t *testing.T) {
 	}
 	if _, err := NormalizeSelection(SetSelectionRequest{SessionID: "session", MaskID: "", ExpectedRevision: 0}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestMaskDefinitionDigestCanonicalAndDescriptionIndependent(t *testing.T) {
-	first := DefinitionDigest("custom/00000000-0000-4000-8000-000000000001", "Writer", "line\r\nnext")
-	second := DefinitionDigest("custom/00000000-0000-4000-8000-000000000001", "Writer", "line\nnext")
-	if first != second {
-		t.Fatalf("line ending changed digest: %s != %s", first, second)
-	}
-	if first != DefinitionDigest("custom/00000000-0000-4000-8000-000000000001", " Writer ", "line\nnext") {
-		t.Fatal("normalized name changed digest")
-	}
-	if first == DefinitionDigest("custom/00000000-0000-4000-8000-000000000001", "Researcher", "line\nnext") {
-		t.Fatal("changed name did not change digest")
-	}
-	if first == DefinitionDigest("custom/00000000-0000-4000-8000-000000000001", "Writer", "other") {
-		t.Fatal("changed body did not change digest")
-	}
-
-	request := CreateRequest{OperationID: testOperationID, Name: "Writer", Description: "one", Body: "body"}
-	if CreateRequestDigest(request) != CreateRequestDigest(request) {
-		t.Fatal("request digest is not deterministic")
-	}
-	if CreateRequestDigest(request) == CreateRequestDigest(CreateRequest{Name: "Writer", Description: "two", Body: "body"}) {
-		t.Fatal("description must participate in create digest")
-	}
-	if CreateRequestDigest(request) == CreateRequestDigest(CreateRequest{Name: "Researcher", Description: "one", Body: "body"}) {
-		t.Fatal("changed name did not change request digest")
-	}
-
-	canonical, err := json.Marshal(struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Body string `json:"body"`
-	}{ID: "custom/00000000-0000-4000-8000-000000000001", Name: "Writer", Body: "line\nnext"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(canonical)
-	if first != hex.EncodeToString(sum[:]) {
-		t.Fatalf("digest = %s, want json.Marshal SHA-256 %s", first, hex.EncodeToString(sum[:]))
 	}
 }
 

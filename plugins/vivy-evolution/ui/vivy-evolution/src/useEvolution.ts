@@ -92,12 +92,12 @@ export function useEvolution() {
     setHistoryPreview(null);
   }, []);
 
-  const saveSkill = useCallback(async (slug: string, markdown: string, baseHash: string) => {
+  const saveSkill = useCallback(async (slug: string, markdown: string, expectedMarkdown: string) => {
     const key = `save:${slug}`;
     beginBusy(key);
     try {
       setError(null);
-      const outcome = await updateSkillDocument(slug, markdown, baseHash);
+      const outcome = await updateSkillDocument(slug, markdown, expectedMarkdown);
       setSelectedSkill(outcome.document);
       setHistory(await getSkillHistory(slug));
       await loadSkillsAndRequests();
@@ -117,9 +117,13 @@ export function useEvolution() {
       setError(null);
       await setSkillEnabled(slug, enabled);
       await loadSkillsAndRequests();
-      setSelectedSkill((prev) => (prev && prev.slug === slug ? { ...prev, enabled } : prev));
+      const document = await getSkillDocument(slug);
+      setSelectedSkill((current) => current?.slug === slug ? document : current);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.saveFailed'));
+      await loadSkillsAndRequests();
+      const document = await getSkillDocument(slug).catch(() => null);
+      setSelectedSkill((current) => current?.slug === slug ? document : current);
     } finally {
       endBusy(key);
     }
@@ -139,6 +143,9 @@ export function useEvolution() {
       await loadSkillsAndRequests();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('plugin.vivy/evolution.errors.saveFailed'));
+      await loadSkillsAndRequests();
+      const document = await getSkillDocument(slug).catch(() => null);
+      setSelectedSkill((current) => current?.slug === slug ? document : current);
     } finally {
       endBusy(key);
     }
@@ -159,7 +166,8 @@ export function useEvolution() {
     beginBusy(key);
     try {
       setError(null);
-      const created = await createSkillRequest(payload);
+      const expected = payload.expected_exists ? await getSkillDocument(payload.slug) : null;
+      const created = await createSkillRequest({ ...payload, expected_markdown: expected?.markdown ?? '' });
       await loadSkillsAndRequests();
       return created;
     } catch (err) {

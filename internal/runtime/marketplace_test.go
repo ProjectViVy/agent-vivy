@@ -267,7 +267,6 @@ func TestMarketplaceUpgradeMirrorsSnapshot(t *testing.T) {
 	}
 	var manifest struct {
 		MarketplaceID string `json:"marketplace_id"`
-		SnapshotHash  string `json:"snapshot_hash"`
 		InstalledAt   string `json:"installed_at"`
 		UpgradedAt    string `json:"upgraded_at"`
 	}
@@ -278,7 +277,10 @@ func TestMarketplaceUpgradeMirrorsSnapshot(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.MarketplaceID != "vercel-labs/skills/demo-skill" || manifest.SnapshotHash != "hash-v2" ||
+	if strings.Contains(string(data), "snapshot_hash") {
+		t.Fatal("unused upstream snapshot identity persisted")
+	}
+	if manifest.MarketplaceID != "vercel-labs/skills/demo-skill" ||
 		manifest.InstalledAt == "" || manifest.UpgradedAt == "" {
 		t.Fatalf("manifest after upgrade = %+v", manifest)
 	}
@@ -372,7 +374,7 @@ func TestMarketplaceCheckUpdateStatuses(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 	upToDate, err := service.CheckMarketplaceUpdate(context.Background(), "demo-skill")
-	if err != nil || upToDate.Status != tools.MarketplaceUpdateUpToDate || upToDate.SnapshotHash != "hash-v1" ||
+	if err != nil || upToDate.Status != tools.MarketplaceUpdateUpToDate ||
 		upToDate.MarketplaceID != "vercel-labs/skills/demo-skill" {
 		t.Fatalf("up_to_date check = %+v err %v", upToDate, err)
 	}

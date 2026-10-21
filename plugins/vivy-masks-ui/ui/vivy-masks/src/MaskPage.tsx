@@ -111,9 +111,9 @@ export function MaskPage({
         ?.getSnapshot()
         .catalog.find((item) => item.id === id);
       if (
-        cached &&
-        cached.digest === metadata?.digest &&
-        cached.revision === metadata.revision
+        cached && metadata &&
+        cached.revision === metadata.revision &&
+        cached.generation_id === metadata.generation_id
       ) {
         dispatch({ type: 'definition/open', definition: cached });
         return;

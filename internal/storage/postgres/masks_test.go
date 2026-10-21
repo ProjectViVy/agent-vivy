@@ -209,8 +209,7 @@ func TestReadMaskCaptureSeesOneCommittedDefinitionVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newDigest := mask.DefinitionDigest(created.ID, "after", "after body")
-	if _, err := tx.ExecContext(ctx, `UPDATE mask_definitions SET name = $1, body = $2, revision = 2, digest = $3 WHERE id = $4`, "after", []byte("after body"), newDigest, created.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE mask_definitions SET name = $1, body = $2, revision = 2 WHERE id = $3`, "after", []byte("after body"), created.ID); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
