@@ -69,3 +69,25 @@ Kernel execution stopped the script, so PostgreSQL/Face/Web/race were not run by
 that attempt and remain pending. Retain this failed attempt as evidence.
 
 Full native migration suite after count-fixture correction PASS12.087s.
+
+
+Exact corrected candidate `93f385f6eab0f7622a75539740076a46c0b28731` completed
+from the independent ext4 checkout and its own clean Laputa pin:
+
+- `just wiring-ci`: PASS16 Node and105 Go cases, zero skips.
+- `just kernel-ci`: PASS1824 executed cases; one existing optional rg skip.
+  Actual minimal Recipe Pack/Inspect/boot PASS1, zero skips.
+- Real disposable PostgreSQL16 `just test-postgres`: PASS130, zero skips,
+  including039 preservation/rollback/reopen and source-independent admission
+  replay. Private container removed by trap.
+- `just d02-ci`: PASS81 runtime/RPC,175 shared Face/client,1 causal App,
+  13 shutdown/headless App and9 standalone headless cases, zero skips.
+- `just d02-web-ci`: staged typecheck,102 Web cases and2 actual selected-UI Pack
+  cases PASS, zero skips.
+- Receipt/reference/delivery/continuity `go test -race` selector: runtime
+  PASS46.434s and SQLite PASS7.961s.
+- Final clean-worktree assertion and script exit0 passed.
+
+This verifies the shared receipt slice within the recorded scope. D09 reference
+and durable presentation/transfer closure remains ongoing. Standard3015 smoke
+remains owner-deferred and is not claimed as passing.
