@@ -67,3 +67,27 @@ production code, upstream APIs and D10's gated CAS contract are unchanged.
 
 The script again stopped before PostgreSQL/Face/Web/conformance on that failed
 kernel attempt; those checks remain pending until the resumed command completes.
+
+
+Final independent Linux evidence at exact candidate
+`e992029509dab70a52e70e7d786beced3f3fbcbb`:
+
+- Independent ext4 checkout and its own clean Laputa pin
+  `ff3936f44ff8cf08c12af2cf698c194cfe474fd3`; Go1.26.4/Node24.21.0.
+- `just wiring-ci`: PASS16 Node and105 Go cases, zero skips.
+- `just kernel-ci`: PASS1788 executed tests; one existing optional
+  `TestBackendGrepRipgrepHonorsGitignore` skip. Minimal Pack/Inspect/boot PASS1.
+- Real disposable PostgreSQL16 via `just test-postgres`: PASS129, zero skips.
+  The private container is removed by the script trap; no production DSN used.
+- `just d02-ci`: PASS81 runtime/RPC,175 shared Face/client,1 causal App,
+  13 shutdown/headless App and9 standalone headless cases, zero skips.
+- `just d02-web-ci`: PASS UI typecheck,102 Web cases across5 files and2 actual
+  selected-UI artifact Pack checks, zero skips.
+- `go test ./sdk/internal/conformance -run
+  '^TestCheckedInProviderConformanceMatchesExecutedSuites$' -count=1
+  -timeout=35m -v`: PASS all23 actual Provider suites (67.580s).
+- Script exit0 and final clean-worktree assertion passed.
+
+The first file-input implementation slice is verified within that scope.
+Cursor/reference/presentation work, D09 Story acceptance and owner-deferred3015
+smoke remain open. The earlier failures above remain recorded as failed attempts.
