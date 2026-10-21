@@ -33,8 +33,8 @@ current `justfile` and these actual entry points:
 - The manual split remains backend `127.0.0.1:8787` and Vite
   `127.0.0.1:3015`; use an explicit disposable home. Never use tenant Journals.
 
-The older reference tables retain their original environment-tooling context;
-this boundary and the current recipes determine applicability.
+The older reference tables are historical environment notes. Root AGENTS.md
+owns current validation policy; this skill guides venue and readiness only.
 ## Host model
 
 Vivy uses three venues. Keep the split; do not collapse it into one host.
@@ -92,7 +92,7 @@ The split is a resource decision, not a correctness escape hatch. A Windows-only
    distinct from a passing minimal kernel. A zero-test selector never passes.
 7. Record evidence outside the chat.
 
-   Write `docs/logs/YYYY-MM-DD-slug/{summary,verification,acceptance}.md`, or a focused commit for a minor agent-instruction change. Distinguish implemented, verified, and unverified. A skipped race, Postgres, Docker, or Windows lane is not green. Keep a transferable patch, bundle, or commit so the result does not depend on this conversation.
+   Use the proportional delivery records in root AGENTS.md. Distinguish implemented, verified, and unverified. A skipped race, Postgres, Docker, or Windows lane is not green. Keep a transferable patch, bundle, or commit so the result does not depend on this conversation.
 
 ## Installation and isolation rules
 

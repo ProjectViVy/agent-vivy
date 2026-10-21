@@ -1,3 +1,7 @@
+> Development verification and delivery records now follow root AGENTS.md
+> and vivy-kernel-ci. Historical evidence remains unchanged. This applicability
+> update does not waive product, data-transition or final acceptance obligations.
+
 # Issue #91: Complete deletion planning package
 
 Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Continuation implementation baseline: `stable@c065a82b4618e34dddd32893abd0557bd79c5b44` · Earlier planning branches: `feat/agent-loop-deletion`, `codex/agent-loop-deletion`.

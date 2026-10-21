@@ -13,6 +13,10 @@ vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
 ensure-laputa:
     node scripts/ensure-laputa.mjs --quiet
 
+# Local and Actions share the path/Recipe/test associations.
+ci-small *args:
+    node scripts/ci-small.mjs {{args}}
+
 # WSL/Linux scoped gates. The minimal lane never installs or builds the UI.
 doctor:
     node scripts/doctor.mjs
@@ -34,11 +38,11 @@ d02-web-ci: ensure-laputa
     node scripts/verify-kernel.mjs d02-web
 
 bootstrap-test:
-    node --test scripts/ensure-laputa.test.mjs
+    node --test scripts/ensure-laputa.test.mjs scripts/ci-small.test.mjs
 
 # Prepare sibling sources before asking Go to resolve local replacements.
 setup: ensure-laputa
-    & "{{go}}" env -w GOPROXY=https://goproxy.cn,direct; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    $env:GOPROXY = if ($env:VIVY_GOPROXY) { $env:VIVY_GOPROXY } else { "direct" }
     & "{{go}}" mod download; if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
 build: ensure-laputa
@@ -68,10 +72,10 @@ plugin-ci:
 # Build the assets required by go:embed without coupling backend checks to the
 # UI typecheck/test gate. CI jobs intentionally use separate installations.
 ui-build: ensure-laputa
-    Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
+    New-Item -ItemType Directory -Force .workspace/ui-temp | Out-Null; $env:TEMP = (Resolve-Path .workspace/ui-temp).Path; $env:TMP = $env:TEMP; Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
 ui-core: ensure-laputa
-    Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
+    New-Item -ItemType Directory -Force .workspace/ui-temp | Out-Null; $env:TEMP = (Resolve-Path .workspace/ui-temp).Path; $env:TMP = $env:TEMP; Set-Location ui; pnpm install --frozen-lockfile; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm typecheck; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm test; if ($LASTEXITCODE) { exit $LASTEXITCODE }; pnpm build
 
 # Uses the locked TypeScript parser installed by ui-core.
 i18n-check: ui-core

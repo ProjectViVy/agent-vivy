@@ -30,7 +30,7 @@ ownership and gate evidence. This is design direction, not a shipped capability.
 - Go 1.26+ (installed at `C:\Program Files\Go\bin` on this machine; if `go`
   is not on PATH, use the full path or add it).
 - `GOPROXY` must be `https://goproxy.cn,direct` (proxy.golang.org is
-  unreachable from this network). Already persisted via `go env -w`.
+  unreachable from this network). Choose GOPROXY per process; setup does not persist global Go settings.
 - Node.js 22+ and pnpm for the embedded React UI.
 - Git and PowerShell for the pinned source bootstrap and Windows development scripts.
 - Optional: [just](https://github.com/casey/just) for the task recipes in
@@ -207,3 +207,18 @@ it in the current project.
 - No `agent-diva-*` code import or schema inheritance (D-005, D-021).
   `.workspace/eino` in the parent dossier is a read-only API reference only;
   this module consumes Eino exclusively as online dependencies.
+
+## Development verification
+
+Run `just ci-small --base <comparison-ref> --plan` to inspect affected checks,
+then omit `--plan` to execute them. `--scope <id>` adds coverage. The shared
+path/Recipe/test associations live in `.github/ci-scopes.json`; new executable
+owners need an explicit association. A feature uses the narrowest existing
+Recipe that actually selects it, or supplies a focused development Recipe.
+The table references Recipes rather than copying their module lists.
+
+Small CI is development acceptance. At Epic closeout, apply `epic-final` to the
+final PR to run full product CI after scoped checks; updates while labeled rerun
+it. The `just ci` aggregate distinguishes scoped results from full product CI
+not requested/not verified. See root AGENTS.md and vivy-kernel-ci for policy and
+host guidance. Neither local success nor a skipped lane proves remote acceptance.

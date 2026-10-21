@@ -1,3 +1,7 @@
+> Current validation policy: follow root AGENTS.md and vivy-kernel-ci. The
+> commands and records below describe their original host context; they do not
+> require full-product CI during ordinary development.
+
 # Verification layers
 
 Read the [restored-baseline applicability boundary](../SKILL.md#restored-baseline) before using these original environment-tooling commands or recorded versions.

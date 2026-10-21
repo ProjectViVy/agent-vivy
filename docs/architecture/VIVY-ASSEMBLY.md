@@ -63,13 +63,17 @@ late binding; it fails compilation.
 
 ## 4. Default Generation
 
-The default Vivy Generation contains:
+The explicit default Recipe owns the shipped selection below. Preserve its
+current behavior; new first-party capabilities are selected by product need,
+not automatically included in every default Generation.
+
+The current default Vivy Generation contains:
 
 - all L0 Kernel authorities;
 - every required L1 internal Module;
 - established L2 internal Hosts and organs;
 - Consumers for all public v1 Ports;
-- all established first-party feature Providers;
+- the first-party feature Providers explicitly selected by its Recipe;
 - the protected internal Tool set;
 - one product-appropriate Face for an Interactive recipe;
 - the default first-party UI root and extensions for the Web Face.

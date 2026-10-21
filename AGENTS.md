@@ -20,70 +20,29 @@ Canonical product rules: `docs/architecture/VIVY-STUDIO.md` and
   current explicit user instructions take precedence over skills, memory, and
   defaults. Project instructions apply within their directory scope.
 
-### Development principles: More, Fast, Good, Frugal
+## Development principles: More, Fast, Good, Frugal
 
-Build capability with smallest coherent system meeting product contract. Decision criteria, not workflow. Apply independently or inside Supermanagement/Superpowers. Do not activate either merely to apply this skill.
+- Deliver useful capability with the smallest coherent implementation. Optional
+  features use existing Module/Port boundaries and an explicit Recipe; adding
+  and removing a feature must preserve the basic production loop.
+- Shorten time to real feedback. Reuse existing code and checks; remove repeated
+  I/O, state and process before adding caches, concurrency or frameworks.
+- Judge quality through user behavior, clear failure ownership and readable code.
+  A mechanism needs an actual consumer, confirmed requirement or observed failure.
+- Minimize total cost: code, runtime, maintenance, user effort and agent time.
+  Complexity needs justification; simplicity does not need extra paperwork.
+- Do ordinary work directly. Plans, delegation and independent reviews are useful
+  when uncertainty or risk warrants them, not mandatory stages for every change.
+- Do not introduce Vivy-owned hash/digest/fingerprint/checksum validation or
+  content-addressed identities. Preserve the existing hash-retirement scope.
+  A final distributable may have an optional informational digest that never
+  gates business behavior. Native security protocols and dependency integrity
+  retain their own mechanisms.
 
-### Scope, precedence
-
-Apply to work already required. Simple edits leaving behavior, interfaces, state, dependencies unchanged need focused checks, not full assessment. Unrelated questions, ordinary prose edits do not trigger this skill.
-
-Follow host instruction hierarchy, authorization boundaries. Within limits: explicit authorized user requirements > repository constraints > this skill defaults. Surface material conflicts. Change repository constraints only when explicitly authorized. General request to work faster not waive mandatory gates.
-
-Correctness, security, data integrity, agreed product contract = acceptance conditions. Make intentional contract changes explicit. Exceptions below concern design defaults, never these conditions. Among acceptable solutions prefer minimum total lifecycle cost, then speed within that frugal design.
-
-### Four principles
-
-Use defaults routinely. Explain exceptions only when consequential. Evidence = confirmed requirement, inspected behavior, or measurement. Fields are decision aids, not form to fill per task.
-
-**More: Less is more**
-Default: small cohesive capabilities, clear boundaries, useful defaults, meaningful composition. Not fixed workflows or feature counts.
-Exception: confirmed variation or independently supplied capabilities justify targeted extension interface. Not automatically plugin framework.
-Evidence: name actual consumer, requirement, or variation boundary supports. Hypothetical future flexibility insufficient.
-
-**Fast: Frugality before optimization**
-Default: keep execution paths direct. Cut unnecessary I/O, copying, allocation, repeated work before adding machinery.
-Exception: add caches, concurrency, or services when measurements or established runtime constraint show simpler approaches insufficient and benefits justify lifecycle costs.
-Evidence: relevant latency, throughput, memory, or startup measurements, or documented constraint. Label estimates. Invent neither targets nor performance gains.
-
-**Good: Lean development, accountable design**
-Default: keep code readable, work small. Clarify scope, boundaries, ownership, failure behavior, acceptance before consequential delegation. Resolve shared decisions before parallel work. Limit active work to review capacity.
-Exception: cross-component, persistence, concurrency, or security risks require broader design and verification than isolated changes.
-Evidence: behavior, failure-path, integration checks proportionate to actual risks, plus required gates. Supervisors retain architectural and end-to-end acceptance responsibility.
-
-**Frugal: Minimum sufficient total cost**
-Default: deliver requested behavior plus necessary implementation details only. Reuse or safely delete before adding code, dependencies, configuration, or process.
-Exception: extra machinery must address identified requirement or reduce total lifecycle cost versus viable alternatives.
-Evidence: account maintained LOC across solution, runtime, maintenance, operations, user effort, agent time/tokens. LOC = design pressure, not quota. Preserve readability, meaningful verification.
-
-### Red flags
-
-Investigate signals. Not automatic findings:
-
-- Performance complexity without measurements or established constraint.
-- Hypothetical abstractions, or coupling blocking required composition.
-- Unrequested features, configuration growth without concrete need, unrelated cleanup.
-- Apparent LOC savings hiding complexity in dependencies, generated code, user effort.
-- Contract regressions, silent failures, claims beyond available verification.
-- Duplicated plans, mandatory delegation, process without demonstrated benefit.
-
-Complexity signals, not automatic violations. Inspect hand-maintained code around thresholds: function nesting >4; conditionals (if/ternary) >8 per function; parameters >6; classes >20 methods; files >600 lines or sprawling exports with mixed responsibilities; duplicated blocks 10+ lines occurring twice; direct access to internals of >3 unrelated objects.
-
-Report finding only when signal reveals concrete comprehension, coupling, change, or correctness risk. Prefer smallest in-scope fix. Do not split code, wrap parameters, or invent abstractions merely to satisfy counts. Respect repository-specific thresholds. Account for generated code, declarative tables, intentional repetition. Routine work: inspect only change plus direct impact. Broaden review only when requested.
-
-### Output contracts
-
-Use only relevant format inside existing workflow:
-
-**Project rules:** normally 5–10 actionable project-specific rules. Fewer when sufficient. Read existing instructions and relevant architecture first. State defaults, exception conditions, evidence where applicable. Modify only established or user-selected instruction file when requested. Keep one authoritative version.
-
-**Design:** one paragraph: simplest viable choice, material alternative, tradeoff, supporting evidence. Summarizes decision, not entire architecture. Keep interfaces, ownership, failure behavior, acceptance details in existing plan. No parallel paperwork.
-
-**Review:** findings ordered by impact. Each: location, evidence, consequence, smallest useful correction. No substantiated issues = say so. Do not invent findings or unrelated rewrites.
-
-Distinguish implemented, verified, unverified outcomes. Stop expanding validation when acceptance evidence sufficient, concrete risks covered, required gates pass. Disclose remaining limitations.
-
-Replace or remove rules before appending more. Add rules for recurring decisions or demonstrated failures, not to grow this skill.
+Keep the single Service.Run/Eino/Journal/Policy path, approved intent, durable
+execution ownership, no blind effect replay, data upgrades and secret isolation.
+Report implemented, verified and unverified results separately. Stop expanding
+checks once affected risks and required acceptance are covered.
 
 ## Tools, skills, and delegation
 
@@ -99,7 +58,10 @@ Replace or remove rules before appending more. Add rules for recurring decisions
   worktree isolation rules below for concurrent edits.
 - Choose optional external skills by task difficulty and relevance. Use
   Superpowers for complex work, not routine edits; do not load workflows just
-  because they are available. Follow applicable project-specific skills below.
+  because they are available. In this project, ordinary authorized work does
+  not acquire extra approval, document or delegation stages from optional
+  external workflows. Do not edit their installed caches or personal settings.
+  Follow applicable project-specific skills below.
 - Before environment diagnosis or CI/race/Postgres/Docker/Windows acceptance,
   read `.agents/skills/vivy-advance-dev-env/SKILL.md`. Prefer a Linux-filesystem
   WSL checkout for Go/Node verification and an independent Windows checkout for
@@ -137,41 +99,19 @@ Prefer a thin adapter at that boundary over either duplicating Eino internals
 or exposing Eino types through product, storage, policy, RPC, plugin, or UI
 layers.
 
-Every plan and review that touches agent loops, model/tool orchestration,
-prompting, streaming, context management, checkpoints, callbacks, RAG, MCP,
-or multi-agent behavior must include an **Eino capability check** before code
-is added. Naming a custom type `Eino*` is not evidence of Eino reuse; cite the
+New or replacement runtime capabilities require a pinned **Eino capability check** before code is added. Small fixes to an existing adapter reuse its established decision and inspect only the affected APIs. Naming a custom type `Eino*` is not evidence of Eino reuse; cite the
 actual upstream package/API used. Reviewers must reject unexplained parallel
 implementations even when tests pass.
 
-## Single source of truth (mandatory)
+## Single source of truth
 
-Priority 1 says "do not create a second source of truth". This is how that is
-checked, for any fact entering the run path (provider metadata, model ids,
-defaults, credentials, addresses, capabilities).
-
-- Every such fact has exactly one home, and it answers three questions: is it in
-  the artifact, is it in the executed evidence / conformance, and who
-  changes it. Two out of three is a defect, not a follow-up.
-- A second copy is a deletion task, not a synchronization task. Derive it or
-  delete it; a hand-edit kept in step by a checklist is already broken.
-- Displayed truth derives from capability truth: every row, model or option a
-  face renders is declared by the backend or explicitly marked deferred. A UI
-  list never stands in for what the runtime can construct.
-- Ownership is "is it in the artifact", not "is it in the repository": data that
-  ships beside the binary, is copied by a packer, or sits outside the declared build inputs has
-  no owner. Never put run-path data under a directory named `fixtures/` or
-  `samples/`; if the live path reads it, its name is part of the contract.
-- A ported schema or vendored tree is audited field by field ("do we have this
-  behaviour?") before use; record the source and the dropped fields.
-- Deleting a redundant copy is a deliverable, reviewed like code. If removing a
-  copy earns no credit, copies accumulate.
-- Stop and decide on any of these signals: two layers report different counts
-  for the same fact, a field nothing reads, a workaround performed every time.
-  After a third delivery in one domain, re-ask what that domain's core word
-  means.
-
-Worked example: `docs/logs/2026-09-18-provider-registry/notes.md`.
+Each runtime fact has one authority; other layers read or derive from it.
+Remove redundant hand-maintained copies instead of adding synchronization.
+Immutable admitted snapshots may capture an authority at a specific revision.
+Displayed capabilities derive from the backend, with unavailable features
+explicitly marked. Shipped runtime data belongs to declared artifact inputs,
+never a fixtures/samples tree. Keep evidence only where a real decision consumes
+it; a digest or test record cannot substitute for observed product behavior.
 
 ## Commit Rule for AI agents
 
@@ -182,7 +122,7 @@ Worked example: `docs/logs/2026-09-18-provider-registry/notes.md`.
 
 **Default scope is VIVY (the species/kernel).** When the user mentions "Vivy" without "Studio", develop the Vivy kernel/species itself — not the Studio overlay. Only when the user explicitly says "Studio" or "Vivy Studio" should you work on the Studio overlay/shell.
 
-- **Vivy (default)**: Kernel, engine, UI, skills, recipes, plugins, product-contract docs. Use `just ci` for verification.
+- **Vivy (default)**: Kernel, engine, UI, skills, recipes, plugins, product-contract docs. Use the scoped validation policy below; full CI belongs to Epic closeout.
 - **Vivy Studio (explicit only)**: First-party IDE shell, skin, theme, lifecycle. Use `just studio` for builds. See `.agents/skills/vivy-studio-lifecycle`.
 - **Studio shell source** lives in the git submodule `studio/` → [`ProjectViVy/vivy-studio`](https://github.com/ProjectViVy/vivy-studio). The host no longer vendors plugin trees. Lifecycle CLI (`cmd/vivy-studio`, `internal/studiocore`) stays in this repo.
 
@@ -207,7 +147,7 @@ touch Studio should run the same ensure first. Do **not** treat missing
 
 ## Development environment
 
-**Vivy feature development starts the split pair.** Do not use the embedded
+**Browser-facing feature development uses the split pair.** Backend-only work uses its real API, CLI or package entry without starting an unrelated UI. Do not use the embedded
 UI in `vivy.exe`, Docker, or `just build-split` as the inner-loop server.
 
 ```text
@@ -278,9 +218,9 @@ work.
   `write_file`, `patch`, `multiedit`, `execute`, `bash`, `skills_list`, and
   `skill_view` are T1 implementations with reserved IDs. Public Modules cannot
   shadow, alias, replace, or override them.
-- All public Port Hosts and established first-party Providers belong to the
-  default Generation. Missing network configuration/credentials means
-  unconfigured and inactive, not automatic connection.
+- The explicit Recipe selects Hosts and Providers. Existing shipped Recipes
+  preserve their selected product behavior; new first-party capabilities need
+  not enter every default Generation. Missing credentials means inactive.
 - A selected UI Module has complete UI control by default. There is no UI Grant
   or authorization prompt. Backend inputs remain untrusted and server-side
   identity, schema, Policy, Grant, approval, Run, Tool, and Journal checks stay
@@ -341,31 +281,14 @@ files stay beside the code they govern (`ui/AGENTS.md`, `.agents/skills/`).
 Do not drop one-off plans on the repository root. Runtime data (`data/`),
 Studio scratch (`data/studio-home/`), and `.workspace/` are not documentation.
 
-## Iteration logs (`docs/logs`)
+## Delivery records
 
-Every deliverable change (kernel, UI, Studio, product-contract docs, or a
-closed TODO track) gets a new directory under `docs/logs/`. For minor
-editorial or agent-instruction changes with no product behavior or contract
-change, a focused commit describing the change and checks is sufficient.
-
-Naming: `YYYY-MM-DD-short-slug` (date of the delivery, hyphenated theme).
-Do not nest extra version directories unless one folder must hold several
-shipped cuts of the same theme.
-
-Required files in that directory:
-
-- `summary.md` — what changed, scope, what was explicitly not done
-- `verification.md` — commands run, results, and reasons for any skipped checks
-- `acceptance.md` — how a human can tell it worked (product/user view)
-
-Optional: `notes.md` (discussion), `release.md` (how it ships; omit with a
-reason if not a release), `rollback.md`.
-
-Existing examples: `docs/logs/2026-08-12-hitl-release-closure/`,
-`docs/logs/2026-08-16-studio-lifecycle/`. Archives of closed boards also live
-here (see `docs/logs/2026-08-25-todo-board-archive/`).
-
-Counterexample: finishing a feature with only chat history and no log.
+Use English under docs/. A minor editorial or instruction change needs a focused
+commit describing the change and checks. An ordinary deliverable uses one record
+under docs/logs/YYYY-MM-DD-slug/ covering changes, actual verification, user
+acceptance and remaining limitations. Split summary/verification/acceptance,
+release or rollback files only when a complex migration or release benefits.
+Preserve historical records. Do not create repeated records for every small fix.
 
 ## Backlog (`docs/TODO.md`)
 
@@ -401,37 +324,31 @@ work is isolated by structure, not by coordination — there is no `LOCK.md`.
 
 ## Validation
 
-The kernel gate is **`just wiring-ci` + `just kernel-ci`** from an independent
-Linux-filesystem WSL/Linux checkout at the candidate, with its own pinned
-Laputa. `kernel-ci` verifies kernel owners and packs, inspects and boots only
-the minimal Recipe without installing or building UI. It does not certify
-default/optional Modules or D13's usable-tool/chat composition. Run affected
-protocol/Face gates as well (`just d02-ci` for D02), and affected UI tests when
-UI behavior changes. Full-product `just ci` remains a separate platform/release
-gate; do not repeatedly run Windows full CI for a kernel acceptance scope.
-Keep native Windows owner checks separate and record every unrun lane.
+For skill, instruction or documentation changes that do not affect product code
+or behavior, review the diff and run only relevant static checks. Do not change
+CI wiring or run product CI as a side effect of that work. Changes to CI itself
+require an explicit CI task; an instruction update alone does not authorize them.
 
-For minor editorial or agent-instruction changes, review the diff and run
-`git diff --check`; full product CI is unnecessary. Do not add tests that
-merely restate reversible, low-impact edits. After required checks pass,
-repeat or expand verification only for new changes, failures, or unresolved
-risks. Remove temporary artifacts created by the task before finishing.
+Development uses `just ci-small --base <ref> [--scope <id> ...] [--plan]`.
+.github/ci-scopes.json is the sole path/Recipe/test association table. Explicit
+scopes add coverage; unknown executable inputs must be mapped. Document-only
+changes use static checks. Feature work verifies its selected Recipe and actual
+behavior. Shared runtime, protocol, SDK, storage or concurrency changes add their
+owning checks; a narrow Recipe never excuses affected shared contracts.
 
-User-visible or executable behavior also needs a minimum real-path smoke:
+Use the environment guidance in vivy-kernel-ci and vivy-advance-dev-env. Kernel
+lanes run in a Linux-filesystem WSL/Linux checkout with its own pinned Laputa;
+Windows native acceptance remains separate. UI behavior uses the isolated split
+Vite at :3015. No UI dependencies are required for a backend-only small CI.
 
-- Browser UI: exercise the change at `http://127.0.0.1:3015` (split Vite),
-  not only a screenshot and not the embedded UI on `:8787`
-- Plugin: follow `.agents/skills/vivy-plugin` for SDK verification, explicit
-  Recipe packing, and artifact inspection. Never install plugins by editing
-  `internal/runtime/engine.go`.
-- Studio lifecycle: `just studio` and the skill `vivy-studio-lifecycle`
-
-Record the commands and outcomes in that iteration's `verification.md`.
-
-Tests should be deterministic (no live network in unit tests). Cover a
-representative failure path, not only the happy path. New config fields need
-parse/validate tests. Secrets stay out of fixtures, logs, and event payloads
-(D-010).
+At Epic closeout, the final integrated candidate runs full product CI after
+small CI. The maintainer applies `epic-final` to its PR; updates rerun checks.
+Keep `just ci` and all existing product checks. The aggregate reports scoped
+results separately from full CI not requested/not verified. Missing services,
+failed commands and zero required executed tests never count as success.
+Tests are deterministic and use disposable data. Add meaningful failure-path
+coverage for changed behavior; do not add tests that merely restate reversible
+edits. Record actual commands and outcomes, then stop repeating unchanged checks.
 
 ## Secrets, errors, and logs in code
 

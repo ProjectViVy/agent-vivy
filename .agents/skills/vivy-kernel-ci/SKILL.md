@@ -1,56 +1,45 @@
 ---
 name: vivy-kernel-ci
-description: Change Vivy kernel, Studio overlay, UI, or product-contract docs, then run just ci. Feature work starts the split pair (just run + cd ui; pnpm dev) and opens http://127.0.0.1:3015. Use when editing internal/, cmd/, ui/, studio/, architecture docs, or the user says 改本体 / just ci / ST-6.
+description: Guide environment-aware Vivy validation, composing small CI during development and full product CI for the final Epic candidate. Use for kernel, control-plane, UI or integration verification.
 ---
 
-# Vivy kernel + just ci
+# Vivy environment and layered CI
 
-This is lane C: Vivy can be developed from Vivy Studio or any other authorized
-developer tool. Work directly in the `agent-vivy` repo root (or a worktree cut
-from it), never `data/`. Do not hand work off to Studio solely to satisfy a
-venue convention.
+Root AGENTS.md owns acceptance policy; .github/ci-scopes.json owns check
+associations. This skill guides their execution. Keep working in the authorized
+checkout, with disposable data; never use tenant Journals as test fixtures.
 
-## Development loop
+## Development
 
-Start the split pair for kernel, control-plane, and browser UI work. Do not
-use the embedded UI, Docker, or `just build-split` as the inner-loop server.
+Read ../vivy-advance-dev-env/SKILL.md when choosing or repairing the host.
+Use the current justfile rather than historical command names.
 
 ```text
-just dev                      # one-click split loop
-# or:
-terminal 1: just run          # control plane 127.0.0.1:8787
-terminal 2: cd ui; pnpm dev   # Vite UI 127.0.0.1:3015, proxies /rpc
+just ci-small --base <ref> --plan
+just ci-small --base <ref>
+just ci-small --base <ref> --scope <additional-scope>
 ```
 
-Open `http://127.0.0.1:3015`. The backend owns the JSON-RPC control plane;
-Vite serves the UI and proxies `/rpc`. The embedded UI is still built and
-checked by `just ci`. `just build-split` is the packaged headless-backend +
-standalone-UI path, not the edit loop.
+Choose the actual comparison baseline. Scopes are additive. A changed shared
+owner widens coverage beyond a feature Recipe. Linux-filesystem WSL/Linux runs
+kernel/Face/race/Postgres checks with independent pinned Laputa; Windows owns
+native acceptance. Its full-CI UI recipes isolate TEMP/TMP in their own child
+process to avoid esbuild system-temp cleanup failures; do not carry that override
+into Go tests or project-instruction discovery. A missing venue or service remains unverified.
 
-## Air gap
+For browser behavior, start `just dev`, or `just run` plus `cd ui; pnpm dev`,
+and exercise http://127.0.0.1:3015 with an explicit disposable home. Set
+VIVY_UI_RECIPE to select a development Recipe. Backend-only checks use their
+real API/CLI/tool path without starting UI. Embedded UI and Docker are packaging
+paths. Studio is not a required development venue.
 
-Do not read or write `data/vivy.db`, `data/demo/`, or `data/workspaces/`.
-Those are the tenant Journal. Studio's DSH home is `data/studio-home/`.
+## Epic closeout
 
-## Procedure
+After scoped checks pass on the integrated candidate, run `just ci` on its
+supported full-product host. Apply the PR label `epic-final` to request the
+existing complete GitHub lanes; each update while labeled reruns them. Keep
+scoped success, full-product success and external acceptance distinct. A green
+small CI does not establish the other two. Record outcomes using root AGENTS.md.
 
-1. Edit one concern under `internal/`, `cmd/`, `ui/`, `studio/`, or a
-   product-contract doc (`docs/architecture/`, PRD/ADR that this tree honors).
-2. Run **`just ci`** from the repo root (`fmt-check` + `vet` + `test`).
-3. For a deliverable (not a typo-only pass), write
-   `docs/logs/YYYY-MM-DD-slug/{summary,verification,acceptance}.md`
-   per root `AGENTS.md`. Unfixed findings go in `docs/TODO.md` §0.1.
-4. If the change needs a new body, that is a later pack (`vivy-plugin-five`
-   or `vivy-sdk pack`) — not this skill's success condition.
-
-Success is `just ci` green plus the iteration log when the change is a
-delivery. A hand-rolled `go test` is not the product path when `just ci`
-exists.
-
-## Forbidden
-
-- Using daily `vivy.exe` as an IDE
-- Developing against the embedded UI on `:8787` instead of Vite on `:3015`
-- Installing a plugin by editing `engine.go`
-- Treating Vivy Studio as a mandatory execution venue for a tool that already
-  has authorized access to this workspace
+Use existing Module/Port/Recipe packing for plugin work, never engine.go imports
+or hand-edited generated Assembly. Preserve daily tenant data and credentials.

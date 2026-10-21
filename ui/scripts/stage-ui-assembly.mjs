@@ -17,14 +17,14 @@ import { fileURLToPath } from 'node:url';
 
 const uiRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(uiRoot, '..');
-const recipe = resolve(repositoryRoot, 'recipes/default.vivy.yml');
+const recipe = resolve(repositoryRoot, process.env.VIVY_UI_RECIPE || 'recipes/default.vivy.yml');
 
 if (!existsSync(recipe)) {
-  console.error(`stage-ui: the default Recipe is missing at ${recipe}`);
+  console.error(`stage-ui: the selected Recipe is missing at ${recipe}`);
   process.exit(1);
 }
 
-const result = spawnSync('go', ['run', './sdk', 'stage-ui', '--recipe', recipe, '--generation-id', 'authoring-default', '--out', resolve(uiRoot, 'src/generated')], {
+const result = spawnSync('go', ['run', './sdk', 'stage-ui', '--recipe', recipe, '--out', resolve(uiRoot, 'src/generated')], {
   cwd: repositoryRoot,
   stdio: 'inherit',
 });

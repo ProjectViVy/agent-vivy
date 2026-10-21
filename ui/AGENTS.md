@@ -38,7 +38,8 @@
   or another Module's internals.
 - Provider secrets are injected by the runtime by default (config `env_key`); the custom provider registry under “Settings → Models” is **persisted by the backend** (`settings/providers` series RPCs → `data/agent-home/
   settings.yaml`; secrets are written to disk write-only with mode 0600 and synced to environment variables afterward), and the UI no longer stores a localStorage copy. When `settings/update` selects a model, it does not carry the secret (the backend resolves it through the registry); values are never written to logs or sent back to the control plane; `vivy.demo.*` still disables secret fields.
-- After completing UI changes, run `just ci` from the repository root. User-visible behavior must also be exercised end to end at
-  `http://127.0.0.1:3015`, and the root `AGENTS.md` requires writing
-  `docs/logs/YYYY-MM-DD-slug/` (`summary.md` / `verification.md` /
-  `acceptance.md`). Record unfinished gaps in `docs/TODO.md` §0.1.
+- Follow root AGENTS.md for scoped CI and proportional records. Exercise changed
+  browser behavior at the isolated split Vite origin. `VIVY_UI_RECIPE` selects an
+  explicit development Recipe; unset preserves the current default. A small CI
+  stages once then runs direct checks in the same session; ordinary pnpm
+  pre-hooks still prepare their inputs. Never hand-edit generated sources.

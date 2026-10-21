@@ -1,9 +1,6 @@
 name: Minimal kernel
 
 on:
-  pull_request:
-  push:
-    branches: [stable]
   workflow_dispatch:
 
 permissions:

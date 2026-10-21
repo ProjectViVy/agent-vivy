@@ -1,3 +1,7 @@
+> Development verification and delivery records now follow root AGENTS.md
+> and vivy-kernel-ci. Historical evidence remains unchanged. This applicability
+> update does not waive product, data-transition or final acceptance obligations.
+
 # Vivy Plugin Platform v1 Program Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use

@@ -1,3 +1,7 @@
+> Current validation policy: follow root AGENTS.md and vivy-kernel-ci. The
+> commands and records below describe their original host context; they do not
+> require full-product CI during ordinary development.
+
 # How Vivy wires Eino today (v0.9.13)
 
 Read these files before touching the model/agent layer. All paths are repo-relative.

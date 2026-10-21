@@ -18,15 +18,19 @@ scheduled phase under `docs/plans/plugin-platform/` before editing.
 
 | Change | Route |
 |---|---|
-| Module/Port/Compiler/Host or product contract | **REQUIRED SUB-SKILL:** use `vivy-kernel-ci` |
+| Module/Port/Compiler/Host or product contract | Use `vivy-kernel-ci` to select the applicable environment/checks |
 | Eino-scoped adapter | **REQUIRED SUB-SKILL:** use `vivy-eino` |
 | Web UI Module implementation | **REQUIRED SUB-SKILL:** use `oil-frontend` |
 | Public Module using a supported Port | Stay in its source boundary; verify, pack the explicit Recipe, and inspect |
 | Port is only `SPECIFIED` or phase is `UNSCHEDULED` | Stop implementation and report the unmet Gate; never fall back to v0 |
 
-## Required development record
+## Development decisions
 
-Before code, name:
+For a new public Port, establish the following in its existing design. A normal
+Provider using an established Port reuses that contract and records only changed
+behavior, Recipe and checks; no duplicate platform dossier is required.
+
+New Port decisions:
 
 1. Module ID, T1/T2/T3 classification, and source pin;
 2. existing cataloged Port and exact version;
@@ -52,8 +56,8 @@ pinned Eino/EinoExt package/API. Adapt it when present; otherwise record
 - Protected Tool IDs cannot be shadowed, aliased, replaced, or overridden.
 - All Tool sources use ToolHost. Channels, Faces, Context, Skills, MCP,
   Middleware, Observers, Status, and Actions use their named Host.
-- All first-party features remain in the default Generation; unconfigured
-  network instances stay inactive.
+- Explicit Recipes select first-party features; preserve existing shipped
+  selections. Unconfigured network instances stay inactive.
 - Selected UI Modules have complete UI control by default. Do not add a UI
   Grant or permission prompt. The backend still distrusts every browser claim.
 - Same-process T2 code is trusted, not sandboxed. Untrusted execution is T3.
@@ -108,7 +112,9 @@ Recipe. Inspect consumes the artifact directory, parses the sealed executable
 without running it, and reports build-owned Port support and conformance
 evidence.
 
-Run the pressure matrix before claiming a Provider or Generation complete:
+For changes to Generation failure/rollback or shared Host authority, use the
+affected cases below. Ordinary Provider changes use their Host/Port checks and
+explicit Recipe rather than this entire platform matrix:
 
 ```text
 go test ./sdk/internal/conformance -run TestCheckedInProviderConformanceMatchesExecutedSuites -count=1
@@ -118,8 +124,8 @@ go test ./sdk/internal/assembly -run 'Test(CompilePluginV1GraphFixtures|StartFai
 go test ./internal/toolhost -run 'TestMiddleware(TimeoutFailsClosed|PanicAndInvalidDecisionFailClosed)' -count=1
 ```
 
-Then run the focused Host/Port suites, `just ci`, and the real selected product
-path. Record the iteration log and commit one concern.
+Use root AGENTS.md for scoped validation and proportional records. Verify the
+real selected product path; full product CI is the final Epic closeout stage.
 
 `verify` is static and never starts Provider code. `pack` consumes the
 checked-in behavior-conformance result bundle; it does not execute

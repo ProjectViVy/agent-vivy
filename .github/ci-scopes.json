@@ -1,0 +1,290 @@
+{
+  "scopes": [
+    {
+      "id": "docs",
+      "paths": [
+        "\\.md$",
+        "^LICENSE$"
+      ],
+      "checks": [
+        "diff"
+      ]
+    },
+    {
+      "id": "tooling",
+      "paths": [
+        "^scripts/",
+        "^\\.github/",
+        "^justfile$",
+        "^\\.agents/.*\\.(mjs|js|json|py)$",
+        "^(dev|launch-|setup|build).*(ps1|cmd|sh)$",
+        "^Dockerfile$",
+        "^docker-compose.*",
+        "^\\.git(ignore|modules|attributes)$"
+      ],
+      "checks": [
+        "diff",
+        "scripts"
+      ]
+    },
+    {
+      "id": "kernel",
+      "paths": [
+        "^internal/(runtime|provider|domain|events|config|toolhost|tools|modules/(loop|model|storage|checkpoint|credential|sandbox|optional))/",
+        "^cmd/"
+      ],
+      "recipe": "recipes/minimal.vivy.yml",
+      "checks": [
+        "diff",
+        "wiring",
+        "kernel",
+        "protocol"
+      ]
+    },
+    {
+      "id": "storage",
+      "paths": [
+        "^internal/storage/"
+      ],
+      "recipe": "recipes/minimal.vivy.yml",
+      "checks": [
+        "diff",
+        "kernel",
+        "postgres"
+      ]
+    },
+    {
+      "id": "concurrency",
+      "paths": [
+        "^internal/runtime/[^/]*(concurr|queue|lease|claim|operation|steering|checkpoint|service)[^/]*\\.go$",
+        "^internal/storage/[^/]+/[^/]*(lease|claim|operation|concurr)[^/]*\\.go$"
+      ],
+      "checks": [
+        "race"
+      ]
+    },
+    {
+      "id": "protocol",
+      "paths": [
+        "^internal/(rpc|app)/",
+        "^sdk/(facerun|tui|codeclient)/",
+        "^faces/"
+      ],
+      "goPackages": [
+        "@changed"
+      ],
+      "recipe": "recipes/minimal.vivy.yml",
+      "checks": [
+        "diff",
+        "go",
+        "protocol"
+      ]
+    },
+    {
+      "id": "owners",
+      "paths": [
+        "^internal/(?!runtime/|provider/|domain/|events/|config/|toolhost/|tools/|storage/|rpc/|app/|modules/(loop|model|storage|checkpoint|credential|sandbox|optional)/)",
+        "^examples/.*\\.go$"
+      ],
+      "goPackages": [
+        "@changed"
+      ],
+      "checks": [
+        "diff",
+        "go"
+      ]
+    },
+    {
+      "id": "sdk",
+      "paths": [
+        "^sdk/(?!facerun/|tui/|codeclient/|ui/)"
+      ],
+      "goPackages": [
+        "./sdk/..."
+      ],
+      "recipe": "recipes/default.vivy.yml",
+      "uiTests": [
+        "src/lib/model-completion.test.ts",
+        "src/lib/store.test.ts"
+      ],
+      "checks": [
+        "diff",
+        "go",
+        "wiring",
+        "ui"
+      ]
+    },
+    {
+      "id": "dependencies",
+      "paths": [
+        "^go\\.(mod|sum)$",
+        "^laputa-source.lock.json$",
+        "^third_party/"
+      ],
+      "recipe": "recipes/minimal.vivy.yml",
+      "checks": [
+        "diff",
+        "wiring",
+        "kernel",
+        "protocol"
+      ]
+    },
+    {
+      "id": "ui",
+      "paths": [
+        "^ui/",
+        "^sdk/ui/"
+      ],
+      "recipe": "recipes/minimal-chat.vivy.yml",
+      "uiTests": [
+        "@related",
+        "src/lib/model-completion.test.ts",
+        "src/lib/store.test.ts",
+        "src/lib/run-subscription.test.ts",
+        "src/components/chat/ChatView.test.tsx"
+      ],
+      "checks": [
+        "diff",
+        "ui",
+        "browser"
+      ]
+    },
+    {
+      "id": "plugin-ui",
+      "paths": [
+        "^plugins/vivy-(evolution|memory|notebook|workflow)/ui/"
+      ],
+      "recipe": "recipes/default.vivy.yml",
+      "uiTests": [
+        "src/plugins/conformance.test.tsx",
+        "src/generated/ui"
+      ],
+      "checks": [
+        "diff",
+        "ui",
+        "recipe"
+      ]
+    },
+    {
+      "id": "hello-fs",
+      "paths": [
+        "^plugins/hello-fs/",
+        "^examples/minimal-plus-hello-fs/recipe.vivy.yml$"
+      ],
+      "goPackages": [
+        "./plugins/hello-fs"
+      ],
+      "recipe": "examples/minimal-plus-hello-fs/recipe.vivy.yml",
+      "checks": [
+        "diff",
+        "go",
+        "recipe"
+      ]
+    },
+    {
+      "id": "plugins",
+      "paths": [
+        "^plugins/(dingtalk|discord|feishu|qq|telegram|vivy-(evolution|memory|notebook|persona|workflow|masks-ui)|coding/session-tree)/(?!.*\\/ui\\/)"
+      ],
+      "goPackages": [
+        "@changed"
+      ],
+      "recipe": "recipes/default.vivy.yml",
+      "checks": [
+        "diff",
+        "go",
+        "recipe"
+      ]
+    },
+    {
+      "id": "coding",
+      "paths": [
+        "^plugins/(infra/llm|coding/lsp)/"
+      ],
+      "goPackages": [
+        "@changed"
+      ],
+      "recipe": "recipes/vivy-code.vivy.yml",
+      "checks": [
+        "diff",
+        "go",
+        "recipe"
+      ]
+    },
+    {
+      "id": "scx",
+      "paths": [
+        "^plugins/scx-reference/"
+      ],
+      "goPackages": [
+        "@changed"
+      ],
+      "recipe": "recipes/scx.vivy.yml",
+      "checks": [
+        "diff",
+        "go",
+        "recipe"
+      ]
+    },
+    {
+      "id": "recipes",
+      "paths": [
+        "^recipes/.*\\.vivy\\.yml$"
+      ],
+      "recipe": "@changed",
+      "checks": [
+        "diff",
+        "wiring",
+        "recipe"
+      ]
+    },
+    {
+      "id": "ui-persona",
+      "paths": [
+        "^plugins/vivy-persona/ui/"
+      ],
+      "recipe": "recipes/default.vivy.yml",
+      "uiTests": [
+        "src/plugins/conformance.test.tsx",
+        "../plugins/vivy-persona/ui/vivy-persona/src"
+      ],
+      "checks": [
+        "diff",
+        "ui",
+        "recipe"
+      ]
+    },
+    {
+      "id": "ui-masks",
+      "paths": [
+        "^plugins/vivy-masks-ui/ui/"
+      ],
+      "recipe": "recipes/default.vivy.yml",
+      "uiTests": [
+        "src/plugins/conformance.test.tsx",
+        "../plugins/vivy-masks-ui/ui/vivy-masks/src"
+      ],
+      "checks": [
+        "diff",
+        "ui",
+        "recipe"
+      ]
+    },
+    {
+      "id": "ui-session-tree",
+      "paths": [
+        "^plugins/coding/session-tree/ui/"
+      ],
+      "recipe": "recipes/default.vivy.yml",
+      "uiTests": [
+        "src/plugins/conformance.test.tsx",
+        "../plugins/coding/session-tree/ui/session-tree/src"
+      ],
+      "checks": [
+        "diff",
+        "ui",
+        "recipe"
+      ]
+    }
+  ]
+}

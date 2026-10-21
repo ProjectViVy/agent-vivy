@@ -60,8 +60,9 @@ with L0.
 
 ContextHost, SkillHost, MCPHost, ObserverHost, StatusHost, PresentationHost,
 ActionHost, compaction, worker supervision, and similar organs are internal.
-The default Vivy Generation includes the established first-party organs. A
-minimal Recipe may omit one only when no selected Provider requires it.
+The explicit Recipe selects first-party organs. Preserve current shipped
+selections; adding a first-party organ does not require selecting it by default.
+A minimal Recipe may omit an organ when no selected Provider requires it.
 
 ### L3 — Public Pluggable Alliance
 
@@ -276,7 +277,7 @@ fallback to a different Provider.
 ## 8. Default-open policy
 
 All public v1 Port Consumers and Hosts are compiled and enabled in the default
-Vivy Generation. Established first-party implementations are included as the
+Vivy Generation. The shipped Recipe explicitly selects first-party implementations as the
 zero-behavior baseline.
 
 Default-open means the capability contract is present. It does not mean:

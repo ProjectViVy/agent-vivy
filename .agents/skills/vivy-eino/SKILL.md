@@ -1,28 +1,15 @@
 ---
 name: vivy-eino
-description: 'Complete Eino framework usage guide for Vivy development — components (ChatModel, Prompt, Retriever, Embedding, Document, Indexer, Tool), orchestration (Chain / Graph / Workflow / Parallel / Branch), Runnable modes (Invoke/Stream/Collect/Transform), callbacks/observability, and the ADK agent layer (ChatModelAgent, Runner, events, middlewares). Use whenever code touches github.com/cloudwego/eino* (inside internal/runtime or internal/provider), or when the user asks how to build/design an LLM pipeline in Vivy, how to chain models+tools+retrieval, how to stream, how to add agents, or references the Eino quick start (快速开始 / chapter_01 / ChatModel 与 Message). Triggers: eino / chain / graph / workflow / compose / adk / agent / retriever / rag / embedding / prompt template / tools node / callbacks / stream / Invoke / Stream / Collect / Transform / 编排 / 流程图 / 智能体 / 工具调用.'
+description: Inspect repository-pinned Eino and EinoExt APIs when adding or replacing Vivy runtime/provider capabilities, or fixing an existing adapter. Load only references relevant to the affected API.
 ---
 
-# Vivy × Eino — framework usage guide (v0.9.13)
+# Vivy and Eino
 
-Official docs: <https://www.cloudwego.io/zh/docs/eino/> — **do not fetch over the network**; the sandbox blocks outbound TLS (`SEC_E_NO_CREDENTIALS`). Canonical reference is the local module source, which matches the repo pin in `go.mod`:
-
-```
-%USERPROFILE%\go\pkg\mod\github.com\cloudwego\eino@v0.9.13\
-    components\model\        # ChatModel
-    components\prompt\       # chat templates
-    components\tool\         # tool interfaces + utils (InferTool)
-    components\retriever\    # RAG retrieval
-    components\embedding\    # embeddings
-    components\document\     # loaders / transformers
-    components\indexer\      # indexing
-    compose\                 # Chain / Graph / Workflow / Parallel / Branch / Runnable
-    flow\agent\              # ReAct agent options
-    callbacks\               # observability handlers
-    adk\                     # agent dev kit: ChatModelAgent, Runner, events
-    schema\                  # Message, Document, ToolInfo, StreamReader
-%USERPROFILE%\go\pkg\mod\github.com\cloudwego\eino-ext\components\model\openai@v0.1.13\
-```
+Resolve versions from the current go.mod, and source locations with
+`go list -m -f '{{.Dir}}' <module>` after preparing the pinned dependencies.
+Inspect only the pinned APIs needed for the change. Current module sources are
+primary; official documentation is also usable when network access permits.
+Do not treat a past host's TLS failure as a permanent network prohibition.
 
 ## Eino in one paragraph
 
@@ -55,7 +42,7 @@ Vivy today: `internal/provider` builds models (`einoopenai.NewChatModel`), `inte
 4. **Orchestrate**: `NewChain` or `NewGraph`; `AppendChatTemplate(...).AppendChatModel(...).AppendToolsNode(...)`; or `AddChatModelNode` / `AddToolsNode` / `AddEdge`; compile with `r, err := g.Compile(ctx)`.
 5. **Run**: `r.Invoke(ctx, in)` or `r.Stream(ctx, in)`; consume `*schema.StreamReader` with `Recv()` until `io.EOF`, `defer Close()`.
 6. **Observe**: `callbacks.NewHandlerBuilder().OnStartFn(...).Build()`; register via `callbacks.AppendGlobalHandlers` or `compose.WithCallbacks`.
-7. **Verify**: `just ci` (kernel path, runs the eino import quarantine).
+7. **Verify**: follow root AGENTS.md and vivy-kernel-ci for affected checks; full CI belongs to final Epic closeout.
 
 ## Vivy hard rules (read before coding)
 
@@ -64,7 +51,7 @@ Vivy today: `internal/provider` builds models (`einoopenai.NewChatModel`), `inte
 3. **Domain firewall**: `internal/runtime/modeladapter.go` is the only bridge `domain.ChatModel` ↔ `model.ToolCallingChatModel`; `modelbroker.go` maps worker messages and never retains history.
 4. **Immutable tools**: prefer `ToolCallingChatModel.WithTools(...)` (new instance) over deprecated mutating `ChatModel.BindTools` — races under concurrency.
 5. **Close streams**: every `*schema.StreamReader` (model, tool, Runnable, callback copies) must be closed; readers are single-shot.
-6. **No network fetch of docs**: use the local module cache above; treat it as the spec.
+6. **Pinned API first**: inspect the current module source; check relevant official docs when needed.
 
 ## Reference files
 
@@ -79,6 +66,5 @@ Vivy today: `internal/provider` builds models (`einoopenai.NewChatModel`), `inte
 ## Forbidden
 
 - Importing `github.com/cloudwego/eino*` outside `internal/runtime` / `internal/provider`.
-- Fetching CloudWeGo docs over the network (sandbox TLS is blocked; use the module cache).
 - `BindTools` on a shared instance; `schema.Message.MultiContent` (deprecated); unclosed/read-twice stream readers.
 - Bypassing the provider/adapter seams to construct models or wrap domain types elsewhere.
