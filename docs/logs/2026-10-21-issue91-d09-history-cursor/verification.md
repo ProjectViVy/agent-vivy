@@ -38,3 +38,28 @@ snapshot beside its cursor and use it for Load more. The draft remains available
 for recovery search; continuation never borrows its changed filter.
 
 Final native UI suite:10 tests PASS1.68s; actual staged typecheck PASS.
+
+
+Exact candidate `d61fdc2b52c8be67e00e18eddc77eda0ab0c423d` completed from the
+independent ext4 checkout with its own clean pinned Laputa:
+
+- `just wiring-ci`: PASS16 Node and105 Go cases, zero skips.
+- `just kernel-ci`: PASS1810 executed cases, one existing optional rg skip;
+  minimal Recipe Pack/Inspect/boot PASS1.
+- Real disposable PostgreSQL16 `just test-postgres`: PASS129, zero skips;
+  private container removed by trap.
+- `just d02-ci`: PASS81 runtime/RPC,175 shared Face/client,1 causal App,
+  13 shutdown/headless App and9 standalone headless cases, zero skips.
+- `just d02-web-ci`: staged typecheck PASS,102 Web cases and2 selected-UI Pack
+  cases PASS, zero skips.
+- `pnpm --dir ui test -- src/components/chat/HistoryPicker.test.tsx` ran the full
+  configured UI suite on this host:84 files/658 tests PASS16.85s, zero skips.
+- `go test -race -tags=vivy_headless ./internal/runtime -run
+  'TestD09History|TestHistory|TestReference|TestContinuity' -count=1 -timeout=10m`:
+  PASS59.052s.
+- Final clean-worktree assertion and script exit0 passed.
+
+The independent UI reviewer confirmed the successful-query snapshot correction
+closed the final finding; review did not substitute for the checks above.
+Standard3015 real-path smoke remains owner-deferred, and D09 reference/delivery
+closure remains open.
