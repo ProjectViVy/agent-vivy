@@ -413,6 +413,7 @@ export const en: Dictionary = {
     chooseSession: 'Pick a session to list its records.',
     noSessions: 'No sessions found',
     noRecords: 'No records found',
+    narrowSearch: 'Narrow your search or choose fewer records, then search again.',
     loadFailed: 'Failed to load',
     loadMore: 'Load more',
     moreRemain: 'More records exist — load or narrow the search.',

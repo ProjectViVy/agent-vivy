@@ -2,17 +2,12 @@ package runtime
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
@@ -21,13 +16,12 @@ import (
 )
 
 const (
-	historyCursorVersion       = 1
-	historyCursorDecodedMax    = 64 << 10
-	historyCursorTransportMax  = 48 << 10
-	historyCursorPartSeparator = "."
-	historyPhaseMessages       = "messages"
-	historyPhaseEvents         = "events"
-	historyPhaseDone           = "done"
+	historyCursorVersion      = 2
+	historyCursorDecodedMax   = 64 << 10
+	historyCursorTransportMax = 48 << 10
+	historyPhaseMessages      = "messages"
+	historyPhaseEvents        = "events"
+	historyPhaseDone          = "done"
 )
 
 var errHistoryCursorStale = errors.New("stale_cursor")
@@ -66,8 +60,7 @@ type HistoryService struct {
 	query    storage.HistoryQueryStore
 	sessions storage.SessionStore
 	limits   domain.ContinuityLimits
-	key      []byte
-	keyMu    sync.RWMutex
+	limitsMu sync.RWMutex
 	// referenceLookup resolves the destination-owned snapshot copy behind a
 	// reference_id read. Nil keeps reference-id reads unavailable; the
 	// composition root wires it once ReferenceService exists (SC-D4 §7).
@@ -81,14 +74,6 @@ var _ HistoryOperations = (*HistoryService)(nil)
 // NewHistoryService constructs the single history authority used by both
 // readonly model tools and inspection RPCs.
 func NewHistoryService(query storage.HistoryQueryStore, sessionStores ...storage.SessionStore) *HistoryService {
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		// crypto/rand failure is exceptionally unlikely. A process-local,
-		// time-varying fallback still guarantees that a future process cannot
-		// accept an old cursor; the cursor remains an opaque capability.
-		digest := sha256.Sum256([]byte(fmt.Sprintf("vivy-history-%d", time.Now().UnixNano())))
-		copy(key, digest[:])
-	}
 	var sessions storage.SessionStore
 	if len(sessionStores) > 0 {
 		sessions = sessionStores[0]
@@ -97,7 +82,6 @@ func NewHistoryService(query storage.HistoryQueryStore, sessionStores ...storage
 		query:    query,
 		sessions: sessions,
 		limits:   domain.DefaultContinuityLimits(),
-		key:      key,
 	}
 }
 
@@ -144,15 +128,15 @@ func (s *HistoryService) SetLimits(limits domain.ContinuityLimits) {
 	if limits.ResultPageBytes <= 0 || limits.ResultPageBytes > defaults.ResultPageBytes {
 		limits.ResultPageBytes = defaults.ResultPageBytes
 	}
-	s.keyMu.Lock()
+	s.limitsMu.Lock()
 	s.limits = limits
-	s.keyMu.Unlock()
+	s.limitsMu.Unlock()
 }
 
 func (s *HistoryService) effectiveLimits() domain.ContinuityLimits {
-	s.keyMu.RLock()
+	s.limitsMu.RLock()
 	limits := s.limits
-	s.keyMu.RUnlock()
+	s.limitsMu.RUnlock()
 	if limits == (domain.ContinuityLimits{}) {
 		return domain.DefaultContinuityLimits()
 	}
@@ -297,15 +281,15 @@ func (s *HistoryService) Trace(ctx context.Context, request domain.HistoryTraceR
 }
 
 func (s *HistoryService) runSearch(ctx context.Context, request domain.HistorySearchRequest, limits domain.ContinuityLimits) (domain.HistoryPage, error) {
-	sessions, scopeHash, page, err := s.authorizeSessions(ctx, request.SessionIDs)
+	sessions, page, err := s.authorizeSessions(ctx, request.SessionIDs)
 	if err != nil {
 		return domain.HistoryPage{}, err
 	}
 	if page.Status != "" {
 		return page, nil
 	}
-	filterHash := historyFilterHash("search", request, scopeHash)
-	state := historyCursorState{Version: historyCursorVersion, Destination: string(tools.SessionIDFromContext(ctx)), ScopeHash: scopeHash, FilterHash: filterHash, Phase: historyPhaseMessages}
+	filter := normalizeHistoryCursorFilter(request)
+	state := historyCursorState{Version: historyCursorVersion, Destination: string(tools.SessionIDFromContext(ctx)), Scope: sessions, Filter: filter, Phase: historyPhaseMessages}
 	if request.Cursor != "" {
 		state, err = s.decodeCursor(request.Cursor)
 		if errors.Is(err, errHistoryCursorStale) {
@@ -314,10 +298,10 @@ func (s *HistoryService) runSearch(ctx context.Context, request domain.HistorySe
 		if err != nil {
 			return historyStatusPage(domain.HistoryStatusInvalidArgument, "invalid_cursor"), nil
 		}
-		if state.Destination != string(tools.SessionIDFromContext(ctx)) || state.ScopeHash != scopeHash || state.FilterHash != filterHash {
+		if state.Destination != string(tools.SessionIDFromContext(ctx)) || !sameHistoryCursorRequest(state, sessions, filter) {
 			return historyStatusPage(domain.HistoryStatusForbidden, "cursor_scope_mismatch"), nil
 		}
-		if err := s.reauthorizeCursor(ctx, state.Cut); err != nil {
+		if err := s.validateHistoryCursorCut(ctx, state, sessions); err != nil {
 			return historyStatusPage(domain.HistoryStatusForbidden, "cursor_scope_unavailable"), nil
 		}
 	} else {
@@ -398,15 +382,15 @@ func (s *HistoryService) runRead(ctx context.Context, request domain.HistoryRead
 	if current == "" || !s.sessionAllowed(ctx, selection.SourceSessionID, current) {
 		return historyStatusPage(domain.HistoryStatusForbidden, "out_of_scope"), nil
 	}
-	sessions, scopeHash, page, err := s.authorizeSessions(ctx, []domain.SessionID{selection.SourceSessionID})
+	sessions, page, err := s.authorizeSessions(ctx, []domain.SessionID{selection.SourceSessionID})
 	if err != nil {
 		return domain.HistoryPage{}, err
 	}
 	if page.Status != "" {
 		return page, nil
 	}
-	filterHash := historyFilterHash("read", request, scopeHash)
-	state := historyCursorState{Version: historyCursorVersion, Destination: string(current), ScopeHash: scopeHash, FilterHash: filterHash, Phase: historyPhaseMessages}
+	filter := normalizeHistoryCursorFilter(request)
+	state := historyCursorState{Version: historyCursorVersion, Destination: string(current), Scope: sessions, Filter: filter, Phase: historyPhaseMessages}
 	if request.Cursor != "" {
 		state, err = s.decodeCursor(request.Cursor)
 		if errors.Is(err, errHistoryCursorStale) {
@@ -415,10 +399,10 @@ func (s *HistoryService) runRead(ctx context.Context, request domain.HistoryRead
 		if err != nil {
 			return historyStatusPage(domain.HistoryStatusInvalidArgument, "invalid_cursor"), nil
 		}
-		if state.Destination != string(current) || state.ScopeHash != scopeHash || state.FilterHash != filterHash {
+		if state.Destination != string(current) || !sameHistoryCursorRequest(state, sessions, filter) {
 			return historyStatusPage(domain.HistoryStatusForbidden, "cursor_scope_mismatch"), nil
 		}
-		if err := s.reauthorizeCursor(ctx, state.Cut); err != nil {
+		if err := s.validateHistoryCursorCut(ctx, state, sessions); err != nil {
 			return historyStatusPage(domain.HistoryStatusForbidden, "cursor_scope_unavailable"), nil
 		}
 	} else {
@@ -477,18 +461,6 @@ func (s *HistoryService) runRead(ctx context.Context, request domain.HistoryRead
 	}
 	return s.boundPage(page, limits), nil
 }
-
-type historyCursorState struct {
-	Version     int                     `json:"version"`
-	Destination string                  `json:"destination"`
-	ScopeHash   string                  `json:"scope_hash"`
-	FilterHash  string                  `json:"filter_hash"`
-	Cut         storage.HistoryCut      `json:"cut"`
-	Phase       string                  `json:"phase"`
-	After       storage.HistoryPosition `json:"after"`
-}
-
-func (c historyCursorState) done() bool { return c.Phase == historyPhaseDone }
 
 func (s *HistoryService) scan(ctx context.Context, state historyCursorState, limit int, limits domain.ContinuityLimits, match func(storage.HistoryCandidate, domain.HistoryItem) bool) ([]domain.HistoryItem, historyCursorState, bool, bool, bool, []string, error) {
 	items := make([]domain.HistoryItem, 0, limit)
@@ -564,15 +536,15 @@ func advanceHistoryPhase(state historyCursorState) historyCursorState {
 	return state
 }
 
-func (s *HistoryService) authorizeSessions(ctx context.Context, requested []domain.SessionID) ([]domain.SessionID, string, domain.HistoryPage, error) {
+func (s *HistoryService) authorizeSessions(ctx context.Context, requested []domain.SessionID) ([]domain.SessionID, domain.HistoryPage, error) {
 	current := tools.SessionIDFromContext(ctx)
 	if current == "" || !utf8.ValidString(string(current)) {
-		return nil, "", historyStatusPage(domain.HistoryStatusForbidden, "missing_authority"), nil
+		return nil, historyStatusPage(domain.HistoryStatusForbidden, "missing_authority"), nil
 	}
 	allowed := []domain.SessionID{current}
 	if scope, ok := historyScopeFromContext(ctx); ok {
 		if err := scope.Validate(); err != nil || scope.DestinationSessionID != current {
-			return nil, "", historyStatusPage(domain.HistoryStatusForbidden, "invalid_scope"), nil
+			return nil, historyStatusPage(domain.HistoryStatusForbidden, "invalid_scope"), nil
 		}
 		allowed = append([]domain.SessionID(nil), scope.SourceSessionIDs...)
 	}
@@ -581,7 +553,7 @@ func (s *HistoryService) authorizeSessions(ctx context.Context, requested []doma
 	}
 	requested = domain.CanonicalSessionIDs(requested)
 	if len(requested) == 0 {
-		return nil, "", historyStatusPage(domain.HistoryStatusInvalidArgument, "invalid_session_scope"), nil
+		return nil, historyStatusPage(domain.HistoryStatusInvalidArgument, "invalid_session_scope"), nil
 	}
 	allowedSet := make(map[domain.SessionID]struct{}, len(allowed))
 	for _, id := range allowed {
@@ -590,7 +562,7 @@ func (s *HistoryService) authorizeSessions(ctx context.Context, requested []doma
 	if !historyOperatorFromContext(ctx) {
 		for _, id := range requested {
 			if _, ok := allowedSet[id]; !ok {
-				return nil, "", historyStatusPage(domain.HistoryStatusForbidden, "out_of_scope"), nil
+				return nil, historyStatusPage(domain.HistoryStatusForbidden, "out_of_scope"), nil
 			}
 		}
 	}
@@ -598,17 +570,13 @@ func (s *HistoryService) authorizeSessions(ctx context.Context, requested []doma
 		for _, id := range requested {
 			if _, err := s.sessions.GetSession(ctx, id); err != nil {
 				if errors.Is(err, storage.ErrNotFound) {
-					return nil, "", historyStatusPage(domain.HistoryStatusNotFound, "session_not_found"), nil
+					return nil, historyStatusPage(domain.HistoryStatusNotFound, "session_not_found"), nil
 				}
-				return nil, "", domain.HistoryPage{}, err
+				return nil, domain.HistoryPage{}, err
 			}
 		}
 	}
-	hash, err := domain.ScopeHash(current, requested)
-	if err != nil {
-		return nil, "", historyStatusPage(domain.HistoryStatusInvalidArgument, "invalid_session_scope"), nil
-	}
-	return requested, hash, domain.HistoryPage{}, nil
+	return requested, domain.HistoryPage{}, nil
 }
 
 func (s *HistoryService) sessionAllowed(ctx context.Context, id, current domain.SessionID) bool {
@@ -626,83 +594,6 @@ func (s *HistoryService) sessionAllowed(ctx context.Context, id, current domain.
 		}
 	}
 	return historyOperatorFromContext(ctx)
-}
-
-func (s *HistoryService) reauthorizeCursor(ctx context.Context, cut storage.HistoryCut) error {
-	if err := cut.Validate(); err != nil {
-		return err
-	}
-	ids := make([]domain.SessionID, 0, len(cut.Sessions))
-	for _, session := range cut.Sessions {
-		ids = append(ids, session.SessionID)
-		if !s.sessionAllowed(ctx, session.SessionID, tools.SessionIDFromContext(ctx)) {
-			return errors.New("history cursor source is no longer authorized")
-		}
-	}
-	if s.sessions != nil {
-		for _, id := range ids {
-			if _, err := s.sessions.GetSession(ctx, id); err != nil {
-				return err
-			}
-		}
-	}
-	if len(ids) > 0 && s.query != nil {
-		if _, err := s.query.CaptureHistoryCut(ctx, ids); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *HistoryService) keyCopy() []byte {
-	s.keyMu.RLock()
-	defer s.keyMu.RUnlock()
-	return append([]byte(nil), s.key...)
-}
-
-func (s *HistoryService) encodeCursor(cursor historyCursorState) (string, error) {
-	cursor.Version = historyCursorVersion
-	raw, err := json.Marshal(cursor)
-	if err != nil || len(raw) > historyCursorDecodedMax {
-		return "", errHistoryCursorStale
-	}
-	mac := hmac.New(sha256.New, s.keyCopy())
-	_, _ = mac.Write(raw)
-	return base64.RawURLEncoding.EncodeToString(raw) + historyCursorPartSeparator + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
-}
-
-func (s *HistoryService) decodeCursor(encoded string) (historyCursorState, error) {
-	if len(encoded) == 0 || len(encoded) > historyCursorTransportMax {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	parts := strings.Split(encoded, historyCursorPartSeparator)
-	if len(parts) != 2 {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil || len(raw) == 0 || len(raw) > historyCursorDecodedMax {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	mac := hmac.New(sha256.New, s.keyCopy())
-	_, _ = mac.Write(raw)
-	if !hmac.Equal(signature, mac.Sum(nil)) {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	var cursor historyCursorState
-	if err := json.Unmarshal(raw, &cursor); err != nil || cursor.Version != historyCursorVersion || cursor.Phase == "" {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	if err := cursor.Cut.Validate(); err != nil {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	if err := cursor.After.Validate(); err != nil {
-		return historyCursorState{}, errHistoryCursorStale
-	}
-	return cursor, nil
 }
 
 func projectHistoryCandidateWithLimit(candidate storage.HistoryCandidate, maximum int) (domain.HistoryItem, bool) {
@@ -900,48 +791,13 @@ func historyStatusPage(status domain.HistoryStatus, reason string) domain.Histor
 }
 
 func (s *HistoryService) boundPage(page domain.HistoryPage, limits domain.ContinuityLimits) domain.HistoryPage {
-	for len(page.Items) > 0 {
-		encoded, err := json.Marshal(page)
-		if err == nil && len(encoded) <= limits.ResultPageBytes {
-			return page
-		}
-		page.Items = page.Items[:len(page.Items)-1]
-		page.Truncated = true
-		page.Status = string(domain.HistoryStatusPartial)
-		page.SelectionDigest = ""
-		warning := "result_budget"
-		if !slices.Contains(page.Warnings, warning) {
-			page.Warnings = append(page.Warnings, warning)
-		}
+	encoded, err := json.Marshal(page)
+	if err != nil || len(encoded) > limits.ResultPageBytes {
+		// Progress exists only inside this response. Dropping records while keeping
+		// its advanced cursor would silently skip them; ask for a narrower request.
+		return historyStatusPage(domain.HistoryStatusInvalidArgument, "narrow_scope")
 	}
 	return page
-}
-
-type historyFilterEnvelope struct {
-	Kind      string                       `json:"kind"`
-	Search    *domain.HistorySearchRequest `json:"search,omitempty"`
-	Read      *domain.HistoryReadRequest   `json:"read,omitempty"`
-	ScopeHash string                       `json:"scope_hash"`
-}
-
-func historyFilterHash(kind string, request any, scopeHash string) string {
-	var encoded []byte
-	switch typed := request.(type) {
-	case domain.HistorySearchRequest:
-		copy := typed
-		copy.Cursor = ""
-		copy.Limit = 0
-		encoded, _ = json.Marshal(historyFilterEnvelope{Kind: kind, Search: &copy, ScopeHash: scopeHash})
-	case domain.HistoryReadRequest:
-		copy := typed
-		copy.Cursor = ""
-		copy.Limit = 0
-		encoded, _ = json.Marshal(historyFilterEnvelope{Kind: kind, Read: &copy, ScopeHash: scopeHash})
-	default:
-		encoded, _ = json.Marshal(historyFilterEnvelope{Kind: kind, ScopeHash: scopeHash})
-	}
-	digest := sha256.Sum256(encoded)
-	return fmt.Sprintf("%x", digest[:])
 }
 
 // CanonicalHistorySelectionDigest is shared by history/read and the later

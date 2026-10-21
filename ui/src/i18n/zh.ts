@@ -411,6 +411,7 @@ export const zh = {
     chooseSession: '先选一个会话查看其记录。',
     noSessions: '未找到会话',
     noRecords: '未找到记录',
+    narrowSearch: '请缩小搜索范围或减少所选记录，然后重新搜索。',
     loadFailed: '加载失败',
     loadMore: '加载更多',
     moreRemain: '还有更多记录——继续加载或收窄搜索。',

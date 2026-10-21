@@ -157,6 +157,54 @@ describe('HistoryPicker', () => {
     expect(document.body.textContent).not.toContain('stale record');
   });
 
+  it('shows a recoverable narrowing error instead of an empty result', async () => {
+    vi.mocked(api.historySearch).mockResolvedValue(historyPage([], { status: 'invalid_argument', reason: 'narrow_scope' }));
+    await open();
+    await act(async () => byText('button', 'Fix session').click());
+    expect(document.body.textContent).toContain('Narrow your search');
+    expect(document.body.textContent).not.toContain('No records found');
+    vi.mocked(api.historySearch).mockResolvedValue(historyPage([item('message', 'recovered')]));
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="Search"]')].at(-1)!.click());
+    expect(document.body.textContent).toContain('recovered');
+    expect(document.body.textContent).not.toContain('Narrow your search');
+  });
+
+  it('preserves loaded records and selection when the next page is refused', async () => {
+    vi.mocked(api.historySearch)
+      .mockResolvedValueOnce(historyPage([item('message', 'kept record')], { next_cursor: 'v2-position' }))
+      .mockResolvedValueOnce(historyPage([], { status: 'forbidden', reason: 'cursor_scope_unavailable' }));
+    await open();
+    await act(async () => byText('button', 'Fix session').click());
+    const checkbox = document.querySelector<HTMLElement>('button[aria-label="Select user message"]')!;
+    await act(async () => checkbox.click());
+    await act(async () => byText('button', 'Load more').click());
+    expect(document.body.textContent).toContain('Failed to load');
+    expect(document.body.textContent).toContain('kept record');
+    expect(checkbox.dataset.state).toBe('checked');
+    expect(document.body.textContent).not.toContain('No records found');
+  });
+
+  it('continues the successful query after a replacement search is refused', async () => {
+    vi.mocked(api.historySearch)
+      .mockResolvedValueOnce(historyPage([item('message', 'original query')], { next_cursor: 'query-A-cursor' }))
+      .mockResolvedValueOnce(historyPage([], { status: 'invalid_argument', reason: 'narrow_scope' }))
+      .mockResolvedValueOnce(historyPage([item('message', 'next original result')]));
+    await open();
+    await act(async () => byText('button', 'Fix session').click());
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Search records"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'replacement');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="Search"]')].at(-1)!.click());
+    expect(api.historySearch).toHaveBeenLastCalledWith('dst-1', expect.objectContaining({ query: 'replacement', cursor: '' }));
+    expect(document.body.textContent).toContain('Narrow your search');
+    await act(async () => byText('button', 'Load more').click());
+    expect(api.historySearch).toHaveBeenLastCalledWith('dst-1', expect.objectContaining({ query: '', cursor: 'query-A-cursor', kinds: ['message'] }));
+    expect(input.value).toBe('replacement');
+    expect(document.body.textContent).toContain('next original result');
+  });
+
   it('closes without attaching when cancelled', async () => {
     const onOpenChange = vi.fn();
     await act(async () => root.render(

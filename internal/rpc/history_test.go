@@ -6,7 +6,7 @@ import (
 )
 
 func TestHistoryRPCRejectsBrowserActorAndScopeClaims(t *testing.T) {
-	for _, field := range []string{"actor", "caller", "identity", "permissions", "scope_hash", "accepted_scope", "destination_session_id"} {
+	for _, field := range []string{"actor", "caller", "identity", "permissions", "accepted_scope", "destination_session_id"} {
 		params, _ := json.Marshal(map[string]any{"session_id": "B", field: "browser"})
 		if err := rejectHistorySpoofFields(Request{Params: params}); err == nil {
 			t.Fatalf("history RPC accepted browser-supplied %s", field)

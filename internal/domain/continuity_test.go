@@ -65,13 +65,13 @@ func TestContinuityRejectsInvalidUTF8AndUnknownValues(t *testing.T) {
 	}
 }
 
-func TestContinuityCanonicalHistoryScopeHash(t *testing.T) {
+func TestContinuityCanonicalHistoryScopeValues(t *testing.T) {
 	accepted, err := NewAcceptedHistoryScope("destination", []SessionID{"b", "a", "b"})
 	if err != nil {
 		t.Fatalf("new scope: %v", err)
 	}
-	if got, want := accepted.ScopeHash, "a88372eb32c67959bcfaef072e689f46a9c86b8e8498b23f2e8fce0d528d4fc0"; got != want {
-		t.Fatalf("scope hash = %q, want %q", got, want)
+	if accepted.DestinationSessionID != "destination" || len(accepted.SourceSessionIDs) != 2 || accepted.SourceSessionIDs[0] != "a" || accepted.SourceSessionIDs[1] != "b" {
+		t.Fatalf("scope values not canonical: %+v", accepted)
 	}
 	if err := accepted.Validate(); err != nil {
 		t.Fatalf("canonical scope rejected: %v", err)

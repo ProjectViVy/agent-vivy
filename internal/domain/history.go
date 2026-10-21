@@ -1,8 +1,6 @@
 package domain
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -154,11 +152,9 @@ func (s HistoryScope) Validate(limits ContinuityLimits) error {
 type AcceptedHistoryScope struct {
 	DestinationSessionID SessionID   `json:"destination_session_id"`
 	SourceSessionIDs     []SessionID `json:"source_session_ids"`
-	ScopeHash            string      `json:"scope_hash"`
 }
 
-// NewAcceptedHistoryScope canonicalizes source IDs and derives a stable hash
-// binding them to the destination session.
+// NewAcceptedHistoryScope canonicalizes source IDs bound to the destination.
 func NewAcceptedHistoryScope(destination SessionID, sources []SessionID) (AcceptedHistoryScope, error) {
 	if destination == "" || !utf8.ValidString(string(destination)) {
 		return AcceptedHistoryScope{}, fmt.Errorf("destination session ID is invalid")
@@ -170,23 +166,13 @@ func NewAcceptedHistoryScope(destination SessionID, sources []SessionID) (Accept
 	if len(canonical) == 0 {
 		return AcceptedHistoryScope{}, fmt.Errorf("accepted history scope requires at least one source session")
 	}
-	encoded, err := json.Marshal(struct {
-		DestinationSessionID SessionID   `json:"destination_session_id"`
-		SourceSessionIDs     []SessionID `json:"source_session_ids"`
-	}{destination, canonical})
-	if err != nil {
-		return AcceptedHistoryScope{}, fmt.Errorf("encode accepted history scope: %w", err)
-	}
-	digest := sha256.Sum256(encoded)
 	return AcceptedHistoryScope{
 		DestinationSessionID: destination,
 		SourceSessionIDs:     canonical,
-		ScopeHash:            hex.EncodeToString(digest[:]),
 	}, nil
 }
 
-// Validate verifies the accepted scope has its canonical, destination-bound
-// hash. It does not make an authorization decision.
+// Validate checks actual canonical scope values. It does not grant authority.
 func (s AcceptedHistoryScope) Validate() error {
 	limits := DefaultContinuityLimits()
 	if s.DestinationSessionID == "" || !utf8.ValidString(string(s.DestinationSessionID)) {
@@ -202,10 +188,6 @@ func (s AcceptedHistoryScope) Validate() error {
 		if i > 0 && s.SourceSessionIDs[i-1] >= id {
 			return fmt.Errorf("accepted history scope source session IDs are not canonical")
 		}
-	}
-	canonical, err := NewAcceptedHistoryScope(s.DestinationSessionID, s.SourceSessionIDs)
-	if err != nil || s.ScopeHash != canonical.ScopeHash {
-		return fmt.Errorf("accepted history scope hash does not match canonical scope")
 	}
 	return nil
 }
@@ -617,22 +599,13 @@ func validateJSONBytes(label string, value any, maximum int) error {
 }
 
 // CanonicalSessionIDs exposes the stable ID order used in accepted scope
-// hashes without turning a caller selection into an authorization decision.
+// values without turning a caller selection into an authorization decision.
 func CanonicalSessionIDs(ids []SessionID) []SessionID {
 	canonical, err := canonicalSessionIDs(ids, DefaultContinuityLimits().ExpandedSessions, "history scope")
 	if err != nil {
 		return nil
 	}
 	return canonical
-}
-
-// ScopeHash is a convenience for consumers which already have canonical IDs.
-func ScopeHash(destination SessionID, sources []SessionID) (string, error) {
-	accepted, err := NewAcceptedHistoryScope(destination, sources)
-	if err != nil {
-		return "", err
-	}
-	return accepted.ScopeHash, nil
 }
 
 // IsPublicHistoryKind reports whether a string is a public source kind.

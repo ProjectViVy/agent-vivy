@@ -47,8 +47,10 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
   const [kindFilter, setKindFilter] = useState<KindFilter>('message');
   const [items, setItems] = useState<api.HistoryItem[]>([]);
   const [itemsCursor, setItemsCursor] = useState('');
+  const [itemsRequest, setItemsRequest] = useState<{ source: string; query: string; kind: KindFilter } | null>(null);
   const [itemsPhase, setItemsPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [itemsStatus, setItemsStatus] = useState('');
+  const [itemsError, setItemsError] = useState<'load_failed' | 'narrow_scope'>('load_failed');
   const [selected, setSelected] = useState<Map<string, api.HistoryItem>>(new Map());
   const [allowFurther, setAllowFurther] = useState(false);
   const [preview, setPreview] = useState<api.ReferencePreview | null>(null);
@@ -79,12 +81,19 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
         session_ids: [source], query, kinds: KIND_MAP[kind], cursor, limit: 50,
       });
       if (gen !== generation.current) return;
+      if (!['ok', 'partial', 'not_found'].includes(page.status)) {
+        setItemsError(page.reason === 'narrow_scope' ? 'narrow_scope' : 'load_failed');
+        setItemsPhase('error');
+        return;
+      }
       setItems((current) => cursor ? [...current, ...page.items] : page.items);
       setItemsCursor(page.next_cursor ?? '');
+      setItemsRequest({ source, query, kind });
       setItemsStatus(page.status);
       setItemsPhase('ready');
     } catch {
       if (gen !== generation.current) return;
+      setItemsError('load_failed');
       setItemsPhase('error');
     }
   }, [destinationSessionId]);
@@ -93,14 +102,14 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
   useEffect(() => {
     if (!open) return;
     setSessionQuery(''); setSourceId(null); setRecordQuery(''); setItems([]);
-    setItemsCursor(''); setItemsPhase('idle'); setSelected(new Map());
+    setItemsCursor(''); setItemsRequest(null); setItemsPhase('idle'); setSelected(new Map());
     setAllowFurther(false); setPreview(null); setPreviewPhase('idle');
     void loadSessions('', '');
   }, [open, loadSessions]);
 
   useEffect(() => {
     if (!sourceId) return;
-    setItems([]); setItemsCursor(''); setPreview(null); setPreviewPhase('idle');
+    setItems([]); setItemsCursor(''); setItemsRequest(null); setPreview(null); setPreviewPhase('idle');
     void loadItems(sourceId, recordQuery, kindFilter, '');
     // recordQuery is applied via explicit search submit, not on each keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -214,7 +223,7 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
       <ScrollArea className="min-h-0 flex-1">
         {!sourceId ? <p className="p-4 text-sm text-muted-foreground">{t('historyPicker.chooseSession')}</p> : null}
         {itemsPhase === 'loading' && items.length === 0 ? <div className="space-y-2 p-3"><Skeleton className="h-8" /><Skeleton className="h-8" /></div> : null}
-        {itemsPhase === 'error' ? <p className="p-4 text-sm text-destructive">{t('historyPicker.loadFailed')}</p> : null}
+        {itemsPhase === 'error' ? <p className="p-4 text-sm text-destructive">{t(itemsError === 'narrow_scope' ? 'historyPicker.narrowSearch' : 'historyPicker.loadFailed')}</p> : null}
         {itemsPhase === 'ready' && items.length === 0 ? <p className="p-4 text-sm text-muted-foreground">{t('historyPicker.noRecords')}</p> : null}
         {items.map((item) => (
           <label key={itemKey(item)} className="flex items-start gap-2 border-b px-3 py-2 hover:bg-accent">
@@ -230,12 +239,12 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
             </span>
           </label>
         ))}
-        {itemsCursor ? (
-          <Button type="button" variant="ghost" size="sm" className="m-2" disabled={itemsPhase === 'loading'} onClick={() => sourceId && void loadItems(sourceId, recordQuery, kindFilter, itemsCursor)}>
+        {itemsCursor && itemsRequest ? (
+          <Button type="button" variant="ghost" size="sm" className="m-2" disabled={itemsPhase === 'loading'} onClick={() => void loadItems(itemsRequest.source, itemsRequest.query, itemsRequest.kind, itemsCursor)}>
             {itemsPhase === 'loading' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}{t('historyPicker.loadMore')}
           </Button>
         ) : null}
-        {itemsStatus === 'partial' ? <p className="p-2 text-xs text-muted-foreground">{t('historyPicker.moreRemain')}</p> : null}
+        {itemsPhase === 'ready' && itemsStatus === 'partial' ? <p className="p-2 text-xs text-muted-foreground">{t('historyPicker.moreRemain')}</p> : null}
       </ScrollArea>
     </div>
   );
