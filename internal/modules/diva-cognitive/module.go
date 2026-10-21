@@ -84,7 +84,7 @@ func (ownerModule) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: ID, Version: "1.0.0"},
-		Source:     module.Source{Ref: "file:internal", SHA256: zeroDigest},
+		Source:     module.Source{Ref: "file:internal"},
 		Provides:   provides,
 		// The durable capture subscription is delivered through ObserverHost
 		// and the human actions through ActionHost; both Hosts must be
@@ -107,5 +107,3 @@ func (ownerInstance) Start(context.Context) error { return nil }
 func (ownerInstance) Ready(context.Context) error { return nil }
 func (ownerInstance) Stop(context.Context) error  { return nil }
 func (ownerInstance) Close(context.Context) error { return nil }
-
-const zeroDigest = "0000000000000000000000000000000000000000000000000000000000000000"

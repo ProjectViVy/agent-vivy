@@ -24,7 +24,7 @@ if (!existsSync(recipe)) {
   process.exit(1);
 }
 
-const result = spawnSync('go', ['run', './sdk', 'stage-ui', '--recipe', recipe, '--out', resolve(uiRoot, 'src/generated')], {
+const result = spawnSync('go', ['run', './sdk', 'stage-ui', '--recipe', recipe, '--generation-id', 'authoring-default', '--out', resolve(uiRoot, 'src/generated')], {
   cwd: repositoryRoot,
   stdio: 'inherit',
 });

@@ -9,8 +9,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/a", "version": "1.0.0" },
       "source": {
-        "ref": "git:fixture/a@0123456",
-        "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+        "ref": "git:fixture/a@0123456"
       },
       "provides": [],
       "requires": [],
@@ -21,8 +20,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/b", "version": "1.0.0" },
       "source": {
-        "ref": "git:fixture/b@0123456",
-        "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+        "ref": "git:fixture/b@0123456"
       },
       "provides": [],
       "requires": [],

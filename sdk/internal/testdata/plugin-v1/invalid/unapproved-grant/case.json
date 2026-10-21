@@ -9,8 +9,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/process-tool", "version": "1.0.0" },
       "source": {
-        "ref": "git:fixture/process-tool@0123456",
-        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "ref": "git:fixture/process-tool@0123456"
       },
       "provides": [{ "port": "std/tool@v1", "id": "fixture.process" }],
       "requires": [],

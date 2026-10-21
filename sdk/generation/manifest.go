@@ -26,16 +26,14 @@ func EmbeddedManifest() ([]byte, error) {
 	return decodeEmbedded([]byte(EmbeddedManifestBase64))
 }
 
-// InspectManifestProvenance validates a linker-embedded Generation Manifest
-// before a runtime surface projects any identity. The returned UI hash is only
-// the final emitted dist-tree identity; generated Assembly source is not an
-// artifact fallback.
-func InspectManifestProvenance(raw []byte) (generationID, uiArtifactHash string, err error) {
+// InspectManifestIdentity validates a linker-embedded Generation Manifest
+// before a runtime surface projects its ordinary build identity.
+func InspectManifestIdentity(raw []byte) (generationID string, err error) {
 	manifest, err := assemblyv1.InspectManifest(raw)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return manifest.GenerationID, manifest.UIArtifacts["ui/dist"], nil
+	return manifest.GenerationID, nil
 }
 
 // FrameEmbeddedManifest makes a linker value self-delimiting so inspection

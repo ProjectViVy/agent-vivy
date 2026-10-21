@@ -36,8 +36,8 @@ func TestCreateThenListGeneration(t *testing.T) {
 	svc, _ := newStudio(t)
 	ctx := context.Background()
 	created, err := svc.CreateGeneration(ctx, domain.Generation{
-		ArtifactSHA256: "abc",
-		Recipe:         domain.AssemblyRecipe{Loop: "eino", World: "sandbox", Tools: []string{"notes"}},
+
+		Recipe: domain.AssemblyRecipe{Loop: "eino", World: "sandbox", Tools: []string{"notes"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -57,11 +57,11 @@ func TestCreateThenListGeneration(t *testing.T) {
 func TestPromoteRequiresEval(t *testing.T) {
 	svc, _ := newStudio(t)
 	ctx := context.Background()
-	from, err := svc.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "from"})
+	from, err := svc.CreateGeneration(ctx, domain.Generation{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID, ArtifactSHA256: "to"})
+	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +74,11 @@ func TestPromoteRequiresEval(t *testing.T) {
 func TestPromoteFirstWriterWins(t *testing.T) {
 	svc, _ := newStudio(t)
 	ctx := context.Background()
-	from, err := svc.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "from"})
+	from, err := svc.CreateGeneration(ctx, domain.Generation{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID, ArtifactSHA256: "to"})
+	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +121,11 @@ func TestPromoteRejectsNonHuman(t *testing.T) {
 func TestRejectDoesNotCreatePromotion(t *testing.T) {
 	svc, _ := newStudio(t)
 	ctx := context.Background()
-	from, err := svc.CreateGeneration(ctx, domain.Generation{ArtifactSHA256: "from"})
+	from, err := svc.CreateGeneration(ctx, domain.Generation{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID, ArtifactSHA256: "to"})
+	to, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestRejectDoesNotCreatePromotion(t *testing.T) {
 	if _, err := svc.Reject(ctx, to.ID); !errors.Is(err, ErrAlreadyDecided) {
 		t.Fatalf("second reject = %v", err)
 	}
-	other, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID, ArtifactSHA256: "other"})
+	other, err := svc.CreateGeneration(ctx, domain.Generation{ParentID: from.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

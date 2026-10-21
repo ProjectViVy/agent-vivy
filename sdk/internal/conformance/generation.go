@@ -5,7 +5,6 @@ package conformance
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -14,10 +13,8 @@ import (
 	"agent-vivy/sdk/port"
 )
 
-var opaqueEvidenceIDPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-
 // PortSupportRecord is the Inspect projection for one public Port. EvidenceIDs
-// are repository-relative or opaque identifiers; failure output and local
+// are repository-relative identifiers; failure output and local
 // paths are never part of this record.
 type PortSupportRecord struct {
 	Port        module.PortRef    `json:"port"`
@@ -42,7 +39,7 @@ func EvaluatePortSupport(catalog port.Catalog, evidence map[string]port.SupportE
 			return nil, fmt.Errorf("conformance: result references unknown Port %s", result.Port.Port)
 		}
 		if !safeEvidenceID(result.EvidenceID) {
-			return nil, fmt.Errorf("conformance: %s is not a safe repository-relative or opaque identifier", result.EvidenceID)
+			return nil, fmt.Errorf("conformance: %s is not a safe repository-relative identifier", result.EvidenceID)
 		}
 	}
 
@@ -54,7 +51,7 @@ func EvaluatePortSupport(catalog port.Catalog, evidence map[string]port.SupportE
 		for _, reference := range proof.References {
 			if reference.ID != "" {
 				if !safeEvidenceID(reference.ID) {
-					return nil, fmt.Errorf("conformance: %s is not a safe repository-relative or opaque identifier", reference.ID)
+					return nil, fmt.Errorf("conformance: %s is not a safe repository-relative identifier", reference.ID)
 				}
 				evidenceIDs = append(evidenceIDs, reference.ID)
 			}
@@ -92,7 +89,7 @@ func CanonicalPortSupport(records []PortSupportRecord) ([]PortSupportRecord, err
 		seen[record.Port.Port] = struct{}{}
 		for _, evidenceID := range record.EvidenceIDs {
 			if !safeEvidenceID(evidenceID) {
-				return nil, fmt.Errorf("conformance: %s is not a safe repository-relative or opaque identifier", evidenceID)
+				return nil, fmt.Errorf("conformance: %s is not a safe repository-relative identifier", evidenceID)
 			}
 		}
 		record.EvidenceIDs = canonicalStrings(record.EvidenceIDs)
@@ -102,10 +99,7 @@ func CanonicalPortSupport(records []PortSupportRecord) ([]PortSupportRecord, err
 }
 
 func safeEvidenceID(id string) bool {
-	if opaqueEvidenceIDPattern.MatchString(id) {
-		return true
-	}
-	if id == "" || filepath.IsAbs(id) || !filepath.IsLocal(id) || strings.Contains(id, `\`) {
+	if id == "" || filepath.IsAbs(id) || strings.HasPrefix(id, "/") || !filepath.IsLocal(id) || strings.ContainsAny(id, `\:`) {
 		return false
 	}
 	for _, character := range id {
@@ -131,14 +125,14 @@ func canonicalStrings(values []string) []string {
 
 func hasCompletePassingProviderSuite(results []providerconformance.ConformanceResult, portID string) bool {
 	type providerKey struct {
-		providerID, sourceSHA256 string
+		providerID string
 	}
 	groups := make(map[providerKey]map[string]bool)
 	for _, result := range results {
 		if result.Port.Port != portID {
 			continue
 		}
-		key := providerKey{providerID: result.ProviderID, sourceSHA256: result.SourceSHA256}
+		key := providerKey{providerID: result.ProviderID}
 		if groups[key] == nil {
 			groups[key] = make(map[string]bool)
 		}

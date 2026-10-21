@@ -47,8 +47,8 @@ func TestPackRequiresRecipe(t *testing.T) {
 
 // TestPackRecordsV1Artifact runs Pack against a fake vivy-sdk that prints
 // the same Artifact JSON shape the real `pack` command seals on stdout.
-// It proves the ledger records the manifest generationId, the digest of
-// the produced binary, a file: source ref the eval launcher consumes, and
+// It proves the ledger records the manifest generationId and
+// a file: source ref the eval launcher consumes, and
 // that --recipe/--source reach the sdk argv.
 func TestPackRecordsV1Artifact(t *testing.T) {
 	fake := buildFakeSDK(t)
@@ -75,12 +75,8 @@ func TestPackRecordsV1Artifact(t *testing.T) {
 		t.Fatalf("generation = %+v", g)
 	}
 	binary := filepath.Join(outDir, "vivy.exe")
-	sum, err := hashFile(binary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if g.ArtifactSHA256 != sum {
-		t.Fatalf("sha = %s, want %s", g.ArtifactSHA256, sum)
+	if g.SourceRef != "file:"+filepath.ToSlash(binary) {
+		t.Fatalf("binary reference = %q", g.SourceRef)
 	}
 	if !strings.HasPrefix(g.SourceRef, "file:") {
 		t.Fatalf("source ref = %q, want file: prefix", g.SourceRef)
@@ -92,7 +88,7 @@ func TestPackRecordsV1Artifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Phase != domain.GenerationBuilt || got.ArtifactSHA256 != sum {
+	if got.Phase != domain.GenerationBuilt || got.SourceRef != g.SourceRef {
 		t.Fatalf("recorded generation = %+v", got)
 	}
 
@@ -166,7 +162,7 @@ func main() {
 	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"directory": out,
 		"binary":    binary,
-		"manifest":  map[string]any{"generationId": "gen_fake_1", "recipeDigest": "digest"},
+		"manifest":  map[string]any{"generationId": "gen_fake_1", "sdkVersion": "fixture-sdk"},
 	})
 }
 `
@@ -207,7 +203,7 @@ func TestReleaseRequiresHuman(t *testing.T) {
 	ctx := context.Background()
 
 	gen := domain.Generation{
-		ID: "gen_1", ArtifactSHA256: "sha", SourceRef: "file:" + filepath.Join(t.TempDir(), "vivy.exe"),
+		ID: "gen_1", SourceRef: "file:" + filepath.Join(t.TempDir(), "vivy.exe"),
 		Phase: domain.GenerationBuilt, CreatedAt: 1,
 	}
 	if err := svc.Ledger().CreateGeneration(ctx, gen); err != nil {
@@ -248,7 +244,7 @@ func TestReleaseRequiresEval(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := context.Background()
 	gen := domain.Generation{
-		ID: "gen_1", ArtifactSHA256: "sha", Phase: domain.GenerationBuilt, CreatedAt: 1,
+		ID: "gen_1", Phase: domain.GenerationBuilt, CreatedAt: 1,
 	}
 	if err := svc.Ledger().CreateGeneration(ctx, gen); err != nil {
 		t.Fatal(err)
@@ -267,7 +263,7 @@ func TestEvalSpawnsCandidateItself(t *testing.T) {
 	ctx := context.Background()
 
 	gen := domain.Generation{
-		ID: "gen_cand", ArtifactSHA256: "cand", SourceRef: "file:" + exe,
+		ID: "gen_cand", SourceRef: "file:" + exe,
 		Phase: domain.GenerationBuilt, CreatedAt: 1,
 	}
 	if err := svc.Ledger().CreateGeneration(ctx, gen); err != nil {
@@ -323,12 +319,8 @@ func TestInstallAndRollbackRoundTrip(t *testing.T) {
 		if err := os.WriteFile(exe, []byte(content), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		sum, err := hashFile(exe)
-		if err != nil {
-			t.Fatal(err)
-		}
 		return domain.Generation{
-			ID: id, ArtifactSHA256: sum, SourceRef: "file:" + exe,
+			ID: id, SourceRef: "file:" + exe,
 			Phase: domain.GenerationBuilt, CreatedAt: time.Now().UnixMilli(),
 		}
 	}
@@ -445,12 +437,8 @@ func TestRollbackWithNothingToRestore(t *testing.T) {
 	if err := os.WriteFile(exe, []byte("first body"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	sum, err := hashFile(exe)
-	if err != nil {
-		t.Fatal(err)
-	}
 	gen := domain.Generation{
-		ID: "gen_a", ArtifactSHA256: sum, SourceRef: "file:" + exe,
+		ID: "gen_a", SourceRef: "file:" + exe,
 		Phase: domain.GenerationBuilt, CreatedAt: 1,
 	}
 	if err := svc.Ledger().CreateGeneration(ctx, gen); err != nil {
@@ -476,7 +464,7 @@ func TestRollbackWithNothingToRestore(t *testing.T) {
 func TestInstallRejectsTargetInsideWorktree(t *testing.T) {
 	svc, worktree := newTestService(t)
 	ctx := context.Background()
-	gen := domain.Generation{ID: "gen_a", ArtifactSHA256: "sha", Phase: domain.GenerationBuilt, CreatedAt: 1}
+	gen := domain.Generation{ID: "gen_a", Phase: domain.GenerationBuilt, CreatedAt: 1}
 	if err := svc.Ledger().CreateGeneration(ctx, gen); err != nil {
 		t.Fatal(err)
 	}
@@ -500,12 +488,12 @@ func sameContent(t *testing.T, path string, gen domain.Generation) bool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum, err := hashFile(path)
+	want, err := os.ReadFile(filepath.Clean(strings.TrimPrefix(gen.SourceRef, "file:")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum != gen.ArtifactSHA256 {
-		t.Fatalf("%s hash = %s, want %s", path, sum, gen.ArtifactSHA256)
+	if string(raw) != string(want) {
+		t.Fatalf("%s content differs from generation %s", path, gen.ID)
 	}
 	return len(raw) > 0
 }
@@ -531,11 +519,27 @@ func buildVivy(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		goBin += ".exe"
 	}
-	cmd := exec.Command(goBin, "build", "-o", exe, "./cmd/vivy")
+	cmd := exec.Command(goBin, "build", "-tags", "vivy_headless", "-o", exe, "./cmd/vivy")
 	cmd.Dir = filepath.Join("..", "..")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build vivy: %v\n%s", err, out)
 	}
 	return exe
+}
+
+func TestReleaseRejectsEvalForAnotherCandidate(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+	for _, id := range []string{"candidate", "other"} {
+		if err := svc.Ledger().CreateGeneration(ctx, domain.Generation{ID: id, Phase: domain.GenerationBuilt}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.Ledger().CreateEvalRun(ctx, domain.EvalRun{ID: "eval-other", CandidateID: "other", Verdict: domain.EvalBetter, Suite: SuiteAirgapProbe}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Release(ctx, "candidate", "eval-other", PromotionActorHuman); err == nil {
+		t.Fatal("unrelated evaluation authorized release")
+	}
 }

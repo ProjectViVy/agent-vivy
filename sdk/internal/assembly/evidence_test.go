@@ -49,7 +49,7 @@ func TestProviderConformanceBundleReferencesRepositoryAnchors(t *testing.T) {
 func TestConformanceResultsForPlanNeverRelabelsProviderEvidence(t *testing.T) {
 	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: module.Descriptor{
 		Module:   module.Identity{ID: "fixture/provider", Version: "1.0.0"},
-		Source:   module.Source{Ref: "test:fixture/provider", SHA256: strings.Repeat("a", 64)},
+		Source:   module.Source{Ref: "test:fixture/provider"},
 		Provides: []module.PortRef{{Port: "std/tool@v1", ID: "fixture.tool"}},
 	}}}}
 	if results, err := ConformanceResultsForPlan(plan); err != nil {
@@ -69,7 +69,7 @@ func TestConformanceResultsForPlanNeverRelabelsProviderEvidence(t *testing.T) {
 func TestConformanceResultsForPlanIncludesImplicitUIAndActionProviders(t *testing.T) {
 	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: module.Descriptor{
 		Module: module.Identity{ID: "fixture/full-ui", Version: "1.0.0"},
-		Source: module.Source{Ref: "file:full-ui-module", SHA256: "c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc"},
+		Source: module.Source{Ref: "file:full-ui-module"},
 		Provides: []module.PortRef{
 			{Port: UIRootPort, ID: "fixture.full-ui.root"},
 			{Port: UIExtensionPort, ID: "fixture.full-ui.extension"},
@@ -87,18 +87,5 @@ func TestConformanceResultsForPlanIncludesImplicitUIAndActionProviders(t *testin
 		if result.ProviderID != "fixture/full-ui" || !result.Passed {
 			t.Fatalf("selected full-UI conformance result = %#v", result)
 		}
-	}
-}
-
-func TestConformanceResultsForPlanRejectsStaleSourceEvidence(t *testing.T) {
-	plan := AssemblyPlan{Modules: []ResolvedModule{{Descriptor: module.Descriptor{
-		Module:   module.Identity{ID: "fixture/full-ui", Version: "1.0.0"},
-		Source:   module.Source{Ref: "file:full-ui-module", SHA256: strings.Repeat("f", 64)},
-		Provides: []module.PortRef{{Port: UIRootPort, ID: "fixture.full-ui.root"}},
-	}}}}
-	if results, err := ConformanceResultsForPlan(plan); err != nil {
-		t.Fatal(err)
-	} else if len(results) != 0 {
-		t.Fatalf("stale source acquired conformance evidence: %#v", results)
 	}
 }

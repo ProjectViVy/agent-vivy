@@ -14,7 +14,6 @@ const APIVersionV1 = "vivy.module/v1"
 var (
 	moduleIDPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 	semverPattern   = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
-	sha256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	portPattern     = regexp.MustCompile(`^(?:std|core)/[a-z0-9]+(?:[/-][a-z0-9]+)*@v[1-9][0-9]*$`)
 )
 
@@ -39,10 +38,6 @@ type Identity struct {
 
 type Source struct {
 	Ref string `json:"ref" yaml:"ref"`
-	// SHA256 is optional in source descriptors. The packer derives the
-	// authoritative value from the selected source tree before sealing a
-	// Generation Manifest; legacy authoring values are not compile gates.
-	SHA256 string `json:"sha256" yaml:"sha256"`
 }
 
 // PortRef names a versioned Port and, for a provided capability, its stable
@@ -114,9 +109,6 @@ func (descriptor Descriptor) Validate() error {
 	}
 	if strings.TrimSpace(descriptor.Source.Ref) == "" {
 		return fmt.Errorf("source.ref is required for %s", descriptor.Module.ID)
-	}
-	if descriptor.Source.SHA256 != "" && !sha256Pattern.MatchString(descriptor.Source.SHA256) {
-		return fmt.Errorf("invalid source sha256 for %s", descriptor.Module.ID)
 	}
 	if err := validatePortRefs("provides", descriptor.Provides); err != nil {
 		return err

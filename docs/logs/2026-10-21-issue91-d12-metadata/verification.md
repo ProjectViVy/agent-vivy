@@ -100,3 +100,9 @@ No complete targetT number, D14 conversion settlement, full-product release,
 D09–D11 acceptance or3015 smoke is claimed. The standard split ports currently
 belong to D06; an explicit scheduling question remains pending. The earlier
 alternative-port BML/MEMRULES behavior evidence remains a scoped observation.
+
+
+Owner steering (2026-10-21): defer standard3015 smoke and continue to the next
+stage. The prior port-scheduling question is answered; no stop/switch is needed.
+D06 subsequently completed and stopped its own split servers. No3015 pass or
+D12 Story acceptance is inferred from that change.

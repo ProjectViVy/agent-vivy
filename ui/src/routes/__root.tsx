@@ -34,14 +34,10 @@ function Root() {
   const runtimeProvenance = useMemo(() => {
     const generated = UI_ASSEMBLY_MANIFEST as typeof UI_ASSEMBLY_MANIFEST & {
       readonly generationId?: string;
-      readonly artifactSha256?: string;
-      readonly uiArtifactSha256?: string;
     };
     return {
       ...generated,
       ...(species?.generation_id ? { generationId: species.generation_id } : {}),
-      ...(species?.artifact_sha256 ? { artifactSha256: species.artifact_sha256 } : {}),
-      ...(species?.ui_artifact_sha256 ? { uiArtifactSha256: species.ui_artifact_sha256 } : {}),
     };
   }, [species]);
   useEffect(() => { void initialize(); }, [initialize]);
@@ -51,8 +47,6 @@ function Root() {
     if (!rootElement) return;
     const attributes: Readonly<Record<string, string | undefined>> = {
       'vivyGenerationId': runtimeProvenance.generationId,
-      'vivyArtifactSha256': runtimeProvenance.artifactSha256,
-      'vivyUiArtifactSha256': runtimeProvenance.uiArtifactSha256,
     };
     for (const [name, value] of Object.entries(attributes)) {
       if (value) rootElement.dataset[name] = value;

@@ -16,6 +16,9 @@ func Apply(ctx context.Context, db *sql.DB, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
+	if err := preflight(ctx, db, dialect, manifest); err != nil {
+		return err
+	}
 	return ApplyManifest(ctx, db, dialect, manifest)
 }
 

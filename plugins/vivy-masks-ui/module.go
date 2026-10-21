@@ -16,7 +16,6 @@ const (
 	ProviderID      = "vivy.masks-ui.sidebar"
 	UIExtensionPort = "std/ui-extension@v1"
 	SourceRef       = "repo:plugins/vivy-masks-ui"
-	SourceSHA256    = "cc325f54d7c64e3bd60a9c831ba4c65b638ec7536df22eaa5e5c937ac3752257"
 )
 
 type owner struct{}
@@ -31,7 +30,7 @@ func (owner) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: ModuleID, Version: "0.1.0"},
-		Source:     module.Source{Ref: SourceRef, SHA256: SourceSHA256},
+		Source:     module.Source{Ref: SourceRef},
 		Provides:   []module.PortRef{{Port: UIExtensionPort, ID: ProviderID}},
 		I18N:       &module.I18N{Catalog: "i18n/catalog.json", DefaultLocale: "en", Locales: []string{"en", "zh"}},
 		Lifecycle:  module.Lifecycle{Scope: module.ScopeGeneration},

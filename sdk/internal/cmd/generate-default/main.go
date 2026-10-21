@@ -37,6 +37,7 @@ type extern struct {
 func main() {
 	repo := flag.String("repo", ".", "repository root")
 	output := flag.String("output", "zz_default.go", "generated output")
+	generationID := flag.String("generation-id", "authoring-default", "explicit authoring Generation identity")
 	flag.Parse()
 	root, err := filepath.Abs(*repo)
 	must(err)
@@ -67,9 +68,9 @@ func main() {
 	must(err)
 	// The committed default composition is the species' headless form: it
 	// declares its own form identity in the generated artifact. Packed builds
-	// replace this file through a build overlay and never pass the identity,
-	// so their sealed identity keeps coming from the embedded manifest.
-	generated, err := assemblyv1.GenerateRuntimeAssembly(plan, "assembly", assemblyv1.WithFormIdentity("vivy-headless/1"))
+	// replace this file through a build overlay with their pack-owned identity,
+	// shared unchanged with the embedded manifest and UI projection.
+	generated, err := assemblyv1.GenerateRuntimeAssembly(plan, "assembly", assemblyv1.WithFormIdentity(*generationID))
 	must(err)
 	must(os.WriteFile(*output, generated, 0o644))
 }

@@ -75,7 +75,7 @@ func (s *Service) CreateGeneration(ctx context.Context, g domain.Generation) (do
 	if g.Phase == "" {
 		g.Phase = domain.GenerationBuilt
 	}
-	if !g.Phase.Valid() || g.ArtifactSHA256 == "" {
+	if !g.Phase.Valid() {
 		return domain.Generation{}, ErrInvalid
 	}
 	if err := s.store.CreateGeneration(ctx, g); err != nil {

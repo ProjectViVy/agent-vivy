@@ -14,7 +14,6 @@ modules:
 sources:
   fixture/full-ui:
     ref: file:full-ui-module
-    sha256: c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc
 grantApprovals:
   - {module: fixture/full-ui, name: rpc.client}
 exclusive:
@@ -29,15 +28,9 @@ ui:
     port: std/ui-root@v1
     entry: ./ui/src/index.tsx
     export: root
-    sourceHash: c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc
-    dependencyLockHash: 2d9b69c877de6661ed1b5ec089e5494c66af500d6fa7428b101ec828804d2310
-    assetHash: 0000000000000000000000000000000000000000000000000000000000000000
   extensions:
     - id: fixture.full-ui.extension
       moduleId: fixture/full-ui
       port: std/ui-extension@v1
       entry: ./ui/src/index.tsx
       export: extension
-      sourceHash: c106d108fd1510eba19351b3eed7d87338fe777188d75ed942db61443d72b8cc
-      dependencyLockHash: 2d9b69c877de6661ed1b5ec089e5494c66af500d6fa7428b101ec828804d2310
-      assetHash: 0000000000000000000000000000000000000000000000000000000000000000

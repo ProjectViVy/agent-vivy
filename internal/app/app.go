@@ -986,7 +986,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}()
 
-	liveSnap, err := policy.Snapshot(liveProfile)
+	_, err = policy.Snapshot(liveProfile)
 	if err != nil {
 		_ = backend.Close()
 		return nil, fmt.Errorf("app: snapshot default policy: %w", err)
@@ -1037,9 +1037,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Crons:             backend, CronRunner: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
+			GenerationID:  generationID,
 			Provider:      providerName,
 			PolicyProfile: liveProfile,
-			PolicyHash:    liveSnap.Hash,
 			Tools:         liveTools,
 		},
 		Eval:             evalRunner,
@@ -1569,7 +1569,7 @@ func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 	if err != nil {
 		return ""
 	}
-	id, _, err := generation.InspectManifestProvenance(raw)
+	id, err := generation.InspectManifestIdentity(raw)
 	if err != nil {
 		return ""
 	}

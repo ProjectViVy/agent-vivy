@@ -24,7 +24,6 @@ type conformanceResultBundle struct {
 type attestedProviderSuite struct {
 	Port         string   `json:"port"`
 	ProviderID   string   `json:"providerId"`
-	SourceSHA256 string   `json:"sourceSha256"`
 	EvidenceID   string   `json:"evidenceId"`
 	PassedChecks []string `json:"passedChecks"`
 }
@@ -164,24 +163,24 @@ func SupportedPortEvidence() map[string]port.SupportEvidence {
 }
 
 // ConformanceResultsForPlan projects immutable release results only for the
-// exact Provider source selected by the compiled Generation. Result identity
+// Provider and Port selected by the compiled Generation. Result identity
 // is never rewritten. Third-party Providers without build-owned release
 // evidence remain packable but acquire no conformance records in Inspect.
 func ConformanceResultsForPlan(plan AssemblyPlan) ([]providerconformance.ConformanceResult, error) {
 	all := SupportedPortConformance()
 	results := make([]providerconformance.ConformanceResult, 0)
 	seen := make(map[string]struct{})
-	add := func(ref module.PortRef, providerID, sourceSHA256 string) error {
+	add := func(ref module.PortRef, providerID string) error {
 		if !strings.HasPrefix(ref.Port, "std/") {
 			return nil
 		}
-		key := ref.Port + "\x00" + providerID + "\x00" + sourceSHA256
+		key := ref.Port + "\x00" + providerID
 		if _, exists := seen[key]; exists {
 			return nil
 		}
 		selected := make([]providerconformance.ConformanceResult, 0, len(providerconformance.RequiredProviderChecks()))
 		for _, result := range all {
-			if result.Port.Port == ref.Port && result.ProviderID == providerID && result.SourceSHA256 == sourceSHA256 {
+			if result.Port.Port == ref.Port && result.ProviderID == providerID {
 				selected = append(selected, result)
 			}
 		}
@@ -190,7 +189,7 @@ func ConformanceResultsForPlan(plan AssemblyPlan) ([]providerconformance.Conform
 			return nil
 		}
 		if !completePassingResults(selected) {
-			return fmt.Errorf("conformance: selected Provider %s source %s has no complete passing release result for %s", providerID, sourceSHA256, ref.Port)
+			return fmt.Errorf("conformance: selected Provider %s has no complete passing release result for %s", providerID, ref.Port)
 		}
 		results = append(results, selected...)
 		seen[key] = struct{}{}
@@ -198,7 +197,7 @@ func ConformanceResultsForPlan(plan AssemblyPlan) ([]providerconformance.Conform
 	}
 	for _, resolved := range plan.Modules {
 		for _, provided := range resolved.Descriptor.Provides {
-			if err := add(provided, resolved.Descriptor.Module.ID, resolved.Descriptor.Source.SHA256); err != nil {
+			if err := add(provided, resolved.Descriptor.Module.ID); err != nil {
 				return nil, err
 			}
 		}
@@ -208,7 +207,7 @@ func ConformanceResultsForPlan(plan AssemblyPlan) ([]providerconformance.Conform
 
 // SupportedPortConformance expands the checked-in release result bundle. The
 // bundle records an explicit outcome for every mandatory check and binds it to
-// the exact Provider source and focused-suite evidence path. It is independent
+// the Provider, Port, and executed-suite evidence path. It is independent
 // of SupportEvidence.GatesPassed and cannot be promoted by documentation claims.
 func SupportedPortConformance() []providerconformance.ConformanceResult {
 	var bundle conformanceResultBundle
@@ -231,7 +230,7 @@ func SupportedPortConformance() []providerconformance.ConformanceResult {
 		for _, check := range suite.PassedChecks {
 			results = append(results, providerconformance.ConformanceResult{
 				Port: module.PortRef{Port: suite.Port}, ProviderID: suite.ProviderID,
-				SourceSHA256: suite.SourceSHA256, Suite: check, Passed: true, EvidenceID: suite.EvidenceID,
+				Suite: check, Passed: true, EvidenceID: suite.EvidenceID,
 			})
 		}
 	}

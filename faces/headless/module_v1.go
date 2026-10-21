@@ -21,7 +21,7 @@ func (moduleInstance) Ready(context.Context) error { return nil }
 func (moduleInstance) Stop(context.Context) error  { return nil }
 func (moduleInstance) Close(context.Context) error { return nil }
 func (vivyModule) Descriptor() module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/headless", Version: "0.1.0"}, Source: module.Source{Ref: "repo:faces/headless", SHA256: "c2168c5bf67d96348a6ba7b0e73ff8764b7439a1df9740a2affd79a6bf922381"}, Provides: []module.PortRef{{Port: "std/face@v1", ID: "vivy.headless"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/face-host@v1"}, Provider: "vivy/face-host"}}, RequestedGrants: []module.Grant{module.GrantRPCClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: "vivy/headless", Version: "0.1.0"}, Source: module.Source{Ref: "repo:faces/headless"}, Provides: []module.PortRef{{Port: "std/face@v1", ID: "vivy.headless"}}, Requires: []module.Requirement{{PortRef: module.PortRef{Port: "core/face-host@v1"}, Provider: "vivy/face-host"}}, RequestedGrants: []module.Grant{module.GrantRPCClient}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }
 
 type provider struct{}

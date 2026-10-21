@@ -8,7 +8,7 @@
     {
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/eino-graph", "version": "1.0.0" },
-      "source": { "ref": "git:fixture/eino-graph@0123456", "sha256": "abababababababababababababababababababababababababababababababab" },
+      "source": { "ref": "git:fixture/eino-graph@0123456" },
       "provides": [{ "port": "std/eino-graph@v1", "id": "fixture.eino-graph" }],
       "requires": [],
       "requestedGrants": [],

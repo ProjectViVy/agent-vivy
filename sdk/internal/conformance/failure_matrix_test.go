@@ -37,12 +37,12 @@ func TestGenerationFailureMatrixEvidence(t *testing.T) {
 		t.Fatalf("schemaVersion = %q", matrix.SchemaVersion)
 	}
 	wantCases := []string{
-		"bad-source-hash", "catalog-byte-limit", "catalog-duplicate-key", "catalog-message-limit",
+		"catalog-byte-limit", "catalog-duplicate-key", "catalog-message-limit",
 		"catalog-missing-english", "catalog-placeholder-drift", "catalog-placeholder-limit",
 		"catalog-symlink-escape", "catalog-unit-limit", "catalog-unknown-field", "catalog-wrong-owner",
 		"dependency-cycle", "duplicate-exclusive-provider", "grant-denied", "legacy-v0-input",
 		"middleware-timeout", "missing-provider", "module-conflict", "no-formal-artifact",
-		"protected-tool-override", "startup-rollback", "ui-root-conflict",
+		"protected-tool-override", "source-ref-mismatch", "startup-rollback", "ui-root-conflict",
 		"unsupported-eino-capability", "unused-provider", "valid-deterministic-rebuild",
 	}
 	gotCases := make([]string, 0, len(matrix.Cases))

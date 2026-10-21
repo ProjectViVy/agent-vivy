@@ -59,6 +59,11 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		if head > 36 {
 			return fmt.Errorf("%w: unlisted post-baseline source", ErrUnsupportedSourceFormat)
 		}
+		if tables["generations"] {
+			if err := validateGenerationShape(ctx, db, dialect, false); err != nil {
+				return err
+			}
+		}
 		if head >= 31 {
 			if err := validateOperationShape(ctx, db, dialect, head == 36); err != nil {
 				return err
@@ -259,4 +264,28 @@ func sourceColumnExists(ctx context.Context, db *sql.DB, dialect Dialect, table,
 		return false, fmt.Errorf("storage migrations: inspect source column: %w", err)
 	}
 	return count == 1, nil
+}
+
+// Legacy recognition only; final shape derives from the embedded DDL.
+func validateGenerationShape(ctx context.Context, db *sql.DB, dialect Dialect, current bool) error {
+	for _, column := range []string{"id", "parent_id", "source_ref", "recipe_json", "phase", "created_at"} {
+		exists, err := sourceColumnExists(ctx, db, dialect, "generations", column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("%w: missing Generation column %s", ErrUnsupportedSourceFormat, column)
+		}
+	}
+	exists, err := sourceColumnExists(ctx, db, dialect, "generations", "artifact_sha256")
+	if err != nil {
+		return err
+	}
+	if current && exists {
+		return fmt.Errorf("%w: retired Generation artifact hash column", ErrUnsupportedSourceFormat)
+	}
+	if !current && !exists {
+		return fmt.Errorf("%w: missing legacy Generation artifact column", ErrUnsupportedSourceFormat)
+	}
+	return nil
 }

@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-const validSourceHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
 func validDescriptor() Descriptor {
 	return Descriptor{
 		APIVersion: APIVersionV1,
@@ -17,8 +15,7 @@ func validDescriptor() Descriptor {
 			Version: "1.2.3",
 		},
 		Source: Source{
-			Ref:    "git:example/search-tools@0123456",
-			SHA256: validSourceHash,
+			Ref: "git:example/search-tools@0123456",
 		},
 		Provides:        []PortRef{{Port: "std/tool@v1", ID: "example.search"}},
 		Requires:        []Requirement{{PortRef: PortRef{Port: "core/tool-host@v1"}}},
@@ -66,13 +63,6 @@ func TestDescriptorValidateRejectsInvalidIdentityAndSource(t *testing.T) {
 			wantErr: "module.version is not semantic versioning",
 		},
 		{
-			name: "malformed source hash",
-			mutate: func(descriptor *Descriptor) {
-				descriptor.Source.SHA256 = "ABC123"
-			},
-			wantErr: "invalid source sha256 for example/search-tools",
-		},
-		{
 			name: "duplicate provided port identity",
 			mutate: func(descriptor *Descriptor) {
 				descriptor.Provides = append(descriptor.Provides, descriptor.Provides[0])
@@ -109,11 +99,10 @@ func TestDescriptorValidateIsSideEffectFree(t *testing.T) {
 	}
 }
 
-func TestDescriptorAllowsPackBoundSourceHash(t *testing.T) {
+func TestDescriptorUsesExplicitSourceReference(t *testing.T) {
 	descriptor := validDescriptor()
-	descriptor.Source.SHA256 = ""
 	if err := descriptor.Validate(); err != nil {
-		t.Fatalf("Validate() rejected a descriptor awaiting pack binding: %v", err)
+		t.Fatalf("explicit source reference rejected: %v", err)
 	}
 }
 

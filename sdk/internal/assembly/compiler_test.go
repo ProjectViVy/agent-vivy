@@ -31,7 +31,7 @@ func TestCompilePluginV1GraphFixtures(t *testing.T) {
 		"invalid/duplicate-exclusive-provider/case.json",
 		"invalid/dependency-cycle/case.json",
 		"invalid/unapproved-grant/case.json",
-		"invalid/bad-source-hash/case.json",
+		"invalid/missing-source-ref/case.json",
 		"invalid/unused-provider/case.json",
 		"invalid/module-conflict/case.json",
 		"invalid/protected-tool-override/case.json",
@@ -102,12 +102,8 @@ func TestCompileRequiresAuthoritativeT2SourcePin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "provider.go"), []byte("package provider\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	digest, err := HashSourceTree(root, "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	provider := withProvides(testDescriptor("fixture/provider"), module.PortRef{Port: "std/tool@v1", ID: "fixture.tool"})
-	provider.Source = module.Source{Ref: "git:fixture/provider@abc123", SHA256: digest}
+	provider.Source = module.Source{Ref: "git:fixture/provider@abc123"}
 	provider.Requires = []module.Requirement{{PortRef: module.PortRef{Port: "core/tool-host@v1"}, Provider: "vivy/tool-host"}}
 	host := testCoreHostDescriptor("vivy/tool-host", "core/tool-host@v1")
 	catalog, err := NewSourceCatalog([]SourceRecord{
@@ -123,7 +119,7 @@ func TestCompileRequiresAuthoritativeT2SourcePin(t *testing.T) {
 		t.Fatalf("missing pin error = %v", err)
 	}
 	mismatch := base
-	mismatch.Sources = map[string]module.Source{provider.Module.ID: {Ref: provider.Source.Ref, SHA256: strings.Repeat("f", 64)}}
+	mismatch.Sources = map[string]module.Source{provider.Module.ID: {Ref: "git:fixture/other@abc123"}}
 	if _, err := compiler.Compile(context.Background(), mismatch); err == nil || !strings.Contains(err.Error(), "source pin mismatch") {
 		t.Fatalf("stale source pin accepted: %v", err)
 	}
@@ -375,7 +371,7 @@ func supportedPortConformance() []providerconformance.ConformanceResult {
 			if reference.Kind == port.EvidenceConformanceSuite {
 				for _, check := range providerconformance.RequiredProviderChecks() {
 					results = append(results, providerconformance.ConformanceResult{
-						Port: definition.Ref, ProviderID: "fixture/provider", SourceSHA256: strings.Repeat("a", 64),
+						Port: definition.Ref, ProviderID: "fixture/provider",
 						Suite: check, Passed: true, EvidenceID: reference.ID,
 					})
 				}

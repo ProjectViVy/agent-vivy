@@ -104,3 +104,8 @@ Full-product `just ci`, D02 Face protocol gates and race are not claimed: this
 cut changes BML persistence/management payloads and the Memory UI, with no
 runtime/Face orchestration changes. Application metadata parity/conversion still
 waits for D03 integration; the passing unchanged PG suite does not accept it.
+
+
+Owner steering (2026-10-21): standard3015 smoke is deferred for later verification;
+continue implementation. This supersedes waiting for D06's port scheduling.
+Alternative-port evidence above is retained with its original scope.
