@@ -60,3 +60,12 @@ resolves current policy and explicitly changed caller profiles conflict.
 Final admission regressions PASS3.106s; affected runtime/domain/storage vet PASS.
 Independent reviewer confirmed all admission findings and the default-declaration
 correction closed, with no remaining finding in that correction.
+
+
+First independent Linux9ccfe393 attempt: wiring PASS; kernel failed only three
+migration count assertions still expecting38 after the paired039 allocation.
+Update the two fixture owners to39; no runtime/SQL correction is required.
+Kernel execution stopped the script, so PostgreSQL/Face/Web/race were not run by
+that attempt and remain pending. Retain this failed attempt as evidence.
+
+Full native migration suite after count-fixture correction PASS12.087s.
