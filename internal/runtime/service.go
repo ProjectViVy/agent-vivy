@@ -3353,10 +3353,7 @@ func (s *Service) nudgeEmitter(m *eventMapper, sessionID domain.SessionID) nudge
 			RepeatCount:     notice.Count,
 			TemplateVersion: notice.TemplateVersion,
 		})
-		if !s.persistAndPublish(ctx, sessionID, re) {
-			return errors.New("runtime: nudge scheduling event could not be journaled")
-		}
-		return nil
+		return s.persistAndPublishEvent(ctx, sessionID, re, false)
 	}
 }
 
@@ -3554,7 +3551,6 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		// leg's last cause, even when the consume loop itself stranded.
 		defer state.Abort(context.Canceled)
 	}
-	var outstanding map[string]struct{}
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -3575,7 +3571,6 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			if err := m.reserveMappedBudget(ledger, events); err != nil {
 				return err
 			}
-			var requested []string
 			for _, re := range events {
 				if execution.child != nil && re.Type == domain.EventToolRequested {
 					execution.child.resetOutput()
@@ -3584,55 +3579,8 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 					persistStopped = true
 					return context.Canceled
 				}
-				if state == nil {
-					continue
-				}
-				switch re.Type {
-				case domain.EventToolRequested:
-					var p payloadToolRequested
-					if err := json.Unmarshal(re.Payload, &p); err == nil && p.ToolCallID != "" {
-						requested = append(requested, p.ToolCallID)
-					}
-				case domain.EventToolFinished:
-					var p payloadToolFinished
-					if err := json.Unmarshal(re.Payload, &p); err != nil {
-						return fmt.Errorf("runtime: decode tool.finished payload: %w", err)
-					}
-					call, ok := m.takeCompletion(p.ToolCallID)
-					if !ok {
-						// Resume legs replay the decided call without a
-						// parked record; rebuild the outcome from the
-						// journaled payload instead.
-						call = completedCall{ID: p.ToolCallID, Name: p.ToolName, Result: p.Result, Error: p.Error}
-						if p.Outcome == domain.ToolOutcomeRecoverable || p.Outcome == domain.ToolOutcomeRefused {
-							call.Failure = &toolFailure{Status: p.Outcome, Reason: p.Reason, Effects: p.Effects, Diagnostic: p.Error}
-						}
-					}
-					if err := state.Complete(call); err != nil {
-						return err
-					}
-					if _, tracked := outstanding[p.ToolCallID]; tracked {
-						delete(outstanding, p.ToolCallID)
-						if len(outstanding) == 0 {
-							state.Seal(nil)
-							if cause := state.terminalErr(); cause != nil {
-								return cause
-							}
-						}
-					}
-				}
 			}
-			if state != nil && len(requested) > 0 {
-				if err := state.Register(requested); err != nil {
-					return err
-				}
-				if outstanding == nil {
-					outstanding = map[string]struct{}{}
-				}
-				for _, id := range requested {
-					outstanding[id] = struct{}{}
-				}
-			}
+
 			return nil
 		})
 		if persistStopped {
@@ -4882,17 +4830,12 @@ func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState
 	if len(batch) == 0 {
 		return nil
 	}
-	ids := make([]string, 0, len(batch))
 	found := false
 	for _, p := range batch {
-		ids = append(ids, p.ToolCallID)
 		found = found || p.ToolCallID == target
 	}
 	if !found {
 		return errors.New("runtime: resumed batch omits target")
-	}
-	if err := state.Register(ids); err != nil {
-		return err
 	}
 	for _, p := range batch {
 		if p.ToolCallID == target {
@@ -4904,7 +4847,7 @@ func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState
 		op, err := s.deps.ToolOperations.GetToolOperation(ctx, runID, p.ToolCallID)
 		if errors.Is(err, storage.ErrNotFound) {
 			if finished[p.ToolCallID] {
-				if err := state.SatisfyDurable(p.ToolCallID); err != nil {
+				if err := state.record(completedCall{ID: p.ToolCallID, Name: p.ToolName}, false, false); err != nil {
 					return err
 				}
 			}
@@ -4919,8 +4862,15 @@ func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState
 		if op.State == domain.ToolOperationClaimed {
 			return ErrToolOperationUnknown
 		}
+		if op.ToolName != p.ToolName && p.ToolName != "" {
+			return storage.ErrToolOperationConflict
+		}
 		if finished[p.ToolCallID] {
-			if err := state.SatisfyDurable(p.ToolCallID); err != nil {
+			if op.State == domain.ToolOperationCompleted {
+				if err := recordNudgeOperation(withNudgeState(ctx, state), op, false); err != nil {
+					return err
+				}
+			} else if err := state.record(completedCall{ID: p.ToolCallID, Name: p.ToolName}, false, false); err != nil {
 				return err
 			}
 			continue
@@ -4951,8 +4901,7 @@ func (s *Service) restoreResumeNudgeBatch(ctx context.Context, state *nudgeState
 				return errors.New("runtime: persist recovered tool completion failed")
 			}
 		}
-		m.takeCompletion(op.OperationID)
-		if err := state.SatisfyDurable(op.OperationID); err != nil {
+		if err := recordNudgeOperation(withNudgeState(ctx, state), op, false); err != nil {
 			return err
 		}
 	}
@@ -5101,19 +5050,28 @@ func isProviderTransportError(err error) bool {
 // run.failed (AS-5); any other failure is run.failed so the run still
 // closes exactly once.
 func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent) bool {
+	return s.persistAndPublishEvent(ctx, sessionID, re, true) == nil
+}
+
+// persistAndPublishEvent is the single append/projection path. Boundary
+// callbacks return persistence errors to consume, the terminal owner; ordinary
+// asynchronous callers retain the established immediate-close behavior.
+func (s *Service) persistAndPublishEvent(ctx context.Context, sessionID domain.SessionID, re domain.RunEvent, closeOnFailure bool) error {
 	s.projectionMu.Lock()
 	if s.sessionDeleted(sessionID) {
 		s.cleanupRunState(re.RunID)
 		s.projectionMu.Unlock()
-		return false
+		return errors.New("runtime: session was deleted")
 	}
 	seq, err := s.deps.Journal.Append(ctx, storage.Commit{RunID: re.RunID, Events: []domain.RunEvent{re}})
 	if err != nil {
 		s.projectionMu.Unlock()
 		slog.Error("journal append failed", "run", string(re.RunID), "type", string(re.Type), "err", err)
-		m := newEventMapper(re.RunID, 0)
-		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
-		return false
+		if closeOnFailure {
+			m := newEventMapper(re.RunID, 0)
+			s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, err))
+		}
+		return fmt.Errorf("runtime: persist event: %w", err)
 	}
 	re.Seq = seq
 	// tool_search completions widen the session's deferred-tool activation
@@ -5131,7 +5089,7 @@ func (s *Service) persistAndPublish(ctx context.Context, sessionID domain.Sessio
 	}
 	s.publish(ctx, re)
 	s.projectionMu.Unlock()
-	return true
+	return nil
 }
 
 // emitTerminal persists the terminal event best-effort, flips the run row

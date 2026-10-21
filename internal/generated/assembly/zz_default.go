@@ -124,6 +124,9 @@ func (assembly *RuntimeAssembly) HasCognitiveFactory() bool { return assembly.Co
 
 func (assembly *RuntimeAssembly) CognitiveFactoryValue() any { return assembly.CognitiveFactory }
 
+func (assembly *RuntimeAssembly) HasNudgeFactory() bool  { return false }
+func (assembly *RuntimeAssembly) NudgeFactoryValue() any { return nil }
+
 func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")

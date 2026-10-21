@@ -227,7 +227,9 @@ func authorizeToolDispatch(ctx context.Context, toolName string, arguments json.
 		if err := markInvocationFailure(ctx, refusalFailure(toolFailureReasonUserDenied, "denied by the user")); err != nil {
 			return "", true, err
 		}
-		return toolName + " was denied by the user and did not run; continue without it.", true, nil
+		result := toolName + " was denied by the user and did not run; continue without it."
+		err := recordNudgeProjection(ctx, toolName, string(arguments), outcomeWithFailure(result, refusalFailure(toolFailureReasonUserDenied, "denied by the user")))
+		return result, true, err
 	case domain.ApprovalApproved:
 		if err := validateResumedToolApproval(ctx, toolName, arguments); err != nil {
 			return "", true, err
@@ -481,8 +483,22 @@ func decodeJSONWithNumbers(raw json.RawMessage) (any, error) {
 }
 
 func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
+	beginNudgeInvocation(ctx)
 	result, err := a.dispatch(ctx, argumentsInJSON)
 	if err == nil {
+		// Ordinary success and already-committed Work receipt replay have no
+		// error classification. More specific producer records win over this
+		// projection, including command failure and reviewer denial.
+		if state := nudgeStateFromContext(ctx); state != nil {
+			state.mu.Lock()
+			_, recorded := state.produced[compose.GetToolCallID(ctx)]
+			state.mu.Unlock()
+			if !recorded {
+				if err := recordNudgeProjection(ctx, a.t.Spec().Name, argumentsInJSON, successToolOutcome(result)); err != nil {
+					return "", err
+				}
+			}
+		}
 		return result, nil
 	}
 	refusal, ok := asToolRefusal(err)
@@ -504,10 +520,14 @@ func (a *toolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, 
 			Profile: policyProfile(ctx), Reason: reason,
 		})
 	}
+	result = refusalToolResult(spec.Name, reason)
 	if refusal.durableResult != nil {
-		return *refusal.durableResult, nil
+		result = *refusal.durableResult
 	}
-	return refusalToolResult(spec.Name, reason), nil
+	if err := recordNudgeProjection(ctx, spec.Name, argumentsInJSON, outcomeWithFailure(result, refusalFailure(refusal.classification, reason))); err != nil {
+		return "", err
+	}
+	return result, nil
 }
 
 func approvalPolicyDeniesEffectful(ctx context.Context, spec domain.ToolSpec) bool {
@@ -543,6 +563,9 @@ func (a *toolAdapter) dispatch(ctx context.Context, argumentsInJSON string) (str
 func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON string) (string, error) {
 	spec := a.t.Spec()
 	if result, handled, err := resumePlanReview(ctx, spec.Name, a.maxResultBytes); handled || err != nil {
+		if err == nil {
+			err = recordNudgeProjection(ctx, spec.Name, argumentsInJSON, successToolOutcome(result))
+		}
 		return result, err
 	}
 	if workToolCallFenced(ctx) {
@@ -775,7 +798,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 						return outcomeWithFailure(refusal, refusalFailure(toolFailureReasonUserDenied, "denied by the user")), nil
 					})
 				}
-				return refusal, nil
+				return refusal, recordNudgeProjection(ctx, spec.Name, argumentsInJSON, outcomeWithFailure(refusal, refusalFailure(toolFailureReasonUserDenied, "denied by the user")))
 			}
 			if decision != domain.ApprovalApproved {
 				return "", fmt.Errorf("runtime: invalid approval decision %q for %s", decision, spec.Name)
@@ -864,6 +887,9 @@ func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation
 		return coordinator.Execute(ctx, *operation[0], execute)
 	}
 	outcome, err := execute(ctx)
+	if err == nil {
+		err = recordNudgeProjection(ctx, a.t.Spec().Name, argumentsInJSON, outcome)
+	}
 	return outcome.Result, err
 }
 

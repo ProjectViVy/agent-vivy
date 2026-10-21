@@ -144,7 +144,7 @@ func TestToolOperationEnhancedCachedSiblingBeforeFinished(t *testing.T) {
 			writer.spec.Name = tools.WriteNoteName
 			writer.spec.Readonly = false
 			script := []*schema.AgenticMessage{testToolCalls(testCall("cached", name, `{"text":"bad"}`), testCall("approval", tools.WriteNoteName, `{"text":"write"}`)), testAssistant("continued")}
-			h := newContractHarness(t, script, contractHarnessOpts{enhanced: true, streaming: true, checkpoints: true, noBarrier: true, prodNudge: true, extraTools: []tools.Tool{sibling, writer}})
+			h := newContractHarness(t, script, contractHarnessOpts{enhanced: true, streaming: true, checkpoints: true, prodNudge: true, extraTools: []tools.Tool{sibling, writer}})
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			const run domain.RunID = "run-cached-gap"
@@ -496,7 +496,7 @@ func TestToolOperationRefusalLiveResultMatchesDurable(t *testing.T) {
 	tool := newContractTool(func(context.Context, json.RawMessage) (string, error) {
 		return "", refuseCall(strings.Repeat("refusal diagnostic ", 6000), nil, domain.ToolReasonPolicyDenied)
 	})
-	h := newContractHarness(t, []*schema.AgenticMessage{testToolCalls(testCall("long-refusal", contractToolName, `{"text":"test"}`)), testAssistant("handled")}, contractHarnessOpts{enhanced: true, streaming: true, prodNudge: true, noBarrier: true, extraTools: []tools.Tool{tool}})
+	h := newContractHarness(t, []*schema.AgenticMessage{testToolCalls(testCall("long-refusal", contractToolName, `{"text":"test"}`)), testAssistant("handled")}, contractHarnessOpts{enhanced: true, streaming: true, prodNudge: true, extraTools: []tools.Tool{tool}})
 	run, err := h.svc.Run(context.Background(), "refusal-result", "invoke tool")
 	if err != nil {
 		t.Fatal(err)

@@ -373,6 +373,7 @@ re-enters ToolHost.
 | `core/status-host@v1` | `0..1` | Required when a Status Source exists |
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
+| `core/nudge-factory@v1` | `0..1` | Inert optional T1 factory; sole owner `vivy/nudge`, core coaching retained until #93 |
 | `core/cognitive-factory@v1` | `0..1` | Required when the DIVA cognitive owner is selected |
 
 `core/cognitive-factory@v1` is a **SUPPORTED**, optional T1 backend contract

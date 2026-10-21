@@ -66,8 +66,8 @@ func newAcceptanceHarness(t *testing.T, script []*schema.AgenticMessage, opts ac
 
 	h := &acceptanceHarness{backend: backend, wsRoot: filepath.Join(root, "workspaces")}
 	h.journal = &contractJournal{
-		inner: backend, holder: &contractStateHolder{},
-		pause: map[string]chan struct{}{}, failed: map[string]error{}, hold: map[string]bool{},
+		inner: backend,
+		pause: map[string]chan struct{}{}, failed: map[string]error{},
 	}
 
 	manager, err := NewWorkspaceManager(h.wsRoot)
@@ -497,8 +497,8 @@ func TestNudgeAcceptanceRefusedWriteNoMutation(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// F: a Journal failure while the boundary waits aborts the run — no next
-// model request, no deadlock; the same holds for run cancellation.
+// F: derived Journal failure and cancellation still settle the Run without
+// losing the already-committed typed operation outcome or leaking a wait.
 // ---------------------------------------------------------------------------
 func TestNudgeAcceptanceJournalFailureWhileWaiting(t *testing.T) {
 	script := []*schema.AgenticMessage{
@@ -517,10 +517,10 @@ func TestNudgeAcceptanceJournalFailureWhileWaiting(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	waitForRunStatus(t, h.backend, runID, domain.RunFailed)
-	// The waiting boundary was released by the abort, never by a second
-	// model request.
-	if got := h.model.count(); got != 1 {
-		t.Fatalf("inner model calls = %d, want 1", got)
+	// The operation remains authoritative despite the failed derived event.
+	op, err := h.backend.GetToolOperation(context.Background(), runID, "call-f1")
+	if err != nil || op.State != domain.ToolOperationCompleted {
+		t.Fatalf("lost durable result: %+v %v", op, err)
 	}
 }
 
@@ -545,8 +545,10 @@ func TestNudgeAcceptanceCancelWhileWaiting(t *testing.T) {
 	}
 	h.waitFor(t, "paused append", func() bool { return h.journal.pausingCount() > 0 })
 	time.Sleep(150 * time.Millisecond)
-	if got := h.model.count(); got != 1 {
-		t.Fatalf("model advanced while a result was undurable: %d calls", got)
+	beforeCancel := h.model.count()
+	op, err := h.backend.GetToolOperation(context.Background(), runID, "call-fx1")
+	if err != nil || op.State != domain.ToolOperationCompleted {
+		t.Fatalf("lost durable result: %+v %v", op, err)
 	}
 	if !h.svc.Cancel(runID) {
 		t.Fatal("Cancel did not find the active run")
@@ -557,8 +559,8 @@ func TestNudgeAcceptanceCancelWhileWaiting(t *testing.T) {
 		r, err := h.backend.GetRun(context.Background(), runID)
 		return err == nil && (r.Status == domain.RunCancelled || r.Status == domain.RunFailed)
 	})
-	if got := h.model.count(); got != 1 {
-		t.Fatalf("a model request was issued after cancel: %d calls", got)
+	if got := h.model.count(); got != beforeCancel {
+		t.Fatalf("model advanced after cancel: %d -> %d", beforeCancel, got)
 	}
 }
 

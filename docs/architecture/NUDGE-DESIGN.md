@@ -1,8 +1,8 @@
 # Tool Failure Recovery and Nudge — Detailed Design
 
-Revision **ND-D1**, 2026-09-23. Issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58).
+Revision **D04 producer boundary**, 2026-10-21. Issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58).
 Baseline: `a8d361b0244a1c40be513622bbdaebb5c9d40014` (local and fetched main).
-Delivery authority: [plan index](../plans/nudge/README.md). This engineering specification supersedes the preliminary issue comment where explicitly refined below. It is a design deliverable, not shipped behavior.
+Delivery authority: [plan index](../plans/nudge/README.md). This engineering specification supersedes the preliminary issue comment where explicitly refined below. D04 updates the shipped interim core implementation; #93 owns ordinary first-party plugin extraction.
 
 ## 1. Intent and requirements
 
@@ -35,22 +35,22 @@ Use the existing tool adapter for selective failure adaptation, one run-local ob
 | `schemas/events/payloads/tool.finished.json` | Strict additionalProperties=false: additive payload fields require schema updates, not just Go structs. |
 | `ui/src/lib/run-rows.ts` | Existing error projection consumes tool.finished.error; preserve this field. |
 
-Pinned Eino v0.9.13; EinoExt Claude v0.1.25, OpenAI v0.1.13, MCP v0.0.9. Inspected upstream `adk/handler.go`, `adk/chatmodel.go`, `adk/chatmodel_test.go`, `compose/tool_node.go`.
+Pinned Eino v0.9.21; EinoExt Claude v0.1.25, OpenAI v0.1.13, MCP v0.0.9. Inspected upstream `adk/handler.go`, `adk/chatmodel.go`, `adk/chatmodel_test.go`, `compose/tool_node.go`.
 
 - `compose.GetToolCallID(ctx)` is the correlation source in runtime adapters. Do not match parallel results solely by tool name.
-- `adk.ChatModelAgentMiddleware.WrapModel` returns `model.BaseModel[*schema.Message]` and wraps both Generate and Stream. Eino owns tool binding separately.
+- `adk.TypedChatModelAgentMiddleware[*schema.AgenticMessage].WrapModel` returns `model.BaseModel[*schema.AgenticMessage]` and wraps both Generate and Stream. Eino owns tool binding separately.
 - `BeforeModelRewriteState` persists message edits in ADK state. We deliberately choose WrapModel for a **single-request transient reminder** to avoid replaying synthetic instructions after resume/compaction. Upstream discourages general message rewriting here because it is not persisted; that property is intentional for this bounded trailing reminder. Stable instruction prefix and tool catalog remain untouched.
-- `compose.ToolMiddleware` supports ordinary and enhanced invocation. It is available but not needed for broad error catching: the existing ordinary adapter is the common governed boundary.
+- `adk.TypedChatModelAgentMiddleware.WrapInvokableToolCall` covers Eino-owned readonly metadata tools (`tool_search`, `skill`) at their producer boundary. Ordinary and enhanced governed tools retain their existing common adapter. `compose.ToolMiddleware` also supports ordinary and enhanced invocation. It is available but not needed for broad error catching: the existing ordinary adapter is the common governed boundary.
 - UnknownToolsHandler is available but is **not enabled by this design**. Hallucinated-tool recovery is adjacent scope and currently stays fatal; naming an available upstream hook is not a requirement to use it.
 - Native interrupts, Runner checkpoints and MaxIterations are retained.
 
 Custom policy is needed for Vivy's recoverable failure allowlist and Journal ordering. It lives within runtime, with a first-party MCP error carrier in mcphost. Eino stays quarantined to runtime/provider. Replace the small adapter if upstream offers equivalent scoped semantics later.
 
-Source inspection resolves API selection. Executable integration evidence is still required in ND-0: no claim that an installed source tree is a passing probe. Go and just are absent from this planning environment.
+D04 rechecked `compose.NewAgenticToolsNode` / native ToolsNode completion and its completed-sibling checkpoint reuse, `compose.GetToolCallID`, typed `WrapModel`, and `adk.TypedRunner.ResumeWithParams` at v0.9.21. Native ToolsNode already joins completed calls; it does not own Vivy database claims or typed durable results. D03's existing coordinator supplies those records. No second join, outcome service, executor or checkpoint format is needed. The legacy ND-0 test-local barrier is retired; current tests exercise the actual native producer and Service path.
 
 ## 4. Internal contracts (proposed unless already present)
 
-All new names below are package-private except the MCP error carrier consumed across existing internal packages. No SDK/Port or public RPC extension.
+All new names below are package-private except the MCP error carrier consumed across existing internal packages. The advisory SDK/core factory seam is inert; public RPC stays unchanged.
 
 ```go
 // internal/runtime/tool_failure.go
@@ -80,22 +80,41 @@ type nudgeNotice struct {
     TemplateVersion string
 }
 func newNudgeState() *nudgeState
-func (s *nudgeState) Register(ids []string) error
 func (s *nudgeState) MarkFailure(id string, failure toolFailure) error
 func (s *nudgeState) Failure(id string) (toolFailure, bool)
-func (s *nudgeState) Complete(call completedCall) error
-func (s *nudgeState) Seal(err error)
-func (s *nudgeState) Take(ctx context.Context) (*nudgeNotice, error)
+func (s *nudgeState) Take(ctx context.Context, nativeIDs []string) (*nudgeNotice, bool, error)
 func (s *nudgeState) Abort(err error)
-func withNudgeState(ctx context.Context, state *nudgeState) context.Context
-func nudgeStateFromContext(ctx context.Context) *nudgeState
 ```
 
-Register receives one model turn's IDs in request order before dispatch; empty, duplicate or overlapping outstanding IDs are invariant errors. One outstanding batch only. Failure/Complete are mutex-protected and keyed by ID. Complete stores an already redacted, bounded mapped outcome; it does not publish or inject. Seal is called by the consuming Service after all tool.finished events for the batch have successfully persisted. Seal flushes completed outcomes in request order into the shared loop window, prepares the highest-threshold pending notice (tie: earliest request position), then releases the waiting model boundary. On error, Seal/Abort wakes waiters with the original cause. Neither holds a lock during Journal I/O or model calls.
+Tool producers record a leg-local coverage projection before returning to Eino.
+An operation-backed entry contains only its ID/name and freshness, recorded after
+`CompleteToolOperation` atomically commits the typed result and lifecycle event.
+At `WrapModel`, the existing coordinator resolves that immutable row. Work and
+pre-claim refusals use bounded explicitly typed producer values under their
+existing effect owner; no second operation is claimed. Classification never
+comes from parsing a result prefix.
 
-Take waits for the batch to seal or context cancellation, consumes at most one notice and returns terminal error if present. A second Take without a new batch gets no notice. Abort is idempotent and prevents any further model handoff. Keep only ten signature/count entries and current in-flight batch metadata; never retain historical raw arguments. Bound the in-flight batch by the existing tool/budget admission constraints; reject invalid oversized batches before allocating state. No unbounded set of historical IDs.
+`Take` synchronously validates coverage for the entire ordered native batch,
+then advances only fresh samples in native request order. Completed siblings
+reused directly by Eino are registered as non-fresh coverage on resume. A missing
+producer fails closed; there is no wait, consumer acknowledgment or parked
+completion. The entire ordered ID batch and selected notice are memoized, even
+when every sibling is non-fresh, so retries count/schedule once. Schedule failure
+aborts the state with the original cause, preventing unscheduled retry injection.
 
-The existing loopWindow becomes the sole detector owned by nudgeState; remove the mapper's independent window. Extend its record API to return the matching count plus the existing errLoopDetected sentinel. Keep canonical argument/result hashing semantics; do not mix generated reminders into signatures. No two synchronized detectors.
+One fresh detector belongs to each drive/resume/steer leg. The sole window holds
+ten exact `(tool, canonical arguments, bounded result, bounded error)` tuples;
+field separators cannot alias. Canonical JSON preserves number literals; malformed-JSON refusals retain exact raw argument bytes. Producer argument/result/error values and canonical expansion are capped at 1 MiB, failing closed without truncating tuple identity.
+Success advances the same window; failure selects reminders at counts 3/5;
+count 6 retains the existing hard stop. No hash, historical ID set or durable
+nudge cache is added. The mapper's separate observed-stream settlement ordering
+remains because it protects output accumulation, independent of model entry.
+
+The inert `sdk/port/loopexp` policy DTOs and optional closed
+`core/nudge-factory@v1` slot (sole T1 owner `vivy/nudge`) prepare #93. No
+provider is selected or constructed here; the interim core remains the only
+coaching implementation. The later cutover must delete that core body when it
+starts executing the ordinary plugin, including the fused hard-stop decision.
 
 ## 5. Selective recovery and provenance
 
@@ -115,27 +134,27 @@ Command failures are recognized only for the reserved command-tool implementatio
 
 At the inner invocation seam, retain error provenance. The runtime can convert only allowlisted execution failures; hook/authorization/storage errors passing through dispatch do not become recoverable merely because their messages resemble an argument error. Existing refusal branches should explicitly mark reason/status rather than infer them from refusal text.
 
-On soft conversion: MarkFailure(current call ID), preserve diagnostic as untrusted result text, return nil error to Eino, and later populate tool.finished.error from the side-channel metadata. Do not export Go error text before redaction. Missing call ID during a model-originated conversion is an invariant failure, not a name-based fallback. Non-model shell paths retain their existing error behavior and have no nudge state.
+On soft conversion: preserve the diagnostic as bounded untrusted result text and the explicit classification; commit both through the existing operation owner before returning nil error to Eino. The mapper resolves durable classification first, using a producer failure mark only for existing non-operation paths. Do not export Go error text before redaction. Missing call ID during a model-originated conversion is an invariant failure, not a name-based fallback. Non-model shell paths retain their existing error behavior and have no nudge state.
 
 MCP ToolWorld should return its internal typed ToolExecutionError when IsError is true. Transport failures stay unchanged. No `toolworld.Result` or plugin API field is added. Verify that ordinary and enhanced adapters preserve the text/parts payload and the error identity; do not wrap a media envelope into unparsable text.
 
 ## 6. Ordering, lifecycle and hard stop
 
 ```text
-model tool request -> register batch IDs -> governed tool dispatch
--> adapter marks typed failures -> Eino yields correlated results
--> mapper creates tool.finished with real error metadata
--> Service persists every finished result -> Seal in request order
--> model wrapper Take -> persist tool.nudge -> call model
+model tool request -> governed dispatch -> typed effect completion commit
+-> producer coverage -> native ToolsNode joins correlated ToolMessages
+-> WrapModel validates/resolves ordered outcomes -> exact tuple evaluation
+-> persist tool.nudge once -> call model
 ```
 
-The wrapper must wait **before** both inner.Generate and inner.Stream, not on their returned output. Registration for streaming models occurs before Eino receives the completed tool call; for non-streaming models, ND-0 must pin the equivalent event-before-dispatch order. No busy-wait, new goroutine per reminder or global lock.
+Both inner Generate and Stream use the same synchronous boundary. Native
+interrupts/cancellation remain control flow, never detector samples. Mandatory
+operation completion and nudge scheduling cannot be delayed or bypassed by
+advisory policy. A derived `tool.finished` consumer may lag without controlling
+continuation; its own Journal failure still closes the Run through the existing
+Service terminal owner.
 
-On the sixth matching result, persist the actual tool.finished, seal with errLoopDetected, and emit one run.failed through existing Service terminal handling. This explicitly fixes the baseline's missing sixth result event while preserving the hard-stop threshold. Already-dispatched parallel siblings may have run; this feature cannot roll them back. They must be settled/audited by the existing batch consumer before shutdown; no seventh model request is admitted. Cancel the drive context on terminal paths and Abort waiters even when Journal persistence fails, so stopping the consumer cannot strand the producer.
-
-Normal success calls count toward the existing hard guard but never produce failure reminders. Counts 3 and 5 are proposal constants, not measured optimum. Sliding-window counts can fall and reach a threshold again; a new source call may then produce a new notice. Deduplication is by the current batch's source call, not a permanent per-signature blacklist. Successful/different results naturally alter the ten-entry window.
-
-Create state when drive/resume starts. Share exactly that pointer across Service, mapper and wrapper via context; Engine middleware itself is immutable. Approval/question interruption aborts the current waiting boundary without consuming the interrupt as a failure. Resume creates fresh detector state, consistent with baseline, and does not replay an old pending reminder. Process restart uses existing orphan/checkpoint recovery. No new checkpoint field, cross-Run counter, cross-Goal counter or persisted detector cache.
+Create state when drive/resume starts. Share exactly that pointer across Service, mapper and wrapper via context; Engine middleware itself is immutable. Approval/question interruption aborts the current leg without consuming the interrupt as a failure. Resume creates fresh detector state, consistent with baseline, and does not replay an old pending reminder. Process restart uses existing orphan/checkpoint recovery. No new checkpoint field, cross-Run counter, cross-Goal counter or persisted detector cache.
 
 ## 7. Reminder and Journal contract
 
@@ -149,7 +168,7 @@ All five fields required, additionalProperties=false; repeat_count is 3 or 5. It
 
 Extend tool.finished with optional `outcome`, `reason`, `effects`; preserve existing error/result/parts fields. Old rows lacking metadata remain readable. Update strict JSON schemas and any exhaustive event consumers. Do not silently broaden payload validators globally. The pre-existing parts/schema mismatch is relevant only where this Story's multimodal fixtures exercise it; reconcile that touched schema field explicitly.
 
-One coalesced notice per model boundary. ND-3's Service-supplied emitter appends/publishes it through the existing Journal and budget path before wrapper handoff; false/error terminates the call. Append failure never degrades to an unrecorded reminder. Existing model.request is emitted at Run admission, so it is not evidence that every later reminder was delivered. Do not relabel it or add a misleading delivery guarantee. Fake-provider request capture supplies acceptance evidence; live telemetry may only claim scheduling/handoff.
+One coalesced notice per model boundary. ND-3's Service-supplied emitter appends/publishes it through the existing Journal and budget path before wrapper handoff; error returns the original cause to consume, the sole terminal owner for that boundary. Append failure never degrades to an unrecorded reminder. Existing model.request is emitted at Run admission, so it is not evidence that every later reminder was delivered. Do not relabel it or add a misleading delivery guarantee. Fake-provider request capture supplies acceptance evidence; live telemetry may only claim scheduling/handoff.
 
 The single trailing `schema.UserMessage` is tagged with internal source metadata (kind=runtime_nudge, call ID, template version) and contains a fixed template plus bounded trusted identifiers. It is not stored in the human transcript or ADK checkpoint. Use a copy of the request slice. Do not change ToolInfos, system identity, AGENTS/skill ordering or tool-result pairs. Attach only after current tool results and after compaction; respect the existing context budget before handoff. Provider retry sees the same immutable request and must not schedule a second event.
 
@@ -163,7 +182,7 @@ No raw arguments or diagnostic text in the notice. Limit rendered reminder to 10
 
 No change to public tool/Port interfaces, RPC or configured provider retry behavior. Only additive Journal vocabulary/fields plus correction of sixth-result audit behavior. Existing UI error rows consume error unchanged; generic Inspect shows tool.nudge. Add a minimal projection only if the existing generic viewer drops the new event; no dedicated feature panel.
 
-Per completed call: existing hash work plus a scan of ten entries; per batch: request-order traversal. Memory is ten signatures plus admitted in-flight outcomes. No added model request solely for nudge and no synchronous remote I/O except existing Journal persistence. These are algorithmic properties, not benchmark claims. Result bytes and reminder tokens remain bounded.
+Per completed call: an exact scan of ten tuples; per batch: request-order traversal and existing operation reads. Memory is ten bounded tuples plus admitted producer coverage and one retry memo. No added model request solely for nudge and no synchronous remote I/O except existing Journal persistence. These are algorithmic properties, not benchmark claims. Result bytes and reminder tokens remain bounded.
 
 Rollback the implementation as one feature series; never erase emitted Journal events. Readers must tolerate the additive event before runtime emission is enabled. Keep decoder support if an emitting build was released. No migration rollback is required.
 
@@ -171,4 +190,4 @@ Rollback the implementation as one feature series; never erase emitted Journal e
 
 The architecture fixes boundaries and algorithms; ND-0 is an executable compatibility gate, not permission for an implementer to redesign public interfaces. It must prove Generate/Stream ordering, plain/enhanced tool correlation, failure metadata, a failing Journal and cancellation wake-up without deadlock. If a pinned Eino assumption fails, stop ND-2/1/3, update this spec and all consumers together; do not bypass Service or ship a second agent loop.
 
-Run the Story commands in the plan index, then mandatory `just ci` in the repository-supported environment and real-path smoke. Go is pinned to 1.26.4; justfile uses PowerShell, so a generic Linux shell is not an equivalent CI environment. This planning turn has no runtime/CI evidence. Each plan distinguishes future test commands from checks actually performed.
+Run the named Story regressions and the owner-authorized `just wiring-ci` plus `just kernel-ci` from the independent Linux-filesystem WSL checkout with pinned Laputa. The real isolated nonce-read App probe covers model/tool/model/final/idle. D13 adds split-browser mock acceptance; D14 retains full-product CI and real-token release evidence. Do not substitute repeated Windows full CI for this kernel scope.

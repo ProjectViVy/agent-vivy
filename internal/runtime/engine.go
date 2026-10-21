@@ -33,6 +33,8 @@ type SummaryModel = model.BaseModel[*schema.AgenticMessage]
 
 // EngineConfig carries the tunables the app layer reads from config.
 type EngineConfig struct {
+	// NudgeFactory is inert until the core-to-plugin cutover; never constructed here.
+	NudgeFactory NudgeFactory
 	// StaticInstructionOverride replaces the default assistant instruction.
 	// Child task engines use a neutral instruction so they do not inherit the
 	// parent assistant's persona.

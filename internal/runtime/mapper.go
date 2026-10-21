@@ -84,12 +84,7 @@ type eventMapper struct {
 	// nil outside those legs.
 	nudge *nudgeState
 
-	// completions retains the bounded outcome records behind each
-	// mapped tool.finished until the consuming service confirms the
-	// append is durable (ND-2: completion is recorded on persist
-	// success, not at event construction).
 	resolveToolOutcome func(string, string) (domain.ToolOperationOutcome, bool, error)
-	completions        map[string]completedCall
 
 	// interrupt holds the details of the latest interrupt action; set
 	// together with the errRunInterrupted sentinel.
@@ -115,15 +110,12 @@ type openToolCall struct {
 	id   string
 	name string
 	args map[string]any
-	// argsJSON is the canonical (key-sorted) form of args, captured at
-	// request time for the loop detector.
-	argsJSON string
 }
 
 func newEventMapper(runID domain.RunID, maxPayload int) *eventMapper {
 	settled := make(chan struct{})
 	close(settled)
-	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold, toolsSettled: settled, completions: map[string]completedCall{}}
+	return &eventMapper{runID: runID, maxPayload: maxPayload, stallThreshold: defaultProviderStallThreshold, toolsSettled: settled}
 }
 
 func (m *eventMapper) setUsageRoutes(provider, model, summaryModel string) {
@@ -556,16 +548,12 @@ func (m *eventMapper) toolCallEvents(msg *schema.AgenticMessage) []domain.RunEve
 				slog.Warn("tool call arguments are not a JSON object", "tool", tc.Name, "err", err)
 			}
 		}
-		// Canonical form: re-marshaling the decoded map sorts keys, so
-		// the same call with reordered JSON keys still counts as a
-		// repeat for the loop detector. Decoded JSON cannot fail here.
-		argsJSON, _ := json.Marshal(args)
 		out = append(out, m.build(domain.EventToolRequested, payloadToolRequested{
 			ToolCallID: tc.CallID,
 			ToolName:   tc.Name,
 			Args:       redactedApprovalArguments(args),
 		}))
-		call := openToolCall{id: tc.CallID, name: tc.Name, args: args, argsJSON: string(argsJSON)}
+		call := openToolCall{id: tc.CallID, name: tc.Name, args: args}
 		m.toolBatch = append(m.toolBatch, call)
 		m.registerOpenCall(call)
 	}
@@ -629,14 +617,12 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 
 // toolResultEvents emits tool.started immediately followed by
 // tool.finished: the engine delivers tool results as a single event, so
-// the start boundary is reconstructed at result time. The bounded
-// outcome record is parked for the consuming service, which records
-// completion in the leg's nudge detector only after the append lands
-// (ND-2); the typed failure mark, when present, supplies the optional
+// the start boundary is reconstructed at result time. The existing durable
+// outcome owner supplies typed classification; a non-operation producer mark
+// supplies the optional
 // outcome metadata and keeps error non-empty even where Eino received
 // a nil error.
 func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, parts []json.RawMessage, errMsg string) ([]domain.RunEvent, error) {
-	argsJSON := m.argsJSONFor(callID, toolName)
 	resolvedID, resolvedName := m.popOpenCall(callID, toolName)
 	if callID == "" {
 		callID = resolvedID
@@ -644,7 +630,6 @@ func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, par
 	if toolName == "" {
 		toolName = resolvedName
 	}
-	call := completedCall{ID: callID, Name: toolName, ArgsJSON: argsJSON, Result: result, Error: errMsg}
 	finished := payloadToolFinished{ToolCallID: callID, ToolName: toolName, Result: result, Parts: parts, Error: errMsg}
 	var durableFailure *toolFailure
 	durableFound := false
@@ -670,60 +655,27 @@ func (m *eventMapper) toolResultEventsParts(toolName, callID, result string, par
 		}
 		if ok {
 			failure := failure
-			call.Failure = &failure
 			finished.Outcome = failure.Status
 			finished.Reason = failure.Reason
 			finished.Effects = failure.Effects
 			// The journal row of a failed invocation keeps a non-empty
 			// error even where Eino received a nil error (ND-2): the
 			// bounded diagnostic stands in, never raw output.
-			if call.Error == "" {
-				call.Error = failure.Diagnostic
+			if finished.Error == "" {
 				finished.Error = failure.Diagnostic
 			}
 		}
 	}
-	m.storeCompletion(call)
 	return []domain.RunEvent{
 		m.build(domain.EventToolStarted, payloadToolStarted{ToolCallID: callID, ToolName: toolName}),
 		m.build(domain.EventToolFinished, finished),
 	}, nil
 }
 
-// storeCompletion parks the outcome record until its tool.finished is
-// durably journaled; takeCompletion releases it to the consuming
-// service.
-func (m *eventMapper) storeCompletion(call completedCall) {
-	m.toolMu.Lock()
-	defer m.toolMu.Unlock()
-	m.completions[call.ID] = call
-}
-
-func (m *eventMapper) takeCompletion(callID string) (completedCall, bool) {
-	m.toolMu.Lock()
-	defer m.toolMu.Unlock()
-	call, ok := m.completions[callID]
-	if ok {
-		delete(m.completions, callID)
-	}
-	return call, ok
-}
-
 // setNudgeState shares the leg's detector with the mapper so typed
 // failure marks resolve into tool.finished metadata.
 func (m *eventMapper) setNudgeState(state *nudgeState) {
 	m.nudge = state
-}
-
-// argsJSONFor resolves the canonical arguments of a tracked open call by
-// id, or by tool name when the result carries no id; empty when untracked.
-func (m *eventMapper) argsJSONFor(callID, toolName string) string {
-	for _, oc := range m.openCalls {
-		if (callID != "" && oc.id == callID) || (callID == "" && oc.name == toolName) {
-			return oc.argsJSON
-		}
-	}
-	return ""
 }
 
 func (m *eventMapper) registerOpenCall(call openToolCall) {

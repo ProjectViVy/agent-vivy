@@ -143,6 +143,9 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 		return "", storage.ErrToolOperationConflict
 	}
 	if stored.State == domain.ToolOperationCompleted {
+		if err := recordNudgeOperation(ctx, stored, false); err != nil {
+			return "", err
+		}
 		return toolOperationResolution(stored)
 	}
 	key := string(c.runID) + "\x00" + op.OperationID
@@ -150,7 +153,18 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 	service.operationMu.Lock()
 	if flight := service.operationFlights[key]; flight != nil {
 		service.operationMu.Unlock()
-		return waitToolOperationFlight(ctx, flight)
+		result, err := waitToolOperationFlight(ctx, flight)
+		if err != nil {
+			return result, err
+		}
+		completed, err := service.deps.ToolOperations.GetToolOperation(ctx, c.runID, op.OperationID)
+		if err != nil {
+			return "", err
+		}
+		if err := recordNudgeOperation(ctx, completed, false); err != nil {
+			return "", err
+		}
+		return result, nil
 	}
 	if stored.State == domain.ToolOperationClaimed {
 		service.operationMu.Unlock()
@@ -182,6 +196,9 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 	}
 	if !acquired {
 		if claimed.State == domain.ToolOperationCompleted {
+			if err := recordNudgeOperation(ctx, claimed, false); err != nil {
+				return finish("", err)
+			}
 			result, resolveErr := toolOperationResolution(claimed)
 			return finish(result, resolveErr)
 		}
@@ -222,6 +239,9 @@ func (c serviceToolOperationCoordinator) Execute(ctx context.Context, op domain.
 	completed, completeEvent, err := service.deps.ToolOperations.CompleteToolOperation(ctx, c.runID, op.OperationID, owner, outcome)
 	if err != nil {
 		return finish("", fmt.Errorf("runtime: persist tool operation completion: %w", err))
+	}
+	if err := recordNudgeOperation(ctx, completed, true); err != nil {
+		return finish("", err)
 	}
 	if completeEvent.Seq != 0 {
 		c.publish(completeEvent)
@@ -283,6 +303,36 @@ func (c serviceToolOperationCoordinator) publish(event domain.RunEvent) {
 
 func sameRuntimeToolOperationBinding(a, b domain.ToolOperation) bool {
 	return storage.SameToolOperationBinding(a, b)
+}
+
+// nudgeSample reads the committed owner; the per-leg projection never supplies
+// authority, raw result classification or a substitute for missing input.
+func (c serviceToolOperationCoordinator) nudgeSample(ctx context.Context, id, name string) (completedCall, error) {
+	op, err := c.service.deps.ToolOperations.GetToolOperation(ctx, c.runID, id)
+	if err != nil {
+		return completedCall{}, err
+	}
+	if err := storage.ValidateToolOperationSource(op); err != nil {
+		return completedCall{}, err
+	}
+	if op.ToolName != name {
+		return completedCall{}, storage.ErrToolOperationConflict
+	}
+	if op.State != domain.ToolOperationCompleted {
+		return completedCall{}, ErrToolOperationUnknown
+	}
+	if err := storage.ValidateToolOperationOutcome(op.Outcome()); err != nil {
+		return completedCall{}, err
+	}
+	arguments, err := canonicalToolArguments(op.RequestArguments)
+	if err != nil {
+		return completedCall{}, err
+	}
+	call := completedCall{ID: id, Name: name, ArgsJSON: string(arguments), Result: op.Result, Error: op.Failure}
+	if failure, ok := failureFromOutcome(op.Outcome()); ok {
+		call.Failure = &failure
+	}
+	return call, nil
 }
 
 func toolOperationResolution(op domain.ToolOperation) (string, error) {

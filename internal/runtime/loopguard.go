@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"errors"
-	"hash/fnv"
 )
 
 // Tool-loop detection (VC-2; behavior aligned with Crush's StopWhen):
@@ -15,34 +14,30 @@ const (
 	loopRepeatLimit = 5
 )
 
-// errLoopDetected is the mapper sentinel for a detected tool loop; the
+// errLoopDetected is the runtime sentinel for a detected tool loop; the
 // service turns it into a bounded, classified run.failed (FR-11).
 var errLoopDetected = errors.New("runtime: tool loop detected")
 
-// loopWindow keeps the signatures of the most recent completed tool
-// calls. Calls are keyed by hash so results never linger in memory and
-// comparison stays O(window).
+// loopWindow compares the bounded completed values without serialization.
+// Old entries are overwritten so private strings live for at most ten calls.
 type loopWindow struct {
-	sigs []uint64
+	calls [][4]string
 }
 
-// record appends one completed call signature and returns how many
-// identical signatures the window now holds, plus errLoopDetected once
+// record appends one completed call tuple and returns how many
+// identical tuples the window now holds, plus errLoopDetected once
 // the repetition limit is exceeded. argsJSON must already be canonical.
 func (w *loopWindow) record(toolName, argsJSON, result, errMsg string) (int, error) {
-	h := fnv.New64a()
-	for _, part := range []string{toolName, argsJSON, result, errMsg} {
-		_, _ = h.Write([]byte(part))
-		_, _ = h.Write([]byte{0})
-	}
-	sig := h.Sum64()
-	w.sigs = append(w.sigs, sig)
-	if len(w.sigs) > loopWindowSteps {
-		w.sigs = w.sigs[len(w.sigs)-loopWindowSteps:]
+	call := [4]string{toolName, argsJSON, result, errMsg}
+	if len(w.calls) == loopWindowSteps {
+		copy(w.calls, w.calls[1:])
+		w.calls[len(w.calls)-1] = call
+	} else {
+		w.calls = append(w.calls, call)
 	}
 	count := 0
-	for _, s := range w.sigs {
-		if s == sig {
+	for _, prior := range w.calls {
+		if prior == call {
 			count++
 		}
 	}

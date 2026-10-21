@@ -40,6 +40,7 @@ type GoBinding struct {
 	// mirrors MaskFactory: emitted only when the owner module is selected,
 	// always exposed through CognitiveFactoryValue() as any (nil when
 	// unselected).
+	NudgeFactory                 string
 	CognitiveFactory             string
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool

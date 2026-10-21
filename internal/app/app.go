@@ -663,6 +663,11 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, err
 	}
+	engineCfg.NudgeFactory, err = nudgeFactoryForAssembly(&runtimeAssembly)
+	if err != nil {
+		_ = backend.Close()
+		return nil, err
+	}
 	engineCfg.AgentsMDFiles = agentsMDFiles
 	engineCfg.HiddenTools = hidden
 	eng, err := loopDriver.Build(ctx, ts, engineCfg)

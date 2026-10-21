@@ -1,8 +1,8 @@
 package runtime
 
 // ND-3 (docs/plans/nudge/ND-3.md): the transient reminder at the model
-// boundary (NUDGE-DESIGN §6/§7). An immutable WrapModel middleware waits
-// for the run-local nudgeState to seal the batch whose tool results sit
+// boundary (NUDGE-DESIGN §6/§7). An immutable WrapModel middleware reads
+// committed producer outcomes for the native batch whose tool results sit
 // at the input tail, persists at most one tool.nudge scheduling event
 // through the Service-supplied emitter, then appends a tagged
 // runtime_nudge user message to a COPY of the input. No Journal, model
@@ -13,8 +13,11 @@ import (
 	"context"
 	"fmt"
 
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/tools"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
+	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -57,7 +60,7 @@ func (m *nudgeMiddleware) WrapModel(_ context.Context, inner model.BaseModel[*sc
 }
 
 // nudgeWrappedModel implements the §6 request barrier on both model
-// entry points: the wait happens BEFORE inner.Generate/Stream, never on
+// entry points: evaluation happens BEFORE inner.Generate/Stream, never on
 // their outputs. It is safe for provider retries — Take yields the same
 // notice again without a second scheduling signal.
 type nudgeWrappedModel struct {
@@ -111,6 +114,7 @@ func (w *nudgeWrappedModel) prepare(ctx context.Context, input []*schema.Agentic
 	if first {
 		if emit := nudgeEmitterFromContext(ctx); emit != nil {
 			if err := emit(ctx, *notice); err != nil {
+				state.Abort(err)
 				return nil, err
 			}
 		}
@@ -129,9 +133,8 @@ func (w *nudgeWrappedModel) prepare(ctx context.Context, input []*schema.Agentic
 
 // trailingToolCallIDs returns the call ids of the contiguous tool-result
 // messages at the input tail — the batch that just settled and must be
-// sealed before the inner model may run. Keying on the input (not on the
-// latest registered batch) matters: the engine can reach the next model
-// call before the consumer finishes journaling the request events.
+// covered before the inner model may run. Native request order is independent
+// of when the derived consumer journals request and result projections.
 func trailingToolCallIDs(input []*schema.AgenticMessage) []string {
 	var ids []string
 	for i := len(input) - 1; i >= 0; i-- {
@@ -149,4 +152,21 @@ func trailingToolCallIDs(input []*schema.AgenticMessage) []string {
 		ids[i], ids[j] = ids[j], ids[i]
 	}
 	return ids
+}
+
+// Eino owns these readonly metadata tools, so they do not enter toolAdapter.
+// Reuse its typed invocation wrapper at the producer, never a consumer hook.
+func (m *nudgeMiddleware) WrapInvokableToolCall(_ context.Context, endpoint adk.InvokableToolCallEndpoint, tool *adk.ToolContext) (adk.InvokableToolCallEndpoint, error) {
+	if tool.Name != officialToolSearchName && tool.Name != "skill" {
+		return endpoint, nil
+	}
+	return func(ctx context.Context, args string, opts ...einotool.Option) (string, error) {
+		beginNudgeInvocation(ctx)
+		result, err := endpoint(ctx, args, opts...)
+		if err != nil {
+			return result, err
+		}
+		outcome := domain.ToolOperationOutcome{Result: truncateUTF8(tools.RedactSensitive(result), 64<<10), Status: domain.ToolOutcomeSuccess, Effects: domain.ToolEffectsNone}
+		return result, recordNudgeProjection(ctx, tool.Name, args, outcome)
+	}, nil
 }

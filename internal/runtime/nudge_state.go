@@ -4,17 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
+
+	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
+	"github.com/cloudwego/eino/compose"
 )
 
 // nudgeTemplateVersion is the payload contract version of tool.nudge
 // (NUDGE-DESIGN §7).
 const nudgeTemplateVersion = "nudge-v1"
 
+// Producer projections use the same 1 MiB ceiling as private tool inputs.
+// Oversized advisory values fail closed rather than truncate tuple identity.
+const nudgeProducerMaxBytes = 1 << 20
+
 // completedCall is the durable outcome record for one dispatched tool
-// call. Outcome values are already redacted and bounded by the mapper;
-// the state copies them by value and never retains raw arguments beyond
-// the outstanding batch.
+// call. Values come from the existing effect owner or an explicitly typed,
+// bounded producer projection, never from derived event acknowledgment.
 type completedCall struct {
 	ID       string
 	Name     string
@@ -39,110 +47,38 @@ type nudgeNotice struct {
 	TemplateVersion string
 }
 
-// nudgeBatch tracks one model turn's tool calls in request order.
-type nudgeBatch struct {
-	ids       []string
-	remaining map[string]struct{}
-	calls     map[string]completedCall
-	satisfied map[string]struct{}
-	implicit  bool
+// producedCall is a leg-local coverage projection. Operation-backed calls keep
+// only a reference; the immutable database row supplies their values at the
+// native model boundary. Work/refusal calls retain their bounded producer value.
+type producedCall struct {
+	call      completedCall
+	operation bool
+	fresh     bool
 }
 
-// nudgeState is the single run-local observation point for bounded tool
-// outcomes (ND-2): it owns the loop detector, correlates typed failure
-// marks, seals a batch only after all of its tool.finished events have
-// durably persisted, and yields at most one reminder to the model
-// boundary per settled batch. It is created per drive/resume leg, shared
-// by pointer through context to the mapper/adapter/wrapper seam, and
-// performs no Journal or model work itself.
-//
-// Journal order guarantees Register precedes every Complete of the same
-// batch (tool.requested is always journaled before tool.finished), so a
-// completion for an unregistered id only legitimately occurs on resume
-// legs — where it is admitted as an implicit singleton batch.
+// nudgeState owns one fresh detector and native-batch retry memo per leg.
+// There is no event-consumer acknowledgement, completion queue or waiter.
 type nudgeState struct {
-	mu      sync.Mutex
-	changed chan struct{}
-
-	batch  *nudgeBatch
-	marks  map[string]toolFailure
-	window loopWindow
-
-	notice      *nudgeNotice
-	noticeTaken bool
-	sealedIDs   map[string]struct{}
-
-	terminal error
+	mu           sync.Mutex
+	marks        map[string]toolFailure
+	produced     map[string]producedCall
+	window       loopWindow
+	evaluatedIDs []string
+	notice       *nudgeNotice
+	noticeTaken  bool
+	terminal     error
 }
 
 func newNudgeState() *nudgeState {
-	return &nudgeState{changed: make(chan struct{}), marks: map[string]toolFailure{}}
+	return &nudgeState{marks: map[string]toolFailure{}, produced: map[string]producedCall{}}
 }
 
-func (s *nudgeState) broadcastLocked() {
-	close(s.changed)
-	s.changed = make(chan struct{})
-}
-
-func (s *nudgeState) setTerminalLocked(cause error) {
-	if s.terminal == nil {
-		s.terminal = cause
-	}
-	s.broadcastLocked()
-}
-
-// terminalErr reports the stop cause (loop detection, seal/abort error)
-// once set; the consuming Service reads it after Seal to emit the run's
-// terminal event.
 func (s *nudgeState) terminalErr() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.terminal
 }
 
-// Register opens the outstanding batch for one model turn's tool calls,
-// in request order. Empty ids, duplicate ids, and a register that
-// overlaps an unsealed batch are invariant errors; the caller aborts the
-// run.
-func (s *nudgeState) Register(ids []string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.terminal != nil {
-		return s.terminal
-	}
-	if len(ids) == 0 {
-		return errors.New("runtime: nudge register requires at least one tool call id")
-	}
-	if s.batch != nil {
-		return fmt.Errorf("runtime: nudge register overlaps an unsealed batch of %d tool calls", len(s.batch.ids))
-	}
-	seen := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		if id == "" {
-			return errors.New("runtime: nudge register requires non-empty tool call ids")
-		}
-		if _, dup := seen[id]; dup {
-			return fmt.Errorf("runtime: nudge register duplicates tool call id %q", id)
-		}
-		seen[id] = struct{}{}
-	}
-	batch := &nudgeBatch{
-		ids: append([]string(nil), ids...), remaining: make(map[string]struct{}, len(ids)),
-		calls: make(map[string]completedCall, len(ids)), satisfied: make(map[string]struct{}, len(ids)),
-	}
-	for _, id := range ids {
-		batch.remaining[id] = struct{}{}
-	}
-	s.batch = batch
-	return nil
-}
-
-// MarkFailure records the typed failure mark for one call id on the
-// side channel between the adapter and the mapper. The mark is keyed by
-// id only: dispatch may run before the consuming Service journals the
-// matching tool.requested, so registration is not required here. A
-// missing id is an invariant failure (NUDGE-DESIGN §5), never a
-// name-based fallback.
 func (s *nudgeState) MarkFailure(id string, failure toolFailure) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -156,7 +92,6 @@ func (s *nudgeState) MarkFailure(id string, failure toolFailure) error {
 	return nil
 }
 
-// Failure reads the typed failure mark for one call id.
 func (s *nudgeState) Failure(id string) (toolFailure, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,229 +99,213 @@ func (s *nudgeState) Failure(id string) (toolFailure, bool) {
 	return f, ok
 }
 
-// Complete records one durable outcome. With an outstanding batch the id
-// must belong to it — a duplicate or foreign id is an invariant error.
-// With no outstanding batch the completion is admitted into an implicit
-// batch, which is how tool results replayed by a resume leg are grouped
-// before the model boundary reveals the complete result tail.
-func (s *nudgeState) Complete(call completedCall) error {
+// A new native tool invocation is distinct from a provider retry of the same
+// prepared model request, even if a model reuses its preceding call ID. The
+// existing effect owner still validates/replays that invocation's identity.
+func beginNudgeInvocation(ctx context.Context) {
+	s := nudgeStateFromContext(ctx)
+	if s == nil {
+		return
+	}
+	id := compose.GetToolCallID(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slices.Contains(s.evaluatedIDs, id) {
+		for _, prior := range s.evaluatedIDs {
+			delete(s.produced, prior)
+		}
+		s.evaluatedIDs = nil
+		s.notice = nil
+		s.noticeTaken = false
+	}
+}
+
+func (s *nudgeState) record(call completedCall, operation, fresh bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.terminal != nil {
 		return s.terminal
 	}
 	if call.ID == "" {
-		return errors.New("runtime: nudge completion requires a tool call id")
+		return errors.New("runtime: nudge producer requires a tool call id")
 	}
-	batch := s.batch
-	if batch == nil {
-		batch = &nudgeBatch{
-			ids:       []string{call.ID},
-			remaining: map[string]struct{}{call.ID: {}},
-			calls:     map[string]completedCall{},
-			satisfied: map[string]struct{}{},
-			implicit:  true,
+	if old, ok := s.produced[call.ID]; ok {
+		if old.call.Name != call.Name || old.operation != operation {
+			return errors.New("runtime: conflicting nudge producer identity")
 		}
-		s.batch = batch
-	} else if batch.implicit && len(batch.remaining) == 0 {
-		if _, exists := batch.calls[call.ID]; exists {
-			return fmt.Errorf("runtime: nudge completion duplicates tool call id %q", call.ID)
+		if !operation && !sameNudgeCall(old.call, call) {
+			return errors.New("runtime: conflicting nudge producer outcome")
 		}
-		batch.ids = append(batch.ids, call.ID)
-		batch.remaining[call.ID] = struct{}{}
+		// A second waiter for the same committed operation cannot turn a fresh
+		// owner completion into a replay or manufacture a second observation.
+		fresh = fresh || old.fresh
 	}
-	if _, ok := batch.remaining[call.ID]; !ok {
-		_, done := batch.calls[call.ID]
-		_, settled := batch.satisfied[call.ID]
-		if done || settled {
-			return fmt.Errorf("runtime: nudge completion duplicates tool call id %q", call.ID)
-		}
-		return fmt.Errorf("runtime: nudge completion for unregistered tool call id %q", call.ID)
-	}
-	delete(batch.remaining, call.ID)
 	if call.Failure != nil {
-		failure := *call.Failure
-		call.Failure = &failure
+		f := *call.Failure
+		call.Failure = &f
 	}
-	batch.calls[call.ID] = call
-	s.broadcastLocked()
+	s.produced[call.ID] = producedCall{call: call, operation: operation, fresh: fresh}
 	return nil
 }
 
-// SatisfyDurable marks a sibling result already persisted by an earlier leg
-// of the same interrupted model batch. Such results satisfy the handoff
-// barrier, but are intentionally excluded from this leg's fresh detector.
-func (s *nudgeState) SatisfyDurable(id string) error {
+func sameNudgeCall(a, b completedCall) bool {
+	if a.ID != b.ID || a.Name != b.Name || a.ArgsJSON != b.ArgsJSON || a.Result != b.Result || a.Error != b.Error {
+		return false
+	}
+	if a.Failure == nil || b.Failure == nil {
+		return a.Failure == b.Failure
+	}
+	return *a.Failure == *b.Failure
+}
+
+func recordNudgeOperation(ctx context.Context, op domain.ToolOperation, fresh bool) error {
+	s := nudgeStateFromContext(ctx)
+	if s == nil {
+		return nil
+	}
+	if err := storage.ValidateToolOperationSource(op); err != nil {
+		return err
+	}
+	if op.State != domain.ToolOperationCompleted {
+		return errors.New("runtime: nudge operation is not completed")
+	}
+	if err := storage.ValidateToolOperationOutcome(op.Outcome()); err != nil {
+		return err
+	}
+	return s.record(completedCall{ID: op.OperationID, Name: op.ToolName}, true, fresh)
+}
+
+func recordNudgeProjection(ctx context.Context, toolName, arguments string, outcome domain.ToolOperationOutcome) error {
+	s := nudgeStateFromContext(ctx)
+	if s == nil {
+		return nil
+	}
+	id := compose.GetToolCallID(ctx)
+	s.mu.Lock()
+	prior, exists := s.produced[id]
+	s.mu.Unlock()
+	if exists && prior.operation {
+		if prior.call.Name != toolName {
+			return errors.New("runtime: conflicting nudge producer identity")
+		}
+		return nil
+	}
+	if len(arguments) > nudgeProducerMaxBytes || len(outcome.Result) > nudgeProducerMaxBytes || len(outcome.Failure) > nudgeProducerMaxBytes {
+		return fmt.Errorf("%w: nudge producer value exceeds %d bytes", ErrContextBudgetExceeded, nudgeProducerMaxBytes)
+	}
+	canonical, err := canonicalToolArguments([]byte(arguments))
+	if err != nil {
+		// Invalid JSON is a typed refusal too; retain its exact bounded identity.
+		canonical = []byte(arguments)
+	}
+	if len(canonical) > nudgeProducerMaxBytes {
+		return fmt.Errorf("%w: canonical nudge arguments exceed %d bytes", ErrContextBudgetExceeded, nudgeProducerMaxBytes)
+	}
+	call := completedCall{ID: id, Name: toolName, ArgsJSON: string(canonical), Result: outcome.Result, Error: outcome.Failure}
+	if f, ok := failureFromOutcome(outcome); ok {
+		call.Failure = &f
+	}
+	return s.record(call, false, true)
+}
+
+// prepare validates complete native result coverage before advancing the
+// detector. Database-backed values come from the existing operation owner.
+// The full ordered batch is memoized even when every sibling is non-fresh.
+func (s *nudgeState) prepare(ctx context.Context, ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.terminal != nil {
 		return s.terminal
 	}
-	if id == "" || s.batch == nil || s.batch.implicit {
-		return errors.New("runtime: durable nudge result requires a registered resume batch")
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	if _, ok := s.batch.remaining[id]; !ok {
-		return fmt.Errorf("runtime: durable nudge result has unexpected tool call id %q", id)
+	if slices.Equal(ids, s.evaluatedIDs) {
+		return nil
 	}
-	delete(s.batch.remaining, id)
-	s.batch.satisfied[id] = struct{}{}
-	s.broadcastLocked()
-	return nil
-}
-
-// Seal closes the outstanding batch after the consuming Service has
-// persisted every tool.finished of it: completed outcomes flush into the
-// loop window in request order, the highest-threshold failure notice is
-// prepared (ties: earliest request position), and the waiting model
-// boundary is released. A non-nil err abandons the batch and releases
-// waiters with that cause; detection of the repetition limit sets the
-// same terminal path. Calling Seal before the batch is fully persisted
-// is an invariant error.
-func (s *nudgeState) Seal(err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sealLocked(err)
-}
-
-func (s *nudgeState) sealLocked(err error) {
-	if err != nil {
-		s.setTerminalLocked(err)
-		return
-	}
-	batch := s.batch
-	if batch == nil {
-		return
-	}
-	if len(batch.remaining) != 0 {
-		s.setTerminalLocked(fmt.Errorf("runtime: nudge seal before all %d tool results persisted", len(batch.remaining)))
-		return
+	seen := map[string]bool{}
+	calls := make([]completedCall, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			return errors.New("runtime: invalid native nudge batch identity")
+		}
+		seen[id] = true
+		produced, ok := s.produced[id]
+		if !ok {
+			return fmt.Errorf("runtime: native tool result lacks producer outcome: %s", id)
+		}
+		call := produced.call
+		if produced.operation {
+			coordinator, ok := toolOperationCoordinatorFromContext(ctx).(serviceToolOperationCoordinator)
+			if !ok {
+				return ErrToolOperationUnavailable
+			}
+			var err error
+			call, err = coordinator.nudgeSample(ctx, id, call.Name)
+			if err != nil {
+				return err
+			}
+		}
+		if produced.fresh {
+			calls = append(calls, call)
+		}
 	}
 	var best *nudgeNotice
-	for _, id := range batch.ids {
-		if _, settled := batch.satisfied[id]; settled {
-			continue
+	for _, call := range calls {
+		count, err := s.window.record(call.Name, call.ArgsJSON, call.Result, call.Error)
+		if err != nil {
+			s.terminal = err
+			return err
 		}
-		call := batch.calls[id]
-		count, recErr := s.window.record(call.Name, call.ArgsJSON, call.Result, call.Error)
-		if errors.Is(recErr, errLoopDetected) {
-			s.setTerminalLocked(errLoopDetected)
-			return
-		}
-		// Successful calls feed the hard stop but never produce a
-		// reminder (§6): only marked failures are notice candidates.
 		if call.Failure == nil || (count != 3 && count != 5) {
 			continue
 		}
 		if best == nil || count > best.Count {
-			best = &nudgeNotice{
-				CallID:          call.ID,
-				ToolName:        call.Name,
-				Reason:          call.Failure.Reason,
-				Status:          call.Failure.Status,
-				Count:           count,
-				TemplateVersion: nudgeTemplateVersion,
-			}
+			best = &nudgeNotice{CallID: call.ID, ToolName: call.Name, Reason: call.Failure.Reason, Status: call.Failure.Status, Count: count, TemplateVersion: nudgeTemplateVersion}
 		}
 	}
-	s.notice = best
-	s.noticeTaken = false
-	s.sealedIDs = make(map[string]struct{}, len(batch.ids))
-	for _, id := range batch.ids {
-		s.sealedIDs[id] = struct{}{}
-		delete(s.marks, id)
+	for _, id := range s.evaluatedIDs {
+		delete(s.produced, id)
 	}
-	s.batch = nil
-	s.broadcastLocked()
+	s.evaluatedIDs = append(s.evaluatedIDs[:0], ids...)
+	s.notice, s.noticeTaken = best, false
+	return nil
 }
 
-// Take is the model boundary's only blocking API: it waits until a
-// batch covering ids — the tool results at the input tail — has been
-// registered and sealed (or the context is cancelled), returns the
-// terminal error when one is set, and yields the sealed batch's
-// prepared notice. Keying on ids matters: the engine can reach the
-// next model call before the consumer registers the batch, so
-// batch==nil alone cannot distinguish "not yet durable" from
-// "sealed without a reminder". The same notice is returned on every
-// Take while the batch stays current — a provider retry must observe
-// the identical request — but first=true exactly once, which is the
-// single scheduling signal for the journal emitter.
 func (s *nudgeState) Take(ctx context.Context, ids []string) (*nudgeNotice, bool, error) {
 	if len(ids) == 0 {
 		return nil, false, nil
 	}
-	for {
-		s.mu.Lock()
-		if s.terminal != nil {
-			err := s.terminal
-			s.mu.Unlock()
-			return nil, false, err
-		}
-		if batch := s.batch; batch != nil && len(batch.remaining) == 0 && len(batch.ids) == len(ids) {
-			covered := true
-			for _, id := range ids {
-				_, completed := batch.calls[id]
-				_, settled := batch.satisfied[id]
-				if !completed && !settled {
-					covered = false
-					break
-				}
-			}
-			if covered {
-				batch.ids = append(batch.ids[:0], ids...)
-				s.sealLocked(nil)
-			}
-		}
-		if s.batch == nil && s.sealedIDs != nil {
-			covered := true
-			for _, id := range ids {
-				if _, ok := s.sealedIDs[id]; !ok {
-					covered = false
-					break
-				}
-			}
-			if covered {
-				notice := s.notice
-				first := false
-				if notice != nil && !s.noticeTaken {
-					s.noticeTaken = true
-					first = true
-				}
-				s.mu.Unlock()
-				return notice, first, nil
-			}
-		}
-		wait := s.changed
-		s.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
-		case <-wait:
-		}
+	if err := s.prepare(ctx, ids); err != nil {
+		return nil, false, err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	first := s.notice != nil && !s.noticeTaken
+	if first {
+		s.noticeTaken = true
+	}
+	return s.notice, first, nil
 }
 
-// Abort releases every waiting boundary with the given cause and
-// prevents any further model handoff. It is idempotent: the first cause
-// wins.
 func (s *nudgeState) Abort(err error) {
 	if err == nil {
 		err = context.Canceled
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.setTerminalLocked(err)
+	if s.terminal == nil {
+		s.terminal = err
+	}
+	s.produced = nil
+	s.marks = nil
 }
 
 type nudgeStateContextKey struct{}
 
-// withNudgeState attaches the leg's detector so the adapter, wrapper and
-// other in-context seams share exactly this pointer (§6).
 func withNudgeState(ctx context.Context, state *nudgeState) context.Context {
 	return context.WithValue(ctx, nudgeStateContextKey{}, state)
 }
-
-// nudgeStateFromContext returns the leg's detector, or nil outside
-// drive/resume legs.
 func nudgeStateFromContext(ctx context.Context) *nudgeState {
 	state, _ := ctx.Value(nudgeStateContextKey{}).(*nudgeState)
 	return state

@@ -22,7 +22,7 @@ import (
 
 // The real App/Service/provider/tool path must retain its durable causal
 // transcript without a second, digest-only audit stream.
-func TestAppRunsWithoutDigestAudit(t *testing.T) {
+func TestToolResultReachesSecondModelRequest(t *testing.T) {
 	var logs auditLogCapture
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))

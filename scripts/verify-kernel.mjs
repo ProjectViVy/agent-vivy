@@ -117,7 +117,7 @@ function main(scope) {
         required: ['TestModelCompletedV3AcrossSteps', 'TestSubscriptionNormalizesHistoricalCompletion'],
       });
       goTests(['./sdk/facerun', './sdk/tui/stream', './sdk/tui/live', './sdk/codeclient'], { env });
-      goTests(['./internal/app'], { env, run: '^TestAppRunsWithoutDigestAudit$', required: ['TestAppRunsWithoutDigestAudit'] });
+      goTests(['./internal/app'], { env, run: '^TestToolResultReachesSecondModelRequest$', required: ['TestToolResultReachesSecondModelRequest'] });
       goTests(['./internal/app'], { env, run: 'TestApp.*(Shutdown|Close|Listener)|TestCloseContext|TestHeadless' });
       goTests(['./...'], { env, cwd: join(root, 'faces', 'headless') });
     }

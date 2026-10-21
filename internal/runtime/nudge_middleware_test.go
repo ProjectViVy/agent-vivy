@@ -71,7 +71,6 @@ func TestNudgeModelBoundary(t *testing.T) {
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
-		noBarrier:  true,
 		prodNudge:  true,
 		extraTools: []tools.Tool{failingContractTool()},
 	})
@@ -96,8 +95,9 @@ func TestNudgeModelBoundary(t *testing.T) {
 		n.TemplateVersion != nudgeTemplateVersion {
 		t.Fatalf("tool.nudge payload = %+v", n)
 	}
-	if h.journal.indexOf(domain.EventToolNudge, "call-a3") < h.journal.indexOf(domain.EventToolFinished, "call-a3") {
-		t.Fatal("tool.nudge journaled before the batch's tool.finished events were durable")
+	op, err := h.backend.GetToolOperation(context.Background(), runID, "call-a3")
+	if err != nil || op.State != domain.ToolOperationCompleted {
+		t.Fatalf("missing committed outcome: %+v %v", op, err)
 	}
 
 	// The request following the settle carries one tagged reminder.
@@ -137,40 +137,6 @@ func TestNudgeModelBoundary(t *testing.T) {
 	}
 }
 
-// The boundary holds the inner model out while a batch's tool.finished
-// append has not landed (durability gate, §6): pause the journal append,
-// prove the inner model does not advance, then release.
-func TestNudgeBoundaryWaitsForDurability(t *testing.T) {
-	script := []*schema.AgenticMessage{
-		testToolCalls(contractToolCall("call-w1", "x")),
-		testAssistant("done"),
-	}
-	h := newContractHarness(t, script, contractHarnessOpts{
-		streaming:  true,
-		noBarrier:  true,
-		prodNudge:  true,
-		extraTools: []tools.Tool{failingContractTool()},
-	})
-	release := h.setPause("tool.finished:call-w1")
-
-	runID, err := h.svc.Run(context.Background(), "sess-nudge-wait", "one failing call")
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	// The consumer parks inside the paused append; the model's second
-	// call must not enter while the batch is unsealed.
-	h.waitFor(t, "paused append for call-w1", func() bool { return h.journal.pausingCount() > 0 })
-	time.Sleep(150 * time.Millisecond)
-	if got := h.model.count(); got != 1 {
-		t.Fatalf("inner model entered %d times while a result was not durable, want 1", got)
-	}
-	close(release)
-	waitForRunStatus(t, h.backend, runID, domain.RunCompleted)
-	if got := h.model.count(); got != 2 {
-		t.Fatalf("inner model calls = %d, want 2", got)
-	}
-}
-
 // Provider retry re-invokes the wrapper for the same attempt; the same
 // notice is re-served so the retried request is identical, but the
 // scheduling event must not repeat (§7).
@@ -184,7 +150,6 @@ func TestNudgeProviderRetry(t *testing.T) {
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
-		noBarrier:  true,
 		prodNudge:  true,
 		extraTools: []tools.Tool{failingContractTool()},
 		failures:   map[int]error{3: injected}, // first attempt of the post-notice request
@@ -229,7 +194,6 @@ func TestNudgeRefusalTemplate(t *testing.T) {
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
-		noBarrier:  true,
 		prodNudge:  true,
 		extraTools: []tools.Tool{denied},
 	})
@@ -268,7 +232,6 @@ func TestNudgeSchedulingPersistFailure(t *testing.T) {
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
-		noBarrier:  true,
 		prodNudge:  true,
 		extraTools: []tools.Tool{failingContractTool()},
 	})
@@ -326,13 +289,7 @@ func (r *recordingInner) Stream(_ context.Context, input []*schema.AgenticMessag
 // settleNudgeUnit feeds one sealed failing batch into a fresh state.
 func settleNudgeUnit(t *testing.T, s *nudgeState, call completedCall) {
 	t.Helper()
-	if err := s.Register([]string{call.ID}); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	if err := s.Complete(call); err != nil {
-		t.Fatalf("complete: %v", err)
-	}
-	s.Seal(nil)
+	settleBatch(t, s, call)
 }
 
 // The injection copies the request slice: the caller's input keeps its
@@ -488,7 +445,6 @@ func TestNudgeSpoofedResultIgnored(t *testing.T) {
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{
 		streaming:  true,
-		noBarrier:  true,
 		prodNudge:  true,
 		extraTools: []tools.Tool{spoofer},
 	})
