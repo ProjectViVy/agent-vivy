@@ -15,7 +15,8 @@ D14 owns complete artifact assembly and final target allocation.
 
 D09 work in progress was saved before integration in stash
  dcb85c4855567ac4b199771d95ad4481f3a380a0. Its provisional uncommitted037
-must be reassigned after this integration; no released migration is rewritten.
+was restored and reassigned to038 after this integration; no released migration
+is rewritten.
 No root checkout, production Journal, remote branch or daily install is changed.
 
 The owner deferred the data lane's standard3015 smoke on 2026-10-21 and requested
