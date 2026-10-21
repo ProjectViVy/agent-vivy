@@ -249,10 +249,10 @@ func TestReplayedStartGoalDecisionDoesNotRearmAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	seed := []domain.WorkMutation{
-		{SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter", RequestHash: "enter", Kind: domain.WorkEventPlanEntered},
-		{SessionID: sessionID, ExpectedVersion: 1, RequestID: "submit", RequestHash: "submit", Kind: domain.WorkEventPlanSubmitted,
+		{SessionID: sessionID, ExpectedVersion: 0, RequestID: "enter", RequestInput: "enter", Kind: domain.WorkEventPlanEntered},
+		{SessionID: sessionID, ExpectedVersion: 1, RequestID: "submit", RequestInput: "submit", Kind: domain.WorkEventPlanSubmitted,
 			PlanSubmissionID: "submission", PlanMarkdown: "1. inspect", PlanOriginRunID: origin, PlanOriginToolCallID: "submit-call"},
-		{SessionID: sessionID, ExpectedVersion: 2, RequestID: "suspend", RequestHash: "suspend", Kind: domain.WorkEventPlanReviewSuspended,
+		{SessionID: sessionID, ExpectedVersion: 2, RequestID: "suspend", RequestInput: "suspend", Kind: domain.WorkEventPlanReviewSuspended,
 			PlanSubmissionID: "submission", PlanOriginRunID: origin, PlanOriginToolCallID: "submit-call", PlanResumeTarget: "exact-target"},
 	}
 	for _, mutation := range seed {

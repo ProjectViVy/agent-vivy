@@ -340,7 +340,7 @@ func cnChildSessionAdmission(t *testing.T, h Harness) {
 	changedActivation.Admission.Started = activation.Admission.Started
 	changedActivation.Admission.Started.RunID = changedActivation.Admission.Run.ID
 	changedActivation.Admission.Started.CreatedAt++
-	changedActivation.RequestDigest, err = domain.ChildRequestDigest(changedActivation.OperationKey, changedActivation.Admission.Message.Content, changedActivation.ToolNames)
+	changedActivation.RequestInput, err = domain.ChildRequestInput(changedActivation.OperationKey, changedActivation.Admission.Message.Content, changedActivation.ToolNames)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func cnChildSessionAdmission(t *testing.T, h Harness) {
 	widenedActivation.Admission.Run.CreatedAt++
 	widenedActivation.Admission.Started.RunID = widenedActivation.Admission.Run.ID
 	widenedActivation.Admission.Started.CreatedAt++
-	widenedActivation.RequestDigest, err = domain.ChildRequestDigest(widenedActivation.OperationKey, widenedActivation.Admission.Message.Content, widenedActivation.ToolNames)
+	widenedActivation.RequestInput, err = domain.ChildRequestInput(widenedActivation.OperationKey, widenedActivation.Admission.Message.Content, widenedActivation.ToolNames)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func cnChildSessionAdmission(t *testing.T, h Harness) {
 	}
 	capActivation := conformanceChildActivation("child-first", authorizerID, parentRunID, 30, 31)
 	capActivation.OperationKey = "operation-cap"
-	capActivation.RequestDigest, err = domain.ChildRequestDigest(capActivation.OperationKey, capActivation.Admission.Message.Content, capActivation.ToolNames)
+	capActivation.RequestInput, err = domain.ChildRequestInput(capActivation.OperationKey, capActivation.Admission.Message.Content, capActivation.ToolNames)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,19 +602,15 @@ func cnChildSessionDelete(t *testing.T, h Harness) {
 	}
 }
 
-func conformanceChildAdmission(parentSessionID domain.SessionID, parentRunID domain.RunID, childSessionID, operationKey, requestDigest string, sessionAt, runAt int64) storage.ChildSessionAdmission {
+func conformanceChildAdmission(parentSessionID domain.SessionID, parentRunID domain.RunID, childSessionID, operationKey, requestInput string, sessionAt, runAt int64) storage.ChildSessionAdmission {
 	childRunID := domain.RunID("run-" + childSessionID)
-	task := "task-" + requestDigest
+	task := "task-" + requestInput
 	authority := domain.ChildAuthorityCeiling{
 		PolicyProfile: domain.PolicyProfileDefault, PolicyDefinition: "policy-hash-default",
 		SandboxMode: domain.SandboxModeWorkspaceWrite, ApprovalPolicy: domain.ApprovalPolicyAsk,
 		ToolNames: []string{"read_file"},
 	}
-	authorityDigest, err := authority.Digest()
-	if err != nil {
-		panic(err)
-	}
-	activationDigest, err := domain.ChildRequestDigest(operationKey, task, []string{"read_file"})
+	activationInput, err := domain.ChildRequestInput(operationKey, task, []string{"read_file"})
 	if err != nil {
 		panic(err)
 	}
@@ -623,8 +619,8 @@ func conformanceChildAdmission(parentSessionID domain.SessionID, parentRunID dom
 		Binding: domain.ChildSessionBinding{
 			ChildSessionID: domain.SessionID(childSessionID), OriginParentSessionID: parentSessionID, OriginParentRunID: parentRunID,
 			AuthorizerRunID: parentRunID, InitialActivationRunID: childRunID, ActivationRunID: childRunID,
-			OperationKey: operationKey, RequestDigest: activationDigest, AuthorityCeilingDigest: authorityDigest,
-			AuthorityCeiling: authority, ActivationOperationKey: operationKey, ActivationRequestDigest: activationDigest,
+			OperationKey: operationKey, RequestInput: activationInput,
+			AuthorityCeiling: authority, ActivationOperationKey: operationKey, ActivationRequestInput: activationInput,
 			ActivationToolNames: []string{"read_file"},
 			State:               domain.ChildSessionOpen, CreatedAt: runAt, UpdatedAt: runAt,
 		},
@@ -640,7 +636,7 @@ func conformanceChildActivation(childSessionID string, authorizerID, rootID doma
 	childRunID := domain.RunID("run-child-followup")
 	sessionID := domain.SessionID(childSessionID)
 	toolNames := []string{"read_file"}
-	requestDigest, err := domain.ChildRequestDigest("operation-followup", "continue", toolNames)
+	requestInput, err := domain.ChildRequestInput("operation-followup", "continue", toolNames)
 	if err != nil {
 		panic(err)
 	}
@@ -648,7 +644,7 @@ func conformanceChildActivation(childSessionID string, authorizerID, rootID doma
 		ChildSessionID:  sessionID,
 		AuthorizerRunID: authorizerID,
 		OperationKey:    "operation-followup",
-		RequestDigest:   requestDigest,
+		RequestInput:    requestInput,
 		ToolNames:       toolNames,
 		Admission: storage.RunAdmission{
 			Message: domain.Message{ID: "message-child-followup", SessionID: sessionID, RunID: childRunID, Role: domain.RoleUser, CreatedAt: messageAt, Content: "continue"},
@@ -910,7 +906,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 		t.Fatal("backend does not implement WorkStore")
 	}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: "plan-origin-enter", RequestHash: "plan-origin-enter",
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "plan-origin-enter", RequestInput: "plan-origin-enter",
 		Kind: domain.WorkEventPlanEntered,
 	}); err != nil {
 		t.Fatalf("CommitWork enter Plan: %v", err)
@@ -928,7 +924,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 	}
 
 	originless := domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-originless-submit", RequestHash: "plan-originless-submit",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-originless-submit", RequestInput: "plan-originless-submit",
 		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-originless", PlanMarkdown: "# originless",
 	}
 	if _, err := work.CommitWork(ctx, originless); !errors.Is(err, storage.ErrWorkInvalidMutation) {
@@ -936,7 +932,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 	}
 	assertVersion(1, "", false)
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-originless-decision", RequestHash: "plan-originless-decision",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-originless-decision", RequestInput: "plan-originless-decision",
 		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: "submission-originless", PlanAction: domain.PlanDecisionStartGoal,
 		Goal: domain.GoalRef{ID: "goal-originless", Revision: 1}, Objective: "bypass review", MaxRounds: 1,
 	}); !errors.Is(err, domain.ErrStaleGoalReference) {
@@ -951,7 +947,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 		t.Fatalf("CreateRun foreign origin: %v", err)
 	}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-foreign-submit", RequestHash: "plan-foreign-submit",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-foreign-submit", RequestInput: "plan-foreign-submit",
 		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-foreign", PlanMarkdown: "# foreign",
 		PlanOriginRunID: "run-plan-foreign", PlanOriginToolCallID: "tool-foreign",
 	}); !errors.Is(err, storage.ErrWorkRunConflict) {
@@ -966,7 +962,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 		t.Fatalf("CreateRun inactive origin: %v", err)
 	}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-inactive-submit", RequestHash: "plan-inactive-submit",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-inactive-submit", RequestInput: "plan-inactive-submit",
 		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-inactive", PlanMarkdown: "# inactive",
 		PlanOriginRunID: "run-plan-inactive", PlanOriginToolCallID: "tool-inactive",
 	}); !errors.Is(err, storage.ErrWorkRunConflict) {
@@ -981,7 +977,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 		t.Fatalf("CreateRun active origin: %v", err)
 	}
 	submitted, err := work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-valid-submit", RequestHash: "plan-valid-submit",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "plan-valid-submit", RequestInput: "plan-valid-submit",
 		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-valid", PlanMarkdown: "# bounded plan",
 		PlanOriginRunID: "run-plan-origin", PlanOriginToolCallID: "tool-valid",
 	})
@@ -989,7 +985,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 		t.Fatalf("valid active same-session Plan submission = %+v, %v", submitted, err)
 	}
 	decision := domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 2, RequestID: "plan-decide-before-suspend", RequestHash: "plan-decide-before-suspend",
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "plan-decide-before-suspend", RequestInput: "plan-decide-before-suspend",
 		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: "submission-valid", PlanAction: domain.PlanDecisionStartGoal,
 		Goal: domain.GoalRef{ID: "goal-before-suspend", Revision: 1}, Objective: "must wait for exact resume target", MaxRounds: 2,
 	}
@@ -1002,7 +998,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 	}
 
 	suspended, err := work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 2, RequestID: "plan-durable-suspension", RequestHash: "plan-durable-suspension",
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "plan-durable-suspension", RequestInput: "plan-durable-suspension",
 		Kind: domain.WorkEventPlanReviewSuspended, PlanSubmissionID: "submission-valid",
 		PlanOriginRunID: "run-plan-origin", PlanOriginToolCallID: "tool-valid", PlanResumeTarget: "opaque-eino-target",
 	})
@@ -1010,7 +1006,7 @@ func cnPlanReviewOriginAndSuspension(t *testing.T, h Harness) {
 		t.Fatalf("persist Plan review suspension = %+v, %v", suspended.State.Plan, err)
 	}
 	decision.ExpectedVersion = 3
-	decision.RequestID, decision.RequestHash = "plan-decide-after-suspend", "plan-decide-after-suspend"
+	decision.RequestID, decision.RequestInput = "plan-decide-after-suspend", "plan-decide-after-suspend"
 	decision.Goal = domain.GoalRef{ID: "goal-after-suspend", Revision: 1}
 	accepted, err := work.CommitWork(ctx, decision)
 	if err != nil || accepted.State.Version != 4 || accepted.State.Plan.Active ||
@@ -1044,14 +1040,14 @@ func cnHistoryWorkIsolationAndDelete(t *testing.T, h Harness) {
 	}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: sourceID, ExpectedVersion: 0,
-		RequestID: "history-enter-plan", RequestHash: "history-enter-plan",
+		RequestID: "history-enter-plan", RequestInput: "history-enter-plan",
 		Kind: domain.WorkEventPlanEntered,
 	}); err != nil {
 		t.Fatalf("CommitWork enter Plan: %v", err)
 	}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: sourceID, ExpectedVersion: 1,
-		RequestID: "history-submit-plan", RequestHash: "history-submit-plan",
+		RequestID: "history-submit-plan", RequestInput: "history-submit-plan",
 		Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "history-submission", PlanMarkdown: "preserve the evidence",
 		PlanOriginRunID: "run-history-source", PlanOriginToolCallID: "history-tool-call",
 	}); err != nil {
@@ -1121,14 +1117,14 @@ func cnHistoryWorkIsolationAndDelete(t *testing.T, h Harness) {
 	ref := domain.GoalRef{ID: "goal-history-rounds", Revision: 1}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: roundSessionID, ExpectedVersion: 0,
-		RequestID: "history-create-goal", RequestHash: "history-create-goal",
+		RequestID: "history-create-goal", RequestInput: "history-create-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "retain charged rounds", MaxRounds: 2,
 	}); err != nil {
 		t.Fatalf("CommitWork create Goal: %v", err)
 	}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: roundSessionID, ExpectedVersion: 1,
-		RequestID: "history-admit-round", RequestHash: "history-admit-round",
+		RequestID: "history-admit-round", RequestInput: "history-admit-round",
 		Kind:      domain.WorkEventGoalRoundAdmitted,
 		Admission: domain.GoalRunAdmission{SessionID: roundSessionID, Goal: ref, Round: 1, RunID: "run-history-round"},
 	}); err != nil {
@@ -1175,7 +1171,7 @@ func cnMessageWorkAnchor(t *testing.T, h Harness) {
 	}
 	result, err := work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: "sess-history-anchor", ExpectedVersion: 0,
-		RequestID: "enter-plan-anchor", RequestHash: "enter-plan-anchor",
+		RequestID: "enter-plan-anchor", RequestInput: "enter-plan-anchor",
 		Kind: domain.WorkEventPlanEntered,
 	})
 	if err != nil {
@@ -1183,7 +1179,7 @@ func cnMessageWorkAnchor(t *testing.T, h Harness) {
 	}
 	result, err = work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: "sess-history-anchor", ExpectedVersion: 1,
-		RequestID: "leave-plan-anchor", RequestHash: "leave-plan-anchor",
+		RequestID: "leave-plan-anchor", RequestInput: "leave-plan-anchor",
 		Kind: domain.WorkEventPlanLeft,
 	})
 	if err != nil {
@@ -1271,7 +1267,7 @@ func cnSessionWork(t *testing.T, h Harness) {
 		SessionID:       sessionID,
 		ExpectedVersion: 0,
 		RequestID:       "work-create-1",
-		RequestHash:     "hash-create-1",
+		RequestInput:    "hash-create-1",
 		Kind:            domain.WorkEventGoalCreated,
 		Goal:            ref,
 		Objective:       "ship it",
@@ -1292,7 +1288,7 @@ func cnSessionWork(t *testing.T, h Harness) {
 		t.Fatalf("identical retry = %+v, want original event", retry)
 	}
 	conflict := create
-	conflict.RequestHash = "hash-create-other"
+	conflict.RequestInput = "hash-create-other"
 	if _, err := work.CommitWork(ctx, conflict); !errors.Is(err, storage.ErrWorkRequestConflict) {
 		t.Fatalf("request hash divergence = %v, want ErrWorkRequestConflict", err)
 	}
@@ -1300,7 +1296,7 @@ func cnSessionWork(t *testing.T, h Harness) {
 		SessionID:       sessionID,
 		ExpectedVersion: 1,
 		RequestID:       "work-round-1",
-		RequestHash:     "hash-round-1",
+		RequestInput:    "hash-round-1",
 		Kind:            domain.WorkEventGoalRoundAdmitted,
 		Admission: domain.GoalRunAdmission{
 			SessionID: sessionID,
@@ -1343,7 +1339,7 @@ func cnSessionWork(t *testing.T, h Harness) {
 		t.Fatalf("ReplayWork exhausted = %+v / %+v, %v; want stable version 2", empty, final, err)
 	}
 	edit := domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 2, RequestID: "work-edit-1", RequestHash: "hash-edit-1",
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "work-edit-1", RequestInput: "hash-edit-1",
 		Kind: domain.WorkEventGoalEdited, Goal: ref, Objective: "ship the revised result", MaxRounds: 3,
 	}
 	edited, err := work.CommitWork(ctx, edit)
@@ -1401,7 +1397,7 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 	}
 	ref := domain.GoalRef{ID: "goal-atomic", Revision: 1}
 	if _, err := work.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "goal-create", RequestHash: "goal-create-hash",
+		SessionID: sessionID, RequestID: "goal-create", RequestInput: "goal-create-hash",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "ship", MaxRounds: 2,
 	}); err != nil {
 		t.Fatalf("create Goal: %v", err)
@@ -1409,7 +1405,7 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 	admission := storage.GoalRunCommit{
 		Mutation: domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: 1,
-			RequestID: "goal-round-1", RequestHash: "goal-round-1-hash",
+			RequestID: "goal-round-1", RequestInput: "goal-round-1-hash",
 			Kind:      domain.WorkEventGoalRoundAdmitted,
 			Admission: domain.GoalRunAdmission{SessionID: sessionID, Goal: ref, Round: 1, RunID: "run-goal-atomic"},
 		},
@@ -1438,7 +1434,7 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 	bad.Started.Payload = badStartedPayload
 	bad.ExpectedMask.SelectionRevision = 1
 	bad.Mutation.RequestID = "goal-round-mask-conflict"
-	bad.Mutation.RequestHash = "goal-round-mask-conflict-hash"
+	bad.Mutation.RequestInput = "goal-round-mask-conflict-hash"
 	bad.Mutation.Admission.RunID = badRunID
 	bad.Message.ID = "msg-goal-mask-conflict"
 	bad.Message.RunID = badRunID
@@ -1501,7 +1497,7 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 	}
 	stale := admission
 	stale.Mutation.RequestID = "goal-round-2"
-	stale.Mutation.RequestHash = "goal-round-2-hash"
+	stale.Mutation.RequestInput = "goal-round-2-hash"
 	stale.Mutation.ExpectedVersion = 2
 	stale.Mutation.Admission.Round = 2
 	stale.Mutation.Admission.RunID = "run-goal-atomic-2"

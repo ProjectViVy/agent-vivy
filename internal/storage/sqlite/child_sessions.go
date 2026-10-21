@@ -34,7 +34,10 @@ func (b *Backend) CommitChildSessionAdmission(ctx context.Context, in storage.Ch
 	if existing, found, err := sqliteReadChildBindingByOperation(ctx, tx, in.Binding.OriginParentSessionID, in.Binding.OperationKey); err != nil {
 		return result, err
 	} else if found {
-		if existing.RequestDigest != in.Binding.RequestDigest || existing.OriginParentRunID != in.Binding.OriginParentRunID || existing.AuthorityCeilingDigest != in.Binding.AuthorityCeilingDigest {
+		if existing.RequestInput == "" {
+			return result, storage.ErrChildBindingUnavailable
+		}
+		if existing.RequestInput != in.Binding.RequestInput || existing.OriginParentRunID != in.Binding.OriginParentRunID || !domain.SameChildAuthority(existing.AuthorityCeiling, in.Binding.AuthorityCeiling) {
 			return result, storage.ErrChildAdmissionConflict
 		}
 		stored, found, err := sqliteReadAdmissionRun(ctx, tx, existing.InitialActivationRunID)
@@ -95,9 +98,9 @@ func (b *Backend) CommitChildSessionAdmission(ctx context.Context, in storage.Ch
 	}
 	binding.NextMessageSequence = 1
 	binding.NextParentMessageSequence = 1
-	ceilingJSON, ceilingDigest, err := storage.EncodeChildAuthorityCeiling(binding.AuthorityCeiling)
-	if err != nil || ceilingDigest != binding.AuthorityCeilingDigest {
-		return result, errors.New("storage: invalid child authority ceiling")
+	ceilingJSON, err := storage.EncodeChildAuthorityCeiling(binding.AuthorityCeiling)
+	if err != nil {
+		return result, fmt.Errorf("storage: invalid child authority ceiling: %w", err)
 	}
 	activationToolsJSON, err := storage.EncodeChildToolNames(binding.ActivationToolNames)
 	if err != nil {
@@ -112,20 +115,20 @@ func (b *Backend) CommitChildSessionAdmission(ctx context.Context, in storage.Ch
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO child_sessions
 			(child_session_id,origin_parent_session_id,origin_parent_run_id,authorizer_run_id,initial_activation_run_id,activation_run_id,
-			 operation_key,request_digest,authority_ceiling_digest,authority_ceiling_json,activation_operation_key,activation_request_digest,activation_tools_json,
+			 operation_key,request_input,authority_ceiling_json,activation_operation_key,activation_request_input,activation_tools_json,
 			 state,next_message_sequence,consumed_message_sequence,next_parent_message_sequence,consumed_parent_message_sequence,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, binding.ChildSessionID, binding.OriginParentSessionID, binding.OriginParentRunID,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, binding.ChildSessionID, binding.OriginParentSessionID, binding.OriginParentRunID,
 		binding.AuthorizerRunID, binding.InitialActivationRunID, binding.ActivationRunID, binding.OperationKey,
-		binding.RequestDigest, binding.AuthorityCeilingDigest, string(ceilingJSON), binding.ActivationOperationKey, binding.ActivationRequestDigest,
+		binding.RequestInput, string(ceilingJSON), binding.ActivationOperationKey, binding.ActivationRequestInput,
 		string(activationToolsJSON), string(binding.State), binding.NextMessageSequence, binding.ConsumedMessageSequence,
 		binding.NextParentMessageSequence, binding.ConsumedParentMessageSequence,
 		binding.CreatedAt, binding.UpdatedAt); err != nil {
 		return result, storage.AdmissionUnavailable("insert child session binding", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO child_session_activations (child_session_id,activation_run_id,authorizer_run_id,operation_key,request_digest,tool_names_json,created_at)
+		INSERT INTO child_session_activations (child_session_id,activation_run_id,authorizer_run_id,operation_key,request_input,tool_names_json,created_at)
 		VALUES (?,?,?,?,?,?,?)`, binding.ChildSessionID, binding.ActivationRunID, binding.AuthorizerRunID, binding.ActivationOperationKey,
-		binding.ActivationRequestDigest, string(activationToolsJSON), in.Admission.Run.CreatedAt); err != nil {
+		binding.ActivationRequestInput, string(activationToolsJSON), in.Admission.Run.CreatedAt); err != nil {
 		return result, storage.AdmissionUnavailable("insert initial child activation identity", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -153,6 +156,9 @@ func (b *Backend) CommitChildSessionActivation(ctx context.Context, in storage.C
 	if err != nil {
 		return result, err
 	}
+	if binding.RequestInput == "" || binding.ActivationRequestInput == "" {
+		return result, storage.ErrChildBindingUnavailable
+	}
 	if err := sqliteLockAdmissionSession(ctx, tx, binding.OriginParentSessionID); err != nil {
 		return result, err
 	}
@@ -163,7 +169,10 @@ func (b *Backend) CommitChildSessionActivation(ctx context.Context, in storage.C
 	if existing, found, err := sqliteReadChildActivation(ctx, tx, in.ChildSessionID, in.OperationKey); err != nil {
 		return result, err
 	} else if found {
-		if existing.requestDigest != in.RequestDigest || existing.authorizerRunID != in.AuthorizerRunID {
+		if !existing.requestInput.Valid || existing.requestInput.String == "" {
+			return result, storage.ErrChildBindingUnavailable
+		}
+		if existing.requestInput.String != in.RequestInput || existing.authorizerRunID != in.AuthorizerRunID {
 			return result, storage.ErrChildAdmissionConflict
 		}
 		stored, found, err := sqliteReadAdmissionRun(ctx, tx, existing.runID)
@@ -239,14 +248,14 @@ func (b *Backend) CommitChildSessionActivation(ctx context.Context, in storage.C
 		return result, err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO child_session_activations (child_session_id,activation_run_id,authorizer_run_id,operation_key,request_digest,tool_names_json,created_at)
-		VALUES (?,?,?,?,?,?,?)`, in.ChildSessionID, in.Admission.Run.ID, in.AuthorizerRunID, in.OperationKey, in.RequestDigest, string(toolsJSON), in.Admission.Run.CreatedAt); err != nil {
+		INSERT INTO child_session_activations (child_session_id,activation_run_id,authorizer_run_id,operation_key,request_input,tool_names_json,created_at)
+		VALUES (?,?,?,?,?,?,?)`, in.ChildSessionID, in.Admission.Run.ID, in.AuthorizerRunID, in.OperationKey, in.RequestInput, string(toolsJSON), in.Admission.Run.CreatedAt); err != nil {
 		return result, storage.AdmissionUnavailable("insert child activation identity", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE child_sessions
-		SET authorizer_run_id = ?, activation_run_id = ?, activation_operation_key = ?, activation_request_digest = ?, activation_tools_json = ?, updated_at = ?
+		SET authorizer_run_id = ?, activation_run_id = ?, activation_operation_key = ?, activation_request_input = ?, activation_tools_json = ?, updated_at = ?
 		WHERE child_session_id = ? AND state = 'open'`,
-		in.AuthorizerRunID, in.Admission.Run.ID, in.OperationKey, in.RequestDigest, string(toolsJSON), in.Admission.Run.CreatedAt, in.ChildSessionID); err != nil {
+		in.AuthorizerRunID, in.Admission.Run.ID, in.OperationKey, in.RequestInput, string(toolsJSON), in.Admission.Run.CreatedAt, in.ChildSessionID); err != nil {
 		return result, storage.AdmissionUnavailable("update child session authorizer", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -255,7 +264,7 @@ func (b *Backend) CommitChildSessionActivation(ctx context.Context, in storage.C
 	binding.AuthorizerRunID = in.AuthorizerRunID
 	binding.ActivationRunID = in.Admission.Run.ID
 	binding.ActivationOperationKey = in.OperationKey
-	binding.ActivationRequestDigest = in.RequestDigest
+	binding.ActivationRequestInput = in.RequestInput
 	binding.ActivationToolNames = append([]string(nil), in.ToolNames...)
 	binding.UpdatedAt = in.Admission.Run.CreatedAt
 	run := in.Admission.Run
@@ -318,15 +327,16 @@ type sqliteChildBindingReader interface {
 func sqliteReadChildBinding(ctx context.Context, q sqliteChildBindingReader, childID domain.SessionID) (domain.ChildSessionBinding, error) {
 	var binding domain.ChildSessionBinding
 	var authorityJSON, toolsJSON string
+	var requestInput, activationInput sql.NullString
 	err := q.QueryRowContext(ctx, `
 		SELECT child_session_id,origin_parent_session_id,origin_parent_run_id,authorizer_run_id,initial_activation_run_id,activation_run_id,
-		       operation_key,request_digest,authority_ceiling_digest,authority_ceiling_json,activation_operation_key,activation_request_digest,activation_tools_json,
+		       operation_key,request_input,authority_ceiling_json,activation_operation_key,activation_request_input,activation_tools_json,
 		       state,next_message_sequence,consumed_message_sequence,next_parent_message_sequence,consumed_parent_message_sequence,created_at,updated_at
 		FROM child_sessions WHERE child_session_id = ?`, childID).Scan(
 		(*string)(&binding.ChildSessionID), (*string)(&binding.OriginParentSessionID), (*string)(&binding.OriginParentRunID),
 		(*string)(&binding.AuthorizerRunID), (*string)(&binding.InitialActivationRunID), (*string)(&binding.ActivationRunID),
-		&binding.OperationKey, &binding.RequestDigest, &binding.AuthorityCeilingDigest, &authorityJSON, &binding.ActivationOperationKey,
-		&binding.ActivationRequestDigest, &toolsJSON, (*string)(&binding.State),
+		&binding.OperationKey, &requestInput, &authorityJSON, &binding.ActivationOperationKey,
+		&activationInput, &toolsJSON, (*string)(&binding.State),
 		&binding.NextMessageSequence, &binding.ConsumedMessageSequence, &binding.NextParentMessageSequence,
 		&binding.ConsumedParentMessageSequence, &binding.CreatedAt, &binding.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -335,8 +345,9 @@ func sqliteReadChildBinding(ctx context.Context, q sqliteChildBindingReader, chi
 	if err != nil {
 		return domain.ChildSessionBinding{}, fmt.Errorf("storage: read child session binding: %w", err)
 	}
+	binding.RequestInput, binding.ActivationRequestInput = requestInput.String, activationInput.String
 	var decodeErr error
-	binding.AuthorityCeiling, decodeErr = storage.DecodeChildAuthorityCeiling([]byte(authorityJSON), binding.AuthorityCeilingDigest)
+	binding.AuthorityCeiling, decodeErr = storage.DecodeChildAuthorityCeiling([]byte(authorityJSON))
 	if decodeErr != nil {
 		return domain.ChildSessionBinding{}, decodeErr
 	}
@@ -350,15 +361,16 @@ func sqliteReadChildBinding(ctx context.Context, q sqliteChildBindingReader, chi
 func sqliteReadChildBindingByOperation(ctx context.Context, tx *sql.Tx, parentID domain.SessionID, operationKey string) (domain.ChildSessionBinding, bool, error) {
 	var binding domain.ChildSessionBinding
 	var authorityJSON, toolsJSON string
+	var requestInput, activationInput sql.NullString
 	err := tx.QueryRowContext(ctx, `
 		SELECT child_session_id,origin_parent_session_id,origin_parent_run_id,authorizer_run_id,initial_activation_run_id,activation_run_id,
-		       operation_key,request_digest,authority_ceiling_digest,authority_ceiling_json,activation_operation_key,activation_request_digest,activation_tools_json,
+		       operation_key,request_input,authority_ceiling_json,activation_operation_key,activation_request_input,activation_tools_json,
 		       state,next_message_sequence,consumed_message_sequence,next_parent_message_sequence,consumed_parent_message_sequence,created_at,updated_at
 		FROM child_sessions WHERE origin_parent_session_id = ? AND operation_key = ?`, parentID, operationKey).Scan(
 		(*string)(&binding.ChildSessionID), (*string)(&binding.OriginParentSessionID), (*string)(&binding.OriginParentRunID),
 		(*string)(&binding.AuthorizerRunID), (*string)(&binding.InitialActivationRunID), (*string)(&binding.ActivationRunID),
-		&binding.OperationKey, &binding.RequestDigest, &binding.AuthorityCeilingDigest, &authorityJSON, &binding.ActivationOperationKey,
-		&binding.ActivationRequestDigest, &toolsJSON, (*string)(&binding.State),
+		&binding.OperationKey, &requestInput, &authorityJSON, &binding.ActivationOperationKey,
+		&activationInput, &toolsJSON, (*string)(&binding.State),
 		&binding.NextMessageSequence, &binding.ConsumedMessageSequence, &binding.NextParentMessageSequence,
 		&binding.ConsumedParentMessageSequence, &binding.CreatedAt, &binding.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -367,7 +379,8 @@ func sqliteReadChildBindingByOperation(ctx context.Context, tx *sql.Tx, parentID
 	if err != nil {
 		return domain.ChildSessionBinding{}, false, fmt.Errorf("storage: read child operation binding: %w", err)
 	}
-	binding.AuthorityCeiling, err = storage.DecodeChildAuthorityCeiling([]byte(authorityJSON), binding.AuthorityCeilingDigest)
+	binding.RequestInput, binding.ActivationRequestInput = requestInput.String, activationInput.String
+	binding.AuthorityCeiling, err = storage.DecodeChildAuthorityCeiling([]byte(authorityJSON))
 	if err != nil {
 		return domain.ChildSessionBinding{}, false, err
 	}
@@ -381,13 +394,13 @@ func sqliteReadChildBindingByOperation(ctx context.Context, tx *sql.Tx, parentID
 type sqliteChildActivation struct {
 	runID           domain.RunID
 	authorizerRunID domain.RunID
-	requestDigest   string
+	requestInput    sql.NullString
 }
 
 func sqliteReadChildActivation(ctx context.Context, tx *sql.Tx, childID domain.SessionID, operationKey string) (sqliteChildActivation, bool, error) {
 	var activation sqliteChildActivation
-	err := tx.QueryRowContext(ctx, `SELECT activation_run_id,authorizer_run_id,request_digest FROM child_session_activations WHERE child_session_id = ? AND operation_key = ?`, childID, operationKey).
-		Scan((*string)(&activation.runID), (*string)(&activation.authorizerRunID), &activation.requestDigest)
+	err := tx.QueryRowContext(ctx, `SELECT activation_run_id,authorizer_run_id,request_input FROM child_session_activations WHERE child_session_id = ? AND operation_key = ?`, childID, operationKey).
+		Scan((*string)(&activation.runID), (*string)(&activation.authorizerRunID), &activation.requestInput)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sqliteChildActivation{}, false, nil
 	}

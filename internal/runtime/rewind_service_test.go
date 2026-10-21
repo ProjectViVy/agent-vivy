@@ -207,7 +207,7 @@ func TestForkAndRewindKeepSpentGoalRoundsWithoutChildAuthority(t *testing.T) {
 	svc.deps.GoalRuns = backend
 	ref := domain.GoalRef{ID: "goal-history", Revision: 1}
 	created, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: "create-history-goal", RequestHash: "create-history-goal",
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "create-history-goal", RequestInput: "create-history-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "finish the history probe", MaxRounds: 2,
 	})
 	if err != nil {
@@ -221,7 +221,7 @@ func TestForkAndRewindKeepSpentGoalRoundsWithoutChildAuthority(t *testing.T) {
 		admission := storage.GoalRunCommit{
 			Mutation: domain.WorkMutation{
 				SessionID: sessionID, ExpectedVersion: domain.WorkVersion(round),
-				RequestID: fmt.Sprintf("admit-history-%d", round), RequestHash: fmt.Sprintf("admit-history-%d", round),
+				RequestID: fmt.Sprintf("admit-history-%d", round), RequestInput: fmt.Sprintf("admit-history-%d", round),
 				Kind:      domain.WorkEventGoalRoundAdmitted,
 				Admission: domain.GoalRunAdmission{SessionID: sessionID, Goal: ref, Round: round, RunID: runID},
 			},

@@ -2,8 +2,7 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -151,10 +150,10 @@ func (s *Service) CancelRun(ctx context.Context, runID domain.RunID) (bool, erro
 			}
 			reason := "goal round cancelled"
 			requestID := fmt.Sprintf("goal-cancel-%s-%d", runID, state.Version)
-			hash := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d\x00%s", requestID, runID, state.Version, reason)))
+			intended, _ := json.Marshal([]any{requestID, runID, state.Version, reason})
 			if _, err := s.CommitWork(ctx, domain.WorkMutation{
 				SessionID: sessionID, ExpectedVersion: state.Version,
-				RequestID: requestID, RequestHash: hex.EncodeToString(hash[:]),
+				RequestID: requestID, RequestInput: string(intended),
 				Kind: domain.WorkEventGoalBlocked, Goal: goalRef,
 				Reason: reason, EvidenceRunID: runID,
 			}); err != nil {
@@ -250,13 +249,12 @@ func (s *Service) admitGoalRound(ctx context.Context, sessionID domain.SessionID
 
 	round := state.Goal.RoundsStarted + 1
 	requestID := fmt.Sprintf("goal-round-%s-%d-%d", state.Goal.Ref.ID, state.Goal.Ref.Revision, round)
-	hashInput := fmt.Sprintf("%s\x00%d\x00%d\x00%s", state.Goal.Ref.ID, state.Goal.Ref.Revision, round, state.Goal.Objective)
-	hash := sha256.Sum256([]byte(hashInput))
+	intended, _ := json.Marshal([]any{state.Goal.Ref.ID, state.Goal.Ref.Revision, round, state.Goal.Objective})
 	_, err = s.runWithAdmissionGate(ctx, sessionID, state.Goal.Objective, RunOptions{
 		GoalRound: &GoalRoundAdmission{
 			ExpectedVersion: state.Version,
 			RequestID:       requestID,
-			RequestHash:     hex.EncodeToString(hash[:]),
+			RequestInput:    string(intended),
 			Goal:            state.Goal.Ref,
 			Round:           round,
 		},
@@ -354,13 +352,12 @@ func (s *Service) settleGoalRound(ctx context.Context, sessionID domain.SessionI
 		reason = "goal round limit reached"
 	}
 	requestID := fmt.Sprintf("goal-settle-%s-%d", runID, state.Version)
-	hashInput := fmt.Sprintf("%s\x00%s\x00%d\x00%s", requestID, runID, state.Version, reason)
-	hash := sha256.Sum256([]byte(hashInput))
+	intended, _ := json.Marshal([]any{requestID, runID, state.Version, reason})
 	if _, err := s.CommitWork(ctx, domain.WorkMutation{
 		SessionID:       sessionID,
 		ExpectedVersion: state.Version,
 		RequestID:       requestID,
-		RequestHash:     hex.EncodeToString(hash[:]),
+		RequestInput:    string(intended),
 		Kind:            domain.WorkEventGoalBlocked,
 		Goal:            state.Goal.Ref,
 		Reason:          reason,

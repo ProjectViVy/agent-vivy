@@ -92,7 +92,7 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 		return storage.WorkCommitResult{}, fmt.Errorf("storage: lock work session: %w", err)
 	}
 
-	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload FROM session_work_events WHERE session_id = ? ORDER BY work_seq"), mutation.SessionID)
+	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT session_id, work_seq, kind, payload_version, request_id, request_input, created_at, payload FROM session_work_events WHERE session_id = ? ORDER BY work_seq"), mutation.SessionID)
 	if err != nil {
 		return storage.WorkCommitResult{}, fmt.Errorf("storage: read work events in transaction %s: %w", mutation.SessionID, err)
 	}
@@ -104,6 +104,9 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 	for i, event := range events {
 		if event.RequestID != mutation.RequestID {
 			continue
+		}
+		if event.RequestInput == "" {
+			return storage.WorkCommitResult{}, storage.ErrWorkBindingUnavailable
 		}
 		if !storage.SameWorkRequest(event, mutation) {
 			return storage.WorkCommitResult{}, storage.ErrWorkRequestConflict
@@ -131,7 +134,7 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 		Kind:           mutation.Kind,
 		PayloadVersion: domain.WorkPayloadVersion,
 		RequestID:      mutation.RequestID,
-		RequestHash:    mutation.RequestHash,
+		RequestInput:   mutation.RequestInput,
 		CreatedAt:      time.Now().UnixMilli(),
 		Mutation:       mutation,
 		Admission:      mutation.Admission,
@@ -156,9 +159,9 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 		return storage.WorkCommitResult{}, fmt.Errorf("storage: encode work event: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO session_work_events (session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO session_work_events (session_id, work_seq, kind, payload_version, request_id, request_input, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		event.SessionID, int64(event.Seq), string(event.Kind), event.PayloadVersion,
-		event.RequestID, event.RequestHash, event.CreatedAt, payload); err != nil {
+		event.RequestID, event.RequestInput, event.CreatedAt, payload); err != nil {
 		return storage.WorkCommitResult{}, fmt.Errorf("storage: insert work event: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -168,7 +171,7 @@ func (b *Backend) CommitWork(ctx context.Context, mutation domain.WorkMutation) 
 }
 
 func (b *Backend) readWorkEvents(ctx context.Context, sessionID domain.SessionID, after domain.WorkSeq, limit int) ([]domain.WorkEvent, error) {
-	query := "SELECT session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload FROM session_work_events WHERE session_id = ? AND work_seq > ? ORDER BY work_seq"
+	query := "SELECT session_id, work_seq, kind, payload_version, request_id, request_input, created_at, payload FROM session_work_events WHERE session_id = ? AND work_seq > ? ORDER BY work_seq"
 	args := []any{sessionID, int64(after)}
 	if limit > 0 {
 		query += " LIMIT ?"
@@ -202,26 +205,28 @@ func scanWorkEvents(scanner interface {
 }
 
 func scanWorkEvent(scanner workScanner) (domain.WorkEvent, error) {
-	var sessionID, kind, requestID, requestHash string
+	var sessionID, kind, requestID string
+	var requestInput sql.NullString
 	var seq, payloadVersion, createdAt int64
 	var payload []byte
-	if err := scanner.Scan(&sessionID, &seq, &kind, &payloadVersion, &requestID, &requestHash, &createdAt, &payload); err != nil {
+	if err := scanner.Scan(&sessionID, &seq, &kind, &payloadVersion, &requestID, &requestInput, &createdAt, &payload); err != nil {
 		return domain.WorkEvent{}, fmt.Errorf("storage: scan work event: %w", err)
 	}
 	var decoded workPayload
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return domain.WorkEvent{}, fmt.Errorf("%w: decode payload: %v", storage.ErrWorkEventCorrupt, err)
 	}
-	if sessionID == "" || requestID == "" || requestHash == "" || !domain.WorkEventKind(kind).Valid() {
+	if sessionID == "" || requestID == "" || !domain.WorkEventKind(kind).Valid() {
 		return domain.WorkEvent{}, storage.ErrWorkEventCorrupt
 	}
+	decoded.Mutation.RequestInput = requestInput.String
 	return domain.WorkEvent{
 		SessionID:      domain.SessionID(sessionID),
 		Seq:            domain.WorkSeq(seq),
 		Kind:           domain.WorkEventKind(kind),
 		PayloadVersion: int(payloadVersion),
 		RequestID:      requestID,
-		RequestHash:    requestHash,
+		RequestInput:   requestInput.String,
 		CreatedAt:      createdAt,
 		Mutation:       decoded.Mutation,
 		Admission:      decoded.Admission,
@@ -248,7 +253,7 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: lock goal session: %w", err)
 	}
 
-	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload FROM session_work_events WHERE session_id = ? ORDER BY work_seq"), admission.Mutation.SessionID)
+	rows, err := tx.SQL.QueryContext(ctx, rebind("SELECT session_id, work_seq, kind, payload_version, request_id, request_input, created_at, payload FROM session_work_events WHERE session_id = ? ORDER BY work_seq"), admission.Mutation.SessionID)
 	if err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: read goal work in transaction: %w", err)
 	}
@@ -260,6 +265,9 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 	for i, event := range events {
 		if event.RequestID != admission.Mutation.RequestID {
 			continue
+		}
+		if event.RequestInput == "" {
+			return storage.GoalRunCommitResult{}, storage.ErrWorkBindingUnavailable
 		}
 		if !storage.SameWorkRequest(event, admission.Mutation) {
 			return storage.GoalRunCommitResult{}, storage.ErrWorkRequestConflict
@@ -314,7 +322,7 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		Kind:           domain.WorkEventGoalRoundAdmitted,
 		PayloadVersion: domain.WorkPayloadVersion,
 		RequestID:      admission.Mutation.RequestID,
-		RequestHash:    admission.Mutation.RequestHash,
+		RequestInput:   admission.Mutation.RequestInput,
 		CreatedAt:      admission.Started.CreatedAt,
 		Mutation:       admission.Mutation,
 		Admission:      admission.Mutation.Admission,
@@ -404,9 +412,9 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: encode goal admission: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO session_work_events (session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO session_work_events (session_id, work_seq, kind, payload_version, request_id, request_input, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		candidate.SessionID, int64(candidate.Seq), string(candidate.Kind), candidate.PayloadVersion,
-		candidate.RequestID, candidate.RequestHash, candidate.CreatedAt, payload); err != nil {
+		candidate.RequestID, candidate.RequestInput, candidate.CreatedAt, payload); err != nil {
 		return storage.GoalRunCommitResult{}, fmt.Errorf("storage: insert goal admission: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

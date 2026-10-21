@@ -204,18 +204,21 @@ func (s *Service) AdmitChildSession(ctx context.Context, request ChildSessionReq
 		PolicyProfile: snapshot.Profile, PolicyDefinition: snapshot.Definition,
 		SandboxMode: sandboxMode, ApprovalPolicy: approvalPolicy, ToolNames: parentTools,
 	}
-	ceilingDigest, err := ceiling.Digest()
+	_, err = ceiling.CanonicalJSON()
 	if err != nil {
 		return ChildSessionResult{}, err
 	}
-	requestDigest, err := domain.ChildRequestDigest(request.OperationKey, request.Task, requestedTools)
+	requestInput, err := domain.ChildRequestInput(request.OperationKey, request.Task, requestedTools)
 	if err != nil {
 		return ChildSessionResult{}, err
 	}
 	if existing, found, err := s.findChildAdmission(ctx, parent.SessionID, request.OperationKey); err != nil {
 		return ChildSessionResult{}, err
 	} else if found {
-		if existing.RequestDigest != requestDigest || existing.AuthorityCeilingDigest != ceilingDigest || existing.OriginParentRunID != parent.ID {
+		if existing.RequestInput == "" {
+			return ChildSessionResult{}, storage.ErrChildBindingUnavailable
+		}
+		if existing.RequestInput != requestInput || !domain.SameChildAuthority(existing.AuthorityCeiling, ceiling) || existing.OriginParentRunID != parent.ID {
 			return ChildSessionResult{}, storage.ErrChildAdmissionConflict
 		}
 		run, err := s.deps.Runs.GetRun(ctx, existing.InitialActivationRunID)
@@ -236,7 +239,7 @@ func (s *Service) AdmitChildSession(ctx context.Context, request ChildSessionReq
 		}
 		return ChildSessionResult{Binding: existing, Run: run, Started: started, WorkspaceID: workspaceID, Created: false}, nil
 	}
-	return s.commitNewChildActivation(ctx, parent, snapshot, parentLedger, requestedTools, ceiling, requestDigest, request.Task, request.OperationKey, true, "")
+	return s.commitNewChildActivation(ctx, parent, snapshot, parentLedger, requestedTools, ceiling, requestInput, request.Task, request.OperationKey, true, "")
 }
 
 // AdmitChildSessionActivation durably admits a fresh activation after checking the
@@ -262,6 +265,9 @@ func (s *Service) AdmitChildSessionActivation(ctx context.Context, request Child
 	if err != nil {
 		return ChildSessionResult{}, err
 	}
+	if binding.RequestInput == "" || binding.ActivationRequestInput == "" {
+		return ChildSessionResult{}, storage.ErrChildBindingUnavailable
+	}
 	if s.sessionDeleted(binding.OriginParentSessionID) {
 		return ChildSessionResult{}, storage.ErrNotFound
 	}
@@ -283,12 +289,12 @@ func (s *Service) AdmitChildSessionActivation(ctx context.Context, request Child
 	if err != nil {
 		return ChildSessionResult{}, err
 	}
-	requestDigest, err := domain.ChildRequestDigest(request.OperationKey, request.Task, requestedTools)
+	requestInput, err := domain.ChildRequestInput(request.OperationKey, request.Task, requestedTools)
 	if err != nil {
 		return ChildSessionResult{}, err
 	}
 	return s.commitNewChildActivation(ctx, parent, snapshot, parentLedger, requestedTools, binding.AuthorityCeiling,
-		requestDigest, request.Task, request.OperationKey, false, request.ChildSessionID)
+		requestInput, request.Task, request.OperationKey, false, request.ChildSessionID)
 }
 
 // InterruptChildActivation stops only the current continuable activation.
@@ -486,7 +492,7 @@ func (s *Service) commitNewChildActivation(
 	parentLedger *BudgetLedger,
 	selectedTools []string,
 	authority domain.ChildAuthorityCeiling,
-	requestDigest, task, operationKey string,
+	requestInput, task, operationKey string,
 	initial bool,
 	childSessionID domain.SessionID,
 ) (ChildSessionResult, error) {
@@ -537,17 +543,17 @@ func (s *Service) commitNewChildActivation(
 		childSession.SandboxMode = parentSession.SandboxMode
 		childSession.ApprovalPolicy = parentSession.ApprovalPolicy
 		childSession.WorkspacePath = parentSession.WorkspacePath
-		ceilingDigest, digestErr := authority.Digest()
-		if digestErr != nil {
+		_, authorityErr := authority.CanonicalJSON()
+		if authorityErr != nil {
 			releaseWorkspace()
-			return ChildSessionResult{}, digestErr
+			return ChildSessionResult{}, authorityErr
 		}
 		binding = domain.ChildSessionBinding{
 			ChildSessionID: childSessionID, OriginParentSessionID: parent.SessionID, OriginParentRunID: parent.ID,
 			AuthorizerRunID: parent.ID, InitialActivationRunID: childRunID, ActivationRunID: childRunID,
-			OperationKey: operationKey, RequestDigest: requestDigest, AuthorityCeilingDigest: ceilingDigest,
+			OperationKey: operationKey, RequestInput: requestInput,
 			AuthorityCeiling: authority, ActivationOperationKey: operationKey,
-			ActivationRequestDigest: requestDigest, ActivationToolNames: append([]string(nil), selectedTools...),
+			ActivationRequestInput: requestInput, ActivationToolNames: append([]string(nil), selectedTools...),
 			State: domain.ChildSessionOpen, CreatedAt: now, UpdatedAt: now,
 		}
 	} else {
@@ -580,7 +586,7 @@ func (s *Service) commitNewChildActivation(
 	} else {
 		result, err = s.deps.ChildSessions.CommitChildSessionActivation(ctx, storage.ChildSessionActivation{
 			ChildSessionID: childSessionID, AuthorizerRunID: parent.ID,
-			OperationKey: operationKey, RequestDigest: requestDigest,
+			OperationKey: operationKey, RequestInput: requestInput,
 			ToolNames: append([]string(nil), selectedTools...), Admission: admission,
 		})
 	}

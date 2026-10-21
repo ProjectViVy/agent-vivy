@@ -1,8 +1,6 @@
 package domain
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -47,7 +45,7 @@ func (s ChildSessionState) Valid() bool {
 }
 
 // ChildSessionBinding is the host-owned durable identity and authority
-// lineage for one continuable child. Origin fields and AuthorityCeilingDigest
+// lineage for one continuable child. Origin fields and AuthorityCeiling
 // are immutable; AuthorizerRunID and ActivationRunID advance on continuation.
 type ChildSessionBinding struct {
 	ChildSessionID                SessionID
@@ -57,11 +55,10 @@ type ChildSessionBinding struct {
 	InitialActivationRunID        RunID
 	ActivationRunID               RunID
 	OperationKey                  string
-	RequestDigest                 string
-	AuthorityCeilingDigest        string
-	AuthorityCeiling              ChildAuthorityCeiling
+	RequestInput                  string                `json:"-"`
+	AuthorityCeiling              ChildAuthorityCeiling `json:"-"`
 	ActivationOperationKey        string
-	ActivationRequestDigest       string
+	ActivationRequestInput        string `json:"-"`
 	ActivationToolNames           []string
 	State                         ChildSessionState
 	NextMessageSequence           int64 // parent-to-child inbox sequence
@@ -83,7 +80,7 @@ type ChildAuthorityCeiling struct {
 }
 
 // CanonicalToolNames returns a sorted, duplicate-free tool list and rejects
-// empty names. Sorting gives digests and persisted JSON one stable encoding.
+// empty names. Sorting gives persisted JSON one stable encoding.
 func CanonicalToolNames(names []string) ([]string, error) {
 	canonical := make([]string, len(names))
 	copy(canonical, names)
@@ -114,18 +111,9 @@ func (c ChildAuthorityCeiling) CanonicalJSON() ([]byte, error) {
 	return json.Marshal(c)
 }
 
-func (c ChildAuthorityCeiling) Digest() (string, error) {
-	encoded, err := c.CanonicalJSON()
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:]), nil
-}
-
-// ChildRequestDigest identifies the task and selected tools for one
-// idempotent child admission or activation.
-func ChildRequestDigest(operationKey, task string, toolNames []string) (string, error) {
+// ChildRequestInput stores the normalized task and tool selection for one
+// operation. Empty input means unavailable, never an equal legacy request.
+func ChildRequestInput(operationKey, task string, toolNames []string) (string, error) {
 	if operationKey == "" || strings.TrimSpace(operationKey) != operationKey || strings.TrimSpace(task) == "" {
 		return "", errors.New("domain: child operation key and task are required")
 	}
@@ -134,15 +122,20 @@ func ChildRequestDigest(operationKey, task string, toolNames []string) (string, 
 		return "", err
 	}
 	encoded, err := json.Marshal(struct {
-		OperationKey string   `json:"operation_key"`
-		Task         string   `json:"task"`
-		ToolNames    []string `json:"tool_names"`
-	}{operationKey, task, canonical})
+		Task      string   `json:"task"`
+		ToolNames []string `json:"tool_names"`
+	}{task, canonical})
+	return string(encoded), err
+}
+
+// SameChildAuthority compares the complete canonical policy and tool ceiling.
+func SameChildAuthority(a, b ChildAuthorityCeiling) bool {
+	left, err := a.CanonicalJSON()
 	if err != nil {
-		return "", err
+		return false
 	}
-	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:]), nil
+	right, err := b.CanonicalJSON()
+	return err == nil && string(left) == string(right)
 }
 
 // ChildMailboxMessage is one durable direct parent-child message. Sequence is

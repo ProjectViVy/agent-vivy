@@ -11,7 +11,7 @@ import (
 	"agent-vivy/internal/storage"
 )
 
-func TestWorkRequestIDRejectsChangedPayloadWithSameCallerHash(t *testing.T) {
+func TestWorkRequestIDRejectsChangedPayloadWithSameCallerInput(t *testing.T) {
 	b := openBackend(t)
 	ctx := context.Background()
 	const sessionID domain.SessionID = "work-payload-conflict"
@@ -19,7 +19,7 @@ func TestWorkRequestIDRejectsChangedPayloadWithSameCallerHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	create := domain.WorkMutation{
-		SessionID: sessionID, RequestID: "create", RequestHash: "caller-hash",
+		SessionID: sessionID, RequestID: "create", RequestInput: "caller-intent",
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal", Revision: 1},
 		Objective: "original objective", MaxRounds: 2,
 	}
@@ -29,7 +29,7 @@ func TestWorkRequestIDRejectsChangedPayloadWithSameCallerHash(t *testing.T) {
 	changed := create
 	changed.Objective = "different objective"
 	if _, err := b.CommitWork(ctx, changed); !errors.Is(err, storage.ErrWorkRequestConflict) {
-		t.Fatalf("same request/hash with changed objective = %v, want request conflict", err)
+		t.Fatalf("same request/input with changed objective = %v, want request conflict", err)
 	}
 	state, err := b.ReadWork(ctx, sessionID)
 	if err != nil || state.Version != 1 || state.Goal == nil || state.Goal.Objective != create.Objective {
@@ -100,14 +100,14 @@ func goalAdmissionFixture(t *testing.T) (*Backend, domain.SessionID, storage.Goa
 		t.Fatal(err)
 	}
 	if _, err := b.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "create", RequestHash: "hash-create",
+		SessionID: sessionID, RequestID: "create", RequestInput: "input-create",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "ship", MaxRounds: 2,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	return b, sessionID, storage.GoalRunCommit{
 		Mutation: domain.WorkMutation{
-			SessionID: sessionID, ExpectedVersion: 1, RequestID: "round-one", RequestHash: "hash-round-one",
+			SessionID: sessionID, ExpectedVersion: 1, RequestID: "round-one", RequestInput: "input-round-one",
 			Kind:      domain.WorkEventGoalRoundAdmitted,
 			Admission: domain.GoalRunAdmission{SessionID: sessionID, Goal: ref, Round: 1, RunID: runID},
 		},
@@ -158,7 +158,7 @@ func TestConcurrentGoalAdmissionsAtOneVersionHaveOneWinner(t *testing.T) {
 	b, sessionID, first := goalAdmissionFixture(t)
 	second := first
 	second.Mutation.RequestID = "round-other"
-	second.Mutation.RequestHash = "hash-round-other"
+	second.Mutation.RequestInput = "input-round-other"
 	second.Mutation.Admission.RunID = "run-goal-other"
 	second.Message.ID = "message-other"
 	second.Message.RunID = second.Mutation.Admission.RunID
@@ -225,7 +225,7 @@ func testPlanOriginCannotArmGoal(t *testing.T, originSessionID domain.SessionID,
 	}
 	commit := func(version domain.WorkVersion, id string, kind domain.WorkEventKind, fill func(*domain.WorkMutation)) {
 		t.Helper()
-		mutation := domain.WorkMutation{SessionID: sessionID, ExpectedVersion: version, RequestID: id, RequestHash: id, Kind: kind}
+		mutation := domain.WorkMutation{SessionID: sessionID, ExpectedVersion: version, RequestID: id, RequestInput: id, Kind: kind}
 		if fill != nil {
 			fill(&mutation)
 		}
@@ -236,7 +236,7 @@ func testPlanOriginCannotArmGoal(t *testing.T, originSessionID domain.SessionID,
 	commit(0, "enter", domain.WorkEventPlanEntered, nil)
 	if originSessionID != sessionID {
 		_, err := b.CommitWork(ctx, domain.WorkMutation{
-			SessionID: sessionID, ExpectedVersion: 1, RequestID: "submit-foreign", RequestHash: "submit-foreign",
+			SessionID: sessionID, ExpectedVersion: 1, RequestID: "submit-foreign", RequestInput: "submit-foreign",
 			Kind: domain.WorkEventPlanSubmitted, PlanSubmissionID: "submission-foreign", PlanMarkdown: "# plan",
 			PlanOriginRunID: runID, PlanOriginToolCallID: "tool-call",
 		})
@@ -263,7 +263,7 @@ func testPlanOriginCannotArmGoal(t *testing.T, originSessionID domain.SessionID,
 		}
 	}
 	_, err := b.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 3, RequestID: "approve", RequestHash: "approve",
+		SessionID: sessionID, ExpectedVersion: 3, RequestID: "approve", RequestInput: "approve",
 		Kind: domain.WorkEventPlanDecided, PlanSubmissionID: "submission", PlanAction: domain.PlanDecisionStartGoal,
 		Goal: domain.GoalRef{ID: "new-goal", Revision: 1}, Objective: "execute", MaxRounds: 1,
 	})

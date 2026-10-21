@@ -34,7 +34,7 @@ func (t leavePlanAfterEchoTool) InvokableRun(ctx context.Context, args json.RawM
 	}
 	_, err = t.work.CommitWork(ctx, domain.WorkMutation{
 		SessionID: t.sessionID, ExpectedVersion: state.Version,
-		RequestID: "scripted-leave-plan", RequestHash: "scripted-leave-plan",
+		RequestID: "scripted-leave-plan", RequestInput: "scripted-leave-plan",
 		Kind: domain.WorkEventPlanLeft,
 	})
 	return result, err
@@ -55,7 +55,7 @@ func TestPlanGuidanceRemovedAfterExitOnScriptedServicePath(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-active-plan", RequestHash: "seed-active-plan",
+		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-active-plan", RequestInput: "seed-active-plan",
 		Kind: domain.WorkEventPlanEntered,
 	}); err != nil {
 		t.Fatalf("seed active Plan: %v", err)

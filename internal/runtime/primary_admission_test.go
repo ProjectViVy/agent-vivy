@@ -164,13 +164,13 @@ func TestWakeGoalCoalescesSignalsWithoutLosingInFlightEligibility(t *testing.T) 
 	}
 	ref := domain.GoalRef{ID: "goal-wake", Revision: 1}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, RequestID: "create-goal", RequestHash: "create-goal",
+		SessionID: sessionID, RequestID: "create-goal", RequestInput: "create-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "complete the bounded task", MaxRounds: 1,
 	}); err != nil {
 		t.Fatalf("create Goal: %v", err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 1, RequestID: "pause-goal", RequestHash: "pause-goal",
+		SessionID: sessionID, ExpectedVersion: 1, RequestID: "pause-goal", RequestInput: "pause-goal",
 		Kind: domain.WorkEventGoalPaused, Goal: ref,
 	}); err != nil {
 		t.Fatalf("pause Goal: %v", err)
@@ -208,7 +208,7 @@ func TestWakeGoalCoalescesSignalsWithoutLosingInFlightEligibility(t *testing.T) 
 		t.Fatal("Goal candidate did not reach the controlled work-state barrier")
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 2, RequestID: "resume-goal", RequestHash: "resume-goal",
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "resume-goal", RequestInput: "resume-goal",
 		Kind: domain.WorkEventGoalResumed, Goal: ref,
 	}); err != nil {
 		t.Fatalf("resume Goal during candidate: %v", err)

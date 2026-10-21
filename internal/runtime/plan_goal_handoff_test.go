@@ -73,7 +73,7 @@ func TestResumeBeforePlanCancellationLeavesOwnedRunAlive(t *testing.T) {
 	}
 	mutation := domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: state.Version,
-		RequestID: "enter-plan", RequestHash: "enter-plan", Kind: domain.WorkEventPlanEntered,
+		RequestID: "enter-plan", RequestInput: "enter-plan", Kind: domain.WorkEventPlanEntered,
 	}
 	transition, _, err := svc.pauseGoalForPlan(ctx, mutation)
 	if err != nil || transition == nil {
@@ -85,7 +85,7 @@ func TestResumeBeforePlanCancellationLeavesOwnedRunAlive(t *testing.T) {
 	}
 	resumed, resumeErr := svc.ResumeGoal(ctx, domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: 3,
-		RequestID: "human-resume", RequestHash: "human-resume",
+		RequestID: "human-resume", RequestInput: "human-resume",
 		Kind: domain.WorkEventGoalResumed, Goal: ref,
 	})
 	if resumeErr != nil || resumed.State.Goal == nil || resumed.State.Goal.Phase != domain.WorkPhaseActive {
@@ -137,7 +137,7 @@ func TestResumeCannotCommitAfterPlanClaimsCancellation(t *testing.T) {
 	go func() {
 		result, err := svc.EnterPlan(ctx, domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: state.Version,
-			RequestID: "enter-plan", RequestHash: "enter-plan", Kind: domain.WorkEventPlanEntered,
+			RequestID: "enter-plan", RequestInput: "enter-plan", Kind: domain.WorkEventPlanEntered,
 		})
 		planDone <- planOutcome{result: result, err: err}
 	}()
@@ -150,7 +150,7 @@ func TestResumeCannotCommitAfterPlanClaimsCancellation(t *testing.T) {
 	defer cancel()
 	resume, err := svc.ResumeGoal(resumeCtx, domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: 3,
-		RequestID: "resume-during-drain", RequestHash: "resume-during-drain",
+		RequestID: "resume-during-drain", RequestInput: "resume-during-drain",
 		Kind: domain.WorkEventGoalResumed, Goal: ref,
 	})
 	if !errors.Is(err, storage.ErrWorkVersionConflict) || resume.Event.Kind != "" {
@@ -218,7 +218,7 @@ func TestPlanDecisionHandoffUsesOriginTerminalBeforeGoalAdmission(t *testing.T) 
 			version := domain.WorkVersion(0)
 			if tc.pausedGoal {
 				created, err := backend.CommitWork(ctx, domain.WorkMutation{
-					SessionID: sessionID, ExpectedVersion: version, RequestID: "old-goal", RequestHash: "old-goal",
+					SessionID: sessionID, ExpectedVersion: version, RequestID: "old-goal", RequestInput: "old-goal",
 					Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "unfinished", Revision: 1},
 					Objective: "unfinished task", MaxRounds: 2,
 				})
@@ -227,7 +227,7 @@ func TestPlanDecisionHandoffUsesOriginTerminalBeforeGoalAdmission(t *testing.T) 
 				}
 				version = created.State.Version
 				paused, err := backend.CommitWork(ctx, domain.WorkMutation{
-					SessionID: sessionID, ExpectedVersion: version, RequestID: "old-pause", RequestHash: "old-pause",
+					SessionID: sessionID, ExpectedVersion: version, RequestID: "old-pause", RequestInput: "old-pause",
 					Kind: domain.WorkEventGoalPaused, Goal: domain.GoalRef{ID: "unfinished", Revision: 1},
 				})
 				if err != nil {
@@ -236,7 +236,7 @@ func TestPlanDecisionHandoffUsesOriginTerminalBeforeGoalAdmission(t *testing.T) 
 				version = paused.State.Version
 			}
 			if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-				SessionID: sessionID, ExpectedVersion: version, RequestID: "enter", RequestHash: "enter", Kind: domain.WorkEventPlanEntered,
+				SessionID: sessionID, ExpectedVersion: version, RequestID: "enter", RequestInput: "enter", Kind: domain.WorkEventPlanEntered,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -299,7 +299,7 @@ func TestPlanDecisionHandoffUsesOriginTerminalBeforeGoalAdmission(t *testing.T) 
 				time.Sleep(5 * time.Millisecond)
 			}
 			decision := domain.WorkMutation{
-				SessionID: sessionID, ExpectedVersion: state.Version, RequestID: "decide", RequestHash: "decide",
+				SessionID: sessionID, ExpectedVersion: state.Version, RequestID: "decide", RequestInput: "decide",
 				Kind: domain.WorkEventPlanDecided, PlanSubmissionID: state.Plan.SubmissionID,
 				PlanAction: tc.action,
 			}

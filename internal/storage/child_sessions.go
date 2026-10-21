@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"agent-vivy/internal/domain"
@@ -31,7 +32,7 @@ type ChildSessionActivation struct {
 	ChildSessionID  domain.SessionID
 	AuthorizerRunID domain.RunID
 	OperationKey    string
-	RequestDigest   string
+	RequestInput    string
 	ToolNames       []string
 	Admission       RunAdmission
 }
@@ -59,11 +60,12 @@ func ValidDirectChildMailboxRoute(binding domain.ChildSessionBinding, sender, re
 }
 
 var (
-	ErrChildAdmissionConflict = errors.New("storage: child admission conflict")
-	ErrChildSessionClosed     = errors.New("storage: child session closed")
-	ErrChildMessageConflict   = errors.New("storage: child message conflict")
-	ErrChildMailboxFull       = errors.New("storage: child mailbox reached its message limit")
-	ErrChildConcurrencyLimit  = errors.New("storage: active child run concurrency limit reached")
+	ErrChildBindingUnavailable = errors.New("storage: child exact input unavailable; review required")
+	ErrChildAdmissionConflict  = errors.New("storage: child admission conflict")
+	ErrChildSessionClosed      = errors.New("storage: child session closed")
+	ErrChildMessageConflict    = errors.New("storage: child message conflict")
+	ErrChildMailboxFull        = errors.New("storage: child mailbox reached its message limit")
+	ErrChildConcurrencyLimit   = errors.New("storage: active child run concurrency limit reached")
 )
 
 const (
@@ -72,26 +74,21 @@ const (
 	MaxActiveChildrenPerRun             = 4
 )
 
-func EncodeChildAuthorityCeiling(ceiling domain.ChildAuthorityCeiling) ([]byte, string, error) {
-	encoded, err := ceiling.CanonicalJSON()
-	if err != nil {
-		return nil, "", err
-	}
-	digest, err := ceiling.Digest()
-	if err != nil {
-		return nil, "", err
-	}
-	return encoded, digest, nil
+func EncodeChildAuthorityCeiling(ceiling domain.ChildAuthorityCeiling) ([]byte, error) {
+	return ceiling.CanonicalJSON()
 }
 
-func DecodeChildAuthorityCeiling(encoded []byte, expectedDigest string) (domain.ChildAuthorityCeiling, error) {
+func DecodeChildAuthorityCeiling(encoded []byte) (domain.ChildAuthorityCeiling, error) {
 	var ceiling domain.ChildAuthorityCeiling
 	if err := json.Unmarshal(encoded, &ceiling); err != nil {
-		return domain.ChildAuthorityCeiling{}, errors.New("storage: invalid child authority ceiling JSON")
+		return ceiling, fmt.Errorf("storage: invalid child authority ceiling JSON: %w", err)
 	}
-	canonical, digest, err := EncodeChildAuthorityCeiling(ceiling)
-	if err != nil || string(canonical) != string(encoded) || digest != expectedDigest {
-		return domain.ChildAuthorityCeiling{}, errors.New("storage: child authority ceiling digest does not match its contents")
+	canonical, err := ceiling.CanonicalJSON()
+	if err != nil {
+		return ceiling, fmt.Errorf("storage: invalid child authority ceiling: %w", err)
+	}
+	if string(canonical) != string(encoded) {
+		return ceiling, errors.New("storage: non-canonical child authority ceiling")
 	}
 	return ceiling, nil
 }
@@ -128,7 +125,7 @@ func ValidateChildSessionAdmission(in ChildSessionAdmission) error {
 	if in.Session.ID == "" || in.Binding.ChildSessionID == "" || in.Session.ID != in.Binding.ChildSessionID ||
 		in.Binding.OriginParentSessionID == "" || in.Binding.OriginParentRunID == "" ||
 		in.Binding.AuthorizerRunID == "" || in.Binding.InitialActivationRunID == "" || in.Binding.ActivationRunID == "" ||
-		in.Binding.OperationKey == "" || in.Binding.RequestDigest == "" || in.Binding.AuthorityCeilingDigest == "" {
+		in.Binding.OperationKey == "" || in.Binding.RequestInput == "" {
 		return errors.New("storage: child admission identity is incomplete")
 	}
 	if in.Binding.ChildSessionID == in.Binding.OriginParentSessionID || in.Binding.AuthorizerRunID != in.Binding.OriginParentRunID {
@@ -140,17 +137,17 @@ func ValidateChildSessionAdmission(in ChildSessionAdmission) error {
 	if !in.Binding.State.Valid() || in.Binding.State != domain.ChildSessionOpen {
 		return errors.New("storage: new child session must be open")
 	}
-	_, authorityDigest, err := EncodeChildAuthorityCeiling(in.Binding.AuthorityCeiling)
-	if err != nil || in.Binding.AuthorityCeilingDigest != authorityDigest {
-		return errors.New("storage: child authority ceiling digest does not match its contents")
+	_, err := EncodeChildAuthorityCeiling(in.Binding.AuthorityCeiling)
+	if err != nil {
+		return fmt.Errorf("storage: invalid child authority ceiling: %w", err)
 	}
 	activationTools, err := domain.CanonicalToolNames(in.Binding.ActivationToolNames)
 	if err != nil || !childToolsSubset(activationTools, in.Binding.AuthorityCeiling.ToolNames) {
 		return errors.New("storage: initial activation widens child authority")
 	}
-	expectedDigest, err := domain.ChildRequestDigest(in.Binding.ActivationOperationKey, in.Admission.Message.Content, activationTools)
-	if err != nil || in.Binding.ActivationRequestDigest != expectedDigest {
-		return errors.New("storage: child activation request digest does not match its contents")
+	expectedInput, err := domain.ChildRequestInput(in.Binding.ActivationOperationKey, in.Admission.Message.Content, activationTools)
+	if err != nil || in.Binding.ActivationRequestInput != expectedInput || in.Binding.RequestInput != expectedInput || in.Binding.OperationKey != in.Binding.ActivationOperationKey {
+		return errors.New("storage: child activation input does not match its contents")
 	}
 	if in.Admission.Run.ID != in.Binding.InitialActivationRunID || in.Admission.Run.ID != in.Binding.ActivationRunID || in.Admission.Run.SessionID != in.Binding.ChildSessionID ||
 		in.Admission.Run.Kind != domain.RunKindChild || in.Admission.Run.ChildMode.Effective() != domain.ChildModeContinuable ||
@@ -170,16 +167,16 @@ func ValidateChildSessionActivation(in ChildSessionActivation) error {
 		in.Admission.Run.ParentID != in.AuthorizerRunID || in.Admission.Run.Status != domain.RunAccepted {
 		return errors.New("storage: child activation identity is incomplete")
 	}
-	if strings.TrimSpace(in.OperationKey) == "" || strings.TrimSpace(in.RequestDigest) == "" {
+	if strings.TrimSpace(in.OperationKey) == "" || strings.TrimSpace(in.RequestInput) == "" {
 		return errors.New("storage: child activation operation identity is incomplete")
 	}
 	toolNames, err := domain.CanonicalToolNames(in.ToolNames)
 	if err != nil || len(toolNames) != len(in.ToolNames) {
 		return errors.New("storage: child activation tool list is invalid")
 	}
-	expectedDigest, err := domain.ChildRequestDigest(in.OperationKey, in.Admission.Message.Content, toolNames)
-	if err != nil || in.RequestDigest != expectedDigest {
-		return errors.New("storage: child activation request digest does not match its contents")
+	expectedInput, err := domain.ChildRequestInput(in.OperationKey, in.Admission.Message.Content, toolNames)
+	if err != nil || in.RequestInput != expectedInput {
+		return errors.New("storage: child activation input does not match its contents")
 	}
 	return ValidateRunAdmissionInput(in.Admission)
 }

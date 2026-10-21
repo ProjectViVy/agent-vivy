@@ -26,7 +26,7 @@ func TestWorkSubscriptionBuffersCommitAfterCapturedWatermark(t *testing.T) {
 	commit := func(version domain.WorkVersion, kind domain.WorkEventKind) domain.WorkEvent {
 		t.Helper()
 		mutation := domain.WorkMutation{SessionID: sessionID, ExpectedVersion: version,
-			RequestID: string(kind), RequestHash: string(kind), Kind: kind,
+			RequestID: string(kind), RequestInput: string(kind), Kind: kind,
 			Goal: domain.GoalRef{ID: "goal-watermark", Revision: 1}}
 		if kind == domain.WorkEventGoalCreated {
 			mutation.Objective, mutation.MaxRounds = "deliver", 2

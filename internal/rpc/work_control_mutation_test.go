@@ -275,7 +275,7 @@ func TestEditedGoalStartsNewRevisionAfterOldRunCleanup(t *testing.T) {
 	// The old run still owns the session, and its report cannot cross the
 	// durable GoalRef CAS into revision 2.
 	_, err := env.backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 3, RequestID: "old-report", RequestHash: "old-report",
+		SessionID: sessionID, ExpectedVersion: 3, RequestID: "old-report", RequestInput: "old-report",
 		Kind: domain.WorkEventGoalCompleted, Goal: domain.GoalRef{ID: "goal-edit-live", Revision: 1},
 		Reason: "old run done", EvidenceRunID: oldRunID,
 	})
@@ -771,7 +771,7 @@ func TestPlanGetCarriesReplayStateAcrossPages(t *testing.T) {
 		requestID := fmt.Sprintf("plan-page-%d", version+1)
 		mutation := domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: version, RequestID: requestID,
-			RequestHash: requestID, Kind: kind, PlanSubmissionID: submissionID,
+			RequestInput: requestID, Kind: kind, PlanSubmissionID: submissionID,
 			PlanMarkdown: markdown,
 		}
 		if kind == domain.WorkEventPlanDecided {
@@ -831,7 +831,7 @@ func TestWorkSubscriptionReplaysFromDerivedStateAndContinuesLive(t *testing.T) {
 		requestID := fmt.Sprintf("work-sub-%d", version+1)
 		mutation := domain.WorkMutation{
 			SessionID: sessionID, ExpectedVersion: version,
-			RequestID: requestID, RequestHash: requestID, Kind: kind,
+			RequestID: requestID, RequestInput: requestID, Kind: kind,
 			Goal: ref,
 		}
 		if kind == domain.WorkEventGoalCreated {

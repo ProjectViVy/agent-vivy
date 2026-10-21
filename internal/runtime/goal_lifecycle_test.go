@@ -45,7 +45,7 @@ func createLifecycleGoalWithSession(t *testing.T, backend *sqlite.Backend, sessi
 	}
 	ref := domain.GoalRef{ID: "goal-lifecycle", Revision: 1}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: session.ID, RequestID: "create-goal", RequestHash: "create-goal",
+		SessionID: session.ID, RequestID: "create-goal", RequestInput: "create-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: ref, Objective: "complete the lifecycle task", MaxRounds: maxRounds,
 	}); err != nil {
 		t.Fatalf("create Goal: %v", err)
@@ -126,7 +126,7 @@ func TestGoalReservationCannotCommitAfterPauseOrEdit(t *testing.T) {
 				t.Fatal("reserved candidate never reached startup barrier")
 			}
 			mutation := domain.WorkMutation{
-				SessionID: sessionID, ExpectedVersion: 1, RequestID: "change-goal", RequestHash: "change-goal",
+				SessionID: sessionID, ExpectedVersion: 1, RequestID: "change-goal", RequestInput: "change-goal",
 				Kind: kind, Goal: ref, Reason: "user changed direction",
 			}
 			if kind == domain.WorkEventGoalEdited {
@@ -281,7 +281,7 @@ func TestOldGoalRunCannotReportEditedGoalReference(t *testing.T) {
 		t.Fatalf("admitted old-revision run = %+v / %v", runs, err)
 	}
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
-		SessionID: sessionID, ExpectedVersion: 2, RequestID: "edit-live-goal", RequestHash: "edit-live-goal",
+		SessionID: sessionID, ExpectedVersion: 2, RequestID: "edit-live-goal", RequestInput: "edit-live-goal",
 		Kind: domain.WorkEventGoalEdited, Goal: ref, Objective: "revised live goal", MaxRounds: 2,
 	}); err != nil {
 		t.Fatalf("edit Goal while old run is live: %v", err)

@@ -487,11 +487,7 @@ func TestDeleteSessionFencesContinuableChildTree(t *testing.T) {
 		SandboxMode: domain.SandboxModeWorkspaceWrite, ApprovalPolicy: domain.ApprovalPolicyAsk,
 		ToolNames: []string{},
 	}
-	authorityDigest, err := authority.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	requestDigest, err := domain.ChildRequestDigest("child-create", "task", []string{})
+	requestInput, err := domain.ChildRequestInput("child-create", "task", []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,8 +502,8 @@ func TestDeleteSessionFencesContinuableChildTree(t *testing.T) {
 		Binding: domain.ChildSessionBinding{
 			ChildSessionID: childSessionID, OriginParentSessionID: parentSessionID, OriginParentRunID: parentRunID,
 			AuthorizerRunID: parentRunID, InitialActivationRunID: childRunID, ActivationRunID: childRunID,
-			OperationKey: "child-create", RequestDigest: requestDigest, AuthorityCeilingDigest: authorityDigest,
-			AuthorityCeiling: authority, ActivationOperationKey: "child-create", ActivationRequestDigest: requestDigest,
+			OperationKey: "child-create", RequestInput: requestInput,
+			AuthorityCeiling: authority, ActivationOperationKey: "child-create", ActivationRequestInput: requestInput,
 			ActivationToolNames: []string{},
 			State:               domain.ChildSessionOpen, CreatedAt: 3, UpdatedAt: 3,
 		},
@@ -1086,18 +1082,14 @@ func TestParentRunReceivesChildReplyInModelInputAndConsumesAtCompletion(t *testi
 	}
 	sandbox, approval := parentSession.EffectiveSandbox()
 	authority := domain.ChildAuthorityCeiling{PolicyProfile: snapshot.Profile, PolicyDefinition: snapshot.Definition, SandboxMode: sandbox, ApprovalPolicy: approval, ToolNames: []string{tools.EchoInfoName}}
-	authorityDigest, err := authority.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	requestDigest, err := domain.ChildRequestDigest("reply-run-child", "compute a result", authority.ToolNames)
+	requestInput, err := domain.ChildRequestInput("reply-run-child", "compute a result", authority.ToolNames)
 	if err != nil {
 		t.Fatal(err)
 	}
 	createdAt := time.Now().UnixMilli()
 	childAdmission := storage.ChildSessionAdmission{
 		Session:   domain.Session{ID: childSessionID, Title: "child", CreatedAt: createdAt, UpdatedAt: createdAt, SandboxMode: string(sandbox), ApprovalPolicy: string(approval)},
-		Binding:   domain.ChildSessionBinding{ChildSessionID: childSessionID, OriginParentSessionID: parentSessionID, OriginParentRunID: parentRunID, AuthorizerRunID: parentRunID, InitialActivationRunID: childRunID, ActivationRunID: childRunID, OperationKey: "reply-run-child", RequestDigest: requestDigest, AuthorityCeilingDigest: authorityDigest, AuthorityCeiling: authority, ActivationOperationKey: "reply-run-child", ActivationRequestDigest: requestDigest, ActivationToolNames: authority.ToolNames, State: domain.ChildSessionOpen, CreatedAt: createdAt, UpdatedAt: createdAt},
+		Binding:   domain.ChildSessionBinding{ChildSessionID: childSessionID, OriginParentSessionID: parentSessionID, OriginParentRunID: parentRunID, AuthorizerRunID: parentRunID, InitialActivationRunID: childRunID, ActivationRunID: childRunID, OperationKey: "reply-run-child", RequestInput: requestInput, AuthorityCeiling: authority, ActivationOperationKey: "reply-run-child", ActivationRequestInput: requestInput, ActivationToolNames: authority.ToolNames, State: domain.ChildSessionOpen, CreatedAt: createdAt, UpdatedAt: createdAt},
 		Admission: storage.RunAdmission{Message: domain.Message{ID: "message-parent-reply-child", SessionID: childSessionID, RunID: childRunID, Role: domain.RoleUser, CreatedAt: createdAt, Content: "compute a result"}, Run: domain.Run{ID: childRunID, SessionID: childSessionID, Status: domain.RunAccepted, CreatedAt: createdAt, Kind: domain.RunKindChild, ChildMode: domain.ChildModeContinuable, ParentID: parentRunID, RootID: parentRunRecord.RootID, Depth: 1}, Started: domain.RunEvent{RunID: childRunID, Type: domain.EventRunStarted, CreatedAt: createdAt, PayloadVersion: 1, Payload: []byte(`{"provider":"test"}`)}},
 	}
 	if _, err := backend.CommitChildSessionAdmission(ctx, childAdmission); err != nil {
