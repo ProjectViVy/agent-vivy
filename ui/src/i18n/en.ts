@@ -442,7 +442,6 @@ export const en: Dictionary = {
     excerpt: 'Saved excerpt',
     redacted: '[redacted]',
     details: 'Reference details',
-    digest: 'digest',
     captured: 'captured',
     sourceSession: 'source session',
     destination: 'destination',

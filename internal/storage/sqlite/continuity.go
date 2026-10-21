@@ -315,6 +315,26 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Session/source locks precede the owner-run lock, matching admission/deletion.
+	_, priorReceipt, err := sqliteFindReceiptTx(ctx, tx, m.SessionID, m.Receipt.Operation, m.Receipt.RequestID)
+	if err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	lockRequest := storage.ContinuityAdmission{SessionID: m.SessionID, Expectations: m.Expectations}
+	if priorReceipt {
+		lockRequest.Expectations = nil
+	}
+	lockErr := sqliteLockContinuitySessions(ctx, tx, lockRequest)
+	if lockErr != nil {
+		if !errors.Is(lockErr, storage.ErrSourceChanged) {
+			return storage.ContinuityResult{}, lockErr
+		}
+		// A racing committed receipt may outlive its source; retain destination fence.
+		if err := sqliteLockContinuitySessions(ctx, tx, storage.ContinuityAdmission{SessionID: m.SessionID}); err != nil {
+			return storage.ContinuityResult{}, err
+		}
+	}
+
 	var owner string
 	err = tx.QueryRowContext(ctx, `SELECT session_id FROM runs WHERE id = ?`, m.RunID).Scan(&owner)
 	switch {
@@ -349,6 +369,13 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 		}
 		replay.Type = domain.EventType(typ)
 		return storage.ContinuityResult{RunID: m.RunID, Events: []domain.RunEvent{replay}, Receipt: existing, NewlyCommitted: false}, nil
+	}
+
+	if lockErr != nil {
+		return storage.ContinuityResult{}, lockErr
+	}
+	if err := sqliteCheckExpectations(ctx, tx, m.Expectations); err != nil {
+		return storage.ContinuityResult{}, err
 	}
 
 	var closed int

@@ -323,4 +323,34 @@ func AssertContinuityExpectations(t *testing.T, slot Slot) {
 	if _, err := store.CommitContinuityRun(ctx, deleted); !errors.Is(err, storage.ErrSourceChanged) {
 		t.Fatalf("deleted source must fail expectation: %v", err)
 	}
+	// Existing operation transaction also fences visibility changes after a read.
+	source := domain.SessionID("continuity-op-source")
+	createHistorySession(t, b, source)
+	mutation := storage.ContinuityMutation{SessionID: sid, RunID: admission.Run.ID,
+		Event:        domain.RunEvent{RunID: admission.Run.ID, Type: domain.EventContextReferenceAttached, Payload: []byte(`{"copied":"exact selected text"}`), PayloadVersion: 1},
+		Receipt:      domain.ContinuityReceipt{SessionID: sid, Operation: "reference.attach", RequestID: "op-source", Input: []byte(`{"selected":"exact selected text"}`)},
+		Expectations: []storage.SourceExpectation{{SourceSessionID: source, TruncationMarkers: 0}}}
+	if _, err := store.CommitContinuityOperation(ctx, mutation); err != nil {
+		t.Fatalf("valid source operation: %v", err)
+	}
+	if err := b.DeleteSession(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := store.CommitContinuityOperation(ctx, mutation); err != nil || result.NewlyCommitted {
+		t.Fatalf("source deletion hid committed operation: %v", err)
+	}
+	mutation.Receipt.RequestID = "op-source-new"
+	if _, err := store.CommitContinuityOperation(ctx, mutation); !errors.Is(err, storage.ErrSourceChanged) {
+		t.Fatalf("deleted source allowed new operation: %v", err)
+	}
+	source = "continuity-op-rewind"
+	createHistorySession(t, b, source)
+	mutation.Expectations = []storage.SourceExpectation{{SourceSessionID: source, TruncationMarkers: 0}}
+	mutation.Receipt.RequestID = "op-rewind"
+	if err := b.RecordSessionTruncation(ctx, storage.SessionTruncation{SessionID: source, CutoffMessageID: "x", TailMessageID: "x", Reason: storage.TruncationRewind, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitContinuityOperation(ctx, mutation); !errors.Is(err, storage.ErrSourceChanged) {
+		t.Fatalf("rewound source allowed new operation: %v", err)
+	}
 }

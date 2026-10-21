@@ -53,7 +53,7 @@ func TestReferenceContextToolSpec(t *testing.T) {
 	if err := json.Unmarshal(spec.Schema, &schema); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
-	if len(schema.Required) != 1 || schema.Required[0] != "selection" || schema.AdditionalProperties {
+	if len(schema.Required) != 2 || schema.Required[0] != "selection" || schema.AdditionalProperties {
 		t.Fatalf("schema contract = %#v", schema)
 	}
 	if _, ok := schema.Properties["selection"]; !ok {
@@ -64,15 +64,14 @@ func TestReferenceContextToolSpec(t *testing.T) {
 func TestReferenceContextToolAttachesSelection(t *testing.T) {
 	ops := &fakeReferenceOps{reference: domain.ContextReference{
 		ID: "ref_1", DestinationSessionID: "B", SourceSessionID: "A", Origin: "model_tool",
-		Items:  []domain.HistoryItem{{Text: "captured"}},
-		Digest: "d1",
+		Items: []domain.HistoryItem{{Text: "captured"}},
 	}}
 	tool := newReferenceContextTool(t, ops)
-	out, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"selection":{"source_session_id":"A","refs":[{"session_id":"A","message_id":"m1","kind":"message"}]},"expected_digest":"d1","description":"why"}`))
+	out, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"selection":{"source_session_id":"A","refs":[{"session_id":"A","message_id":"m1","kind":"message"}]},"expected_items":[{"ref":{"session_id":"A","message_id":"m1","kind":"message"},"author":"user","text":"captured"}],"description":"why"}`))
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}
-	if len(ops.selection.Selection.Refs) != 1 || ops.selection.Selection.Refs[0].MessageID != "m1" || ops.selection.ExpectedDigest != "d1" {
+	if len(ops.selection.Selection.Refs) != 1 || ops.selection.Selection.Refs[0].MessageID != "m1" || len(ops.selection.ExpectedItems) != 1 || ops.selection.ExpectedItems[0].Text != "captured" {
 		t.Fatalf("forwarded selection = %#v", ops.selection)
 	}
 	var result referenceContextResult
@@ -87,6 +86,7 @@ func TestReferenceContextToolAttachesSelection(t *testing.T) {
 func TestReferenceContextToolRejectsForgedArgs(t *testing.T) {
 	tool := newReferenceContextTool(t, &fakeReferenceOps{})
 	for _, args := range []string{
+		`{"selection":{"source_session_id":"A","refs":[]},"expected_digest":"retired"}`,
 		`{"selection":{"source_session_id":"A","refs":[],"items":[{"text":"forged"}]}}`,
 		`{"selection":{"source_session_id":"A","refs":[]},"authority":"operator"}`,
 		`{"selection":{"source_session_id":"A","refs":[]},"request_id":"forged"}`,

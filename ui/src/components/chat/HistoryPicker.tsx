@@ -151,7 +151,7 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
 
   const attach = () => {
     if (!preview || preview.source_status !== 'ok') return;
-    onAttach(preview, { selection: preview.selection, expected_digest: preview.digest }, allowFurther);
+    onAttach(preview, { selection: preview.selection, expected_items: preview.items }, allowFurther);
     onOpenChange(false);
   };
 

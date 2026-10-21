@@ -279,15 +279,19 @@ func TestContinuityCodingLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preview reference selection: %v", err)
 	}
-	if preview.Digest == "" {
-		t.Fatal("preview returned empty selection digest")
+	if len(preview.Items) == 0 {
+		t.Fatal("preview returned no selected records")
+	}
+	expectedItems, err := json.Marshal(preview.Items)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	recB := &loopRecordingModel{inner: runtime.NewScriptedModel(
 		loopToolCall("call-b-1", tools.HistorySearchName, `{"query":"PLAN-ALPHA","session_ids":["sess-a"]}`),
 		loopToolCall("call-b-2", tools.HistoryReadName, `{"selection":{"source_session_id":"sess-a","refs":[{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}]}}`),
 		loopToolCall("call-b-3", tools.HistoryTraceName, `{"source_ref":{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}}`),
-		loopToolCall("call-b-4", tools.ReferenceContextName, `{"selection":{"source_session_id":"sess-a","refs":[{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}]},"expected_digest":"`+preview.Digest+`","description":"source plan"}`),
+		loopToolCall("call-b-4", tools.ReferenceContextName, `{"selection":{"source_session_id":"sess-a","refs":[{"session_id":"sess-a","run_id":"`+string(runA)+`","kind":"message","message_id":"`+msgIDA+`"}]},"expected_items":`+string(expectedItems)+`,"description":"source plan"}`),
 		loopToolCall("call-b-5", tools.PatchName, `{"path":"source.txt","old_string":"// TODO fill","new_string":"// PLAN-ALPHA implemented\nresult := 42"}`),
 		loopToolCall("call-b-6", tools.ExecuteName, `{"command":"rg","args":["-n","PLAN-ALPHA","source.txt"]}`),
 		loopToolCall("call-b-7", tools.BashName, `{"command":"printf 'report for PLAN-ALPHA\\n' > report.txt && tar -cf report.tar report.txt"}`),
@@ -301,8 +305,8 @@ func TestContinuityCodingLoop(t *testing.T) {
 			RequestID:    "req-loop-1",
 			HistoryScope: domain.HistoryScope{SessionIDs: []domain.SessionID{"sess-a"}},
 			References: []domain.ReferenceSelection{{
-				Selection:      selection,
-				ExpectedDigest: preview.Digest,
+				Selection:     selection,
+				ExpectedItems: preview.Items,
 			}},
 		},
 	})
@@ -427,8 +431,8 @@ func TestContinuityCodingLoop(t *testing.T) {
 			RequestID:    "req-loop-1",
 			HistoryScope: domain.HistoryScope{SessionIDs: []domain.SessionID{"sess-a"}},
 			References: []domain.ReferenceSelection{{
-				Selection:      selection,
-				ExpectedDigest: preview.Digest,
+				Selection:     selection,
+				ExpectedItems: preview.Items,
 			}},
 		},
 	})

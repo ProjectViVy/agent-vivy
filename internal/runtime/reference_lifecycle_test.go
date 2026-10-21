@@ -19,7 +19,7 @@ func admittedReference(t *testing.T, f *referenceFixture, requestID string) (dom
 	runID, err := f.AdmitAsOperator(t, &domain.ContinuityInput{
 		RequestID: requestID,
 		References: []domain.ReferenceSelection{
-			{Selection: preview.Selection, ExpectedDigest: preview.Digest},
+			{Selection: preview.Selection, ExpectedItems: preview.Items},
 		},
 	})
 	if err != nil {
@@ -201,7 +201,7 @@ func TestReferenceLifecycleForkCopiesPrefixRefs(t *testing.T) {
 	if copiedRef.ID == refOne.ID || copiedRef.DestinationSessionID != child {
 		t.Fatalf("copied reference identity = %#v", copiedRef)
 	}
-	if copiedRef.DestinationRunID != runOne || copiedRef.SourceSessionID != "A" || copiedRef.Digest != refOne.Digest || copiedRef.Origin != refOne.Origin {
+	if copiedRef.DestinationRunID != runOne || copiedRef.SourceSessionID != "A" || !sameReferenceItems(copiedRef.Items, refOne.Items) || copiedRef.Origin != refOne.Origin {
 		t.Fatalf("copied provenance drifted: %#v", copiedRef)
 	}
 	if _, err := f.refs.Lookup(context.Background(), child, copiedRef.ID); err != nil {
@@ -240,7 +240,7 @@ func TestReferenceLifecycleReopenKeepsIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rebuilt lookup: %v", err)
 	}
-	if got.ID != reference.ID || got.Digest != reference.Digest || len(got.Items) != 1 {
+	if got.ID != reference.ID || !sameReferenceItems(got.Items, reference.Items) || len(got.Items) != 1 {
 		t.Fatalf("rebuilt reference drifted: %#v", got)
 	}
 }

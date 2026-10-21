@@ -162,7 +162,7 @@ func TestContinuityEffectiveBudgetDoesNotExceedWireFrame(t *testing.T) {
 func validContextReference(id, text string) ContextReference {
 	return ContextReference{
 		ID: id, DestinationSessionID: "destination", DestinationRunID: "run", SourceSessionID: "source",
-		SourceWorkspace: "workspace", Digest: "digest", Origin: "user_selection",
+		SourceWorkspace: "workspace", Origin: "user_selection",
 		Items: []HistoryItem{{Ref: SourceRef{SessionID: "source", Kind: SourceKindMessage}, Author: HistoryAuthorUser, Text: text}},
 	}
 }

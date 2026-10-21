@@ -301,21 +301,22 @@ func (s HistorySelection) Validate(limits ContinuityLimits) error {
 	return nil
 }
 
-// ReferenceSelection supplies a server-validated selector plus its expected
-// sanitized-snapshot digest; no browser content is accepted.
+// ReferenceSelection binds source positions to the bounded preview records.
+// ExpectedItems is untrusted input; the owner re-reads and compares every value.
 type ReferenceSelection struct {
-	Selection      HistorySelection `json:"selection"`
-	ExpectedDigest string           `json:"expected_digest"`
+	Selection     HistorySelection `json:"selection"`
+	ExpectedItems []HistoryItem    `json:"expected_items"`
 }
 
 func (s ReferenceSelection) Validate(limits ContinuityLimits) error {
+	limits = limits.Effective(0)
 	if err := s.Selection.Validate(limits); err != nil {
 		return err
 	}
-	if s.ExpectedDigest == "" || !utf8.ValidString(s.ExpectedDigest) {
-		return fmt.Errorf("reference selection expected digest is invalid")
+	if len(s.ExpectedItems) == 0 {
+		return fmt.Errorf("reference selection requires preview records")
 	}
-	return nil
+	return validateHistoryItems(s.ExpectedItems, limits, limits.ReferenceBytes)
 }
 
 type HistorySearchRequest struct {
@@ -405,14 +406,13 @@ func (r HistoryTraceRequest) Validate(limits ContinuityLimits) error {
 }
 
 type HistoryPage struct {
-	Status          string        `json:"status"`
-	Items           []HistoryItem `json:"items"`
-	NextCursor      string        `json:"next_cursor"`
-	Truncated       bool          `json:"truncated"`
-	Redacted        bool          `json:"redacted"`
-	Warnings        []string      `json:"warnings"`
-	Reason          *string       `json:"reason,omitempty"`
-	SelectionDigest string        `json:"selection_digest,omitempty"`
+	Status     string        `json:"status"`
+	Items      []HistoryItem `json:"items"`
+	NextCursor string        `json:"next_cursor"`
+	Truncated  bool          `json:"truncated"`
+	Redacted   bool          `json:"redacted"`
+	Warnings   []string      `json:"warnings"`
+	Reason     *string       `json:"reason,omitempty"`
 }
 
 func (p HistoryPage) Validate(limits ContinuityLimits) error {
@@ -428,7 +428,7 @@ func (p HistoryPage) Validate(limits ContinuityLimits) error {
 			return err
 		}
 	}
-	if err := validateUTF8Strings("history page", p.NextCursor, p.SelectionDigest); err != nil {
+	if err := validateUTF8Strings("history page", p.NextCursor); err != nil {
 		return err
 	}
 	for _, warning := range p.Warnings {
@@ -445,7 +445,6 @@ func (p HistoryPage) Validate(limits ContinuityLimits) error {
 type ReferencePreview struct {
 	Selection    HistorySelection `json:"selection"`
 	Items        []HistoryItem    `json:"items"`
-	Digest       string           `json:"digest"`
 	CapturedAt   int64            `json:"captured_at"`
 	ByteCount    int              `json:"byte_count"`
 	SourceStatus string           `json:"source_status"`
@@ -458,7 +457,7 @@ func (p ReferencePreview) Validate(limits ContinuityLimits) error {
 	if err := p.Selection.Validate(limits); err != nil {
 		return err
 	}
-	if p.Digest == "" || !utf8.ValidString(p.Digest) || p.CapturedAt < 0 || p.ByteCount < 0 || p.ByteCount > limits.ReferenceBytes {
+	if p.CapturedAt < 0 || p.ByteCount < 0 || p.ByteCount > limits.ReferenceBytes {
 		return fmt.Errorf("reference preview metadata is invalid")
 	}
 	if !HistoryStatus(p.SourceStatus).Valid() {

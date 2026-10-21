@@ -696,10 +696,10 @@ export interface FaceHistorySelection {
   readonly run_range?: FaceHistoryRunRange;
 }
 
-/** Server-validated selector plus its sanitized-snapshot digest. */
+/** Selected positions and untrusted exact preview records for server comparison. */
 export interface FaceReferenceSelection {
   readonly selection: FaceHistorySelection;
-  readonly expected_digest: string;
+  readonly expected_items: FaceHistoryItem[];
 }
 
 /** Caller-declared task scope; empty means the destination session only. */
@@ -745,7 +745,6 @@ export interface FaceHistoryPage {
   readonly redacted: boolean;
   readonly warnings: string[];
   readonly reason?: string;
-  readonly selection_digest?: string;
 }
 
 export interface FaceHistorySession {
@@ -764,7 +763,6 @@ export interface FaceHistorySessionPage {
 export interface FaceReferencePreview {
   readonly selection: FaceHistorySelection;
   readonly items: FaceHistoryItem[];
-  readonly digest: string;
   readonly captured_at: number;
   readonly byte_count: number;
   readonly source_status: string;
@@ -786,7 +784,6 @@ export interface FaceContextReference {
   readonly source_workspace: string;
   readonly captured_at: number;
   readonly items: FaceHistoryItem[];
-  readonly digest: string;
   readonly origin: string;
 }
 

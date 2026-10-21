@@ -51,7 +51,6 @@ func validLifecycleReference(id string, runID domain.RunID, itemText string) dom
 			Author: "user",
 			Text:   itemText,
 		}},
-		Digest: strings.Repeat("ab", 32),
 		Origin: "user_selection",
 	}
 }
@@ -76,7 +75,7 @@ func TestReferenceContextAdmissionProjectsImportedDataOnly(t *testing.T) {
 	runID, err := f.AdmitAsOperator(t, &domain.ContinuityInput{
 		RequestID: "req-feed-hostile",
 		References: []domain.ReferenceSelection{
-			{Selection: preview.Selection, ExpectedDigest: preview.Digest},
+			{Selection: preview.Selection, ExpectedItems: preview.Items},
 		},
 	})
 	if err != nil {
@@ -180,7 +179,6 @@ func TestReferenceContextProjectionStates(t *testing.T) {
 	ctx := context.Background()
 	good := validLifecycleReference("ref_good", "run-x", "clean imported text")
 	bad := validLifecycleReference("ref_bad", "run-x", "garbled")
-	bad.Digest = ""
 	bad.Items = nil
 	parts, inclusions, err := ProjectReferenceContext(ctx, nil, []domain.ContextReference{good, bad}, 1<<20)
 	if err != nil {

@@ -18,7 +18,6 @@ const reference = (overrides: Partial<api.ContextReference> = {}): api.ContextRe
     { ref: { session_id: 'src-1', kind: 'message', message_id: 'm1', created_at: 1 }, author: 'user', text: 'fix the parser', redacted: false, truncated: false },
     { ref: { session_id: 'src-1', kind: 'tool_result', event_seq: 9, created_at: 2 }, author: 'tool', text: 'patched 3 files', redacted: false, truncated: false },
   ],
-  digest: 'abc123def',
   origin: 'user_selection',
   ...overrides,
 });

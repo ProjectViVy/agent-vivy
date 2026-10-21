@@ -347,7 +347,7 @@ func TestHistoryFixtureWildcardQueryIsLiteral(t *testing.T) {
 	}
 }
 
-func TestHistoryFixtureReadSelectionDigest(t *testing.T) {
+func TestHistoryFixtureReadCompleteSelection(t *testing.T) {
 	f := newHistoryFixture(t)
 	safeRef := domain.SourceRef{SessionID: "A", MessageID: "a-safe", Kind: string(domain.SourceKindMessage)}
 	page := f.ReadAsRun(t, domain.HistoryReadRequest{Selection: &domain.HistorySelection{
@@ -356,17 +356,11 @@ func TestHistoryFixtureReadSelectionDigest(t *testing.T) {
 	if page.Status != string(domain.HistoryStatusOK) || len(page.Items) != 1 || page.NextCursor != "" {
 		t.Fatalf("complete read page = %#v", page)
 	}
-	if page.SelectionDigest == "" || page.SelectionDigest != CanonicalHistorySelectionDigest(page.Items) {
-		t.Fatalf("selection digest = %q", page.SelectionDigest)
-	}
 	legacyRef := domain.SourceRef{SessionID: "A", MessageID: "a-legacy", Kind: string(domain.SourceKindMessage)}
 	page = f.ReadAsRun(t, domain.HistoryReadRequest{
 		Selection: &domain.HistorySelection{SourceSessionID: "A", Refs: []domain.SourceRef{safeRef, legacyRef}},
 		Limit:     1,
 	})
-	if page.SelectionDigest != "" {
-		t.Fatal("partial page exposed a selection digest")
-	}
 	if page.NextCursor == "" {
 		t.Fatal("partial page omitted the continuation cursor")
 	}

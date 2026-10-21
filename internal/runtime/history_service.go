@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -456,9 +455,6 @@ func (s *HistoryService) runRead(ctx context.Context, request domain.HistoryRead
 			return historyStatusPage(domain.HistoryStatusUnavailable, "cursor_unavailable"), nil
 		}
 	}
-	if status == domain.HistoryStatusOK && page.NextCursor == "" && len(items) > 0 && !hasUnavailable(items) {
-		page.SelectionDigest = CanonicalHistorySelectionDigest(items)
-	}
 	return s.boundPage(page, limits), nil
 }
 
@@ -798,28 +794,4 @@ func (s *HistoryService) boundPage(page domain.HistoryPage, limits domain.Contin
 		return historyStatusPage(domain.HistoryStatusInvalidArgument, "narrow_scope")
 	}
 	return page
-}
-
-// CanonicalHistorySelectionDigest is shared by history/read and the later
-// reference preview/attach implementation. Display labels and capture times
-// are intentionally absent from this representation.
-func CanonicalHistorySelectionDigest(items []domain.HistoryItem) string {
-	type digestItem struct {
-		Ref        domain.SourceRef   `json:"ref"`
-		Author     string             `json:"author"`
-		Text       string             `json:"text"`
-		SourceRefs []domain.SourceRef `json:"source_refs,omitempty"`
-		Redacted   bool               `json:"redacted"`
-		Truncated  bool               `json:"truncated"`
-	}
-	canonical := make([]digestItem, 0, len(items))
-	for _, item := range items {
-		canonical = append(canonical, digestItem{Ref: item.Ref, Author: item.Author, Text: item.Text, SourceRefs: item.SourceRefs, Redacted: item.Redacted, Truncated: item.Truncated})
-	}
-	encoded, _ := json.Marshal(struct {
-		Version int          `json:"version"`
-		Items   []digestItem `json:"items"`
-	}{Version: 1, Items: canonical})
-	digest := sha256.Sum256(encoded)
-	return fmt.Sprintf("%x", digest[:])
 }

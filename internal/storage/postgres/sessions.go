@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"agent-vivy/internal/domain"
@@ -161,15 +162,33 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var lockedID string
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE id = ? FOR UPDATE`, id).Scan(&lockedID); errors.Is(err, sql.ErrNoRows) {
-		return storage.ErrNotFound
-	} else if err != nil {
-		return fmt.Errorf("storage: lock session %s for delete: %w", id, err)
-	}
 	subtree, err := postgresChildSessionTree(ctx, tx, id)
 	if err != nil {
 		return err
+	}
+	// Lock the discovered membership in the same canonical order as continuity.
+	// Child admission locks its parent, so membership is stable after rechecking.
+	lockIDs := append([]domain.SessionID(nil), subtree...)
+	slices.Sort(lockIDs)
+	for _, sessionID := range lockIDs {
+		var lockedID string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE id = ? FOR UPDATE`, sessionID).Scan(&lockedID)
+		if errors.Is(err, sql.ErrNoRows) && sessionID != id {
+			continue
+		} // Retain partial-binding cleanup.
+		if errors.Is(err, sql.ErrNoRows) {
+			return storage.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("storage: lock session %s for delete: %w", sessionID, err)
+		}
+	}
+	current, err := postgresChildSessionTree(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(subtree, current) {
+		return storage.ErrConflict
 	}
 	for i := len(subtree) - 1; i >= 0; i-- {
 		sessionID := subtree[i]
@@ -218,14 +237,6 @@ func postgresChildSessionTree(ctx context.Context, tx *Tx, root domain.SessionID
 	queue := []domain.SessionID{root}
 	seen := map[domain.SessionID]struct{}{root: {}}
 	for index := 0; index < len(queue); index++ {
-		if index > 0 {
-			var lockedID string
-			if err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE id = ? FOR UPDATE`, queue[index]).Scan(&lockedID); errors.Is(err, sql.ErrNoRows) {
-				// Keep traversing its binding so corrupt partial rows are cleaned.
-			} else if err != nil {
-				return nil, fmt.Errorf("storage: lock child session %s for delete: %w", queue[index], err)
-			}
-		}
 		rows, err := tx.QueryContext(ctx, `SELECT child_session_id FROM child_sessions WHERE origin_parent_session_id = ? ORDER BY child_session_id`, queue[index])
 		if err != nil {
 			return nil, fmt.Errorf("storage: list child sessions for delete: %w", err)

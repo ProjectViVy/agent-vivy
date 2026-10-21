@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -89,7 +90,6 @@ func (s *ReferenceService) Preview(ctx context.Context, selection domain.History
 	preview := domain.ReferencePreview{
 		Selection:    selection,
 		Items:        page.Items,
-		Digest:       page.SelectionDigest,
 		CapturedAt:   s.now().UnixMilli(),
 		SourceStatus: page.Status,
 	}
@@ -116,8 +116,10 @@ func (s *ReferenceService) Attach(ctx context.Context, selection domain.Referenc
 	if err := selection.Selection.Validate(s.limits); err != nil {
 		return domain.ContextReference{}, err
 	}
-	if !utf8.ValidString(selection.ExpectedDigest) {
-		return domain.ContextReference{}, ReferenceError{Status: string(domain.HistoryStatusInvalidArgument), Reason: "expected digest is invalid"}
+	if len(selection.ExpectedItems) > 0 {
+		if err := selection.Validate(s.limits); err != nil {
+			return domain.ContextReference{}, ReferenceError{Status: string(domain.HistoryStatusInvalidArgument), Reason: err.Error()}
+		}
 	}
 	input, err := referenceIntendedInput(selection)
 	if err != nil {
@@ -128,6 +130,26 @@ func (s *ReferenceService) Attach(ctx context.Context, selection domain.Referenc
 		return domain.ContextReference{}, err
 	} else if found {
 		return decodeReferenceEvents(events)
+	}
+	// Even private visibility metadata is read only after current source authority.
+	_, authorityPage, err := s.history.authorizeSessions(ctx, []domain.SessionID{selection.Selection.SourceSessionID})
+	if err != nil {
+		return domain.ContextReference{}, err
+	}
+	if authorityPage.Status != "" {
+		reason := "source scope unavailable"
+		if authorityPage.Reason != nil {
+			reason = *authorityPage.Reason
+		}
+		return domain.ContextReference{}, ReferenceError{Status: authorityPage.Status, Reason: reason}
+	}
+	expected := storage.SourceExpectation{SourceSessionID: selection.Selection.SourceSessionID, TruncationMarkers: -1}
+	if s.truncations != nil {
+		markers, err := s.truncations.ListViewTruncations(ctx, expected.SourceSessionID)
+		if err != nil {
+			return domain.ContextReference{}, fmt.Errorf("reference: read source visibility revision: %w", err)
+		}
+		expected.TruncationMarkers = int64(len(markers))
 	}
 	reference, err := s.snapshot(ctx, selection, sessionID, runID, "model_tool")
 	if err != nil {
@@ -148,10 +170,11 @@ func (s *ReferenceService) Attach(ctx context.Context, selection domain.Referenc
 		return domain.ContextReference{}, err
 	}
 	result, err := s.continuity.CommitContinuityOperation(ctx, storage.ContinuityMutation{
-		SessionID: sessionID,
-		RunID:     runID,
-		Event:     event,
-		Receipt:   receipt,
+		SessionID:    sessionID,
+		RunID:        runID,
+		Event:        event,
+		Receipt:      receipt,
+		Expectations: []storage.SourceExpectation{expected},
 	})
 	if err != nil {
 		return domain.ContextReference{}, err
@@ -405,14 +428,11 @@ func (s *ReferenceService) snapshot(ctx context.Context, selection domain.Refere
 	if err := selection.Selection.Validate(s.limits); err != nil {
 		return domain.ContextReference{}, err
 	}
-	if selection.ExpectedDigest != "" && !utf8.ValidString(selection.ExpectedDigest) {
-		return domain.ContextReference{}, ReferenceError{Status: string(domain.HistoryStatusInvalidArgument), Reason: "expected digest is invalid"}
-	}
 	page, err := s.history.Read(ctx, domain.HistoryReadRequest{Selection: &selection.Selection})
 	if err != nil {
 		return domain.ContextReference{}, err
 	}
-	if page.SelectionDigest == "" {
+	if page.Status != string(domain.HistoryStatusOK) || page.NextCursor != "" || page.Truncated || len(page.Items) == 0 || hasUnavailable(page.Items) {
 		status := page.Status
 		if status == "" {
 			status = string(domain.HistoryStatusUnavailable)
@@ -423,7 +443,10 @@ func (s *ReferenceService) snapshot(ctx context.Context, selection domain.Refere
 		}
 		return domain.ContextReference{}, ReferenceError{Status: status, Reason: reason}
 	}
-	if selection.ExpectedDigest != "" && selection.ExpectedDigest != page.SelectionDigest {
+	if err := selection.Validate(s.limits); err != nil {
+		return domain.ContextReference{}, ReferenceError{Status: string(domain.HistoryStatusInvalidArgument), Reason: err.Error()}
+	}
+	if !sameReferenceItems(selection.ExpectedItems, page.Items) {
 		return domain.ContextReference{}, fmt.Errorf("reference: selection content changed since preview: %w", storage.ErrSourceChanged)
 	}
 	reference := domain.ContextReference{
@@ -434,7 +457,6 @@ func (s *ReferenceService) snapshot(ctx context.Context, selection domain.Refere
 		SourceWorkspace:      s.sourceWorkspaceLabel(ctx, selection.Selection.SourceSessionID),
 		CapturedAt:           s.now().UnixMilli(),
 		Items:                page.Items,
-		Digest:               page.SelectionDigest,
 		Origin:               origin,
 	}
 	if err := reference.Validate(s.limits); err != nil {
@@ -556,4 +578,17 @@ func referenceByteCount(reference domain.ContextReference) int {
 		return 0
 	}
 	return len(data)
+}
+
+func sameReferenceItems(expected, actual []domain.HistoryItem) bool {
+	if len(expected) != len(actual) {
+		return false
+	}
+	for i, item := range expected {
+		other := actual[i]
+		if item.Ref != other.Ref || item.Author != other.Author || item.Text != other.Text || item.Redacted != other.Redacted || item.Truncated != other.Truncated || !slices.Equal(item.SourceRefs, other.SourceRefs) {
+			return false
+		}
+	}
+	return true
 }

@@ -58,7 +58,6 @@
           "maxItems": 100,
           "items": { "$ref": "#/$defs/historyItem" }
         },
-        "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "origin": { "type": "string", "enum": ["user_selection", "model_tool"] }
       },
       "required": [
@@ -69,7 +68,6 @@
         "source_workspace",
         "captured_at",
         "items",
-        "digest",
         "origin"
       ],
       "additionalProperties": false

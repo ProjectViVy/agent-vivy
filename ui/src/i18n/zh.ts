@@ -440,7 +440,6 @@ export const zh = {
     excerpt: '已保存摘录',
     redacted: '[已遮蔽]',
     details: '引用详情',
-    digest: '摘要',
     captured: '捕获时间',
     sourceSession: '源会话',
     destination: '目标',

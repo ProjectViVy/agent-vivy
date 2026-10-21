@@ -95,10 +95,11 @@ func (a ContinuityAdmission) Validate() error {
 // idempotency receipt — the atomic form used by model-call operations. The
 // receipt's request_id folds the stable tool_call_id under the owner run.
 type ContinuityMutation struct {
-	SessionID domain.SessionID
-	RunID     domain.RunID
-	Event     domain.RunEvent
-	Receipt   domain.ContinuityReceipt
+	SessionID    domain.SessionID
+	RunID        domain.RunID
+	Event        domain.RunEvent
+	Receipt      domain.ContinuityReceipt
+	Expectations []SourceExpectation
 	// TestFaultHook mirrors ContinuityAdmission.TestFaultHook for the
 	// "events" and "receipt" write steps.
 	TestFaultHook func(step string) error
@@ -113,6 +114,11 @@ func (m ContinuityMutation) Validate() error {
 	}
 	if m.Receipt.Operation == "" || m.Receipt.SessionID != m.SessionID || m.Receipt.RequestID == "" || len(m.Receipt.Input) == 0 {
 		return fmt.Errorf("storage: continuity mutation receipt is invalid")
+	}
+	for _, expected := range m.Expectations {
+		if err := expected.validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

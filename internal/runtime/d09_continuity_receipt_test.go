@@ -17,7 +17,8 @@ func TestD09ReferenceReceiptReplaysBeforeBudgetAndSourceReads(t *testing.T) {
 	limits.ReferencesPerTask = 1
 	f.refs.SetLimits(limits)
 	ctx := f.modelCtx(t, "receipt-run", "receipt-call", "A")
-	selection := domain.ReferenceSelection{Selection: safeSelectionA()}
+	preview := f.PreviewAsOperator(t, "B", safeSelectionA())
+	selection := domain.ReferenceSelection{Selection: preview.Selection, ExpectedItems: preview.Items}
 	first, err := f.refs.Attach(ctx, selection)
 	if err != nil {
 		t.Fatal(err)

@@ -30,7 +30,6 @@ const item = (kind: api.SourceRef['kind'], text: string, ref: Partial<api.Source
 const preview = (status = 'ok'): api.ReferencePreview => ({
   selection: { source_session_id: 'src-1', refs: [{ session_id: 'src-1', kind: 'message', message_id: 'm-fix', created_at: 1 }] },
   items: [item('message', 'fix')],
-  digest: 'd1',
   captured_at: 1700000000,
   byte_count: 3,
   source_status: status,
@@ -106,7 +105,7 @@ describe('HistoryPicker', () => {
     await act(async () => attach.click());
     expect(onAttach).toHaveBeenCalledWith(
       preview(),
-      { selection: preview().selection, expected_digest: 'd1' },
+      { selection: preview().selection, expected_items: preview().items },
       false, // further-reading checkbox stays unchecked by default
     );
   });

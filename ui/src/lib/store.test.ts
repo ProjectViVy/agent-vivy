@@ -864,7 +864,7 @@ describe('Vivy store integrity', () => {
             source_session_id: 'src-1',
             refs: [{ session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }],
           },
-          expected_digest: 'd1',
+          expected_items: [{ ref: { session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }, author: 'user', text: 'hi', redacted: false, truncated: false }],
         }],
         history_scope: { session_ids: [] as string[] },
       },
@@ -874,6 +874,7 @@ describe('Vivy store integrity', () => {
 
     // The queued copy must not drift if the composer mutates its draft later.
     submission.continuity.history_scope.session_ids.push('mutated');
+    submission.continuity.references[0].expected_items[0].text = 'changed draft';
     api.startTurn.mockRejectedValueOnce(new Error('stale reference'));
     subscription.onEvent?.({ run_id: 'r1', seq: 1, type: 'run.completed', created_at: 2, payload_version: 1, payload: {} });
     await vi.waitFor(() => expect(api.startTurn).toHaveBeenCalledTimes(1));
@@ -901,7 +902,7 @@ describe('Vivy store integrity', () => {
     await vi.waitFor(() => expect(useVivyStore.getState().queuedMessages.map((item) => item.text)).toEqual(['stale', 'later']));
 
     // Removing the stale head lets the next item drain on the next idle beat;
-    // no reordering, no silent digest refresh.
+    // no reordering, no silent preview refresh.
     useVivyStore.getState().removeQueuedMessage(useVivyStore.getState().queuedMessages[0].id);
     useVivyStore.setState({ currentRun: null, runBusy: false });
     useVivyStore.setState((state) => ({ ...state })); // trigger subscription drain
@@ -914,9 +915,9 @@ describe('Vivy store integrity', () => {
     const preview = {
       selection: { source_session_id: 'src-1', refs: [{ session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }] },
       items: [{ ref: { session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }, author: 'user', text: 'hi', redacted: false, truncated: false }],
-      digest: 'd1', captured_at: 1, byte_count: 2, source_status: 'ok',
+      captured_at: 1, byte_count: 2, source_status: 'ok',
     };
-    const selection = { selection: preview.selection, expected_digest: 'd1' };
+    const selection = { selection: preview.selection, expected_items: [{ ref: { session_id: 'src-1', kind: 'message' as const, message_id: 'm1', created_at: 1 }, author: 'user', text: 'hi', redacted: false, truncated: false }] };
     useVivyStore.getState().addDraftReference(preview, selection, true);
     const firstRequest = useVivyStore.getState().draftRequestId;
     expect(useVivyStore.getState().draftReferences).toHaveLength(1);
