@@ -47,7 +47,9 @@ export function prepareContinuityWorkdir(): void {
 
 export type LoopbackReply =
   | { kind: 'tool'; id: string; name: string; args: Record<string, unknown> }
-  | { kind: 'text'; text: string };
+  | { kind: 'text'; text: string }
+  | { kind: 'hang' }
+  | { kind: 'failure' };
 
 export const toolCall = (id: string, name: string, args: Record<string, unknown>): LoopbackReply => ({ kind: 'tool', id, name, args });
 export const finalText = (text: string): LoopbackReply => ({ kind: 'text', text });
@@ -70,6 +72,12 @@ function writeChunk(w: http.ServerResponse, payload: string): void {
 }
 
 function answerRequest(res: http.ServerResponse, reply: LoopbackReply, streaming: boolean, seq: number): void {
+  if (reply.kind === 'hang') return;
+  if (reply.kind === 'failure') {
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: { message: 'Deterministic provider failure', type: 'invalid_request_error' } }));
+    return;
+  }
   const base = `"id":"chatcmpl-${seq}","object":"chat.completion${streaming ? '.chunk' : ''}","created":1,"model":"deepseek-flash"`;
   if (reply.kind === 'tool') {
     const argsJSON = JSON.stringify(JSON.stringify(reply.args));
@@ -99,7 +107,7 @@ function answerRequest(res: http.ServerResponse, reply: LoopbackReply, streaming
 // startLoopbackModel answers every chat.completions request with the next
 // queued reply (FIFO per test) and records raw request bodies so specs can
 // assert cross-session content never reached the model.
-export function startLoopbackModel(): Promise<http.Server> {
+export function startLoopbackModel(options: { readonly titleText?: string } = {}): Promise<http.Server> {
   let queue: LoopbackReply[] = [];
   const captured: string[] = [];
   let seq = 0;
@@ -121,6 +129,14 @@ export function startLoopbackModel(): Promise<http.Server> {
     req.on('data', (chunk) => { raw += chunk; });
     req.on('end', () => {
       captured.push(raw);
+      // ChainTitler uses a separate nonstreaming 40-token Generate call.
+      // A suite can keep that maintenance request out of its Run script.
+      const request = JSON.parse(raw) as { stream?: boolean; max_tokens?: number };
+      if (options.titleText !== undefined && request.stream !== true && request.max_tokens === 40) {
+        res.setHeader('Content-Type', 'application/json');
+        answerRequest(res, finalText(options.titleText), false, ++seq);
+        return;
+      }
       const reply = queue.shift();
       if (!reply) {
         res.statusCode = 500;

@@ -50,14 +50,25 @@ func TestMinimalRecipeOmitsOptionalCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	usable := map[string]bool{}
 	for _, resolved := range plan.Modules {
 		if strings.HasSuffix(resolved.Descriptor.Module.ID, "-host") && resolved.Descriptor.Module.ID != "vivy/tool-host" {
 			t.Fatalf("minimal Assembly retained optional Host %s", resolved.Descriptor.Module.ID)
 		}
 		for _, provided := range resolved.Descriptor.Provides {
-			if strings.HasPrefix(provided.Port, "std/") {
-				t.Fatalf("minimal Assembly retained public capability %s from %s", provided.Port, resolved.Descriptor.Module.ID)
+			if !strings.HasPrefix(provided.Port, "std/") {
+				continue
+			}
+			allowed := (resolved.Descriptor.Module.ID == "vivy/protected-tools" && provided.Port == "std/tool@v1") || (resolved.Descriptor.Module.ID == "vivy/provider-profiles" && provided.Port == "std/provider-profile@v1")
+			if !allowed {
+				t.Fatalf("minimal retained optional public capability %s from %s", provided.Port, resolved.Descriptor.Module.ID)
+			}
+			if provided.ID == "read_file" || provided.ID == "list_dir" {
+				usable[provided.ID] = true
 			}
 		}
+	}
+	if !usable["read_file"] || !usable["list_dir"] {
+		t.Fatalf("minimal lacks protected read/list: %v", usable)
 	}
 }

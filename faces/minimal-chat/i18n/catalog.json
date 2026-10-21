@@ -1,0 +1,165 @@
+{
+  "apiVersion": "vivy.i18n/v1",
+  "units": {
+    "plugin.vivy/minimal-chat.message": {
+      "description": "Minimal chat message",
+      "placeholders": [],
+      "messages": {
+        "en": "Message",
+        "zh": "消息"
+      }
+    },
+    "plugin.vivy/minimal-chat.workspace": {
+      "description": "Minimal chat workspace",
+      "placeholders": [],
+      "messages": {
+        "en": "Workspace (optional)",
+        "zh": "工作目录（可选）"
+      }
+    },
+    "plugin.vivy/minimal-chat.conversation": {
+      "description": "Minimal chat conversation",
+      "placeholders": [],
+      "messages": {
+        "en": "Conversation",
+        "zh": "对话"
+      }
+    },
+    "plugin.vivy/minimal-chat.send": {
+      "description": "Minimal chat send",
+      "placeholders": [],
+      "messages": {
+        "en": "Send",
+        "zh": "发送"
+      }
+    },
+    "plugin.vivy/minimal-chat.cancel": {
+      "description": "Minimal chat cancel",
+      "placeholders": [],
+      "messages": {
+        "en": "Cancel",
+        "zh": "取消"
+      }
+    },
+    "plugin.vivy/minimal-chat.retry": {
+      "description": "Minimal chat retry",
+      "placeholders": [],
+      "messages": {
+        "en": "Retry connection",
+        "zh": "重试连接"
+      }
+    },
+    "plugin.vivy/minimal-chat.empty": {
+      "description": "Minimal chat empty",
+      "placeholders": [],
+      "messages": {
+        "en": "Send a message to start.",
+        "zh": "发送消息开始对话。"
+      }
+    },
+    "plugin.vivy/minimal-chat.ready": {
+      "description": "Minimal chat ready",
+      "placeholders": [],
+      "messages": {
+        "en": "Ready",
+        "zh": "就绪"
+      }
+    },
+    "plugin.vivy/minimal-chat.connecting": {
+      "description": "Minimal chat connecting",
+      "placeholders": [],
+      "messages": {
+        "en": "Connecting",
+        "zh": "正在连接"
+      }
+    },
+    "plugin.vivy/minimal-chat.active": {
+      "description": "Minimal chat active",
+      "placeholders": [],
+      "messages": {
+        "en": "Running",
+        "zh": "运行中"
+      }
+    },
+    "plugin.vivy/minimal-chat.running": {
+      "description": "Minimal chat running",
+      "placeholders": [],
+      "messages": {
+        "en": "Running",
+        "zh": "运行中"
+      }
+    },
+    "plugin.vivy/minimal-chat.accepted": {
+      "description": "Minimal chat accepted",
+      "placeholders": [],
+      "messages": {
+        "en": "Accepted",
+        "zh": "已接纳"
+      }
+    },
+    "plugin.vivy/minimal-chat.queued": {
+      "description": "Minimal chat queued",
+      "placeholders": [],
+      "messages": {
+        "en": "Queued",
+        "zh": "排队中"
+      }
+    },
+    "plugin.vivy/minimal-chat.completed": {
+      "description": "Minimal chat completed",
+      "placeholders": [],
+      "messages": {
+        "en": "Completed",
+        "zh": "已完成"
+      }
+    },
+    "plugin.vivy/minimal-chat.failed": {
+      "description": "Minimal chat failed",
+      "placeholders": [],
+      "messages": {
+        "en": "Failed",
+        "zh": "失败"
+      }
+    },
+    "plugin.vivy/minimal-chat.cancelled": {
+      "description": "Minimal chat cancelled",
+      "placeholders": [],
+      "messages": {
+        "en": "Cancelled",
+        "zh": "已取消"
+      }
+    },
+    "plugin.vivy/minimal-chat.user": {
+      "description": "Minimal chat user",
+      "placeholders": [],
+      "messages": {
+        "en": "You",
+        "zh": "你"
+      }
+    },
+    "plugin.vivy/minimal-chat.assistant": {
+      "description": "Minimal chat assistant",
+      "placeholders": [],
+      "messages": {
+        "en": "Vivy",
+        "zh": "Vivy"
+      }
+    },
+    "plugin.vivy/minimal-chat.system": {
+      "description": "Minimal chat system",
+      "placeholders": [],
+      "messages": {
+        "en": "System",
+        "zh": "系统"
+      }
+    },
+    "plugin.vivy/minimal-chat.tool": {
+      "description": "Minimal chat tool",
+      "placeholders": [],
+      "messages": {
+        "en": "Tool",
+        "zh": "工具"
+      }
+    }
+  }
+}

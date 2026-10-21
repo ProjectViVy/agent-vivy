@@ -83,7 +83,7 @@ i18n-check: ui-core
 ui-ci: i18n-check
 
 headless-compile: ensure-laputa
-    & "{{go}}" test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
+    {{go}} test -run '^$' -tags vivy_headless ./cmd/vivy ./cmd/vivy-code ./ui
 
 build-split: ensure-laputa
     New-Item -ItemType Directory -Force -Path dist | Out-Null

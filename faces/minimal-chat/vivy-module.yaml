@@ -1,0 +1,7 @@
+apiVersion: vivy.module/v1
+module: {id: vivy/minimal-chat, version: 0.1.0}
+source: {ref: repo:faces/minimal-chat}
+provides: [{port: std/ui-root@v1, id: vivy.minimal-chat.root}]
+requires: [{port: core/presentation-host@v1, provider: vivy/presentation-host}]
+i18n: {catalog: i18n/catalog.json, default_locale: en, locales: [en, zh]}
+lifecycle: {scope: generation}

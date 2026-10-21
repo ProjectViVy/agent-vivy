@@ -1,0 +1,24 @@
+apiVersion: vivy.generation/v1
+profile: minimal-chat
+modules:
+  - vivy/loop
+  - vivy/model
+  - vivy/tool-host
+  - vivy/storage
+  - vivy/checkpoint
+  - vivy/credential
+  - vivy/sandbox
+  - vivy/protected-tools
+  - vivy/provider-profiles
+  - vivy/presentation-host
+  - vivy/minimal-chat
+exclusive:
+  std/ui-root@v1: vivy/minimal-chat
+ui:
+  sdkVersion: 1.0.0
+  root:
+    id: vivy.minimal-chat.root
+    moduleId: vivy/minimal-chat
+    port: std/ui-root@v1
+    entry: ./ui/src/index.tsx
+    export: root

@@ -16,8 +16,8 @@ current `justfile` and these actual entry points:
   the local toolchain and clean source pin; readiness is not test acceptance.
 - `just wiring-ci` runs bootstrap/evidence guards and kernel compiler/source/
   runtime Assembly wiring. `just kernel-ci` vets/tests kernel owners and packs,
-  inspects and boots only the seven-module minimal Recipe, without installing
-  or building UI. It does not claim D13 usable tools/chat or default parity.
+  inspects and boots only the nine-module usable minimal Recipe, without installing
+  or building UI. It proves protected read/list and provider composition; the separate D13 browser gate certifies usable chat. It does not claim default parity.
 - `just d02-ci` covers affected runtime/RPC/Face contracts, the causal App probe
   separately, shutdown and native CODE fixtures. `just d02-web-ci` separately
   stages the actual UI, typechecks it and tests affected Web/selected-UI paths.

@@ -37,13 +37,13 @@ func TestMinimalKernelArtifactBootAndInspect(t *testing.T) {
 		modules = append(modules, module.ID)
 	}
 	sort.Strings(modules)
-	want := []string{"vivy/checkpoint", "vivy/credential", "vivy/loop", "vivy/model", "vivy/sandbox", "vivy/storage", "vivy/tool-host"}
+	want := []string{"vivy/checkpoint", "vivy/credential", "vivy/loop", "vivy/model", "vivy/protected-tools", "vivy/provider-profiles", "vivy/sandbox", "vivy/storage", "vivy/tool-host"}
 	if !reflect.DeepEqual(modules, want) {
 		t.Fatalf("minimal modules = %v, want %v", modules, want)
 	}
 	ui := inspected.Manifest.UI
-	if ui == nil || ui.Root != "" || len(ui.Extensions) != 0 || len(inspected.Manifest.Catalogs) != 0 || len(inspected.Manifest.ConformanceResults) != 0 {
-		t.Fatal("minimal retained optional UI, catalog, or Provider evidence")
+	if ui == nil || ui.Root != "" || len(ui.Extensions) != 0 {
+		t.Fatal("minimal retained optional UI")
 	}
 	assets, err := os.ReadDir(filepath.Join(artifact.Directory, "ui", "dist"))
 	if err != nil || len(assets) != 0 {

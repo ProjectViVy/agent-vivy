@@ -214,6 +214,7 @@ type repoSourceDir struct {
 }
 
 var repoSourceDirs = []repoSourceDir{
+	{dir: "faces/minimal-chat", importPath: "agent-vivy/faces/minimal-chat", pkg: "minimalchat"},
 	{dir: "plugins/dingtalk", importPath: "agent-vivy/plugins/dingtalk", pkg: "dingtalk"},
 	{dir: "plugins/discord", importPath: "agent-vivy/plugins/discord", pkg: "discord"},
 	{dir: "plugins/feishu", importPath: "agent-vivy/plugins/feishu", pkg: "feishu"},

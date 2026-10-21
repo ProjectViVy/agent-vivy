@@ -2,7 +2,7 @@
 
 Issue: [#91](https://github.com/ProjectViVy/agent-vivy/issues/91) · Continuation implementation baseline: `stable@c065a82b4618e34dddd32893abd0557bd79c5b44` · Earlier planning branches: `feat/agent-loop-deletion`, `codex/agent-loop-deletion`.
 
-**Current outcome (2026-10-21):** D01, D02, D03, D06 and D08 are accepted through the owner-authorized scoped WSL route; the Story table below owns their evidence and remaining boundaries. #91 keeps deletion/contraction work; #93 retains nudge, warming and steering pending first-party plugin extraction. C11 supersedes the earlier EXP placement/default-exclusion plan. Final upgrade publication and #91 closure remain open.
+**Current outcome (2026-10-21):** D01, D02, D03, D04, D05, D06, D08 and D13 are accepted through the owner-authorized scoped WSL route; the Story table below owns their evidence and remaining boundaries. #91 keeps deletion/contraction work; #93 retains nudge, warming and steering pending first-party plugin extraction. C11 supersedes the earlier EXP placement/default-exclusion plan. Final upgrade publication and #91 closure remain open.
 
 Phase/handoff: [stable loop and gated feature re-intake](../../../plans/2026-10-19-stable-loop-reintake-handoff.md). This supplement sets phase applicability, not a second technical specification.
 
@@ -125,7 +125,7 @@ Planned = concrete plan exists, awaiting implementation handoff or accepted prer
 | D10 | E5 / R1,R3,R4,R5 | Preserve skill, memory and cognitive revision CAS without hashes | D08, D12 | [D10](D10.md) | Blocked | Accepted D08/D12; inspect actual baseline-A Laputa APIs, then require upstream delivery only for a confirmed incompatible seam |
 | D11 | E5 / R1,R3,R4,R5 | Remove baseline Work, workflow and notes business digests | D03, D08 | [D11](D11.md) | Blocked | Coordinated hash-free INOFY version/pin plus accepted D03/D08 |
 | D12 | E2 / R1,R3,R4,R5 | Remove migration checksums and convert the independent BML format | D00 | [D12](D12.md) | Planned | §11.7–11.9 format/metadata/BML design fixed; accepted D00 and implementation handoff |
-| D13 | E6 / R2,R6,R7 | Ship usable minimal, a tiny real-token Face and runnable examples | D05, D06, D08 | [D13](D13.md) | Ready | D05/D06/D08 accepted; continue usable minimal and minimal-chat UI composition on stable. Scoped mock browser verification authorized; final real-token proof remains D14. |
+| D13 | E6 / R2,R6,R7 | Ship usable minimal, a tiny real-token Face and runnable examples | D05, D06, D08 | [D13](D13.md) | Accepted (scoped) | [D13 delivery](../../../logs/2026-10-21-d13-minimal-chat/summary.md): usable nine-owner minimal, eleven-owner selected UI root, real packed minimal/hello-fs causal turns, WSL wiring111/kernel1731+minimal, UI45 and split3015 browser3 pass; independent correction re-review clear. Existing optional rg skip recorded. Real-token/native/full-product/upgrade proof remains D14. |
 | D14 | E7 / R1–R8 | Accept one final candidate through independent behavior and residue audits | D01, D09, D10, D11, D13 | [D14](D14.md) | Blocked | All predecessors accepted; real-token environment; fresh independent auditors |
 
 ## Immediate dependency contracts

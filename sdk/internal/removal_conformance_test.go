@@ -45,12 +45,6 @@ func TestMinimalArtifactPhysicallyOmitsOptionalModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inspected.Manifest.ConformanceResults) != 0 {
-		t.Fatalf("minimal Inspect retained omitted Provider records: %#v", inspected.Manifest.ConformanceResults)
-	}
-	if len(inspected.Manifest.Catalogs) != 0 {
-		t.Fatalf("minimal Inspect retained catalog projections: %#v", inspected.Manifest.Catalogs)
-	}
 	if inspected.Manifest.UI == nil || inspected.Manifest.UI.Root != "" || len(inspected.Manifest.UI.Extensions) != 0 || len(inspected.Manifest.UI.Catalogs) != 0 {
 		t.Fatalf("minimal Inspect retained optional UI/localization state: %#v", inspected.Manifest.UI)
 	}
@@ -73,8 +67,6 @@ func TestMinimalArtifactPhysicallyOmitsOptionalModules(t *testing.T) {
 		"vivy/mcp-host":          {"vivy/mcp-host", "NewMCPHost", "NewMCPProvider"},
 		"vivy/observer-host":     {"vivy/observer-host", "NewObserverHost"},
 		"vivy/presentation-host": {"vivy/presentation-host", "NewPresentationHost"},
-		"vivy/protected-tools":   {"vivy/protected-tools", "NewProtectedTools", "ProtectedToolProviders"},
-		"vivy/provider-profiles": {"vivy/provider-profiles", "NewProviderProfiles", "ProviderProfiles"},
 		"vivy/skill-host":        {"vivy/skill-host", "NewSkillHost"},
 		"vivy/skill-source":      {"vivy/skill-source", "NewSkillSource"},
 		"vivy/status-host":       {"vivy/status-host", "NewStatusHost"},
