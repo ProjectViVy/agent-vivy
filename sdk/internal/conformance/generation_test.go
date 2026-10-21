@@ -1,7 +1,6 @@
 package conformance
 
 import (
-	"strings"
 	"testing"
 
 	providerconformance "agent-vivy/sdk/conformance"
@@ -63,7 +62,7 @@ func completeProviderResults(portID, providerID, evidenceID string) []providerco
 	for _, check := range providerconformance.RequiredProviderChecks() {
 		results = append(results, providerconformance.ConformanceResult{
 			Port: module.PortRef{Port: portID}, ProviderID: providerID,
-			SourceSHA256: strings.Repeat("a", 64), Suite: check, Passed: true, EvidenceID: evidenceID,
+			Suite: check, Passed: true, EvidenceID: evidenceID,
 		})
 	}
 	return results
@@ -84,4 +83,15 @@ func supportState(records []PortSupportRecord, portID string) port.SupportState 
 		}
 	}
 	return ""
+}
+
+func TestConformanceEvidenceRefusesForeignPathForms(t *testing.T) {
+	for _, ref := range []string{"/absolute.go#Test", "C:/absolute.go#Test", "../outside.go#Test", "https://example.com/test", "sha256:obsolete"} {
+		if _, err := CanonicalPortSupport([]PortSupportRecord{{Port: module.PortRef{Port: "std/tool@v1"}, State: port.SupportSpecified, EvidenceIDs: []string{ref}}}); err == nil {
+			t.Fatalf("foreign evidence reference accepted: %q", ref)
+		}
+	}
+	if _, err := CanonicalPortSupport([]PortSupportRecord{{Port: module.PortRef{Port: "std/tool@v1"}, State: port.SupportSpecified, EvidenceIDs: []string{"sdk/conformance/provider_test.go#TestRunProviderSuite"}}}); err != nil {
+		t.Fatal(err)
+	}
 }

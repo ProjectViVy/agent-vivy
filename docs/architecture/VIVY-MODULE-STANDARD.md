@@ -82,7 +82,6 @@ module:
 source:
   ref: git:example/search-tools@0123456
   # Optional during authoring; `vivy-sdk pack` seals the derived value.
-  sha256: <64 lowercase hex characters>
 provides:
   - port: std/tool@v1
 requires:
@@ -119,18 +118,17 @@ compile with build-owned `INCOMPLETE_LOCALE` evidence.
 
 Core owns `vivy.*`. A Module with ID `<module-id>` owns the literal namespace
 `plugin.<module-id>.*`; slash-to-dot or other lossy rewriting is forbidden.
-Catalog parsing, validation, and hashing have no runtime side effects.
+Catalog parsing and validation have no runtime side effects.
 
 ### 3.1 Identity
 
 - Module IDs are lowercase, namespace-qualified, and stable.
-- One Generation contains exactly one version and sealed source hash for a
-  Module ID.
-- Version is semantic versioning; the pack-bound source hash, not the version
-  label, is the artifact identity.
-- A source descriptor may omit `sha256`; authoring values are legacy
-  normalization hints only and are not verified by `verify` or Assembly
-  compilation.
+- One Generation selects exactly one version and authoritative source reference
+  for each Module ID.
+- Version is semantic versioning; an opaque pack-owned Generation ID identifies
+  each build without a content-equality claim.
+- Source Descriptors declare a reference; the build-owned Source Catalog binds
+  the selected root and Trust.
 - Trust is assigned by Source Catalog and Recipe lane. A Descriptor cannot
   declare itself `internal`, `trusted`, or `kernel`.
 - All provided and required Ports include an explicit major version.

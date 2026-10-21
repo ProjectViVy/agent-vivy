@@ -38,7 +38,7 @@ func (ownerModule) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: ID, Version: "1.0.0"},
-		Source:     module.Source{Ref: "file:internal", SHA256: zeroDigest},
+		Source:     module.Source{Ref: "file:internal"},
 		Lifecycle:  module.Lifecycle{Scope: module.ScopeGeneration},
 	}
 }
@@ -91,5 +91,3 @@ func Close() error {
 	}
 	return service.close()
 }
-
-const zeroDigest = "0000000000000000000000000000000000000000000000000000000000000000"

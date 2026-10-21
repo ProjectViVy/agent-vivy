@@ -39,7 +39,7 @@ func (owner) Descriptor() module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: ModuleID, Version: "0.1.0"},
-		Source:     module.Source{Ref: "repo:plugins/coding/session-tree", SHA256: "583d525d9188a108fac9d8b2fff8f3f0440bfa2300cdab2aae5ba6ded96c7fd0"},
+		Source:     module.Source{Ref: "repo:plugins/coding/session-tree"},
 		Provides:   []module.PortRef{{Port: UIExtensionPort, ID: ProviderID}},
 		I18N:       &module.I18N{Catalog: "i18n/catalog.json", DefaultLocale: "en", Locales: []string{"en", "zh"}},
 		Lifecycle:  module.Lifecycle{Scope: module.ScopeGeneration},

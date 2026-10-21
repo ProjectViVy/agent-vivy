@@ -41,12 +41,12 @@ func TestStudioPromotionUniqueFrom(t *testing.T) {
 	b := openBackend(t)
 	ctx := context.Background()
 	if err := b.CreateGeneration(ctx, domain.Generation{
-		ID: "gen_a", ArtifactSHA256: "aa", Phase: domain.GenerationBuilt, CreatedAt: 1,
+		ID: "gen_a", Phase: domain.GenerationBuilt, CreatedAt: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.CreateGeneration(ctx, domain.Generation{
-		ID: "gen_b", ParentID: "gen_a", ArtifactSHA256: "bb", Phase: domain.GenerationEvaluated, CreatedAt: 2,
+		ID: "gen_b", ParentID: "gen_a", Phase: domain.GenerationEvaluated, CreatedAt: 2,
 	}); err != nil {
 		t.Fatal(err)
 	}

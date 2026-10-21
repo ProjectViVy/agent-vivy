@@ -3,9 +3,6 @@ package conformance_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,16 +19,16 @@ func TestGenerationRollbackRestoresCatalogAndLocaleIdentity(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	catalog := rollbackCatalog()
-	priorManifest, priorRaw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{
+	priorManifest, priorRaw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{GenerationID: "rollback-prior",
 		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9-test", SDKVersion: "v1",
 		CanonicalRecipe: []byte(`{"apiVersion":"vivy.generation/v1","modules":["fixture/catalog"]}`),
 		Catalogs:        []assemblyv1.CatalogManifest{catalog},
-		UI:              &assemblyv1.UIAssemblyManifest{SDKPackage: assemblyv1.UIAssemblySDKPackageName, SDKVersion: assemblyv1.UIAssemblySDKVersion, Catalogs: []assemblyv1.CatalogManifest{catalog}},
+		UI:              &assemblyv1.UIAssemblyManifest{GenerationID: "rollback-prior", SDKPackage: assemblyv1.UIAssemblySDKPackageName, SDKVersion: assemblyv1.UIAssemblySDKVersion, Catalogs: []assemblyv1.CatalogManifest{catalog}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidateManifest, candidateRaw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{
+	candidateManifest, candidateRaw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{GenerationID: "rollback-candidate",
 		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9-test", SDKVersion: "v1",
 		CanonicalRecipe: []byte(`{"apiVersion":"vivy.generation/v1","modules":[]}`),
 	})
@@ -70,12 +67,7 @@ func TestGenerationRollbackRestoresCatalogAndLocaleIdentity(t *testing.T) {
 
 	release := func(manifest assemblyv1.GenerationManifest, artifact, suffix string) domain.Release {
 		t.Helper()
-		body, readErr := os.ReadFile(artifact)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		digest := sha256.Sum256(body)
-		candidate := domain.Generation{ID: manifest.GenerationID, ArtifactSHA256: hex.EncodeToString(digest[:]), SourceRef: "file:" + artifact, Phase: domain.GenerationBuilt, CreatedAt: time.Now().UnixMilli()}
+		candidate := domain.Generation{ID: manifest.GenerationID, SourceRef: "file:" + artifact, Phase: domain.GenerationBuilt, CreatedAt: time.Now().UnixMilli()}
 		if err := studio.Ledger().CreateGeneration(ctx, candidate); err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +112,7 @@ func TestGenerationRollbackRestoresCatalogAndLocaleIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(restored.Catalogs, priorManifest.Catalogs) || restored.Catalogs[0].Digest != catalog.Digest || !reflect.DeepEqual(restored.Catalogs[0].Locales, []string{"en", "zh"}) {
+	if !reflect.DeepEqual(restored.Catalogs, priorManifest.Catalogs) || !reflect.DeepEqual(restored.Catalogs[0].Locales, []string{"en", "zh"}) {
 		t.Fatalf("restored catalog identity = %#v, want %#v", restored.Catalogs, priorManifest.Catalogs)
 	}
 	journalAfter, err := os.ReadFile(journal)
@@ -138,12 +130,5 @@ func rollbackCatalog() assemblyv1.CatalogManifest {
 			"plugin.fixture/catalog.title": {Description: "Title", Messages: map[string]string{"en": "Title", "zh": "标题"}},
 		},
 	}
-	payload := struct {
-		APIVersion string                            `json:"apiVersion"`
-		Units      map[string]assemblyv1.CatalogUnit `json:"units"`
-	}{APIVersion: catalog.APIVersion, Units: catalog.Units}
-	raw, _ := json.Marshal(payload)
-	digest := sha256.Sum256(raw)
-	catalog.Digest = hex.EncodeToString(digest[:])
 	return catalog
 }

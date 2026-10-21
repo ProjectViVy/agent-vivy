@@ -4492,11 +4492,10 @@ func toEventResult(event domain.RunEvent) eventResult {
 }
 
 type generationParams struct {
-	ID             string                `json:"id,omitempty"`
-	ParentID       string                `json:"parent_id,omitempty"`
-	ArtifactSHA256 string                `json:"artifact_sha256"`
-	SourceRef      string                `json:"source_ref,omitempty"`
-	Recipe         domain.AssemblyRecipe `json:"recipe"`
+	ID        string                `json:"id,omitempty"`
+	ParentID  string                `json:"parent_id,omitempty"`
+	SourceRef string                `json:"source_ref,omitempty"`
+	Recipe    domain.AssemblyRecipe `json:"recipe"`
 }
 
 type evalParams struct {
@@ -4561,8 +4560,7 @@ func (h *controlHandler) createGeneration(ctx context.Context, request Request) 
 		return nil, err
 	}
 	g, err := h.deps.Studio.CreateGeneration(ctx, domain.Generation{
-		ID: params.ID, ParentID: params.ParentID, ArtifactSHA256: params.ArtifactSHA256,
-		SourceRef: params.SourceRef, Recipe: params.Recipe,
+		ID: params.ID, ParentID: params.ParentID, SourceRef: params.SourceRef, Recipe: params.Recipe,
 	})
 	if err != nil {
 		return nil, studioError(err)
@@ -7166,13 +7164,12 @@ func mcpBackendErrorFor(catalog any, server string, err error) *Error {
 }
 
 type generationResult struct {
-	ID             string                 `json:"id"`
-	ParentID       string                 `json:"parent_id,omitempty"`
-	ArtifactSHA256 string                 `json:"artifact_sha256"`
-	SourceRef      string                 `json:"source_ref,omitempty"`
-	Recipe         domain.AssemblyRecipe  `json:"recipe"`
-	Phase          domain.GenerationPhase `json:"phase"`
-	CreatedAt      int64                  `json:"created_at"`
+	ID        string                 `json:"id"`
+	ParentID  string                 `json:"parent_id,omitempty"`
+	SourceRef string                 `json:"source_ref,omitempty"`
+	Recipe    domain.AssemblyRecipe  `json:"recipe"`
+	Phase     domain.GenerationPhase `json:"phase"`
+	CreatedAt int64                  `json:"created_at"`
 }
 
 type evalResult struct {
@@ -7198,8 +7195,7 @@ type promotionResult struct {
 
 func toGenerationResult(g domain.Generation) generationResult {
 	return generationResult{
-		ID: g.ID, ParentID: g.ParentID, ArtifactSHA256: g.ArtifactSHA256,
-		SourceRef: g.SourceRef, Recipe: g.Recipe, Phase: g.Phase, CreatedAt: g.CreatedAt,
+		ID: g.ID, ParentID: g.ParentID, SourceRef: g.SourceRef, Recipe: g.Recipe, Phase: g.Phase, CreatedAt: g.CreatedAt,
 	}
 }
 

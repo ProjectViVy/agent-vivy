@@ -51,7 +51,7 @@ func TestMinimalArtifactPhysicallyOmitsOptionalModules(t *testing.T) {
 	if len(inspected.Manifest.Catalogs) != 0 {
 		t.Fatalf("minimal Inspect retained catalog projections: %#v", inspected.Manifest.Catalogs)
 	}
-	if inspected.Manifest.UI == nil || inspected.Manifest.UI.Root != "" || len(inspected.Manifest.UI.Extensions) != 0 || len(inspected.Manifest.UI.SourceHashes) != 0 || len(inspected.Manifest.UI.DependencyLockHashes) != 0 || len(inspected.Manifest.UI.AssetHashes) != 0 || len(inspected.Manifest.UI.Catalogs) != 0 {
+	if inspected.Manifest.UI == nil || inspected.Manifest.UI.Root != "" || len(inspected.Manifest.UI.Extensions) != 0 || len(inspected.Manifest.UI.Catalogs) != 0 {
 		t.Fatalf("minimal Inspect retained optional UI/localization state: %#v", inspected.Manifest.UI)
 	}
 

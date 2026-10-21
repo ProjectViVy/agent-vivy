@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-const SHA256 = /^[0-9a-f]{64}$/
 const EXPECTATIONS = new Set(["accept", "reject"])
 
 function invariant(condition, message) {
@@ -41,8 +40,8 @@ function validateAcceptedFixture(fixture) {
     )
     invariant(typeof descriptor.module?.id === "string" && descriptor.module.id.length > 0, `fixture ${fixture.id} has a module without an id`)
     invariant(
-      typeof descriptor.source?.sha256 === "string" && SHA256.test(descriptor.source.sha256),
-      `fixture ${fixture.id} module ${descriptor.module.id} must have a lowercase SHA-256 source hash`,
+      typeof descriptor.source?.ref === "string" && descriptor.source.ref.trim().length > 0,
+      `fixture ${fixture.id} module ${descriptor.module.id} must have an explicit source reference`,
     )
   }
 }

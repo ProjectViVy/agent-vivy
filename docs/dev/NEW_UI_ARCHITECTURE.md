@@ -802,7 +802,6 @@ export interface SpeciesInspect {
   protocol_version: string;
   binary_id: string;
   generation_id: string;
-  artifact_sha256?: string;
   recipe: { loop?: string; world?: string; providers?: string[]; tools?: string[]; plugins?: string[] };
   policy_profile: string;
   tools: Array<{ name: string; readonly: boolean }>;
@@ -812,7 +811,6 @@ export interface SpeciesInspect {
 export interface Generation {
   id: string;
   parent_id?: string;
-  artifact_sha256: string;
   source_ref?: string;
   recipe: SpeciesInspect['recipe'];
   phase: 'built' | 'evaluated' | 'promoted' | 'rejected';
@@ -975,7 +973,7 @@ export function updateSettings(params: { provider: string; default_model: string
 // Studio
 export function inspectSpecies(): Promise<SpeciesInspect>;
 export function listGenerations(): Promise<{ generations: Generation[] }>;
-export function createGeneration(params: { artifact_sha256: string; parent_id?: string; recipe?: Generation['recipe'] }): Promise<Generation>;
+export function createGeneration(params: { parent_id?: string; recipe?: Generation['recipe'] }): Promise<Generation>;
 export function rejectGeneration(id: string): Promise<Generation>;
 export function listEvals(): Promise<{ evals: EvalRun[] }>;
 export function recordEval(params: { candidate_id: string; baseline_id?: string; suite: string; verdict: EvalRun['verdict'] }): Promise<EvalRun>;

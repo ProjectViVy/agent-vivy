@@ -140,7 +140,7 @@ func Open(ctx context.Context, options Options) (*Host, error) {
 	if err != nil {
 		return nil, hostError(KindIncompatibleGeneration, CodeIncompatibleGeneration, "sealed generation manifest unavailable: %v", err)
 	}
-	generationID, _, err := generation.InspectManifestProvenance(manifest)
+	generationID, err := generation.InspectManifestIdentity(manifest)
 	if err != nil {
 		return nil, hostError(KindIncompatibleGeneration, CodeIncompatibleGeneration, "sealed generation manifest invalid: %v", err)
 	}

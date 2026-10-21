@@ -12,7 +12,7 @@ Vivy is assembled once, before the product artifact runs:
 ```text
 Generation Recipe + Source Catalog + Module Descriptors
   -> normalize canonical inputs
-  -> validate Trust, Ports, dependencies, conflicts, Grants, and hashes
+  -> validate Trust, Ports, dependencies, conflicts, Grants
   -> generate typed wiring
   -> compile backend and UI
   -> run conformance
@@ -50,9 +50,8 @@ assigns T1 or T2 Trust. A Module Descriptor cannot assign its own Trust.
 
 The Descriptor provides pure-data identity, version, source reference, and
 provided and required Ports, optional dependencies, conflicts, requested
-Grants, and lifecycle scope. A source hash may be present for legacy
-normalization, but the authoritative hash is derived by `pack` from the exact
-selected source tree and sealed into the Generation Manifest. When localization is required, it also selects one
+Grants, and lifecycle scope. Sources retain explicit references, roots and
+catalog-assigned Trust. When localization is required, the Descriptor selects one
 source-confined `vivy.i18n/v1` catalog with explicit default and packaged
 locales.
 
@@ -99,7 +98,6 @@ modules:
   - id: vivy/default-body
   - id: acme/search
     source: git:acme/search@0123456
-    sha256: 9f4a000000000000000000000000000000000000000000000000000000000000
     grants:
       net.client:
         schemes: [https]
@@ -135,7 +133,7 @@ but it MUST preserve these facts and deterministic semantics.
 ### G1 — Resolve identity and Trust
 
 - resolve every source through the Source Catalog;
-- verify exact source and tree hashes;
+- verify explicit source/ref/root bindings;
 - confine catalog paths to the resolved Module source and enforce literal
   `plugin.<module-id>.*` ownership;
 - assign T1 or T2 independently of the Descriptor;
@@ -176,54 +174,47 @@ Generated files carry a generated-code marker and MUST NOT be hand edited.
 
 ### G5 — Seal
 
-- calculate all component and artifact hashes;
-- calculate `SHA-256(canonical_catalog_json)` for every selected catalog;
-- calculate the content-addressed Generation ID;
+- allocate one opaque Generation ID per pack;
+- supply the same ID to generated Go, UI and the Manifest;
 - embed the immutable Manifest and Inspect schema;
 - emit the executable/UI artifact and a machine-readable build report;
 - verify that reading the embedded Manifest reproduces the sealed identity.
 
 ## 7. Generation identity
 
-Generation ID is derived from canonical, content-addressed inputs:
+`pack` allocates one opaque Generation ID and supplies it unchanged to generated
+Go, UI, the embedded Manifest and Inspect. It is an ordinary build identity,
+with no content-equality or authenticity claim. Authoring producers accept
+`--generation-id` and default to stable `authoring-<profile>` identities; pack
+always overrides authoring identity. Repeating generation with identical
+explicit inputs and identity produces identical output.
 
-```text
-specification version
-+ canonical Recipe
-+ Module IDs, versions, source refs, and pack-bound source hashes
-+ Port contract versions
-+ SDK version
-+ backend and frontend dependency lock results
-+ UI artifact hashes
-+ catalog schema, canonical digest, and packaged locale set
-+ Assembly Compiler version
-```
-
-Runtime settings, Secret values, instance activation, health, and user data do
-not enter the Generation ID.
-
-One Generation ID MUST never identify different code. A changed input produces
-a different identity even when a human-readable version string is unchanged.
+Native Git, package-manager and security integrity mechanisms retain their
+ownership; Vivy does not compute a parallel source, lock or artifact digest.
 
 ## 8. Embedded Manifest and Inspect
 
 Every artifact embeds an immutable Manifest containing:
 
 - Generation ID and compiler version;
-- canonical Recipe digest;
-- Module ID, version, source ref, hash, and assigned Trust;
+- Module ID, version, source ref and assigned Trust;
 - provided and required Port edges;
 - effective Grants and structured constraints;
 - lifecycle start/stop order;
 - pre-tool Middleware order;
-- UI root, extension order, replacement relationships, and asset hashes;
-- catalog schema version, confined path, canonical digest, default and
+- UI root, extension order, replacement relationships and the shared Generation ID;
+- catalog schema version, confined path, default and
   packaged locales, per-locale completeness, and evidence identifiers;
 - default, inactive, unavailable, unsupported, and deferred capability facts;
 - Eino/EinoExt packages and APIs used by scoped internal adapters;
 - focused and Generation conformance results.
 
-Inspect is read-only. It MUST distinguish:
+Inspect is read-only and never executes an inspected artifact. Before projection,
+it MUST reject malformed UTF-8/JSON, duplicate properties (including escaped names)
+and noncanonical casing of owned schema fields. Dynamic map keys retain their
+case-sensitive meaning.
+
+It MUST distinguish:
 
 - not compiled;
 - compiled but unconfigured;
@@ -272,7 +263,7 @@ Assembly Compiler still governs their presence and deterministic composition:
 - `std/ui-root@v1` is exclusive;
 - `std/ui-extension@v1` follows Recipe order;
 - `before`, `after`, and `replaces` references must resolve;
-- source, lockfile, and build output hashes enter provenance;
+- explicit source references and native dependency pins remain build inputs;
 - selected catalog units feed one PresentationHost localization projection for
   Web and TUI with no independent fallback or persisted locale state;
 - no runtime remote-code download is part of the Module system.

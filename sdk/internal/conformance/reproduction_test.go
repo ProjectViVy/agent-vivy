@@ -27,8 +27,8 @@ import (
 )
 
 type releaseSuiteCase struct {
-	Port, ProviderID, SourceRoot, SourceSHA256, EvidenceID string
-	ProviderTests                                          []releaseTestCommand
+	Port, ProviderID, SourceRoot, EvidenceID string
+	ProviderTests                            []releaseTestCommand
 }
 
 type releaseTestCommand struct {
@@ -41,7 +41,7 @@ var updateProviderConformance = flag.Bool("update-provider-conformance", false, 
 
 // TestCheckedInProviderConformanceMatchesExecutedSuites is the producer gate
 // for conformance_results.json. The checked-in artifact is expected data only:
-// this independent table recomputes every source digest, executes the owning
+// this independent table verifies every source owner, executes the owning
 // Provider and Host tests, runs the common compiler/lifecycle checks through
 // RunProviderSuite, and byte-compares the canonical results.
 func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
@@ -50,26 +50,7 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := assemblyv1.SupportedPortConformance()
-	// The internal catalog derives its identity directly from the live source
-	// tree. Existing release evidence is comparison data, never its hash seed.
-	var internalDigest string
-	for _, result := range expected {
-		if result.ProviderID == "vivy/protected-tools" {
-			internalDigest = result.SourceSHA256
-			break
-		}
-	}
-	if internalDigest == "" {
-		t.Fatal("checked-in conformance results do not contain an internal source digest")
-	}
-	computedInternalDigest, err := assemblyv1.HashSourceTree(filepath.Join(repoRoot, "internal"), "")
-	if err != nil {
-		t.Fatalf("hash internal source tree: %v", err)
-	}
-	if !*updateProviderConformance && computedInternalDigest != internalDigest {
-		t.Fatalf("checked-in internal source digest = %s, want %s", computedInternalDigest, internalDigest)
-	}
-	suites, err := currentReleaseSuites(repoRoot, computedInternalDigest)
+	suites, err := currentReleaseSuites(repoRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +63,7 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 				t.Fatalf("release suite names unknown Port %s", suite.Port)
 			}
 			checks := releaseChecks(t, repoRoot, suite, definition)
-			results, runErr := providerconformance.RunProviderSuite(context.Background(), definition, suite.ProviderID, suite.SourceSHA256, suite.EvidenceID, checks)
+			results, runErr := providerconformance.RunProviderSuite(context.Background(), definition, suite.ProviderID, suite.EvidenceID, checks)
 			if runErr != nil {
 				t.Fatal(runErr)
 			}
@@ -96,20 +77,6 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 	}
 	if t.Failed() {
 		return
-	}
-	// A moving source tree cannot attest the source that began this run.
-	finalDigest, err := assemblyv1.HashSourceTree(filepath.Join(repoRoot, "internal"), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	finalSuites, err := currentReleaseSuites(repoRoot, finalDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range suites {
-		if suites[i].SourceSHA256 != finalSuites[i].SourceSHA256 {
-			t.Fatal("source changed while conformance was running")
-		}
 	}
 	if *updateProviderConformance {
 		if err := writeReleaseResults(filepath.Join(repoRoot, "sdk", "internal", "assembly", "conformance_results.json"), suites, actual); err != nil {
@@ -134,8 +101,8 @@ func TestCheckedInProviderConformanceMatchesExecutedSuites(t *testing.T) {
 	}
 }
 
-func currentReleaseSuites(repoRoot, internalDigest string) ([]releaseSuiteCase, error) {
-	suites := releaseSuiteCases(internalDigest)
+func currentReleaseSuites(repoRoot string) ([]releaseSuiteCase, error) {
+	suites := releaseSuiteCases()
 	for i := range suites {
 		suite := &suites[i]
 		if suite.SourceRoot == "internal" {
@@ -152,10 +119,6 @@ func currentReleaseSuites(repoRoot, internalDigest string) ([]releaseSuiteCase, 
 		}
 		if descriptor.Module.ID != suite.ProviderID {
 			return nil, fmt.Errorf("release Provider %s does not match source %s", suite.ProviderID, descriptor.Module.ID)
-		}
-		suite.SourceSHA256, err = assemblyv1.HashSourceTree(root, descriptor.Source.SHA256)
-		if err != nil {
-			return nil, err
 		}
 	}
 	return suites, nil
@@ -213,13 +176,6 @@ func releaseChecks(t *testing.T, repoRoot string, suite releaseSuiteCase, defini
 }
 
 func checkRegistration(repoRoot string, suite releaseSuiteCase) error {
-	digest, err := assemblyv1.HashSourceTree(filepath.Join(repoRoot, filepath.FromSlash(suite.SourceRoot)), suite.SourceSHA256)
-	if err != nil {
-		return err
-	}
-	if digest != suite.SourceSHA256 {
-		return fmt.Errorf("source digest = %s, want %s", digest, suite.SourceSHA256)
-	}
 	return runReleaseCommands(repoRoot, suite.ProviderTests)
 }
 
@@ -334,10 +290,10 @@ func checkRedaction(definition port.Definition) error {
 
 func checkProvenance(suite releaseSuiteCase, definition port.Definition) error {
 	descriptor := releaseDescriptor(suite.ProviderID)
-	descriptor.Source = module.Source{Ref: "release:" + suite.ProviderID, SHA256: suite.SourceSHA256}
+	descriptor.Source = module.Source{Ref: "release:" + suite.ProviderID}
 	descriptor.Provides = []module.PortRef{{Port: definition.Ref.Port, ID: "release.provider"}}
 	plan := assemblyv1.AssemblyPlan{Modules: []assemblyv1.ResolvedModule{{Descriptor: descriptor, Trust: assemblyv1.TrustT1}}, LifecycleOrder: []string{descriptor.Module.ID}}
-	manifest, raw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{SpecificationVersion: "p9", CompilerVersion: "p9", SDKVersion: "p9", CanonicalRecipe: []byte("{}")})
+	manifest, raw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{GenerationID: "authoring-test", SpecificationVersion: "p9", CompilerVersion: "p9", SDKVersion: "p9", CanonicalRecipe: []byte("{}")})
 	if err != nil {
 		return err
 	}
@@ -345,7 +301,7 @@ func checkProvenance(suite releaseSuiteCase, definition port.Definition) error {
 	if err != nil {
 		return err
 	}
-	if len(manifest.Modules) != 1 || len(inspected.Modules) != 1 || inspected.Modules[0].Source.SHA256 != suite.SourceSHA256 || inspected.GenerationID != manifest.GenerationID {
+	if len(manifest.Modules) != 1 || len(inspected.Modules) != 1 || inspected.GenerationID != manifest.GenerationID || inspected.Modules[0].Source.Ref != descriptor.Source.Ref || inspected.Modules[0].ID != suite.ProviderID {
 		return errors.New("sealed Manifest lost exact Provider source provenance")
 	}
 	return nil
@@ -359,11 +315,11 @@ func checkDefault(repoRoot string, suite releaseSuiteCase) error {
 
 func checkRealFailure(repoRoot string, suite releaseSuiteCase, definition port.Definition) error {
 	descriptor := releaseDescriptor(suite.ProviderID)
-	descriptor.Source = module.Source{Ref: "release:" + suite.ProviderID, SHA256: strings.Repeat("0", 64)}
+	descriptor.Source = module.Source{Ref: "release:" + suite.ProviderID}
 	descriptor.Provides = []module.PortRef{{Port: definition.Ref.Port, ID: "release.provider"}}
-	record := assemblyv1.SourceRecord{Descriptor: descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, filepath.FromSlash(suite.SourceRoot)), Ref: descriptor.Source.Ref}
+	record := assemblyv1.SourceRecord{Descriptor: descriptor, Trust: assemblyv1.TrustT1, Root: filepath.Join(repoRoot, filepath.FromSlash(suite.SourceRoot)), Ref: "release:other-owner"}
 	_, err := assemblyv1.NewSourceCatalog([]assemblyv1.SourceRecord{record})
-	return requireDiagnostic(err, "source hash mismatch")
+	return requireDiagnostic(err, "source ref mismatch")
 }
 
 func releaseCompiler(definition port.Definition, descriptors []module.Descriptor) assemblyv1.Compiler {
@@ -377,7 +333,7 @@ func releaseCompiler(definition port.Definition, descriptors []module.Descriptor
 	}
 	results := make([]providerconformance.ConformanceResult, 0, len(providerconformance.RequiredProviderChecks()))
 	for _, check := range providerconformance.RequiredProviderChecks() {
-		results = append(results, providerconformance.ConformanceResult{Port: definition.Ref, ProviderID: "fixture/support", SourceSHA256: strings.Repeat("a", 64), Suite: check, Passed: true, EvidenceID: "sdk/internal/conformance/reproduction_test.go#releaseCompiler"})
+		results = append(results, providerconformance.ConformanceResult{Port: definition.Ref, ProviderID: "fixture/support", Suite: check, Passed: true, EvidenceID: "sdk/internal/conformance/reproduction_test.go#releaseCompiler"})
 	}
 	return assemblyv1.Compiler{Ports: port.PublicCatalog(), Sources: catalog, PortEvidence: assemblyv1.SupportedPortEvidence(), ConformanceResults: results}
 }
@@ -409,7 +365,7 @@ func releaseHostDescriptor(definition port.Definition) module.Descriptor {
 }
 
 func releaseDescriptor(id string) module.Descriptor {
-	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: id, Version: "1.0.0"}, Source: module.Source{Ref: "test:" + id, SHA256: strings.Repeat("a", 64)}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
+	return module.Descriptor{APIVersion: module.APIVersionV1, Module: module.Identity{ID: id, Version: "1.0.0"}, Source: module.Source{Ref: "test:" + id}, Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration}}
 }
 
 func releaseRecipe(definition port.Definition, descriptors []module.Descriptor) assemblyv1.Recipe {
@@ -506,37 +462,35 @@ func releaseHostCommand(portID string) releaseTestCommand {
 	}
 }
 
-// releaseSuiteCases builds the independent expected table. internalDigest is
-// the canonical identity of the "internal" source root, computed by the caller
-// from the live tree (see the test above) so the table cannot drift from it.
-func releaseSuiteCases(internalDigest string) []releaseSuiteCase {
+// releaseSuiteCases builds the independent expected behavioral suite table.
+func releaseSuiteCases() []releaseSuiteCase {
 	goTest := func(pkg, run string) []releaseTestCommand { return []releaseTestCommand{{Package: pkg, Run: run}} }
 	nested := func(dir string) []releaseTestCommand { return []releaseTestCommand{{Directory: dir, Package: "./..."}} }
 	uiConformance := releaseTestCommand{Directory: "ui", Executable: "pnpm", Arguments: []string{"exec", "vitest", "run", "src/plugins/conformance.test.tsx", "--reporter=json"}}
 	cases := []releaseSuiteCase{
-		{"std/tool@v1", "vivy/protected-tools", "internal", internalDigest, "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses", goTest("./internal/app", "^TestToolEnvelopeConformanceAcrossAllSourceClasses$")},
-		{"std/tool-world@v1", "vivy/mcp-host", "internal", internalDigest, "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost", goTest("./internal/mcphost", "^TestMCPToolBridgeEntersSoleToolHost$")},
-		{"std/tool-world@v1", "vivy/hello-fs", "plugins/hello-fs", "", "plugins/hello-fs/plugin_test.go#TestHelloStatReadsThroughEnv", goTest("./plugins/hello-fs", "^TestHelloStatReadsThroughEnv$")},
-		{"std/tool-world@v1", "vivy/lsp", "plugins/coding/lsp", "", "plugins/coding/lsp/plugin_test.go#TestDiagnosticsToolEndToEnd", nested("plugins/coding/lsp")},
-		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
-		{"std/channel@v1", "vivy/discord", "plugins/discord", "", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
-		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
-		{"std/channel@v1", "vivy/qq", "plugins/qq", "", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
-		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
-		{"std/face@v1", "vivy/headless", "faces/headless", "", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
-		{"std/face@v1", "vivy/tui", "faces/tui", "", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
-		{"std/provider-profile@v1", "vivy/provider-profiles", "internal", internalDigest, "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies", goTest("./internal/modules/defaults", "^TestDefaultProviderProfilesMatchExistingRuntimeFamilies$")},
-		{"std/context-source@v1", "vivy/context-source", "internal", internalDigest, "internal/contexthost/conformance_test.go#TestContextSourceConformance", goTest("./internal/contexthost", "^TestContextSourceConformance$")},
-		{"std/context-source@v1", "scx/reference-fixtures", "plugins/scx-reference", "", "internal/contexthost/scx_conformance_test.go#TestSCXExactVersionResourceResolutionIsScopedBoundedAndReplayable", append(nested("plugins/scx-reference"), releaseTestCommand{Package: "./internal/contexthost", Run: "^TestSCXExactVersionResourceResolutionIsScopedBoundedAndReplayable$"})},
-		{"std/skill-source@v1", "vivy/skill-source", "internal", internalDigest, "internal/skillhost/conformance_test.go#TestSkillSourceConformance", goTest("./internal/skillhost", "^TestSkillSourceConformance$")},
-		{"std/middleware/pre-tool@v1", "vivy/governance-reference", "plugins/governance", "", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
-		{"std/observer/run@v1", "vivy/governance-reference", "plugins/governance", "", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
-		{"std/observer/run@v1", "scx/reference-fixtures", "plugins/scx-reference", "", "internal/observerhost/scx_conformance_test.go#TestSCXObserverWorkerResumesPendingDeliveryAfterReconnect", append(nested("plugins/scx-reference"), releaseTestCommand{Package: "./internal/observerhost", Run: "^TestSCXObserverWorkerResumesPendingDeliveryAfterReconnect$"})},
-		{"std/observer/diagnostic@v1", "vivy/governance-reference", "plugins/governance", "", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
-		{"std/status-source@v1", "vivy/governance-reference", "plugins/governance", "", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
-		{"std/ui-extension@v1", "fixture/full-ui", "sdk/internal/testdata/full-ui-module", "", "ui/src/plugins/conformance.test.tsx#full UI module conformance", append(goTest("./sdk/internal", "^TestPackAndInspectSealUIAssemblyIdentity$"), uiConformance)},
-		{"std/ui-root@v1", "fixture/full-ui", "sdk/internal/testdata/full-ui-module", "", "ui/src/plugins/conformance.test.tsx#builds and presents default, extension, replacement-root, and minimal generations", append(goTest("./sdk/internal", "^TestPackAndInspectSealUIAssemblyIdentity$"), uiConformance)},
-		{"std/control-action@v1", "fixture/full-ui", "sdk/internal/testdata/full-ui-module", "", "internal/rpc/module_action_test.go#TestModuleActionRPCUsesAuthenticatedCallerAndReturnsBoundResult", goTest("./internal/rpc", "^TestModuleActionRPCUsesAuthenticatedCallerAndReturnsBoundResult$")},
+		{"std/tool@v1", "vivy/protected-tools", "internal", "internal/app/assembly_governance_e2e_test.go#TestToolEnvelopeConformanceAcrossAllSourceClasses", goTest("./internal/app", "^TestToolEnvelopeConformanceAcrossAllSourceClasses$")},
+		{"std/tool-world@v1", "vivy/mcp-host", "internal", "internal/mcphost/conformance_test.go#TestMCPToolBridgeEntersSoleToolHost", goTest("./internal/mcphost", "^TestMCPToolBridgeEntersSoleToolHost$")},
+		{"std/tool-world@v1", "vivy/hello-fs", "plugins/hello-fs", "plugins/hello-fs/plugin_test.go#TestHelloStatReadsThroughEnv", goTest("./plugins/hello-fs", "^TestHelloStatReadsThroughEnv$")},
+		{"std/tool-world@v1", "vivy/lsp", "plugins/coding/lsp", "plugins/coding/lsp/plugin_test.go#TestDiagnosticsToolEndToEnd", nested("plugins/coding/lsp")},
+		{"std/channel@v1", "vivy/dingtalk", "plugins/dingtalk", "plugins/dingtalk/plugin_test.go#TestStartStopFullLoop", nested("plugins/dingtalk")},
+		{"std/channel@v1", "vivy/discord", "plugins/discord", "plugins/discord/plugin_test.go#TestStartSuccessWiring", nested("plugins/discord")},
+		{"std/channel@v1", "vivy/feishu", "plugins/feishu", "plugins/feishu/plugin_test.go#TestStartStopFullLoop", nested("plugins/feishu")},
+		{"std/channel@v1", "vivy/qq", "plugins/qq", "plugins/qq/plugin_test.go#TestSendPassiveReplyLoopback", nested("plugins/qq")},
+		{"std/channel@v1", "vivy/telegram", "plugins/telegram", "plugins/telegram/plugin_test.go#TestStartStopFullLoop", nested("plugins/telegram")},
+		{"std/face@v1", "vivy/headless", "faces/headless", "faces/headless/headless_test.go#TestCompletedRunStreamsAndReturnsStatus", nested("faces/headless")},
+		{"std/face@v1", "vivy/tui", "faces/tui", "faces/tui/face_test.go#TestNewDelegatesCanonicalTUI", nested("faces/tui")},
+		{"std/provider-profile@v1", "vivy/provider-profiles", "internal", "internal/modules/defaults/providers_test.go#TestDefaultProviderProfilesMatchExistingRuntimeFamilies", goTest("./internal/modules/defaults", "^TestDefaultProviderProfilesMatchExistingRuntimeFamilies$")},
+		{"std/context-source@v1", "vivy/context-source", "internal", "internal/contexthost/conformance_test.go#TestContextSourceConformance", goTest("./internal/contexthost", "^TestContextSourceConformance$")},
+		{"std/context-source@v1", "scx/reference-fixtures", "plugins/scx-reference", "internal/contexthost/scx_conformance_test.go#TestSCXExactVersionResourceResolutionIsScopedBoundedAndReplayable", append(nested("plugins/scx-reference"), releaseTestCommand{Package: "./internal/contexthost", Run: "^TestSCXExactVersionResourceResolutionIsScopedBoundedAndReplayable$"})},
+		{"std/skill-source@v1", "vivy/skill-source", "internal", "internal/skillhost/conformance_test.go#TestSkillSourceConformance", goTest("./internal/skillhost", "^TestSkillSourceConformance$")},
+		{"std/middleware/pre-tool@v1", "vivy/governance-reference", "plugins/governance", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
+		{"std/observer/run@v1", "vivy/governance-reference", "plugins/governance", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
+		{"std/observer/run@v1", "scx/reference-fixtures", "plugins/scx-reference", "internal/observerhost/scx_conformance_test.go#TestSCXObserverWorkerResumesPendingDeliveryAfterReconnect", append(nested("plugins/scx-reference"), releaseTestCommand{Package: "./internal/observerhost", Run: "^TestSCXObserverWorkerResumesPendingDeliveryAfterReconnect$"})},
+		{"std/observer/diagnostic@v1", "vivy/governance-reference", "plugins/governance", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
+		{"std/status-source@v1", "vivy/governance-reference", "plugins/governance", "plugins/governance/provider_test.go#TestReferenceProviderConformance", nested("plugins/governance")},
+		{"std/ui-extension@v1", "fixture/full-ui", "sdk/internal/testdata/full-ui-module", "ui/src/plugins/conformance.test.tsx#full UI module conformance", append(goTest("./sdk/internal", "^TestPackAndInspectSealUIAssemblyIdentity$"), uiConformance)},
+		{"std/ui-root@v1", "fixture/full-ui", "sdk/internal/testdata/full-ui-module", "ui/src/plugins/conformance.test.tsx#builds and presents default, extension, replacement-root, and minimal generations", append(goTest("./sdk/internal", "^TestPackAndInspectSealUIAssemblyIdentity$"), uiConformance)},
+		{"std/control-action@v1", "fixture/full-ui", "sdk/internal/testdata/full-ui-module", "internal/rpc/module_action_test.go#TestModuleActionRPCUsesAuthenticatedCallerAndReturnsBoundResult", goTest("./internal/rpc", "^TestModuleActionRPCUsesAuthenticatedCallerAndReturnsBoundResult$")},
 	}
 	sort.Slice(cases, func(i, j int) bool {
 		left := cases[i].Port + "\x00" + cases[i].ProviderID

@@ -151,7 +151,7 @@ checked, for any fact entering the run path (provider metadata, model ids,
 defaults, credentials, addresses, capabilities).
 
 - Every such fact has exactly one home, and it answers three questions: is it in
-  the artifact, is it in the evidence (source digest / conformance), and who
+  the artifact, is it in the executed evidence / conformance, and who
   changes it. Two out of three is a defect, not a follow-up.
 - A second copy is a deletion task, not a synchronization task. Derive it or
   delete it; a hand-edit kept in step by a checklist is already broken.
@@ -159,7 +159,7 @@ defaults, credentials, addresses, capabilities).
   face renders is declared by the backend or explicitly marked deferred. A UI
   list never stands in for what the runtime can construct.
 - Ownership is "is it in the artifact", not "is it in the repository": data that
-  ships beside the binary, is copied by a packer, or sits outside the digest has
+  ships beside the binary, is copied by a packer, or sits outside the declared build inputs has
   no owner. Never put run-path data under a directory named `fixtures/` or
   `samples/`; if the live path reads it, its name is part of the contract.
 - A ported schema or vendored tree is audited field by field ("do we have this

@@ -3,8 +3,6 @@ package sdk
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,17 +42,16 @@ type goHostInputs struct {
 
 // goHostLock is the typed projection of build/vivy-sources.lock.json used by
 // the pack target. The DIVA wrapper owns the tracked file; the SDK only reads
-// it, verifies the staged reality matches, and seals its digest.
+// it and verifies native source identity before staging.
 type goHostLock struct {
 	Schema  string `json:"schema"`
 	Release bool   `json:"release"`
 	Host    struct {
 		ModulePath string `json:"modulePath"`
 		Repository string `json:"repository"`
-		// Commit and TreeSHA256 are optional: the tracked lock must not pin
-		// its own DIVA commit — pack resolves them from the live checkout.
-		Commit     string `json:"commit"`
-		TreeSHA256 string `json:"treeSHA256"`
+		// Commit is optional: the tracked lock must not pin its own
+		// DIVA commit; pack resolves it from the live checkout.
+		Commit string `json:"commit"`
 	} `json:"host"`
 	Sources struct {
 		Vivy   goHostLockSource `json:"vivy"`
@@ -66,11 +63,8 @@ type goHostLock struct {
 		} `json:"inofy"`
 	} `json:"sources"`
 	Recipe struct {
-		Path   string `json:"path"`
-		SHA256 string `json:"sha256"`
+		Path string `json:"path"`
 	} `json:"recipe"`
-	// Locks records digests of dependency lockfiles (go.mod/go.sum/pnpm).
-	Locks map[string]string `json:"locks"`
 	// Tools records toolchain pins (go, wails, goos/goarch/cgo, keyring
 	// capability evidence). Field names are wrapper-owned; the SDK only
 	// echoes them into the build report.
@@ -85,7 +79,6 @@ type goHostLock struct {
 type goHostLockSource struct {
 	Repository string `json:"repository"`
 	Commit     string `json:"commit"`
-	TreeSHA256 string `json:"treeSHA256"`
 }
 
 func isHexString(value string, length int) bool {
@@ -123,7 +116,7 @@ func isLocalRelative(value string) bool {
 }
 
 // normalizeHostRelative validates a host-dir-relative input and returns its
-// slash-cleaned form for hashing/reporting (leading "./" removed).
+// slash-cleaned form for reporting (leading "./" removed).
 func normalizeHostRelative(label, value string) (string, error) {
 	if !isLocalRelative(value) {
 		return "", fmt.Errorf("%s must be a relative path inside --host-dir: %q", label, value)
@@ -152,12 +145,6 @@ func parseGoHostLock(path string) (goHostLock, error) {
 	if lock.Host.Commit != "" && !isHexString(lock.Host.Commit, 40) {
 		return lock, fmt.Errorf("sdk: --host-lock host.commit is not a full commit SHA")
 	}
-	if lock.Host.TreeSHA256 != "" && !isHexString(lock.Host.TreeSHA256, 64) {
-		return lock, fmt.Errorf("sdk: --host-lock host.treeSHA256 is not a SHA-256 digest")
-	}
-	if !isHexString(lock.Sources.Vivy.TreeSHA256, 64) || !isHexString(lock.Sources.Laputa.TreeSHA256, 64) {
-		return lock, fmt.Errorf("sdk: --host-lock source treeSHA256 fields are required")
-	}
 	if !isHexString(lock.Sources.Vivy.Commit, 40) || !isHexString(lock.Sources.Laputa.Commit, 40) {
 		return lock, fmt.Errorf("sdk: --host-lock vivy/laputa commits must be full SHAs")
 	}
@@ -169,8 +156,8 @@ func parseGoHostLock(path string) (goHostLock, error) {
 			return lock, fmt.Errorf("sdk: --host-lock release inputs must record repository URLs")
 		}
 	}
-	if !isHexString(lock.Recipe.SHA256, 64) {
-		return lock, fmt.Errorf("sdk: --host-lock recipe.sha256 is required")
+	if !isLocalRelative(lock.Recipe.Path) || lock.Recipe.Path == "." {
+		return lock, fmt.Errorf("sdk: --host-lock recipe.path must name a file inside the Vivy repository")
 	}
 	if len(lock.BuildTags) > 16 {
 		return lock, fmt.Errorf("sdk: --host-lock buildTags may list at most 16 tags")
@@ -327,51 +314,6 @@ func findGitRoot(dir string) (string, error) {
 	}
 }
 
-// hashSourceTree computes the canonical tracked-source digest: each tracked
-// file contributes "<relpath>\x00<size>\x00<bytes>" to one sha256 stream.
-// Worktree bytes are hashed so development snapshots still seal the exact
-// content that was built; git's file list keeps .git and ignored outputs out.
-func hashSourceTree(dir string) (string, error) {
-	files, err := gitTrackedFiles(dir)
-	if err != nil {
-		return "", err
-	}
-	hash := sha256.New()
-	for _, rel := range files {
-		full := filepath.Join(dir, filepath.FromSlash(rel))
-		info, err := os.Lstat(full)
-		if err != nil {
-			return "", fmt.Errorf("hash source file %s: %w", rel, err)
-		}
-		fmt.Fprintf(hash, "%s\x00%o\x00", rel, info.Mode().Perm())
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			link, linkErr := os.Readlink(full)
-			if linkErr != nil {
-				return "", linkErr
-			}
-			fmt.Fprintf(hash, "link\x00%s\x00", link)
-		case info.IsDir():
-			// gitlink (submodule): seal the commit it points at.
-			sub, subErr := gitHead(full)
-			if subErr != nil {
-				fmt.Fprintf(hash, "gitlink\x00absent\x00")
-			} else {
-				fmt.Fprintf(hash, "gitlink\x00%s\x00", sub)
-			}
-		default:
-			body, err := os.ReadFile(full)
-			if err != nil {
-				return "", fmt.Errorf("hash source file %s: %w", rel, err)
-			}
-			fmt.Fprintf(hash, "%d\x00", len(body))
-			hash.Write(body)
-		}
-		hash.Write([]byte{0})
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
 // stageSourceTree copies only tracked files into destination so a snapshot
 // never carries .git metadata, ignored outputs or untracked scratch.
 func stageSourceTree(source, destination string) error {
@@ -481,15 +423,14 @@ type goHostStaged struct {
 func verifyGoHostLock(inputs goHostInputs, repoRoot, laputaRoot string) error {
 	lock := inputs.LockDoc
 	type check struct {
-		name   string
-		dir    string
-		want   goHostLockSource
-		pinned bool
+		name string
+		dir  string
+		want goHostLockSource
 	}
 	checks := []check{
-		{"vivy", repoRoot, lock.Sources.Vivy, true},
-		{"laputa", laputaRoot, lock.Sources.Laputa, true},
-		{"host", inputs.Dir, goHostLockSource{Repository: lock.Host.Repository, Commit: lock.Host.Commit, TreeSHA256: lock.Host.TreeSHA256}, false},
+		{"vivy", repoRoot, lock.Sources.Vivy},
+		{"laputa", laputaRoot, lock.Sources.Laputa},
+		{"host", inputs.Dir, goHostLockSource{Repository: lock.Host.Repository, Commit: lock.Host.Commit}},
 	}
 	for _, c := range checks {
 		head, err := gitHead(c.dir)
@@ -502,15 +443,11 @@ func verifyGoHostLock(inputs goHostInputs, repoRoot, laputaRoot string) error {
 		if c.want.Commit != "" && head != c.want.Commit {
 			return fmt.Errorf("sdk: %s source commit is %s, lock pins %s", c.name, head, c.want.Commit)
 		}
-		tree, err := hashSourceTree(c.dir)
-		if err != nil {
-			return err
-		}
-		if c.pinned && tree != c.want.TreeSHA256 {
-			return fmt.Errorf("sdk: %s source tree digest is %s, lock pins %s", c.name, tree, c.want.TreeSHA256)
-		}
-		if c.want.TreeSHA256 != "" && tree != c.want.TreeSHA256 {
-			return fmt.Errorf("sdk: %s source tree digest is %s, lock pins %s", c.name, tree, c.want.TreeSHA256)
+		if c.want.Repository != "" {
+			remote := gitRemoteURL(c.dir)
+			if remote != c.want.Repository {
+				return fmt.Errorf("sdk: %s source repository is %q, lock pins %q", c.name, remote, c.want.Repository)
+			}
 		}
 		dirty, err := gitDirtyFiles(c.dir)
 		if err != nil {
@@ -763,7 +700,7 @@ func resolveConsumerModules(staged *goHostStaged) ([]byte, error) {
 // packGoHostArtifact publishes a sealed external-host Generation (W3-4):
 // staged source closure, generated consumer modfile, sealed hostBuild
 // provenance, headless compile of the real host package, then the artifact
-// tree with build report and checksums.
+// tree with its native source identity build report.
 func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, recipe assemblyv1.Recipe, canonical []byte, uiInput assemblyv1.UIAssemblyInput, uiAssembly assemblyv1.UIAssembly, catalogs []assemblyv1.CatalogManifest, uiBuild builtWebUI, plan assemblyv1.AssemblyPlan, capabilityStates map[string]assemblyv1.CapabilityState, portSupport []generationconformance.PortSupportRecord, selectedConformanceResults []providerconformance.ConformanceResult, binder, runtimeSource []byte) (Artifact, error) {
 	inputs := o.GoHost
 	if inputs.Dir == "" {
@@ -791,16 +728,13 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 	if err := verifyGoHostLock(inputs, repoRoot, laputaRoot); err != nil {
 		return Artifact{}, err
 	}
-	recipeRaw, err := os.ReadFile(o.Recipe)
+	recipePath, err := filepath.Abs(o.Recipe)
 	if err != nil {
 		return Artifact{}, err
 	}
-	if sha256Hex(recipeRaw) != inputs.LockDoc.Recipe.SHA256 {
-		return Artifact{}, fmt.Errorf("sdk: recipe content differs from --host-lock pin")
-	}
-	lockRaw, err := os.ReadFile(inputs.Lock)
-	if err != nil {
-		return Artifact{}, err
+	declaredRecipe := filepath.Join(repoRoot, filepath.FromSlash(inputs.LockDoc.Recipe.Path))
+	if recipePath != declaredRecipe {
+		return Artifact{}, fmt.Errorf("sdk: selected Recipe path differs from --host-lock recipe.path")
 	}
 	staged, err := stageGoHostSources(repoRoot, laputaRoot, inputs)
 	if err != nil {
@@ -810,22 +744,7 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 	if err := prepareConsumerModfile(staged, repoRoot, laputaRoot, inputs); err != nil {
 		return Artifact{}, err
 	}
-	buildList, err := resolveConsumerModules(staged)
-	if err != nil {
-		return Artifact{}, err
-	}
-	dependencyLocks, err := sealedFileInputs(staged.Host, "go.mod")
-	if err != nil {
-		return Artifact{}, err
-	}
-	if _, err := os.Stat(filepath.Join(staged.Host, "go.sum")); err == nil {
-		hostSum, hashErr := sealedFileInputs(staged.Host, "go.sum")
-		if hashErr != nil {
-			return Artifact{}, hashErr
-		}
-		dependencyLocks["go.sum"] = hostSum["go.sum"]
-	}
-	canonicalMod, err := canonicalResolvedModfile(staged.Host, staged.Modfile)
+	_, err = resolveConsumerModules(staged)
 	if err != nil {
 		return Artifact{}, err
 	}
@@ -833,32 +752,13 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 	if err != nil {
 		return Artifact{}, fmt.Errorf("sdk: read resolved consumer sum: %w", err)
 	}
-	dependencyLocks["resolved-go.mod"] = sha256Hex(canonicalMod)
-	dependencyLocks["resolved-go.sum"] = sha256Hex(consumerSum)
-	dependencyLocks["resolved-build-list"] = sha256Hex(buildList)
-	vivyLocks, err := sealedFileInputs(staged.Vivy, "go.mod", "go.sum")
-	if err != nil {
-		return Artifact{}, err
-	}
-	dependencyLocks["vivy-go.mod"] = vivyLocks["go.mod"]
-	dependencyLocks["vivy-go.sum"] = vivyLocks["go.sum"]
-
 	// The host identity is always resolved from the live checkout: the
 	// tracked lock must not pin its own DIVA commit.
 	hostCommit, err := gitHead(inputs.Dir)
 	if err != nil {
 		return Artifact{}, fmt.Errorf("sdk: resolve host commit: %w", err)
 	}
-	hostTree, err := hashSourceTree(inputs.Dir)
-	if err != nil {
-		return Artifact{}, fmt.Errorf("sdk: hash host source tree: %w", err)
-	}
-
 	assetsDir := filepath.Join(inputs.Dir, filepath.FromSlash(inputs.Assets))
-	assetsDigest, err := hashUIArtifactTree(assetsDir)
-	if err != nil {
-		return Artifact{}, fmt.Errorf("sdk: hash --host-assets tree: %w", err)
-	}
 	goVersion, err := goToolchainVersion(staged.Host)
 	if err != nil {
 		return Artifact{}, err
@@ -870,12 +770,8 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 		Source: assemblyv1.HostBuildSource{
 			Repository: firstNonEmptyString(inputs.LockDoc.Host.Repository, gitRemoteURL(inputs.Dir)),
 			Commit:     hostCommit,
-			TreeSHA256: hostTree,
 		},
-		Assets:                assemblyv1.HostBuildAssets{Path: inputs.Assets, SHA256: assetsDigest},
-		DependencyLockSHA256:  sha256Hex(lockRaw),
-		ConsumerModfileSHA256: sha256Hex(canonicalMod),
-		ConsumerSumSHA256:     sha256Hex(consumerSum),
+		Assets: assemblyv1.HostBuildAssets{Path: inputs.Assets},
 		Tools: assemblyv1.HostBuildTools{
 			Go:        goVersion,
 			Wails:     lockToolVersion(inputs.LockDoc.Tools, "wails"),
@@ -885,13 +781,9 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 			BuildTags: inputs.LockDoc.BuildTags,
 		},
 	}
-	uiArtifacts := map[string]string{"ui/dist": uiBuild.Digest}
-	for id, digest := range uiAssembly.Manifest.AssetHashes {
-		uiArtifacts["ui/provider/"+id] = digest
-	}
 	manifest, manifestRaw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
 		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
-		CanonicalRecipe: canonical, DependencyLocks: dependencyLocks, UIArtifacts: uiArtifacts,
+		GenerationID: o.GenerationID, CanonicalRecipe: canonical,
 		UI: &uiAssembly.Manifest, Catalogs: catalogs, CapabilityStates: capabilityStates,
 		ContextSourcePolicies: assemblyv1.ContextSourcePoliciesForPlan(plan),
 		RunObserverPolicies:   assemblyv1.RunObserverPoliciesForPlan(plan),
@@ -990,14 +882,11 @@ func packGoHostArtifact(ctx context.Context, o packOptions, repoRoot string, rec
 	if output, buildErr := cmd.CombinedOutput(); buildErr != nil {
 		return Artifact{}, fmt.Errorf("build go-host generation: %w: %s", buildErr, output)
 	}
-	report, err := goHostBuildReport(inputs, repoRoot, laputaRoot, staged, hostBuild, manifest.GenerationID)
+	report, err := goHostBuildReport(inputs, repoRoot, laputaRoot, hostBuild, manifest.GenerationID)
 	if err != nil {
 		return Artifact{}, err
 	}
 	if err := os.WriteFile(filepath.Join(stage, "build-report.json"), report, 0o644); err != nil {
-		return Artifact{}, err
-	}
-	if err := writeGoHostChecksums(stage, binaryName); err != nil {
 		return Artifact{}, err
 	}
 	// Fail if any declared input moved while compiling.
@@ -1019,18 +908,13 @@ func lockToolVersion(tools map[string]any, name string) string {
 // goHostBuildReport renders the untracked resolved-identity report. The
 // tracked source lock never pins its own host commit; the report records the
 // identity resolved at build time instead.
-func goHostBuildReport(inputs goHostInputs, repoRoot, laputaRoot string, staged *goHostStaged, build *assemblyv1.HostBuild, generationID string) ([]byte, error) {
+func goHostBuildReport(inputs goHostInputs, repoRoot, laputaRoot string, build *assemblyv1.HostBuild, generationID string) ([]byte, error) {
 	type sourceReport struct {
-		Commit     string   `json:"commit"`
-		TreeSHA256 string   `json:"treeSHA256"`
-		Dirty      []string `json:"dirty,omitempty"`
+		Commit string   `json:"commit"`
+		Dirty  []string `json:"dirty,omitempty"`
 	}
 	source := func(dir string) (sourceReport, error) {
 		head, err := gitHead(dir)
-		if err != nil {
-			return sourceReport{}, err
-		}
-		tree, err := hashSourceTree(dir)
 		if err != nil {
 			return sourceReport{}, err
 		}
@@ -1038,7 +922,7 @@ func goHostBuildReport(inputs goHostInputs, repoRoot, laputaRoot string, staged 
 		if err != nil {
 			return sourceReport{}, err
 		}
-		return sourceReport{Commit: head, TreeSHA256: tree, Dirty: dirty}, nil
+		return sourceReport{Commit: head, Dirty: dirty}, nil
 	}
 	vivy, err := source(repoRoot)
 	if err != nil {
@@ -1057,15 +941,12 @@ func goHostBuildReport(inputs goHostInputs, repoRoot, laputaRoot string, staged 
 		"release":      inputs.LockDoc.Release,
 		"generationId": generationID,
 		"resolved": map[string]any{
-			"host":                  host,
-			"vivy":                  vivy,
-			"laputa":                laputa,
-			"modulePath":            build.ModulePath,
-			"package":               build.Package,
-			"consumerModfileSHA256": build.ConsumerModfileSHA256,
-			"consumerSumSHA256":     build.ConsumerSumSHA256,
-			"dependencyLockSHA256":  build.DependencyLockSHA256,
-			"tools":                 build.Tools,
+			"host":       host,
+			"vivy":       vivy,
+			"laputa":     laputa,
+			"modulePath": build.ModulePath,
+			"package":    build.Package,
+			"tools":      build.Tools,
 		},
 	}
 	raw, err := json.Marshal(report)
@@ -1075,53 +956,9 @@ func goHostBuildReport(inputs goHostInputs, repoRoot, laputaRoot string, staged 
 	return raw, nil
 }
 
-// writeGoHostChecksums seals the artifact tree: binary, manifest and every
-// staged frontend file get a sha256sum line. The checksum file itself and
-// build-report.json stay out so neither becomes self-referential.
-func writeGoHostChecksums(stage, binaryName string) error {
-	var entries []string
-	add := func(rel string) error {
-		body, err := os.ReadFile(filepath.Join(stage, filepath.FromSlash(rel)))
-		if err != nil {
-			return err
-		}
-		entries = append(entries, sha256Hex(body)+"  "+rel)
-		return nil
-	}
-	for _, rel := range []string{binaryName, "generation.json", "ui-assembly.ts", "zz_assembly.go", "consumer.mod", "consumer.sum"} {
-		if _, err := os.Stat(filepath.Join(stage, rel)); err == nil {
-			if err := add(rel); err != nil {
-				return err
-			}
-		}
-	}
-	frontend := filepath.Join(stage, "frontend")
-	if err := filepath.WalkDir(frontend, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !entry.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(stage, path)
-		if err != nil {
-			return err
-		}
-		return add(filepath.ToSlash(rel))
-	}); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	sort.Strings(entries)
-	return os.WriteFile(filepath.Join(stage, "checksums.sha256"), []byte(strings.Join(entries, "\n")+"\n"), 0o644)
-}
-
 // inspectGoHostArtifact verifies a sealed external Go-host artifact without
 // executing its binary: the embedded Generation Manifest must match the
-// sidecar byte-for-byte and the staged frontend tree must hash to the sealed
-// hostBuild assets digest.
+// sidecar byte-for-byte. The identity makes no content authenticity claim.
 func inspectGoHostArtifact(dir string, manifestRaw []byte, manifest assemblyv1.GenerationManifest) (Artifact, error) {
 	hostBuild := manifest.HostBuild
 	base := filepath.Base(filepath.FromSlash(hostBuild.Package))
@@ -1143,15 +980,6 @@ func inspectGoHostArtifact(dir string, manifestRaw []byte, manifest assemblyv1.G
 	}
 	if embedded.GenerationID != manifest.GenerationID || !bytes.Equal(embeddedRaw, manifestRaw) {
 		return Artifact{}, fmt.Errorf("Generation Manifest is not bound to go-host executable")
-	}
-	if hostBuild.Assets.SHA256 != "" {
-		actual, hashErr := hashUIArtifactTree(filepath.Join(dir, "frontend"))
-		if hashErr != nil {
-			return Artifact{}, fmt.Errorf("inspect go-host frontend artifact: %w", hashErr)
-		}
-		if actual != hostBuild.Assets.SHA256 {
-			return Artifact{}, fmt.Errorf("go-host frontend hash mismatch: got %s, want %s", actual, hostBuild.Assets.SHA256)
-		}
 	}
 	return Artifact{Directory: dir, Binary: binary, Manifest: manifest}, nil
 }

@@ -28,18 +28,10 @@ func TestSourceCatalogAssignsTrustOutsideDescriptor(t *testing.T) {
 	}
 }
 
-func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
+func TestSourceCatalogRejectsRefAndInvalidRoots(t *testing.T) {
 	root := t.TempDir()
-	filename := filepath.Join(root, "module.go")
-	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	digest, err := HashSourceTree(root, "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	descriptor := testDescriptor("fixture/source")
-	descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: digest}
+	descriptor.Source = module.Source{Ref: "repo:fixture/source"}
 	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
 	if _, err := NewSourceCatalog([]SourceRecord{record}); err != nil {
 		t.Fatal(err)
@@ -49,43 +41,39 @@ func TestSourceCatalogRejectsRefAndHashDrift(t *testing.T) {
 		t.Fatalf("reference drift error = %v", err)
 	}
 	record.Ref = descriptor.Source.Ref
-	if err := os.WriteFile(filename, []byte("package fixture\n// drift\n"), 0o600); err != nil {
+	record.Root = filepath.Join(root, "absent")
+	if _, err := NewSourceCatalog([]SourceRecord{record}); err == nil {
+		t.Fatal("missing source root accepted")
+	}
+	record.Root = filepath.Join(root, "module.go")
+	if err := os.WriteFile(record.Root, []byte("package fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewSourceCatalog([]SourceRecord{record}); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
-		t.Fatalf("NewSourceCatalog() error = %v, want source drift diagnostic", err)
+	if _, err := NewSourceCatalog([]SourceRecord{record}); err == nil {
+		t.Fatal("file source root accepted")
 	}
 }
 
-func TestSourceCatalogBindsAndVerifiesSourceHash(t *testing.T) {
+func TestSourceCatalogAcceptsChangedBytesWithoutHashClaim(t *testing.T) {
 	root := t.TempDir()
 	filename := filepath.Join(root, "module.go")
-	if err := os.WriteFile(filename, []byte("package fixture\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	digest, err := HashSourceTree(root, "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	descriptor := testDescriptor("fixture/source")
-	descriptor.Source = module.Source{Ref: "repo:fixture/source", SHA256: digest}
 	record := SourceRecord{Descriptor: descriptor, Trust: TrustT1, Root: root, Ref: descriptor.Source.Ref}
-	catalog, err := NewSourceCatalog([]SourceRecord{record})
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolved, err := catalog.Resolve(descriptor.Module.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolved.Descriptor.Source.SHA256 != digest {
-		t.Fatalf("bound digest = %q, want %q", resolved.Descriptor.Source.SHA256, digest)
-	}
-	if err := os.WriteFile(filename, []byte("package fixture\n// drift\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewSourceCatalog([]SourceRecord{record}); err == nil || !strings.Contains(err.Error(), "source hash mismatch") {
-		t.Fatalf("NewSourceCatalog() error = %v, want source drift diagnostic", err)
+	for _, body := range []string{"package fixture\n", "package fixture\n// updated\n"} {
+		if err := os.WriteFile(filename, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		catalog, err := NewSourceCatalog([]SourceRecord{record})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := catalog.Resolve(descriptor.Module.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved.Descriptor.Source.Ref != record.Ref || resolved.Root != root || resolved.Trust != TrustT1 {
+			t.Fatalf("source ownership changed: %#v", resolved)
+		}
 	}
 }
 
@@ -107,73 +95,12 @@ func TestSourceCatalogRejectsAmbiguousAndMissingSources(t *testing.T) {
 	}
 }
 
-func TestHashSourceTreeRejectsSymbolicLinks(t *testing.T) {
-	root := t.TempDir()
-	outside := filepath.Join(t.TempDir(), "secret.go")
-	if err := os.WriteFile(outside, []byte("package secret\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(root, "linked.go")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := HashSourceTree(root, ""); err == nil || !strings.Contains(err.Error(), "symbolic link") {
-		t.Fatalf("HashSourceTree() error = %v, want symbolic link rejection", err)
-	}
-}
-
-func TestHashSourceTreeNormalizesTextLineEndings(t *testing.T) {
-	lfRoot := t.TempDir()
-	crlfRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(lfRoot, "module.go"), []byte("package fixture\n\nvar value = 1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(crlfRoot, "module.go"), []byte("package fixture\r\n\r\nvar value = 1\r\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	lfDigest, err := HashSourceTree(lfRoot, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	crlfDigest, err := HashSourceTree(crlfRoot, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if crlfDigest != lfDigest {
-		t.Fatalf("CRLF digest = %s, want canonical LF digest %s", crlfDigest, lfDigest)
-	}
-}
-
-func TestHashSourceTreePreservesBinaryLineEndings(t *testing.T) {
-	lfRoot := t.TempDir()
-	crlfRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(lfRoot, "asset.bin"), []byte{0, 0xff, '\n'}, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(crlfRoot, "asset.bin"), []byte{0, 0xff, '\r', '\n'}, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	lfDigest, err := HashSourceTree(lfRoot, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	crlfDigest, err := HashSourceTree(crlfRoot, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if crlfDigest == lfDigest {
-		t.Fatalf("binary CRLF digest = %s, want a distinct byte-exact digest", crlfDigest)
-	}
-}
-
 func testDescriptor(id string) module.Descriptor {
 	return module.Descriptor{
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: id, Version: "1.0.0"},
 		Source: module.Source{
-			Ref:    "git:" + id + "@0123456",
-			SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			Ref: "git:" + id + "@0123456",
 		},
 		Provides:        []module.PortRef{},
 		Requires:        []module.Requirement{},

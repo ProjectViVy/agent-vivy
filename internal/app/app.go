@@ -1031,6 +1031,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		Crons:             backend, CronRunner: svc,
 		Studio: studioSvc,
 		Live: studio.LiveView{
+			GenerationID:  generationID,
 			Provider:      providerName,
 			PolicyProfile: liveProfile,
 			Tools:         liveTools,
@@ -1562,7 +1563,7 @@ func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 	if err != nil {
 		return ""
 	}
-	id, _, err := generation.InspectManifestProvenance(raw)
+	id, err := generation.InspectManifestIdentity(raw)
 	if err != nil {
 		return ""
 	}

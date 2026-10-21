@@ -32,3 +32,11 @@ conversion seam; runtime `Apply` refuses old or unsupported stores before any
 write. Accepted D03 target 036 is an explicitly recognized upgrade source;
 unlisted historical 036–043 formats remain unsupported. Neither D03 nor D08
 alone makes final upgrade publication possible.
+
+
+Stable integration after D08: the owner-approved donor D06 allocation is now
+paired038_generation_identity, removing generations.artifact_sha256. Stable
+001–037 are unchanged. Exact accepted D03 036 and D08 037 source manifests are
+recognized only for explicit copied upgrade; startup returns upgrade_required.
+D06's earlier donor-only 037 target is historical test data, not an added source
+format. Generation history/rollback checks are rerun against the combined target.

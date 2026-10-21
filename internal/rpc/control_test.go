@@ -797,7 +797,7 @@ func TestControlShellStartIsGovernedAndStrict(t *testing.T) {
 	}
 	historyJSON, _ := json.Marshal(history)
 	if !strings.Contains(string(historyJSON), `"tool_name":"bash"`) ||
-		!strings.Contains(string(historyJSON), "bash script [redacted") ||
+		!strings.Contains(string(historyJSON), "bash (script redacted)") ||
 		strings.Contains(string(historyJSON), "printf rpc_shell_ok") {
 		t.Fatalf("sanitized shell history = %s", historyJSON)
 	}
@@ -904,21 +904,22 @@ func TestStudioRPCEmptyListAndPromote(t *testing.T) {
 	}
 
 	from, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
-		"artifact_sha256": "aaa",
-		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+		"recipe": map[string]any{"loop": "eino", "world": "sandbox"},
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
 	fromJSON, _ := json.Marshal(from)
+	if strings.Contains(string(fromJSON), "\"artifact_sha256\"") {
+		t.Fatalf("retired Generation field returned: %s", fromJSON)
+	}
 	var fromGen generationResult
 	if err := json.Unmarshal(fromJSON, &fromGen); err != nil {
 		t.Fatal(err)
 	}
 	to, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
-		"parent_id":       fromGen.ID,
-		"artifact_sha256": "bbb",
-		"recipe":          map[string]any{"loop": "eino", "world": "sandbox", "plugins": []string{"acme"}},
+		"parent_id": fromGen.ID,
+		"recipe":    map[string]any{"loop": "eino", "world": "sandbox", "plugins": []string{"acme"}},
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
@@ -977,17 +978,15 @@ func TestSpeciesInspectBuiltinThenPromoted(t *testing.T) {
 	assertInspectSafe(t, first)
 
 	from, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
-		"artifact_sha256": "from-sha",
-		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+		"recipe": map[string]any{"loop": "eino", "world": "sandbox"},
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
 	fromGen := decodeGeneration(t, from)
 	to, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
-		"parent_id":       fromGen.ID,
-		"artifact_sha256": "to-sha",
-		"recipe":          map[string]any{"loop": "eino", "world": "sandbox", "tools": []string{"echo_info"}},
+		"parent_id": fromGen.ID,
+		"recipe":    map[string]any{"loop": "eino", "world": "sandbox", "tools": []string{"echo_info"}},
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
@@ -1009,7 +1008,16 @@ func TestSpeciesInspectBuiltinThenPromoted(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	promoted := decodeInspect(t, second)
-	if promoted.GenerationID != toGen.ID || promoted.ArtifactSHA256 != "to-sha" {
+	rawInspect, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"artifact_sha256", "ui_artifact_sha256", "policy_hash"} {
+		if strings.Contains(string(rawInspect), "\""+field+"\"") {
+			t.Fatalf("retired Inspect field: %s", field)
+		}
+	}
+	if promoted.GenerationID != toGen.ID {
 		t.Fatalf("promoted inspect = %+v, want generation %s", promoted, toGen.ID)
 	}
 	if promoted.Recipe.Loop != "eino" {
@@ -1021,8 +1029,7 @@ func TestSpeciesInspectBuiltinThenPromoted(t *testing.T) {
 func TestGenerationsRejectRPC(t *testing.T) {
 	env := newControlTestEnv(t)
 	created, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
-		"artifact_sha256": "cand",
-		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+		"recipe": map[string]any{"loop": "eino", "world": "sandbox"},
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
@@ -1044,8 +1051,7 @@ func TestGenerationsRejectRPC(t *testing.T) {
 func TestEvalsStartUnknownSuiteAndFailedProbe(t *testing.T) {
 	env := newControlTestEnv(t)
 	created, rpcErr := callControl(t, env.handler, "generations/create", map[string]any{
-		"artifact_sha256": "cand",
-		"recipe":          map[string]any{"loop": "eino", "world": "sandbox"},
+		"recipe": map[string]any{"loop": "eino", "world": "sandbox"},
 	})
 	if rpcErr != nil {
 		t.Fatal(rpcErr)

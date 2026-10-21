@@ -67,7 +67,7 @@ func TestApplyPreflightRejectsUnexplainedTablesOnKnownMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, head := range []int{35, 36, 37} {
+	for _, head := range []int{35, 36, 37, 38} {
 		t.Run(fmt.Sprintf("head-%d", head), func(t *testing.T) {
 			db := openMigrationTestDB(t)
 			ctx := context.Background()

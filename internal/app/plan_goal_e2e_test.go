@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -401,7 +403,7 @@ func TestPlanGoalIntegratedPauseInFlightAndReopen(t *testing.T) {
 	assertWorkEventCount(t, restarted, sessionID, domain.WorkEventGoalPaused, 1)
 }
 
-func TestPlanGoalIntegratedOpensVersion23SQLite(t *testing.T) {
+func TestPlanGoalIntegratedReadsConvertedVersion23SQLite(t *testing.T) {
 	planGoalTestProvider(t, newPlanGoalScriptServer(t, nil).URL)
 	cfg, _ := planGoalTestConfig(t, nil)
 	manifest, err := migrations.Embedded()
@@ -439,6 +441,38 @@ func TestPlanGoalIntegratedOpensVersion23SQLite(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
+	sourcePath := cfg.Storage.SQLite.Path
+	before, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway())
+	if refused != nil {
+		_ = refused.Close()
+	}
+	if !errors.Is(err, migrations.ErrUpgradeRequired) {
+		t.Fatalf("old runtime open = %v", err)
+	}
+	after, err := os.ReadFile(sourcePath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("refusal changed source: %v", err)
+	}
+	// Conversion is explicit and operates only on a new disposable copy.
+	cfg.Storage.SQLite.Path = filepath.Join(t.TempDir(), "converted.db")
+	if err := os.WriteFile(cfg.Storage.SQLite.Path, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	target, err := sql.Open("sqlite", cfg.Storage.SQLite.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.ApplyManifest(context.Background(), target, migrations.SQLite, manifest); err != nil {
+		target.Close()
+		t.Fatal(err)
+	}
+	if err := target.Close(); err != nil {
+		t.Fatal(err)
+	}
 	a := openPlanGoalTestApp(t, cfg)
 	client, err := a.DialControl(context.Background(), nil)
 	if err != nil {
@@ -447,7 +481,7 @@ func TestPlanGoalIntegratedOpensVersion23SQLite(t *testing.T) {
 	defer client.Close()
 	session := callControl(t, client, "session/get", map[string]any{"session_id": "legacy-app-session"})
 	if session["session"].(map[string]any)["title"] != "preserved" {
-		t.Fatalf("old session not preserved by app.New migration: %v", session)
+		t.Fatalf("old session not preserved by copied-target conversion: %v", session)
 	}
 	work := callControl(t, client, "session/work/get", map[string]any{"session_id": "legacy-app-session"})
 	if work["version"] != float64(0) {
@@ -463,7 +497,11 @@ func TestPlanGoalIntegratedOpensVersion23SQLite(t *testing.T) {
 	defer check.Close()
 	var count int
 	if err := check.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil || count != len(manifest.Migrations(migrations.SQLite)) {
-		t.Fatalf("app.New migration count = %d / %v", count, err)
+		t.Fatalf("converted target migration count = %d / %v", count, err)
+	}
+	unchanged, err := os.ReadFile(sourcePath)
+	if err != nil || !bytes.Equal(before, unchanged) {
+		t.Fatalf("conversion changed source: %v", err)
 	}
 }
 

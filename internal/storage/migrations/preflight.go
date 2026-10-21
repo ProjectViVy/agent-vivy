@@ -59,20 +59,28 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		return err
 	}
 	if len(applied) < len(items) {
-		// The exact accepted D03 target is also a finite source for D08.
-		// Historical 036-043 lineages with other names/checksums were already
-		// rejected by readApplied; a number alone does not identify this shape.
-		if len(applied) == 36 {
+		// Only the exact accepted D03/D08 manifests are finite intermediate
+		// sources. Historical lineages with other names/checksums were
+		// rejected by readApplied before any shape check or write.
+		if len(applied) == 36 || len(applied) == 37 {
 			if err := validateOperationShape(ctx, db, dialect, true); err != nil {
 				return err
 			}
-			if err := validateSnapshotColumns(ctx, db, dialect, true); err != nil {
+			if err := validateSnapshotColumns(ctx, db, dialect, len(applied) == 36); err != nil {
+				return err
+			}
+			if err := validateGenerationShape(ctx, db, dialect, false); err != nil {
 				return err
 			}
 			return ErrUpgradeRequired
 		}
 		if len(applied) > 35 {
 			return fmt.Errorf("%w: unlisted post-baseline source", ErrUnsupportedSourceFormat)
+		}
+		if tables["generations"] {
+			if err := validateGenerationShape(ctx, db, dialect, false); err != nil {
+				return err
+			}
 		}
 		if len(applied) >= 31 {
 			if err := validateOperationShape(ctx, db, dialect, false); err != nil {
@@ -82,6 +90,9 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		return ErrUpgradeRequired
 	}
 	// A migration number alone is never evidence of the converted target.
+	if err := validateGenerationShape(ctx, db, dialect, true); err != nil {
+		return err
+	}
 	if err := validateOperationShape(ctx, db, dialect, true); err != nil {
 		return err
 	}
@@ -276,4 +287,27 @@ func sourceColumnExists(ctx context.Context, db *sql.DB, dialect Dialect, table,
 		return false, fmt.Errorf("storage migrations: inspect source column: %w", err)
 	}
 	return count == 1, nil
+}
+
+func validateGenerationShape(ctx context.Context, db *sql.DB, dialect Dialect, current bool) error {
+	for _, column := range []string{"id", "parent_id", "source_ref", "recipe_json", "phase", "created_at"} {
+		exists, err := sourceColumnExists(ctx, db, dialect, "generations", column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("%w: missing Generation column %s", ErrUnsupportedSourceFormat, column)
+		}
+	}
+	exists, err := sourceColumnExists(ctx, db, dialect, "generations", "artifact_sha256")
+	if err != nil {
+		return err
+	}
+	if current && exists {
+		return fmt.Errorf("%w: retired Generation artifact hash column", ErrUnsupportedSourceFormat)
+	}
+	if !current && !exists {
+		return fmt.Errorf("%w: missing legacy Generation artifact column", ErrUnsupportedSourceFormat)
+	}
+	return nil
 }

@@ -1,0 +1,30 @@
+{
+  "id": "missing-source-ref",
+  "expect": "reject",
+  "rule": "Every Module declares an explicit source reference.",
+  "wantError": "source.ref is required",
+  "recipe": {
+    "apiVersion": "vivy.generation/v1",
+    "modules": [
+      "fixture/bad-hash"
+    ]
+  },
+  "modules": [
+    {
+      "apiVersion": "vivy.module/v1",
+      "module": {
+        "id": "fixture/bad-hash",
+        "version": "1.0.0"
+      },
+      "source": {
+        "ref": ""
+      },
+      "provides": [],
+      "requires": [],
+      "requestedGrants": [],
+      "lifecycle": {
+        "scope": "generation"
+      }
+    }
+  ]
+}

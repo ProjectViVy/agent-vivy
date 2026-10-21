@@ -63,7 +63,7 @@ pinned Eino/EinoExt package/API. Adapt it when present; otherwise record
 **"Universal" means every Generation selects it.** A capability that every
 Recipe picks (file/shell/ask_user/skills tools, and universal enhancements
 such as todo, notes, http_request, download, sequential_thinking) is kernel
-inventory, not a plugin: wrapping it in a Module adds digest pinning,
+inventory, not a plugin: wrapping it in a Module adds source pinning,
 descriptor, and binding maintenance for zero variation — it would be
 selected in every Generation anyway.
 
@@ -88,7 +88,7 @@ Request: “Publish another `read_file` plugin.”
 Result: reject the reserved identity. If the intent is a distinct analyzer,
 define a namespaced `std/tool@v1` Provider, request scoped `fs.read`, pass the
 ToolHost conformance suite, add it to an explicit Recipe, rebuild, and verify
-its source/hash/Grant in Inspect.
+its source/reference/Grant in Inspect.
 
 ## Completion
 
@@ -122,8 +122,8 @@ Then run the focused Host/Port suites, `just ci`, and the real selected product
 path. Record the iteration log and commit one concern.
 
 `verify` is static and never starts Provider code. `pack` consumes the
-checked-in, source-hash-bound conformance result bundle; it does not execute
+checked-in behavior-conformance result bundle; it does not execute
 the suites. Unattested third-party Providers remain packable but receive no
-conformance record in Inspect. Advance the bundle only when the executable
+conformance record in Inspect. The bundle makes no source-authenticity claim. Advance it only when the executable
 reproduction gate, focused suites, and Generation matrix match the same
 release evidence set.

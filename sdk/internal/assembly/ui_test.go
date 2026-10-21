@@ -2,8 +2,6 @@ package assembly
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,12 +41,9 @@ func TestGenerateUIAssemblyIsDeterministicAcrossInputEnumerationOrder(t *testing
 func TestGenerateUIAssemblyRejectsTwoRoots(t *testing.T) {
 	input := uiAssemblyInputForTest()
 	input.Roots = append(input.Roots, UIModule{
-		ID:                 "fixture/root-b",
-		ModuleID:           "fixture/root-b",
-		Entry:              "./root-b.tsx",
-		SourceHash:         testDigest("root-b-source"),
-		DependencyLockHash: testDigest("root-b-lock"),
-		AssetHash:          testDigest("root-b-asset"),
+		ID:       "fixture/root-b",
+		ModuleID: "fixture/root-b",
+		Entry:    "./root-b.tsx",
 	})
 
 	_, err := GenerateUIAssembly(input)
@@ -285,26 +280,6 @@ func TestGenerateUIAssemblyRejectsConflictingCompatibilityAliases(t *testing.T) 
 	assertUIAssemblyError(t, err, UIAssemblyErrorConflictingAlias, "conflicting entry aliases")
 }
 
-func TestGenerateUIAssemblyRejectsConflictingHashAliases(t *testing.T) {
-	input := uiAssemblyInputForTest()
-	input.Extensions[0].AssetHash = testDigest("new-asset")
-	input.Extensions[0].FinalAssetHash = testDigest("old-asset")
-
-	_, err := GenerateUIAssembly(input)
-	assertUIAssemblyError(t, err, UIAssemblyErrorConflictingAlias, "conflicting asset hash aliases")
-}
-
-func TestGenerateUIAssemblyRejectsConflictingGlobalHashAliases(t *testing.T) {
-	input := uiAssemblyInputForTest()
-	input.Extensions[0].DependencyLockHash = ""
-	input.Extensions[0].LockHash = ""
-	input.DependencyLockHashes = map[string]string{"fixture/extension-a": testDigest("new-lock")}
-	input.LockHashes = map[string]string{"fixture/extension-a": testDigest("old-lock")}
-
-	_, err := GenerateUIAssembly(input)
-	assertUIAssemblyError(t, err, UIAssemblyErrorConflictingAlias, "conflicting dependency lock hash aliases")
-}
-
 func TestGenerateUIAssemblyRejectsPartialSingularRoot(t *testing.T) {
 	input := uiAssemblyInputForTest()
 	input.Roots = nil
@@ -314,32 +289,21 @@ func TestGenerateUIAssemblyRejectsPartialSingularRoot(t *testing.T) {
 	assertUIAssemblyError(t, err, UIAssemblyErrorInvalidInput, "provider id is required")
 }
 
-func TestGenerateUIAssemblyManifestBindsAllExplicitProvenance(t *testing.T) {
-	result, err := GenerateUIAssembly(uiAssemblyInputForTest())
+func TestGenerateUIAssemblyCarriesExplicitIdentityAndSelection(t *testing.T) {
+	input := uiAssemblyInputForTest()
+	result, err := GenerateUIAssembly(input)
 	if err != nil {
-		t.Fatalf("GenerateUIAssembly() error = %v", err)
+		t.Fatal(err)
 	}
-	manifest := result.Manifest
-	if manifest.SDKPackage != UIAssemblySDKPackageName {
-		t.Fatalf("SDKPackage = %q, want %q", manifest.SDKPackage, UIAssemblySDKPackageName)
+	if result.Manifest.GenerationID != input.GenerationID || result.Manifest.SDKPackage != UIAssemblySDKPackageName || result.Manifest.SDKVersion != UIAssemblySDKVersion {
+		t.Fatalf("UI identity changed: %#v", result.Manifest)
 	}
-	if manifest.SDKVersion != UIAssemblySDKVersion {
-		t.Fatalf("SDKVersion = %q, want %s", manifest.SDKVersion, UIAssemblySDKVersion)
+	if result.Manifest.Root != "fixture/root" || !reflect.DeepEqual(result.Manifest.Extensions, []string{"fixture/extension-a", "fixture/extension-b"}) {
+		t.Fatalf("selection changed: %#v", result.Manifest)
 	}
-	for _, id := range []string{"fixture/root", "fixture/extension-a", "fixture/extension-b"} {
-		if manifest.SourceHashes[id] == "" {
-			t.Fatalf("source hash for %s missing from manifest: %#v", id, manifest.SourceHashes)
-		}
-		if manifest.DependencyLockHashes[id] == "" {
-			t.Fatalf("dependency lock hash for %s missing from manifest: %#v", id, manifest.DependencyLockHashes)
-		}
-		if manifest.AssetHashes[id] == "" {
-			t.Fatalf("final asset hash for %s missing from manifest: %#v", id, manifest.AssetHashes)
-		}
-	}
-	for _, required := range []string{"sourceHashes", "dependencyLockHashes", "sdkVersion", "assetHashes"} {
-		if !strings.Contains(string(result.Source), required) {
-			t.Fatalf("generated assembly missing provenance field %q:\n%s", required, result.Source)
+	for _, retired := range []string{"sourceHashes", "dependencyLockHashes", "assetHashes"} {
+		if bytes.Contains(result.Source, []byte(retired)) {
+			t.Fatalf("retired field %s emitted", retired)
 		}
 	}
 }
@@ -362,7 +326,6 @@ func TestGenerateUIAssemblyEmbedsValidatedCatalogProjection(t *testing.T) {
 			},
 		},
 	}
-	catalog.Digest = catalogProjectionDigest(catalog)
 	input := uiAssemblyInputForTest()
 	input.Catalogs = []CatalogManifest{catalog}
 	result, err := GenerateUIAssembly(input)
@@ -393,7 +356,6 @@ func TestGenerateUIAssemblyRejectsMalformedOrAmbiguousCatalogs(t *testing.T) {
 			},
 		},
 	}
-	valid.Digest = catalogProjectionDigest(valid)
 	tests := []struct {
 		name string
 		set  func(*UIAssemblyInput)
@@ -423,39 +385,29 @@ func TestGenerateUIAssemblyRejectsMalformedOrAmbiguousCatalogs(t *testing.T) {
 		{name: "missing units", set: func(input *UIAssemblyInput) {
 			copy := valid
 			copy.Units = nil
-			copy.Digest = catalogProjectionDigest(copy)
 			input.Catalogs = []CatalogManifest{copy}
 		}, code: UIAssemblyErrorInvalidInput, want: "translation units"},
 		{name: "wrong owner", set: func(input *UIAssemblyInput) {
 			copy := valid
 			copy.Units = map[string]CatalogUnit{"plugin.other.message": valid.Units["plugin.fixture/catalog.message"]}
-			copy.Digest = catalogProjectionDigest(copy)
 			input.Catalogs = []CatalogManifest{copy}
 		}, code: UIAssemblyErrorInvalidInput, want: "outside owner namespace"},
-		{name: "wrong digest", set: func(input *UIAssemblyInput) {
-			copy := valid
-			copy.Digest = testDigest("wrong-catalog")
-			input.Catalogs = []CatalogManifest{copy}
-		}, code: UIAssemblyErrorMissingHash, want: "digest"},
 		{name: "conflicting api aliases", set: func(input *UIAssemblyInput) {
 			copy := valid
 			copy.SchemaVersion = "vivy.i18n/v1"
 			copy.APIVersion = "vivy.i18n/v2"
-			copy.Digest = catalogProjectionDigest(copy)
 			input.Catalogs = []CatalogManifest{copy}
 		}, code: UIAssemblyErrorConflictingAlias, want: "conflicting catalog apiVersion aliases"},
 		{name: "invalid module namespace", set: func(input *UIAssemblyInput) {
 			copy := valid
 			copy.Module = "../catalog"
 			copy.Units = map[string]CatalogUnit{"plugin.../catalog.message": valid.Units["plugin.fixture/catalog.message"]}
-			copy.Digest = catalogProjectionDigest(copy)
 			input.Catalogs = []CatalogManifest{copy}
 		}, code: UIAssemblyErrorInvalidInput, want: "module namespace"},
 		{name: "duplicate translation key", set: func(input *UIAssemblyInput) {
 			second := valid
 			second.Module = "fixture/other"
 			second.Units = map[string]CatalogUnit{"plugin.fixture/catalog.message": valid.Units["plugin.fixture/catalog.message"]}
-			second.Digest = catalogProjectionDigest(second)
 			input.Catalogs = []CatalogManifest{valid, second}
 		}, code: UIAssemblyErrorDuplicateID, want: "translation key"},
 		{name: "duplicate module", set: func(input *UIAssemblyInput) { input.Catalogs = []CatalogManifest{valid, valid} }, code: UIAssemblyErrorDuplicateID, want: "selected more than once"},
@@ -471,7 +423,7 @@ func TestGenerateUIAssemblyRejectsMalformedOrAmbiguousCatalogs(t *testing.T) {
 }
 
 func TestGenerateUIAssemblyOmitsUnselectedModulesFromMinimalBuild(t *testing.T) {
-	input := UIAssemblyInput{SDKVersion: UIAssemblySDKVersion}
+	input := UIAssemblyInput{GenerationID: "authoring-test", SDKVersion: UIAssemblySDKVersion}
 	result, err := GenerateUIAssembly(input)
 	if err != nil {
 		t.Fatalf("GenerateUIAssembly(minimal) error = %v", err)
@@ -482,17 +434,9 @@ func TestGenerateUIAssemblyOmitsUnselectedModulesFromMinimalBuild(t *testing.T) 
 			t.Fatalf("minimal generated assembly retained omitted module %q:\n%s", omitted, source)
 		}
 	}
-	if len(result.Manifest.SourceHashes) != 0 || len(result.Manifest.DependencyLockHashes) != 0 || len(result.Manifest.AssetHashes) != 0 {
+	if result.Manifest.Root != "" || len(result.Manifest.Extensions) != 0 {
 		t.Fatalf("minimal manifest retained omitted module provenance: %#v", result.Manifest)
 	}
-}
-
-func TestGenerateUIAssemblyRejectsIncompleteExplicitProvenance(t *testing.T) {
-	input := uiAssemblyInputForTest()
-	input.Extensions[0].AssetHash = ""
-
-	_, err := GenerateUIAssembly(input)
-	assertUIAssemblyError(t, err, UIAssemblyErrorMissingHash, "asset hash")
 }
 
 func TestGenerateUIAssemblyRejectsConflictingExplicitOrder(t *testing.T) {
@@ -557,12 +501,11 @@ func TestTask7BuildsAndInspectsEveryFixtureGeneration(t *testing.T) {
 	}{
 		{
 			name: "default",
-			input: UIAssemblyInput{
+			input: UIAssemblyInput{GenerationID: "authoring-test",
 				SDKVersion: UIAssemblySDKVersion,
 				Roots: []UIModule{{
 					ID: "fixture/default-root", ModuleID: "fixture/default", Port: UIRootPort,
 					Entry: "./default-root.tsx", Export: "root",
-					SourceHash: testDigest("task7-default-source"), DependencyLockHash: testDigest("task7-default-lock"), AssetHash: testDigest("task7-default-asset"),
 				}},
 			},
 			selected: []string{"fixture/default-root", "./default-root.tsx"},
@@ -571,17 +514,15 @@ func TestTask7BuildsAndInspectsEveryFixtureGeneration(t *testing.T) {
 		},
 		{
 			name: "extension",
-			input: UIAssemblyInput{
+			input: UIAssemblyInput{GenerationID: "authoring-test",
 				SDKVersion: UIAssemblySDKVersion,
 				Roots: []UIModule{{
 					ID: "fixture/extension-root", ModuleID: "fixture/extension", Port: UIRootPort,
 					Entry: "./extension-root.tsx", Export: "root",
-					SourceHash: testDigest("task7-extension-root-source"), DependencyLockHash: testDigest("task7-extension-root-lock"), AssetHash: testDigest("task7-extension-root-asset"),
 				}},
 				Extensions: []UIModule{{
 					ID: "fixture/extension", ModuleID: "fixture/extension", Port: UIExtensionPort,
 					Entry: "./extension.tsx", Export: "extension",
-					SourceHash: testDigest("task7-extension-source"), DependencyLockHash: testDigest("task7-extension-lock"), AssetHash: testDigest("task7-extension-asset"),
 				}},
 				ExtensionOrder: []string{"fixture/extension"},
 			},
@@ -594,17 +535,15 @@ func TestTask7BuildsAndInspectsEveryFixtureGeneration(t *testing.T) {
 		},
 		{
 			name: "replacement-root",
-			input: UIAssemblyInput{
+			input: UIAssemblyInput{GenerationID: "authoring-test",
 				SDKVersion: UIAssemblySDKVersion,
 				Roots: []UIModule{{
 					ID: "fixture/replacement-root", ModuleID: "fixture/replacement", Port: UIRootPort,
 					Entry: "./replacement-root.tsx", Export: "root",
-					SourceHash: testDigest("task7-replacement-root-source"), DependencyLockHash: testDigest("task7-replacement-root-lock"), AssetHash: testDigest("task7-replacement-root-asset"),
 				}},
 				Extensions: []UIModule{{
 					ID: "fixture/replacement-extension", ModuleID: "fixture/replacement", Port: UIExtensionPort,
 					Entry: "./replacement-extension.tsx", Export: "extension",
-					SourceHash: testDigest("task7-replacement-extension-source"), DependencyLockHash: testDigest("task7-replacement-extension-lock"), AssetHash: testDigest("task7-replacement-extension-asset"),
 				}},
 				ExtensionOrder: []string{"fixture/replacement-extension"},
 			},
@@ -617,7 +556,7 @@ func TestTask7BuildsAndInspectsEveryFixtureGeneration(t *testing.T) {
 		},
 		{
 			name:     "minimal",
-			input:    UIAssemblyInput{SDKVersion: UIAssemblySDKVersion},
+			input:    UIAssemblyInput{GenerationID: "authoring-test", SDKVersion: UIAssemblySDKVersion},
 			selected: nil,
 			omitted:  []string{"fixture/default-root", "fixture/extension", "fixture/replacement-root", "./default-root.tsx", "./extension.tsx", "./replacement-root.tsx"},
 			sources:  map[string]string{},
@@ -644,23 +583,15 @@ func TestTask7BuildsAndInspectsEveryFixtureGeneration(t *testing.T) {
 			if !bytes.Equal(result.Source, result.Generated) || !bytes.Equal(result.Source, result.Code) {
 				t.Fatalf("%s generated Assembly compatibility spellings diverged", fixture.name)
 			}
-			for _, id := range fixture.selected {
-				if strings.HasPrefix(id, "./") {
-					continue
-				}
-				if result.Manifest.SourceHashes[id] == "" || result.Manifest.DependencyLockHashes[id] == "" || result.Manifest.AssetHashes[id] == "" {
-					t.Fatalf("%s omitted sealed hash provenance for selected %s: %#v", fixture.name, id, result.Manifest)
-				}
-			}
 
 			canonicalRecipe := []byte(fmt.Sprintf(`{"apiVersion":"vivy.generation/v1","profile":%q,"ui":%s}`, fixture.name, result.Manifest.Canonical()))
-			sealed, raw, sealErr := SealManifest(AssemblyPlan{}, SealInputs{
+			sealed, raw, sealErr := SealManifest(AssemblyPlan{}, SealInputs{GenerationID: "authoring-test",
 				SpecificationVersion: "vivy.assembly/v1",
 				CompilerVersion:      "task7-fixture-compiler",
 				SDKVersion:           UIAssemblySDKVersion,
 				CanonicalRecipe:      canonicalRecipe,
-				UIArtifacts:          map[string]string{"ui/dist": testDigest("task7-" + fixture.name + "-dist")},
-				UI:                   &result.Manifest,
+
+				UI: &result.Manifest,
 			})
 			if sealErr != nil {
 				t.Fatalf("SealManifest(%s) error = %v", fixture.name, sealErr)
@@ -669,10 +600,10 @@ func TestTask7BuildsAndInspectsEveryFixtureGeneration(t *testing.T) {
 			if inspectErr != nil {
 				t.Fatalf("InspectManifest(%s) error = %v", fixture.name, inspectErr)
 			}
-			if inspected.UI == nil || inspected.GenerationID != sealed.GenerationID || inspected.UI.Root != result.Manifest.Root || !equalStrings(inspected.UI.Extensions, result.Manifest.Extensions) || !reflect.DeepEqual(inspected.UI.SourceHashes, result.Manifest.SourceHashes) || !reflect.DeepEqual(inspected.UI.DependencyLockHashes, result.Manifest.DependencyLockHashes) || !reflect.DeepEqual(inspected.UI.AssetHashes, result.Manifest.AssetHashes) || inspected.UI.SDKPackage != result.Manifest.SDKPackage || inspected.UI.SDKVersion != result.Manifest.SDKVersion {
+			if inspected.UI == nil || inspected.GenerationID != sealed.GenerationID || inspected.UI.Root != result.Manifest.Root || !equalStrings(inspected.UI.Extensions, result.Manifest.Extensions) || inspected.UI.SDKPackage != result.Manifest.SDKPackage || inspected.UI.SDKVersion != result.Manifest.SDKVersion {
 				t.Fatalf("InspectManifest(%s) changed sealed UI projection: inspected=%#v generated=%#v", fixture.name, inspected.UI, result.Manifest)
 			}
-			if fixture.name == "minimal" && (inspected.UI.Root != "" || len(inspected.UI.Extensions) != 0 || len(inspected.UI.SourceHashes) != 0 || len(inspected.UI.DependencyLockHashes) != 0 || len(inspected.UI.AssetHashes) != 0) {
+			if fixture.name == "minimal" && (inspected.UI.Root != "" || len(inspected.UI.Extensions) != 0) {
 				t.Fatalf("minimal InspectManifest retained selected UI state: %#v", inspected.UI)
 			}
 			task7TypecheckGeneratedUI(t, repositoryRoot, result.Source, fixture.sources)
@@ -685,11 +616,11 @@ func TestTask7FailedUIBuildHasNoPublishedGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := UIAssemblyInput{
+	input := UIAssemblyInput{GenerationID: "authoring-test",
 		SDKVersion: UIAssemblySDKVersion,
 		Roots: []UIModule{{
 			ID: "fixture/build-failure-root", ModuleID: "fixture/build-failure", Port: UIRootPort,
-			Entry: "./root.tsx", Export: "root", SourceHash: testDigest("task7-build-failure-source"), DependencyLockHash: testDigest("task7-build-failure-lock"), AssetHash: testDigest("task7-build-failure-asset"),
+			Entry: "./root.tsx", Export: "root",
 		}},
 	}
 	result, err := GenerateUIAssembly(input)
@@ -800,44 +731,30 @@ func TestUIAssemblySDKPinMatchesPublicPackage(t *testing.T) {
 }
 
 func uiAssemblyInputForTest() UIAssemblyInput {
-	return UIAssemblyInput{
+	return UIAssemblyInput{GenerationID: "authoring-test",
 		SDKVersion: UIAssemblySDKVersion,
 		Roots: []UIModule{{
-			ID:                 "fixture/root",
-			ModuleID:           "fixture/root",
-			Port:               UIRootPort,
-			Entry:              "./root.tsx",
-			Export:             "root",
-			SourceHash:         testDigest("root-source"),
-			DependencyLockHash: testDigest("root-lock"),
-			AssetHash:          testDigest("root-asset"),
+			ID:       "fixture/root",
+			ModuleID: "fixture/root",
+			Port:     UIRootPort,
+			Entry:    "./root.tsx",
+			Export:   "root",
 		}},
 		Extensions: []UIModule{{
-			ID:                 "fixture/extension-a",
-			ModuleID:           "fixture/extension-a",
-			Port:               UIExtensionPort,
-			Entry:              "./extension-a.tsx",
-			Export:             "extensionA",
-			SourceHash:         testDigest("extension-a-source"),
-			DependencyLockHash: testDigest("extension-a-lock"),
-			AssetHash:          testDigest("extension-a-asset"),
+			ID:       "fixture/extension-a",
+			ModuleID: "fixture/extension-a",
+			Port:     UIExtensionPort,
+			Entry:    "./extension-a.tsx",
+			Export:   "extensionA",
 		}, {
-			ID:                 "fixture/extension-b",
-			ModuleID:           "fixture/extension-b",
-			Port:               UIExtensionPort,
-			Entry:              "./extension-b.tsx",
-			Export:             "extensionB",
-			SourceHash:         testDigest("extension-b-source"),
-			DependencyLockHash: testDigest("extension-b-lock"),
-			AssetHash:          testDigest("extension-b-asset"),
+			ID:       "fixture/extension-b",
+			ModuleID: "fixture/extension-b",
+			Port:     UIExtensionPort,
+			Entry:    "./extension-b.tsx",
+			Export:   "extensionB",
 		}},
 		ExtensionOrder: []string{"fixture/extension-a", "fixture/extension-b"},
 	}
-}
-
-func testDigest(value string) string {
-	digest := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(digest[:])
 }
 
 func assertUIAssemblyError(t *testing.T, err error, code UIAssemblyErrorCode, want string) {

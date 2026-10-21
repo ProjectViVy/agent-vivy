@@ -51,7 +51,7 @@ func TestSupportStateRejectsUnsafeEvidenceIdentifiers(t *testing.T) {
 	evidence["std/tool@v1"] = proof
 
 	_, err := generationconformance.EvaluatePortSupport(port.PublicCatalog(), evidence, assemblyv1.SupportedPortConformance())
-	if err == nil || !strings.Contains(err.Error(), "safe repository-relative or opaque identifier") {
+	if err == nil || !strings.Contains(err.Error(), "safe repository-relative identifier") {
 		t.Fatalf("EvaluatePortSupport() error = %v, want unsafe evidence rejection", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestSupportStateAndConformanceAreSealedForInspect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sealed, raw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{
+	sealed, raw, err := assemblyv1.SealManifest(assemblyv1.AssemblyPlan{}, assemblyv1.SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.module/v1", CompilerVersion: "plg-p9", SDKVersion: "v1",
 		CanonicalRecipe: canonicalRecipe, ConformanceResults: results, PortSupport: records,
 	})

@@ -2,8 +2,8 @@ package assembly
 
 import (
 	"fmt"
+	"os"
 
-	"agent-vivy/internal/sourcehash"
 	"agent-vivy/sdk/module"
 )
 
@@ -23,7 +23,7 @@ type SourceRecord struct {
 	Ref        string
 	// RootlessFixture admits a T2 record without a verified source root for
 	// compiler test fixtures only. Production catalogs must never set it: a
-	// real T2 Module always enters through a hashed, pinned Root.
+	// real T2 Module always enters through an explicitly selected Root.
 	RootlessFixture bool
 }
 
@@ -80,12 +80,12 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 			if record.Descriptor.Source.Ref != record.Ref {
 				return SourceCatalog{}, fmt.Errorf("source ref mismatch for %s: got %s, want %s", id, record.Descriptor.Source.Ref, record.Ref)
 			}
-			digest, err := HashSourceTree(record.Root, record.Descriptor.Source.SHA256)
+			info, err := os.Stat(record.Root)
 			if err != nil {
-				return SourceCatalog{}, fmt.Errorf("verify source for %s: %w", id, err)
+				return SourceCatalog{}, fmt.Errorf("source root for %s: %w", id, err)
 			}
-			if digest != record.Descriptor.Source.SHA256 {
-				return SourceCatalog{}, fmt.Errorf("source hash mismatch for %s: got %s, want %s", id, digest, record.Descriptor.Source.SHA256)
+			if !info.IsDir() {
+				return SourceCatalog{}, fmt.Errorf("source root for %s is not a directory", id)
 			}
 		}
 		if _, exists := catalog.records[id]; exists {
@@ -94,13 +94,6 @@ func NewSourceCatalog(records []SourceRecord) (SourceCatalog, error) {
 		catalog.records[id] = cloneSourceRecord(record)
 	}
 	return catalog, nil
-}
-
-// HashSourceTree hashes a deterministic path/content stream. The Descriptor's
-// own declared digest is normalized so the source can carry its content
-// address without introducing a circular hash dependency.
-func HashSourceTree(root, declaredDigest string) (string, error) {
-	return sourcehash.Tree(root, declaredDigest)
 }
 
 func (catalog SourceCatalog) Resolve(moduleID string) (SourceRecord, error) {

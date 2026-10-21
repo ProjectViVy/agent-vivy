@@ -11,8 +11,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "vivy/tool-host", "version": "1.0.0" },
       "source": {
-        "ref": "internal:vivy/tool-host",
-        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        "ref": "internal:vivy/tool-host"
       },
       "provides": [{ "port": "core/tool-host@v1", "id": "vivy.tool-host" }],
       "requires": [],
@@ -23,8 +22,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/tool-clock", "version": "1.0.0" },
       "source": {
-        "ref": "git:fixture/tool-clock@89abcde",
-        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        "ref": "git:fixture/tool-clock@89abcde"
       },
       "provides": [{ "port": "std/tool@v1", "id": "fixture.clock" }],
       "requires": [{ "port": "core/tool-host@v1", "provider": "vivy/tool-host" }],

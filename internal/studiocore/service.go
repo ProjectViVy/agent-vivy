@@ -2,8 +2,6 @@ package studiocore
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -136,14 +134,13 @@ func (s *Service) ListWorktrees(ctx context.Context) ([]domain.Worktree, error) 
 // sdkPackArtifact mirrors the JSON object vivy-sdk prints on stdout for a
 // successful pack (sdk/internal.Artifact). Studio does not import
 // sdk/internal, so the wire shape is restated here field by field: the v1
-// GenerationManifest carries generationId/recipeDigest and no longer the
+// GenerationManifest carries the pack-owned generationId and no longer the
 // v0 id/artifact_sha256/source_ref/recipe/phase keys.
 type sdkPackArtifact struct {
 	Directory string `json:"directory"`
 	Binary    string `json:"binary"`
 	Manifest  struct {
 		GenerationID string `json:"generationId"`
-		RecipeDigest string `json:"recipeDigest"`
 	} `json:"manifest"`
 }
 
@@ -198,26 +195,28 @@ func decodePackArtifact(out string) (sdkPackArtifact, error) {
 }
 
 // recordGeneration seals the packed artifact into the Studio ledger. The
-// v1 manifest reports generationId and recipeDigest; the ledger's v0
+// v1 manifest reports generationId; the ledger's legacy
 // AssemblyRecipe bill (loop/world/providers/tools/plugins/settings) is
 // not restorable from it, so Recipe stays empty rather than being
 // fabricated. Eval consumes the candidate through the file: source ref.
 func (s *Service) recordGeneration(ctx context.Context, art sdkPackArtifact) (domain.Generation, error) {
-	sum, err := hashFile(art.Binary)
+	info, err := os.Stat(art.Binary)
 	if err != nil {
-		return domain.Generation{}, fmt.Errorf("studiocore: hash packed binary: %w", err)
+		return domain.Generation{}, fmt.Errorf("studiocore: packed binary: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return domain.Generation{}, errors.New("studiocore: packed binary is not a regular file")
 	}
 	parent := ""
 	if gens, err := s.ledger.ListGenerations(ctx); err == nil && len(gens) > 0 {
 		parent = gens[0].ID
 	}
 	g := domain.Generation{
-		ID:             art.Manifest.GenerationID,
-		ParentID:       parent,
-		ArtifactSHA256: sum,
-		SourceRef:      "file:" + filepath.ToSlash(art.Binary),
-		Phase:          domain.GenerationBuilt,
-		CreatedAt:      time.Now().UnixMilli(),
+		ID:        art.Manifest.GenerationID,
+		ParentID:  parent,
+		SourceRef: "file:" + filepath.ToSlash(art.Binary),
+		Phase:     domain.GenerationBuilt,
+		CreatedAt: time.Now().UnixMilli(),
 	}
 	if err := s.ledger.CreateGeneration(ctx, g); err != nil {
 		return domain.Generation{}, err
@@ -331,8 +330,14 @@ func (s *Service) Release(ctx context.Context, generationID, evalID, actor strin
 			return domain.Release{}, ErrNotEvaluated
 		}
 		evalID = evals[0].ID
-	} else if _, err := s.ledger.GetEvalRun(ctx, evalID); err != nil {
-		return domain.Release{}, err
+	} else {
+		evaluated, err := s.ledger.GetEvalRun(ctx, evalID)
+		if err != nil {
+			return domain.Release{}, err
+		}
+		if evaluated.CandidateID != generationID {
+			return domain.Release{}, ErrNotEvaluated
+		}
 	}
 	rel := domain.Release{
 		ID:           NewID("rel_"),
@@ -382,10 +387,9 @@ func (s *Service) Reject(ctx context.Context, generationID string) (domain.Gener
 // installManifest is written beside the installed EXE in the daily
 // location so the location is self-describing.
 type installManifest struct {
-	ReleaseID      string `json:"release_id"`
-	GenerationID   string `json:"generation_id"`
-	ArtifactSHA256 string `json:"artifact_sha256"`
-	InstalledAt    int64  `json:"installed_at"`
+	ReleaseID    string `json:"release_id"`
+	GenerationID string `json:"generation_id"`
+	InstalledAt  int64  `json:"installed_at"`
 }
 
 // Install writes a released generation's EXE into the daily install
@@ -414,13 +418,6 @@ func (s *Service) Install(ctx context.Context, releaseID, target string) (domain
 	if !ok {
 		return domain.Install{}, fmt.Errorf("studiocore: generation %s has no runnable artifact", gen.ID)
 	}
-	sum, err := hashFile(exe)
-	if err != nil {
-		return domain.Install{}, err
-	}
-	if sum != gen.ArtifactSHA256 {
-		return domain.Install{}, fmt.Errorf("studiocore: artifact hash mismatch: %s != %s", sum, gen.ArtifactSHA256)
-	}
 	installID := NewID("ins_")
 
 	// Preserve the previous release's files for rollback (Studio-owned).
@@ -440,10 +437,9 @@ func (s *Service) Install(ctx context.Context, releaseID, target string) (domain
 		return domain.Install{}, fmt.Errorf("studiocore: copy exe: %w", err)
 	}
 	man := installManifest{
-		ReleaseID:      releaseID,
-		GenerationID:   gen.ID,
-		ArtifactSHA256: gen.ArtifactSHA256,
-		InstalledAt:    time.Now().UnixMilli(),
+		ReleaseID:    releaseID,
+		GenerationID: gen.ID,
+		InstalledAt:  time.Now().UnixMilli(),
 	}
 	if err := writeManifest(filepath.Join(target, "install.json"), man); err != nil {
 		return domain.Install{}, err
@@ -532,7 +528,7 @@ func (s *Service) Rollback(ctx context.Context, target string) (domain.Install, 
 	return in, nil
 }
 
-// InspectInstall reads the daily location's manifest and EXE hash without
+// InspectInstall reads the daily location's manifest and checks its EXE without
 // starting any process.
 func (s *Service) InspectInstall(ctx context.Context, target string) (map[string]any, error) {
 	if target == "" {
@@ -546,17 +542,18 @@ func (s *Service) InspectInstall(ctx context.Context, target string) (map[string
 	if err := json.Unmarshal(raw, &man); err != nil {
 		return nil, fmt.Errorf("studiocore: decode install manifest: %w", err)
 	}
-	sum, err := hashFile(filepath.Join(target, "vivy.exe"))
+	info, err := os.Stat(filepath.Join(target, "vivy.exe"))
 	if err != nil {
 		return nil, err
 	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("studiocore: installed binary is not a regular file")
+	}
 	return map[string]any{
-		"target":           target,
-		"release_id":       man.ReleaseID,
-		"generation_id":    man.GenerationID,
-		"artifact_sha256":  man.ArtifactSHA256,
-		"installed_sha256": sum,
-		"installed_at":     man.InstalledAt,
+		"target":        target,
+		"release_id":    man.ReleaseID,
+		"generation_id": man.GenerationID,
+		"installed_at":  man.InstalledAt,
 	}, nil
 }
 
@@ -650,19 +647,6 @@ func writeManifest(path string, man installManifest) error {
 		return err
 	}
 	return os.WriteFile(path, raw, 0o600)
-}
-
-func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func sameOrInside(abs, parent string) bool {

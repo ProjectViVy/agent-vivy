@@ -14,7 +14,6 @@ module:
   version: 1.0.0
 source:
   ref: git:fixture/minimal@0123456
-  sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 provides: []
 requires: []
 requestedGrants: []
@@ -73,7 +72,7 @@ func TestLoadDescriptorCanonicalizesSemanticInput(t *testing.T) {
 requestedGrants: []
 requires: []
 provides: []
-source: {sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef, ref: "git:fixture/minimal@0123456"}
+source: {ref: "git:fixture/minimal@0123456"}
 module: {version: 1.0.0, id: fixture/minimal}
 apiVersion: vivy.module/v1
 `,

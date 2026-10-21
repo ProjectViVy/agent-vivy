@@ -1,0 +1,147 @@
+D06/D08 integration on stable dd5610c3 plus explicit merge candidate.
+
+===== integration-wiring.log =====
+node scripts/ensure-laputa.mjs --quiet
+node scripts/verify-kernel.mjs wiring
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate dd5610c38ed0508e9898a06390bb12b4efb4f98f
+> git status --porcelain
+worktree changes: 170
+> /home/mastwet/.nvm/versions/node/v24.21.0/bin/node --test scripts/ensure-laputa.test.mjs scripts/verify-kernel.test.mjs
+✔ the direct-script entry locates its repository without RepoRoot or a matching cwd (62.549217ms)
+✔ a fresh checkout installs all three modules at the pinned commit and is repeatable (93.784591ms)
+✔ a clean old checkout advances to the pin (106.476225ms)
+✔ an old checkout with local changes is preserved and fails with an actionable error (83.533809ms)
+✔ an unrelated repository in the sibling path is rejected without changing it (90.871242ms)
+✔ an invalid module identity at the pinned commit fails before Go starts (65.356555ms)
+✔ a source lock and Go revision mismatch fails before touching the sibling (51.039609ms)
+✔ a modified source at the exact pinned commit is rejected (81.199342ms)
+✔ a pinned dependency toolchain mismatch fails before Go starts (53.971124ms)
+✔ a successful go command with no selected tests cannot accept a gate (0.987053ms)
+✔ a skipped required case cannot borrow another passing case (0.252448ms)
+✔ failure remains failure even when a sibling passed (0.124339ms)
+✔ actual executed cases and skips are reported separately (0.535763ms)
+✔ scoped Linux readiness does not claim the legacy Windows full gate (0.389215ms)
+✔ Windows readiness routes all scoped verification to Linux (0.151196ms)
+✔ WSL mounted Windows paths cannot advertise scoped readiness (0.427364ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 755.639949
+> go test -json -tags=vivy_headless -count=1 -timeout=35m -run ^Test(MinimalRecipeOmitsOptionalCapabilities|GenerateRuntimeAssembly.*|Compile.*|SourceCatalog.*|P1P2PortConformanceSuite)$ ./sdk/internal/assembly
+105 executed tests passed; 0 skipped
+
+===== integration-kernel.log =====
+node scripts/ensure-laputa.mjs --quiet
+node scripts/verify-kernel.mjs kernel
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate dd5610c38ed0508e9898a06390bb12b4efb4f98f
+> git status --porcelain
+worktree changes: 170
+> go vet -tags=vivy_headless ./internal/domain ./internal/events ./internal/config ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite ./internal/provider/... ./internal/runtime/... ./internal/tools ./internal/toolhost ./internal/modules/loop ./internal/modules/model ./internal/modules/storage ./internal/modules/checkpoint ./internal/modules/credential ./internal/modules/sandbox ./internal/modules/optional ./sdk/module ./sdk/port/... ./sdk/generation
+> go test -json -tags=vivy_headless -count=1 -timeout=35m ./internal/domain ./internal/events ./internal/config ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite ./internal/provider/... ./internal/runtime/... ./internal/tools ./internal/toolhost ./internal/modules/loop ./internal/modules/model ./internal/modules/storage ./internal/modules/checkpoint ./internal/modules/credential ./internal/modules/sandbox ./internal/modules/optional ./sdk/module ./sdk/port/... ./sdk/generation
+1734 executed tests passed; 1 skipped
+SKIPPED: TestBackendGrepRipgrepHonorsGitignore
+> go test -json -tags=vivy_headless -count=1 -timeout=35m -run ^TestMinimalKernelArtifactBootAndInspect$ ./sdk/internal
+1 executed tests passed; 0 skipped
+
+===== integration-owners.log =====
+ok  	agent-vivy/internal/rpc	14.565s
+ok  	agent-vivy/internal/studio	0.249s
+ok  	agent-vivy/internal/studiocore	5.421s
+ok  	agent-vivy/internal/eval	11.568s
+ok  	agent-vivy/internal/transition/studioledger	0.025s
+?   	agent-vivy/internal/transition/studioledger/cmd	[no test files]
+
+===== integration-postgres-final.log =====
+node scripts/verify-kernel.mjs postgres
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate dd5610c38ed0508e9898a06390bb12b4efb4f98f
+> git status --porcelain
+worktree changes: 170
+> go test -json -tags=vivy_headless -count=1 -timeout=35m ./internal/storage/postgres
+125 executed tests passed; 0 skipped
+
+===== integration-web.log =====
+node scripts/ensure-laputa.mjs --quiet
+node scripts/verify-kernel.mjs d02-web
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate dd5610c38ed0508e9898a06390bb12b4efb4f98f
+> git status --porcelain
+worktree changes: 170
+> go run -tags=vivy_headless ./sdk stage-ui --recipe recipes/default.vivy.yml --out ui/src/generated
+{"recipe":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/recipes/default.vivy.yml","output":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui/src/generated","assembly":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui/src/generated/assembly.ts","sdkVersion":"1.0.0","extensions":["vivy.persona.sidebar","vivy.evolution.sidebar","vivy.memory.sidebar","vivy.notebook.sidebar","vivy.masks-ui.sidebar","vivy.workflow-ui.sidebar","vivy.session-tree.page"]}
+> pnpm --dir ui exec tsc --noEmit
+> pnpm --dir ui exec vitest run src/lib/model-completion.test.ts src/lib/store.test.ts src/lib/run-subscription.test.ts src/lib/run-rows.test.ts src/components/chat/ChatView.test.tsx
+
+ RUN  v3.2.7 /home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui
+
+ ✓ src/lib/model-completion.test.ts (8 tests) 4ms
+ ✓ src/lib/run-rows.test.ts (20 tests) 7ms
+ ✓ src/lib/run-subscription.test.ts (3 tests) 6ms
+ ✓ src/lib/store.test.ts (65 tests) 716ms
+ ✓ src/components/chat/ChatView.test.tsx (6 tests) 141ms
+
+ Test Files  5 passed (5)
+      Tests  102 passed (102)
+   Start at  10:57:33
+   Duration  2.40s (transform 658ms, setup 0ms, collect 2.01s, tests 874ms, environment 586ms, prepare 291ms)
+
+> go test -json -tags=vivy_headless -count=1 -timeout=35m -run ^Test(PackBuildsSelectedUIIntoFinalArtifact|LiteArtifactRetainsBaseWebShell)$ ./sdk/internal
+2 executed tests passed; 0 skipped
+
+===== integration-ui-build.log =====
+
+> vivy-ui@1.0.0 prebuild /home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui
+> node scripts/stage-ui-assembly.mjs
+
+{"recipe":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/recipes/default.vivy.yml","output":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui/src/generated","assembly":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui/src/generated/assembly.ts","sdkVersion":"1.0.0","extensions":["vivy.persona.sidebar","vivy.evolution.sidebar","vivy.memory.sidebar","vivy.notebook.sidebar","vivy.masks-ui.sidebar","vivy.workflow-ui.sidebar","vivy.session-tree.page"]}
+
+> vivy-ui@1.0.0 build /home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 2584 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     2.00 kB │ gzip:   1.07 kB
+dist/assets/index-DmdYSmj2.css    154.54 kB │ gzip:  24.85 kB
+dist/assets/index-BxviLZ37.js   1,842.47 kB │ gzip: 552.91 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.89s
+
+===== integration-provider-evidence.log =====
+ok  	agent-vivy/sdk/internal/conformance	68.500s

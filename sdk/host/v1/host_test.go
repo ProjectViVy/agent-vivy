@@ -36,8 +36,7 @@ func sealedFixtureGeneration(t *testing.T) {
 		APIVersion: module.APIVersionV1,
 		Module:     module.Identity{ID: "fixture/search", Version: "1.0.0"},
 		Source: module.Source{
-			Ref:    "git:fixture/search@0123456",
-			SHA256: strings.Repeat("ab", 32),
+			Ref: "git:fixture/search@0123456",
 		},
 		Provides:  []module.PortRef{{Port: "std/tool@v1", ID: "fixture.search"}},
 		Lifecycle: module.Lifecycle{Scope: module.ScopeGeneration},
@@ -46,7 +45,7 @@ func sealedFixtureGeneration(t *testing.T) {
 		Modules:        []assemblyv1.ResolvedModule{{Descriptor: descriptor, Trust: assemblyv1.TrustT2}},
 		LifecycleOrder: []string{"fixture/search"},
 	}
-	_, raw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{
+	_, raw, err := assemblyv1.SealManifest(plan, assemblyv1.SealInputs{GenerationID: "authoring-test",
 		SpecificationVersion: "vivy.assembly/v1",
 		CompilerVersion:      "fixture-compiler",
 		SDKVersion:           "fixture-sdk",

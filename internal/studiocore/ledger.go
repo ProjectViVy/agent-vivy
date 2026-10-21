@@ -36,6 +36,9 @@ type Ledger struct {
 
 // OpenLedger opens (or creates) the Studio ledger at path.
 func OpenLedger(ctx context.Context, path string) (*Ledger, error) {
+	if err := inspectExistingLedger(ctx, path); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("studiocore: ledger dir: %w", err)
 	}
@@ -67,7 +70,6 @@ CREATE TABLE IF NOT EXISTS worktrees (
 CREATE TABLE IF NOT EXISTS generations (
 	id TEXT PRIMARY KEY,
 	parent_id TEXT NOT NULL DEFAULT '',
-	artifact_sha256 TEXT NOT NULL,
 	source_ref TEXT NOT NULL,
 	recipe_json TEXT NOT NULL DEFAULT '{}',
 	phase TEXT NOT NULL,
@@ -105,10 +107,15 @@ CREATE TABLE IF NOT EXISTS studio_events (
 	payload TEXT NOT NULL DEFAULT '{}'
 );
 `
-	if _, err := l.db.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("studiocore: migrate ledger: %w", err)
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("studiocore: begin ledger initialization: %w", err)
 	}
-	return nil
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, schema+"PRAGMA user_version = 1;"); err != nil {
+		return fmt.Errorf("studiocore: initialize ledger: %w", err)
+	}
+	return tx.Commit()
 }
 
 // ---- Worktree ----
@@ -151,7 +158,7 @@ func (l *Ledger) ListWorktrees(ctx context.Context) ([]domain.Worktree, error) {
 // ---- Generation ----
 
 func (l *Ledger) CreateGeneration(ctx context.Context, g domain.Generation) error {
-	if g.ID == "" || g.ArtifactSHA256 == "" || !g.Phase.Valid() {
+	if g.ID == "" || !g.Phase.Valid() {
 		return fmt.Errorf("studiocore: invalid generation")
 	}
 	if g.CreatedAt == 0 {
@@ -162,9 +169,9 @@ func (l *Ledger) CreateGeneration(ctx context.Context, g domain.Generation) erro
 		return fmt.Errorf("studiocore: encode generation recipe: %w", err)
 	}
 	_, err = l.db.ExecContext(ctx,
-		`INSERT INTO generations (id, parent_id, artifact_sha256, source_ref, recipe_json, phase, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		g.ID, g.ParentID, g.ArtifactSHA256, g.SourceRef, string(recipe), string(g.Phase), g.CreatedAt)
+		`INSERT INTO generations (id, parent_id, source_ref, recipe_json, phase, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		g.ID, g.ParentID, g.SourceRef, string(recipe), string(g.Phase), g.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("studiocore: create generation: %w", err)
 	}
@@ -176,9 +183,9 @@ func (l *Ledger) GetGeneration(ctx context.Context, id string) (domain.Generatio
 	var recipe string
 	var phase string
 	err := l.db.QueryRowContext(ctx,
-		`SELECT id, parent_id, artifact_sha256, source_ref, recipe_json, phase, created_at
+		`SELECT id, parent_id, source_ref, recipe_json, phase, created_at
 		 FROM generations WHERE id = ?`, id).
-		Scan(&g.ID, &g.ParentID, &g.ArtifactSHA256, &g.SourceRef, &recipe, &phase, &g.CreatedAt)
+		Scan(&g.ID, &g.ParentID, &g.SourceRef, &recipe, &phase, &g.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Generation{}, ErrNotFound
 	}
@@ -194,7 +201,7 @@ func (l *Ledger) GetGeneration(ctx context.Context, id string) (domain.Generatio
 
 func (l *Ledger) ListGenerations(ctx context.Context) ([]domain.Generation, error) {
 	rows, err := l.db.QueryContext(ctx,
-		`SELECT id, parent_id, artifact_sha256, source_ref, recipe_json, phase, created_at
+		`SELECT id, parent_id, source_ref, recipe_json, phase, created_at
 		 FROM generations ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("studiocore: list generations: %w", err)
@@ -205,7 +212,7 @@ func (l *Ledger) ListGenerations(ctx context.Context) ([]domain.Generation, erro
 		var g domain.Generation
 		var recipe string
 		var phase string
-		if err := rows.Scan(&g.ID, &g.ParentID, &g.ArtifactSHA256, &g.SourceRef, &recipe, &phase, &g.CreatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.ParentID, &g.SourceRef, &recipe, &phase, &g.CreatedAt); err != nil {
 			return nil, err
 		}
 		g.Phase = domain.GenerationPhase(phase)

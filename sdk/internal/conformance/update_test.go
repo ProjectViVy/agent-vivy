@@ -72,7 +72,6 @@ func writeReleaseResults(path string, suites []releaseSuiteCase, actual []provid
 	type resultSuite struct {
 		Port         string   `json:"port"`
 		ProviderID   string   `json:"providerId"`
-		SourceSHA256 string   `json:"sourceSha256"`
 		EvidenceID   string   `json:"evidenceId"`
 		PassedChecks []string `json:"passedChecks"`
 	}
@@ -82,11 +81,11 @@ func writeReleaseResults(path string, suites []releaseSuiteCase, actual []provid
 		Suites         []resultSuite `json:"suites"`
 	}{APIVersion: "vivy.provider-conformance-results/v1", RequiredChecks: checks}
 	for _, suite := range suites {
-		entry := resultSuite{Port: suite.Port, ProviderID: suite.ProviderID, SourceSHA256: suite.SourceSHA256, EvidenceID: suite.EvidenceID}
+		entry := resultSuite{Port: suite.Port, ProviderID: suite.ProviderID, EvidenceID: suite.EvidenceID}
 		for _, check := range checks {
 			matched := false
 			for _, result := range canonical {
-				if result.Port.Port == suite.Port && result.ProviderID == suite.ProviderID && result.SourceSHA256 == suite.SourceSHA256 && result.EvidenceID == suite.EvidenceID && result.Suite == check && result.Passed {
+				if result.Port.Port == suite.Port && result.ProviderID == suite.ProviderID && result.EvidenceID == suite.EvidenceID && result.Suite == check && result.Passed {
 					matched = true
 					break
 				}
@@ -118,10 +117,10 @@ func writeReleaseResults(path string, suites []releaseSuiteCase, actual []provid
 }
 
 func TestReleaseUpdateRequiresCompleteExecutedResults(t *testing.T) {
-	suite := releaseSuiteCase{Port: "std/tool@v1", ProviderID: "test/provider", SourceSHA256: strings.Repeat("a", 64), EvidenceID: "test.go#TestProvider"}
+	suite := releaseSuiteCase{Port: "std/tool@v1", ProviderID: "test/provider", EvidenceID: "test.go#TestProvider"}
 	var complete []providerconformance.ConformanceResult
 	for _, check := range providerconformance.RequiredProviderChecks() {
-		complete = append(complete, providerconformance.ConformanceResult{Port: module.PortRef{Port: suite.Port}, ProviderID: suite.ProviderID, SourceSHA256: suite.SourceSHA256, Suite: check, Passed: true, EvidenceID: suite.EvidenceID})
+		complete = append(complete, providerconformance.ConformanceResult{Port: module.PortRef{Port: suite.Port}, ProviderID: suite.ProviderID, Suite: check, Passed: true, EvidenceID: suite.EvidenceID})
 	}
 	for _, mode := range []string{"failed", "missing", "foreign", "complete"} {
 		t.Run(mode, func(t *testing.T) {
@@ -136,7 +135,7 @@ func TestReleaseUpdateRequiresCompleteExecutedResults(t *testing.T) {
 			case "missing":
 				results = results[1:]
 			case "foreign":
-				results[0].SourceSHA256 = strings.Repeat("b", 64)
+				results[0].EvidenceID = "foreign.go#TestOther"
 			}
 			err := writeReleaseResults(path, []releaseSuiteCase{suite}, results)
 			got, readErr := os.ReadFile(path)

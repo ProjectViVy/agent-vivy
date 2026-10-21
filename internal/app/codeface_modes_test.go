@@ -102,7 +102,7 @@ func TestCodeFaceJSONModeEmitsOrderedRecords(t *testing.T) {
 		t.Fatalf("json mode: %v (stderr %s)", err, errOut)
 	}
 	if res.Status != "completed" {
-		t.Fatalf("status = %q, want completed", res.Status)
+		t.Fatalf("status = %q, want completed (stdout %s; stderr %s)", res.Status, out, errOut)
 	}
 
 	var types []string

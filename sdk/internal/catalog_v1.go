@@ -2,8 +2,6 @@ package sdk
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	assemblyv1 "agent-vivy/sdk/internal/assembly"
 	"agent-vivy/sdk/module"
 )
 
@@ -44,7 +43,6 @@ const (
 type compiledCatalog struct {
 	SchemaVersion string
 	Path          string
-	Digest        string
 	DefaultLocale string
 	Locales       []string
 	Completeness  map[string]localeState
@@ -91,7 +89,7 @@ func loadCatalog(moduleRoot string, descriptor module.Descriptor) (compiledCatal
 	if !utf8.Valid(raw) {
 		return compiledCatalog{}, fmt.Errorf("sdk: i18n catalog for %s is not valid UTF-8", descriptor.Module.ID)
 	}
-	if err := rejectDuplicateJSONKeys(raw); err != nil {
+	if err := assemblyv1.ValidateJSONDocument(raw, nil); err != nil {
 		return compiledCatalog{}, fmt.Errorf("sdk: i18n catalog for %s: %w", descriptor.Module.ID, err)
 	}
 
@@ -149,11 +147,9 @@ func loadCatalog(moduleRoot string, descriptor module.Descriptor) (compiledCatal
 	if err != nil {
 		return compiledCatalog{}, fmt.Errorf("sdk: canonicalize i18n catalog for %s: %w", descriptor.Module.ID, err)
 	}
-	digestBytes := sha256.Sum256(canonical)
 	return compiledCatalog{
 		SchemaVersion: document.APIVersion,
 		Path:          descriptor.I18N.Catalog,
-		Digest:        hex.EncodeToString(digestBytes[:]),
 		DefaultLocale: "en",
 		Locales:       append([]string(nil), locales...),
 		Completeness:  completeness,
@@ -276,58 +272,6 @@ func messagePlaceholders(message string) (map[string]struct{}, error) {
 		}
 	}
 	return found, nil
-}
-
-func rejectDuplicateJSONKeys(raw []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	var walk func() error
-	walk = func() error {
-		token, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		delimiter, ok := token.(json.Delim)
-		if !ok {
-			return nil
-		}
-		switch delimiter {
-		case '{':
-			seen := make(map[string]struct{})
-			for decoder.More() {
-				keyToken, err := decoder.Token()
-				if err != nil {
-					return err
-				}
-				key, ok := keyToken.(string)
-				if !ok {
-					return fmt.Errorf("object key is not a string")
-				}
-				if _, exists := seen[key]; exists {
-					return fmt.Errorf("duplicate JSON key %s", key)
-				}
-				seen[key] = struct{}{}
-				if err := walk(); err != nil {
-					return err
-				}
-			}
-			_, err = decoder.Token()
-			return err
-		case '[':
-			for decoder.More() {
-				if err := walk(); err != nil {
-					return err
-				}
-			}
-			_, err = decoder.Token()
-			return err
-		default:
-			return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
-		}
-	}
-	if err := walk(); err != nil {
-		return err
-	}
-	return requireJSONEOF(decoder)
 }
 
 func requireJSONEOF(decoder *json.Decoder) error {

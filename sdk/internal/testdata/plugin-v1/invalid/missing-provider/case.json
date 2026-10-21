@@ -9,8 +9,7 @@
       "apiVersion": "vivy.module/v1",
       "module": { "id": "fixture/context-host", "version": "1.0.0" },
       "source": {
-        "ref": "internal:fixture/context-host",
-        "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+        "ref": "internal:fixture/context-host"
       },
       "provides": [],
       "requires": [{ "port": "std/context-source@v1", "provider": "fixture/missing" }],
