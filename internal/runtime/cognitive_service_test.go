@@ -517,13 +517,8 @@ func TestCognitiveNotifyInputFeedsWindow(t *testing.T) {
 	if err := svc.NotifyCognitiveInput(ctx, 7); err != nil {
 		t.Fatal(err)
 	}
-	elig, err := svc.cognitiveAttempt(ctx, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !elig.Run {
-		t.Fatalf("notified input not admitted: %+v", elig)
-	}
+	// Notify already wakes the automatic loop. Verify that real path without
+	// racing it with a second synchronous admission attempt from the fixture.
 	waitForWorkflow := func() domain.Run {
 		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
@@ -537,6 +532,9 @@ func TestCognitiveNotifyInputFeedsWindow(t *testing.T) {
 	}
 	wf := waitForWorkflow()
 	waitForRunStatus(t, backend, wf.ID, domain.RunCompleted)
+	if got := listWorkflowRuns(t, svc, backend); len(got) != 1 {
+		t.Fatalf("notification workflow runs = %d, want 1", len(got))
+	}
 	if d.lastWindow.After != 0 || d.lastWindow.Through != 7 || d.lastWindow.SourceID != "activity" {
 		t.Fatalf("window = %+v", d.lastWindow)
 	}

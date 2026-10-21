@@ -53,3 +53,17 @@ NULL` explicitly in both backends and normalize known-empty content after scan.
 Actual NULL remains unavailable. Native regression and CN-18 PASS2.311s after
 this correction; matching PostgreSQL NULL defense is included in the real matrix.
 No schema change or migration rewrite is needed for this driver-boundary fix.
+
+
+The next Linux kernel attempt at371363e0 passed CN-18 but failed once in unchanged
+TestCognitiveNotifyInputFeedsWindow with active-run conflict. Production and test
+bytes for that owner were unchanged from6080b447. Isolated Linux repetition30/30
+passed, so no deterministic reproduction or production root-cause fix is claimed.
+Inspection found the test invokes a synchronous admission immediately after
+Notify has already woken the automatic loop. Change this test to await the actual
+automatic workflow and assert exactly one created/completed run and its exact
+input window. Native corrected fixture repetition30/30 PASS24.889s. Cognitive
+production code, upstream APIs and D10's gated CAS contract are unchanged.
+
+The script again stopped before PostgreSQL/Face/Web/conformance on that failed
+kernel attempt; those checks remain pending until the resumed command completes.
