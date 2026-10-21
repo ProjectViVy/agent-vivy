@@ -3,7 +3,9 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -285,6 +287,89 @@ func TestCacheWarmOffMakesZeroCalls(t *testing.T) {
 	for _, ev := range journalEvents(t, backend, runID) {
 		if ev.Type == domain.EventCacheWarmed {
 			t.Fatalf("cache.warmed event exists in off mode: %s", string(ev.Payload))
+		}
+	}
+}
+
+// The maintenance boundary keeps its cap/cancellation and diagnostic accounting
+// even while loop-extension factories remain entirely unconstructed.
+type warmBoundaryModel struct {
+	*warmSpyModel
+	boundary func(context.Context) error
+}
+
+func (m *warmBoundaryModel) Generate(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
+	if len(input) > 0 && agenticMessageText(input[len(input)-1]) == cacheWarmPrompt {
+		return nil, m.boundary(ctx)
+	}
+	return m.warmSpyModel.Generate(ctx, input, opts...)
+}
+
+func TestCacheWarmFailureRemainsDiagnostic(t *testing.T) {
+	m := &warmBoundaryModel{warmSpyModel: newWarmSpyModel(), boundary: func(context.Context) error { return errors.New("private-warm-failure-canary") }}
+	svc, backend, _ := newWarmService(t, m, "streaming", 0.05, 60)
+	mustCreateSession(t, backend, "warm-failure")
+	run, err := svc.Run(context.Background(), "warm-failure", "warm without altering chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := waitForCacheWarmed(t, backend, run, "failed")
+	if strings.Contains(payload.Reason, "private-warm") || payload.PromptTokens != 0 || payload.CacheWriteTokens != 0 {
+		t.Fatalf("failure diagnostic/accounting: %+v", payload)
+	}
+	close(m.release)
+	waitForRunStatus(t, backend, run, domain.RunCompleted)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if !svc.WaitIdle(ctx) {
+		t.Fatal("chat did not return idle")
+	}
+}
+
+func TestCacheWarmCancellationKeepsDeadline(t *testing.T) {
+	entered := make(chan time.Duration, 1)
+	returned := make(chan struct{})
+	m := &warmBoundaryModel{warmSpyModel: newWarmSpyModel(), boundary: func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			entered <- 0
+		} else {
+			entered <- time.Until(deadline)
+		}
+		<-ctx.Done()
+		close(returned)
+		return ctx.Err()
+	}}
+	svc, backend, _ := newWarmService(t, m, "streaming", 0.05, 60)
+	mustCreateSession(t, backend, "warm-cancel")
+	run, err := svc.Run(context.Background(), "warm-cancel", "cancel maintenance with run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case remaining := <-entered:
+		if remaining <= 0 || remaining > cacheWarmCallTimeout {
+			t.Fatalf("maintenance deadline: %v", remaining)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("maintenance did not start")
+	}
+	if !svc.Cancel(run) {
+		t.Fatal("active Run missing")
+	}
+	select {
+	case <-returned:
+	case <-time.After(3 * time.Second):
+		t.Fatal("maintenance ignored Run cancellation")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if !svc.WaitIdle(ctx) {
+		t.Fatal("cancelled Run did not return idle")
+	}
+	for _, event := range journalEvents(t, backend, run) {
+		if event.Type == domain.EventCacheWarmed {
+			t.Fatalf("cancelled maintenance created diagnostic: %s", event.Payload)
 		}
 	}
 }

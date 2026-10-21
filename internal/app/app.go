@@ -663,8 +663,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, err
 	}
-	engineCfg.NudgeFactory, err = nudgeFactoryForAssembly(&runtimeAssembly)
-	if err != nil {
+	if err := applyLoopFactoryBindings(&engineCfg, &runtimeAssembly); err != nil {
 		_ = backend.Close()
 		return nil, err
 	}
@@ -1213,6 +1212,10 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 					reloadCfg.SkillSources = nil
 				}
 				reloadCfg.AgentsMDFiles = agentsMDFiles
+				if err := applyLoopFactoryBindings(&reloadCfg, &runtimeAssembly); err != nil {
+					logger.Warn("loop factory binding reload failed", "err", err)
+					return
+				}
 				if err := svc.ScheduleEngineReload(reloadCfg); err != nil {
 					logger.Warn("engine reload failed", "err", err)
 				}

@@ -16,6 +16,8 @@ func TestCoreCatalogDefinesCanonicalClosedPorts(t *testing.T) {
 		testClosed("core/mask-service@v1", "vivy/masks", CardinalityAtMostOne, RequirementConditional),
 		testClosed("core/cognitive-factory@v1", "vivy/diva-cognitive", CardinalityAtMostOne, RequirementConditional),
 		testClosed("core/nudge-factory@v1", "vivy/nudge", CardinalityAtMostOne, RequirementConditional),
+		testClosed("core/warming-factory@v1", "vivy/warming", CardinalityAtMostOne, RequirementConditional),
+		testClosed("core/steering-factory@v1", "vivy/steering", CardinalityAtMostOne, RequirementConditional),
 		testClosed("core/checkpoint-store@v1", "vivy/checkpoint", CardinalityExactlyOne, RequirementAgent),
 		testClosed("core/credential-resolver@v1", "vivy/credential", CardinalityExactlyOne, RequirementAlways),
 		testClosed("core/sandbox-backend@v1", "vivy/sandbox", CardinalityExactlyOne, RequirementAgent),

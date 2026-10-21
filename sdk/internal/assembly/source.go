@@ -40,8 +40,11 @@ type GoBinding struct {
 	// mirrors MaskFactory: emitted only when the owner module is selected,
 	// always exposed through CognitiveFactoryValue() as any (nil when
 	// unselected).
+	CognitiveFactory string
+	// Loop factories are lazy typed metadata. No selected implementation is constructed here.
 	NudgeFactory                 string
-	CognitiveFactory             string
+	WarmingFactory               string
+	SteeringFactory              string
 	DiagnosticObserver           bool
 	LanguageServerStatusProvider bool
 	PreToolProvider              bool

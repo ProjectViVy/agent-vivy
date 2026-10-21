@@ -127,6 +127,12 @@ func (assembly *RuntimeAssembly) CognitiveFactoryValue() any { return assembly.C
 func (assembly *RuntimeAssembly) HasNudgeFactory() bool  { return false }
 func (assembly *RuntimeAssembly) NudgeFactoryValue() any { return nil }
 
+func (assembly *RuntimeAssembly) HasWarmingFactory() bool  { return false }
+func (assembly *RuntimeAssembly) WarmingFactoryValue() any { return nil }
+
+func (assembly *RuntimeAssembly) HasSteeringFactory() bool  { return false }
+func (assembly *RuntimeAssembly) SteeringFactoryValue() any { return nil }
+
 func (assembly *RuntimeAssembly) Start(ctx context.Context, hosts HostResolver) error {
 	if assembly.generation != nil {
 		return errors.New("runtime assembly already started")

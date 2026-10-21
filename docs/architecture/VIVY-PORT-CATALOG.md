@@ -374,7 +374,16 @@ re-enters ToolHost.
 | `core/presentation-host@v1` | `0..1` | Required when the selected Face consumes UI |
 | `core/action-host@v1` | `0..1` | Required when a Control Action exists |
 | `core/nudge-factory@v1` | `0..1` | Inert optional T1 factory; sole owner `vivy/nudge`, core coaching retained until #93 |
+| `core/warming-factory@v1` | `0..1` | Inert optional T1 factory; sole owner `vivy/warming`, core warming retained until #93 |
+| `core/steering-factory@v1` | `0..1` | Inert optional T1 factory; sole owner `vivy/steering`, core queue retained until #93 |
 | `core/cognitive-factory@v1` | `0..1` | Required when the DIVA cognitive owner is selected |
+
+The three loop factory Ports are preparatory closed contracts, not shipped
+selectable Providers. Pure SDK DTOs have no execution authority; runtime Host
+interfaces bind the current Run/leg and opaque model-prefix handles. Generated
+named factory functions stay uncalled metadata until #93's reviewed cutover.
+There is no new queue, warmer, runner, settings owner or disabled core behavior.
+Provider/conformance/physical-omission acceptance remains with those epics.
 
 `core/cognitive-factory@v1` is a **SUPPORTED**, optional T1 backend contract
 owned by `vivy/diva-cognitive` with cardinality `0..1` and App composition as
