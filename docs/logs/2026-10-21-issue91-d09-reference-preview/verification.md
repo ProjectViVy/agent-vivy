@@ -43,7 +43,24 @@ the junction was removed afterward. No dependency version/lockfile changed.
 
 Independent review confirmed exact comparison, authority ordering, source fences,
 ReferenceID versioning and the lock/membership correction, with no remaining
-finding in those corrections. Review did not replace execution. Exact candidate
-Linux wiring/kernel, real PostgreSQL, affected Face/Web, actual Provider suites
-and race outcomes will follow after running them. Standard3015 smoke remains
-owner-deferred; D09 Story and D14 final acceptance are not claimed.
+finding in those corrections. Review did not replace execution. Exact candidate fd824b05e1c2cfa523fd22a9b24d80cc09bd4194 was then checked
+from the independent ext4 Linux checkout with its own pinned Laputa
+ff3936f44ff8cf08c12af2cf698c194cfe474fd3:
+
+- `just wiring-ci`:16 Node +105 Go cases PASS.
+- `just kernel-ci`:1832 cases PASS; one existing optional ripgrep case skipped;
+  minimal Recipe pack/Inspect/boot:1 PASS.
+- Real disposable PostgreSQL16 matrix:132 cases PASS, zero skips. Container
+  removed by helper trap; no production DSN used.
+- `just d02-ci`:81 runtime/RPC,175 shared Face,1 causal App,13 shutdown,
+  9 standalone cases PASS.
+- `just d02-web-ci`:staged UI typecheck,102 tests and2 real UI packs PASS.
+- Affected reference components:3 files/16 tests PASS1.16s; Face SDK24 tests
+  PASS422ms and actual SDK typecheck PASS. Temporary dependency link removed.
+- Strict actual23 Provider conformance suites PASS69.780s.
+- Relevant runtime/SQLite history, reference, delivery and continuity race
+  suite PASS58.570s/102.975s.
+- Candidate clean before and after; check script exit0.
+
+Standard3015 smoke remains owner-deferred. Durable presentation/download closure
+and D09 Story acceptance remain open; D14 final acceptance is not claimed.
