@@ -5,9 +5,7 @@ package masks
 
 import (
 	"context"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -30,7 +28,6 @@ type Catalog struct {
 	generationID string
 	definitions  []maskcontract.Definition
 	frame        string
-	frameDigest  string
 }
 
 type builtinSpec struct {
@@ -125,12 +122,10 @@ func loadCatalogDefinitions(assets fs.FS, generationID string, rawFrame string, 
 	}
 	sort.Slice(definitions, func(i, j int) bool { return definitions[i].ID < definitions[j].ID })
 
-	frameSum := sha256.Sum256([]byte(frame))
 	return Catalog{
 		generationID: generationID,
 		definitions:  definitions,
 		frame:        frame,
-		frameDigest:  hex.EncodeToString(frameSum[:]),
 	}, nil
 }
 
@@ -183,16 +178,15 @@ func (c Catalog) Snapshot(ctx context.Context, id string, selectionRevision int6
 		ID:                 definition.ID,
 		Name:               definition.Name,
 		Body:               definition.Body,
-		Digest:             definition.Digest,
 		DefinitionRevision: definition.Revision,
 		SelectionRevision:  selectionRevision,
 		GenerationID:       definition.GenerationID,
 	}, nil
 }
 
-// PromptAssets returns the immutable mask framing text and its SHA-256 digest.
-func (c Catalog) PromptAssets() (frame string, digest string) {
-	return c.frame, c.frameDigest
+// PromptAssets returns the immutable mask framing text.
+func (c Catalog) PromptAssets() string {
+	return c.frame
 }
 
 func (c Catalog) GenerationID() string { return c.generationID }

@@ -137,7 +137,7 @@ func TestGoalRecoveryKeepsPendingQuestionDisarmed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	deps := ServiceDeps{Journal: backend, Runs: backend, Messages: backend, Sessions: backend, PrimaryRuns: backend, GoalRuns: backend, Work: backend, Questions: backend, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink()}
+	deps := ServiceDeps{Admission: backend, GenerationID: "test-generation", Journal: backend, Runs: backend, Messages: backend, Sessions: backend, PrimaryRuns: backend, GoalRuns: backend, Work: backend, Questions: backend, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink()}
 	initial := NewService(engine, "scripted", "scripted-v0", deps)
 	initial.WakeGoal(sessionID)
 	var runID domain.RunID
@@ -212,7 +212,7 @@ func TestGoalRecoveryHumanQuestionDoesNotStartGoalRound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkpoint store: %v", err)
 	}
-	deps := ServiceDeps{Journal: backend, Runs: backend, Messages: backend, Sessions: backend, PrimaryRuns: backend, GoalRuns: backend, Work: backend, Questions: backend, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink()}
+	deps := ServiceDeps{Admission: backend, GenerationID: "test-generation", Journal: backend, Runs: backend, Messages: backend, Sessions: backend, PrimaryRuns: backend, GoalRuns: backend, Work: backend, Questions: backend, ApprovalExpiration: 5 * time.Minute, Sink: newTestSink()}
 	engine, err := NewEngine(ctx, NewQuestionFlowModel(), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

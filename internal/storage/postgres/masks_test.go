@@ -215,7 +215,7 @@ func TestReadMaskCaptureSeesOneCommittedDefinitionVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, err := b.ReadMaskCapture(ctx, "mask-capture")
-	if err != nil || before.Mask == nil || before.Mask.Name != "before" || before.Mask.Body != "before body" || before.Mask.DefinitionRevision != 1 || before.Mask.Digest != created.Digest {
+	if err != nil || before.Mask == nil || before.Mask.Name != "before" || before.Mask.Body != "before body" || before.Mask.DefinitionRevision != 1 {
 		_ = tx.Rollback()
 		t.Fatalf("capture during uncommitted update = %+v/%v", before, err)
 	}
@@ -223,7 +223,7 @@ func TestReadMaskCaptureSeesOneCommittedDefinitionVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, err := b.ReadMaskCapture(ctx, "mask-capture")
-	if err != nil || after.Mask == nil || after.Mask.Name != "after" || after.Mask.Body != "after body" || after.Mask.DefinitionRevision != 2 || after.Mask.Digest != newDigest {
+	if err != nil || after.Mask == nil || after.Mask.Name != "after" || after.Mask.Body != "after body" || after.Mask.DefinitionRevision != 2 {
 		t.Fatalf("capture after committed update = %+v/%v", after, err)
 	}
 }

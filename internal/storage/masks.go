@@ -20,20 +20,18 @@ type MaskStore interface {
 	SetMaskSelection(context.Context, mask.SetSelectionRequest) (mask.Selection, error)
 }
 
-// MaskCaptureCheck is the admission CAS input. Definition revision and digest
+// MaskCaptureCheck is the admission CAS input. Definition revision
 // apply to custom definitions; built-ins and the empty state use zero values.
 type MaskCaptureCheck struct {
 	SessionID          domain.SessionID
 	SelectionRevision  int64
 	MaskID             string
 	DefinitionRevision int64
-	DefinitionDigest   string
 }
 
 type PersonaSnapshot struct {
 	Source   string
 	Revision string
-	Digest   string
 	Body     string
 }
 
@@ -42,9 +40,9 @@ type RunPromptPayload struct {
 	Mask    *mask.Snapshot
 	// Frozen is the session-frozen FrozenCore v2 projection admitted
 	// into this run's instruction; nil when no bound bundle prepared it.
-	Frozen        *PersonaSnapshot
-	Instruction   string
-	FramingDigest string
+	Frozen      *PersonaSnapshot
+	Instruction string
+	Policy      domain.PolicySnapshot
 }
 
 type RunPromptSnapshot struct {
@@ -53,7 +51,6 @@ type RunPromptSnapshot struct {
 	ComposerVersion string
 	GenerationID    string
 	Payload         []byte
-	PayloadSHA256   string
 }
 
 type RunAdmission struct {

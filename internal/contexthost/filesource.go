@@ -2,8 +2,6 @@ package contexthost
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -71,7 +69,6 @@ func (source *FileSnapshotSource) Query(ctx context.Context, request contextsour
 		if !validSnapshotPath(path) {
 			continue
 		}
-		sum := sha256.Sum256(file.Content)
 		candidates = append(candidates, contextsource.NewCandidate(contextsource.Candidate{
 			SourceID:   source.id,
 			ContentID:  path,
@@ -79,7 +76,6 @@ func (source *FileSnapshotSource) Query(ctx context.Context, request contextsour
 			Content:    string(file.Content),
 			SizeHint:   len(file.Content),
 			Confidence: 1,
-			Version:    hex.EncodeToString(sum[:]),
 			Metadata: map[string]string{
 				"name": file.Name,
 				"path": path,

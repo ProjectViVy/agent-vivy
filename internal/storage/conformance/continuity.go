@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -25,15 +26,20 @@ func continuityAdmission(sid domain.SessionID, runID domain.RunID, messageID, re
 	if err != nil {
 		panic(err)
 	}
+	payload, err := json.Marshal(storage.RunPromptPayload{Instruction: "continuity admitted instruction", Policy: domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Definition: `{"Default":"","Rules":null}`}})
+	if err != nil {
+		panic(err)
+	}
 	return storage.ContinuityAdmission{
 		SessionID: sid,
 		Message: domain.Message{
 			ID: messageID, SessionID: sid, RunID: runID,
 			Role: domain.RoleUser, CreatedAt: 7, Content: "continuity turn",
 		},
-		Run: domain.Run{ID: runID, SessionID: sid, Status: domain.RunActive, CreatedAt: 7},
+		Run:    domain.Run{ID: runID, SessionID: sid, Status: domain.RunActive, CreatedAt: 7},
+		Prompt: &storage.RunPromptSnapshot{RunID: runID, SchemaVersion: 1, ComposerVersion: "mask-prompt/1", GenerationID: "continuity-test", Payload: payload},
 		Events: []domain.RunEvent{
-			{RunID: runID, Type: domain.EventRunStarted, CreatedAt: 7, PayloadVersion: 1, Payload: []byte(`{}`)},
+			{RunID: runID, Type: domain.EventRunStarted, CreatedAt: 7, PayloadVersion: 1, Payload: []byte(`{"prompt_schema":1}`)},
 			{RunID: runID, Type: domain.EventContextReferenceAttached, CreatedAt: 7, PayloadVersion: 1, Payload: []byte(`{}`)},
 		},
 		Scope:   scope,
@@ -55,7 +61,7 @@ func AssertContinuityAtomic(t *testing.T, slot Slot) {
 		t.Fatalf("close slot engine: %v", err)
 	}
 
-	for _, step := range []string{"message", "run", "events", "receipt"} {
+	for _, step := range []string{"message", "run", "prompt", "events", "receipt"} {
 		step := step
 		t.Run("fault after "+step, func(t *testing.T) {
 			writer, err := slot.Reopen()
@@ -87,6 +93,9 @@ func AssertContinuityAtomic(t *testing.T, slot Slot) {
 			if _, err := reopened.GetRun(ctx, admission.Run.ID); !errors.Is(err, storage.ErrNotFound) {
 				t.Fatalf("run row leaked after fault after %s: %v", step, err)
 			}
+			if _, err := reopened.(storage.RunAdmissionStore).LoadRunPrompt(ctx, admission.Run.ID); !errors.Is(err, storage.ErrNotFound) {
+				t.Fatalf("prompt row leaked after fault after %s: %v", step, err)
+			}
 			if _, found, err := rstore.FindContinuityReceipt(ctx, sid, storage.ContinuityOperationAdmission, admission.Receipt.RequestID); err != nil || found {
 				t.Fatalf("receipt leaked after fault after %s (found=%v err=%v)", step, found, err)
 			}
@@ -110,6 +119,10 @@ func AssertContinuityAtomic(t *testing.T, slot Slot) {
 	}
 	if !result.NewlyCommitted {
 		t.Fatal("first admission must commit")
+	}
+	loaded, err := b.(storage.RunAdmissionStore).LoadRunPrompt(ctx, admission.Run.ID)
+	if err != nil || string(loaded.Payload) != string(admission.Prompt.Payload) {
+		t.Fatalf("continuity did not persist exact prompt: %v", err)
 	}
 	if _, err := b.GetRun(ctx, admission.Run.ID); err != nil {
 		t.Fatalf("run row missing after commit: %v", err)

@@ -84,7 +84,7 @@ func (b *Backend) CommitPrimaryRun(ctx context.Context, admission storage.Primar
 	if affected == 0 {
 		return domain.RunEvent{}, storage.ErrNotFound
 	}
-	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask); err != nil {
+	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask, admission.Prompt); err != nil {
 		return domain.RunEvent{}, err
 	}
 	message := admission.Message

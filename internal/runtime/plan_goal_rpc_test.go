@@ -113,6 +113,7 @@ func TestStartGoalDecisionRPCWakesExactlyOneRound(t *testing.T) {
 	bus := events.NewBus(8)
 	probe := &goalWakeReadProbe{WorkStore: backend, sawActiveGoal: make(chan struct{})}
 	svc := runtime.NewService(engine, "scripted", "scripted-v0", runtime.ServiceDeps{
+		Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: backend, Work: probe, Approvals: backend, Questions: backend, Sink: bus,
 	})

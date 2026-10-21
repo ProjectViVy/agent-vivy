@@ -268,7 +268,7 @@ func TestProductionMCPReplacementRebuildsEngineWithoutStaleTool(t *testing.T) {
 
 	cfg := newDeepSeekTestConfig(t)
 	cfg.Runtime.MCPServers = []config.MCPServer{{Name: "docs", Endpoint: oldMCP.http.URL}}
-	cfg.Tools.Enabled = []string{"mcp.docs.old"}
+	cfg.Tools.Enabled = []string{"mcp.4_docs.old"}
 	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway(), WithSettingsPath(filepath.Join(t.TempDir(), "settings.yaml")))
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +286,7 @@ func TestProductionMCPReplacementRebuildsEngineWithoutStaleTool(t *testing.T) {
 	}
 	first := callControl(t, client, "turn/start", map[string]any{"session_id": sessionID, "text": "old"})
 	waitForAppRun(t, client, first)
-	if !modelServer.containsBody("mcp.docs.old") {
+	if !modelServer.containsBody("mcp.4_docs.old") {
 		t.Fatal("initial model request did not expose the discovered old MCP tool")
 	}
 	baselineBodies := modelServer.bodyCount()
@@ -297,9 +297,9 @@ func TestProductionMCPReplacementRebuildsEngineWithoutStaleTool(t *testing.T) {
 	second := callControl(t, client, "turn/start", map[string]any{"session_id": sessionID, "text": "new"})
 	waitForAppRun(t, client, second)
 	waitFor(t, 5*time.Second, func() bool {
-		return modelServer.containsBodyAfter("mcp.docs.new", baselineBodies)
+		return modelServer.containsBodyAfter("mcp.4_docs.new", baselineBodies)
 	})
-	if modelServer.containsBodyAfter("mcp.docs.old", baselineBodies) {
+	if modelServer.containsBodyAfter("mcp.4_docs.old", baselineBodies) {
 		t.Fatal("replacement left the old MCP tool executable in the rebuilt engine")
 	}
 	listed := callControl(t, client, "tools/list", nil)
@@ -314,13 +314,13 @@ func TestProductionMCPReplacementRebuildsEngineWithoutStaleTool(t *testing.T) {
 		t.Fatalf("decode tools/list result: %v", err)
 	}
 	for _, name := range view.Active {
-		if name == "mcp.docs.old" {
+		if name == "mcp.4_docs.old" {
 			t.Fatal("tools/list retained retired MCP tool as active")
 		}
 	}
 	foundNew := false
 	for _, name := range view.Active {
-		if name == "mcp.docs.new" {
+		if name == "mcp.4_docs.new" {
 			foundNew = true
 		}
 	}
@@ -376,9 +376,9 @@ func TestProductionMCPToolCatalogRefreshIsWholeDuringConcurrentRPC(t *testing.T)
 			oldSeen, newSeen := false, false
 			for _, tool := range view.Tools {
 				switch tool.Name {
-				case "mcp.docs.old":
+				case "mcp.4_docs.old":
 					oldSeen = true
-				case "mcp.docs.new":
+				case "mcp.4_docs.new":
 					newSeen = true
 				}
 			}
@@ -426,9 +426,9 @@ func TestProductionMCPToolCatalogRefreshIsWholeDuringConcurrentRPC(t *testing.T)
 			continue
 		}
 		switch tool["name"] {
-		case "mcp.docs.old":
+		case "mcp.4_docs.old":
 			oldSeen = true
-		case "mcp.docs.new":
+		case "mcp.4_docs.new":
 			newSeen = true
 		}
 	}

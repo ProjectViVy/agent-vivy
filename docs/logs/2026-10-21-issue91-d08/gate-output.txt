@@ -1,0 +1,135 @@
+D08 scoped gate output. Tests ran on c065a82b plus the exact candidate patch.
+Final source byte comparison: 129 non-documentation paths identical; Go formatting clean.
+
+===== wiring.log =====
+node scripts/ensure-laputa.mjs --quiet
+node scripts/verify-kernel.mjs wiring
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate c065a82b4618e34dddd32893abd0557bd79c5b44
+> git status --porcelain
+worktree changes: 121
+> /home/mastwet/.nvm/versions/node/v24.21.0/bin/node --test scripts/ensure-laputa.test.mjs scripts/verify-kernel.test.mjs
+✔ the direct-script entry locates its repository without RepoRoot or a matching cwd (92.668063ms)
+✔ a fresh checkout installs all three modules at the pinned commit and is repeatable (85.142306ms)
+✔ a clean old checkout advances to the pin (112.219268ms)
+✔ an old checkout with local changes is preserved and fails with an actionable error (87.063263ms)
+✔ an unrelated repository in the sibling path is rejected without changing it (84.278818ms)
+✔ an invalid module identity at the pinned commit fails before Go starts (53.893068ms)
+✔ a source lock and Go revision mismatch fails before touching the sibling (40.73389ms)
+✔ a modified source at the exact pinned commit is rejected (154.920666ms)
+✔ a pinned dependency toolchain mismatch fails before Go starts (59.362681ms)
+✔ a successful go command with no selected tests cannot accept a gate (0.782323ms)
+✔ a skipped required case cannot borrow another passing case (0.19123ms)
+✔ failure remains failure even when a sibling passed (0.117904ms)
+✔ actual executed cases and skips are reported separately (0.523816ms)
+✔ scoped Linux readiness does not claim the legacy Windows full gate (0.34103ms)
+✔ Windows readiness routes all scoped verification to Linux (0.142637ms)
+✔ WSL mounted Windows paths cannot advertise scoped readiness (0.135455ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 825.786924
+> go test -json -tags=vivy_headless -count=1 -timeout=35m -run ^Test(MinimalRecipeOmitsOptionalCapabilities|GenerateRuntimeAssembly.*|Compile.*|SourceCatalog.*|P1P2PortConformanceSuite)$ ./sdk/internal/assembly
+105 executed tests passed; 0 skipped
+
+===== postgres-final.log =====
+node scripts/verify-kernel.mjs postgres
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate c065a82b4618e34dddd32893abd0557bd79c5b44
+> git status --porcelain
+worktree changes: 136
+> go test -json -tags=vivy_headless -count=1 -timeout=35m ./internal/storage/postgres
+123 executed tests passed; 0 skipped
+
+===== kernel-final.log =====
+node scripts/ensure-laputa.mjs --quiet
+node scripts/verify-kernel.mjs kernel
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate c065a82b4618e34dddd32893abd0557bd79c5b44
+> git status --porcelain
+worktree changes: 136
+> go vet -tags=vivy_headless ./internal/domain ./internal/events ./internal/config ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite ./internal/provider/... ./internal/runtime/... ./internal/tools ./internal/toolhost ./internal/modules/loop ./internal/modules/model ./internal/modules/storage ./internal/modules/checkpoint ./internal/modules/credential ./internal/modules/sandbox ./internal/modules/optional ./sdk/module ./sdk/port/... ./sdk/generation
+> go test -json -tags=vivy_headless -count=1 -timeout=35m ./internal/domain ./internal/events ./internal/config ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite ./internal/provider/... ./internal/runtime/... ./internal/tools ./internal/toolhost ./internal/modules/loop ./internal/modules/model ./internal/modules/storage ./internal/modules/checkpoint ./internal/modules/credential ./internal/modules/sandbox ./internal/modules/optional ./sdk/module ./sdk/port/... ./sdk/generation
+1730 executed tests passed; 1 skipped
+SKIPPED: TestBackendGrepRipgrepHonorsGitignore
+> go test -json -tags=vivy_headless -count=1 -timeout=35m -run ^TestMinimalKernelArtifactBootAndInspect$ ./sdk/internal
+1 executed tests passed; 0 skipped
+
+===== race-final.log =====
+node scripts/ensure-laputa.mjs --quiet
+node scripts/verify-kernel.mjs kernel-race
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa rev-parse HEAD
+> git -C /home/mastwet/work/vivy-issue91-runtime/laputa status --porcelain
+> go version
+go version go1.26.4 linux/amd64
+Node v24.21.0; Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3; checkout /home/mastwet/work/vivy-issue91-runtime/agent-vivy
+doctor: 4 ok, 0 warnings, 0 failures
+> git rev-parse HEAD
+candidate c065a82b4618e34dddd32893abd0557bd79c5b44
+> git status --porcelain
+worktree changes: 136
+> go vet -tags=vivy_headless ./internal/domain ./internal/events ./internal/config ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite ./internal/provider/... ./internal/runtime/... ./internal/tools ./internal/toolhost ./internal/modules/loop ./internal/modules/model ./internal/modules/storage ./internal/modules/checkpoint ./internal/modules/credential ./internal/modules/sandbox ./internal/modules/optional ./sdk/module ./sdk/port/... ./sdk/generation
+> go test -json -tags=vivy_headless -count=1 -timeout=35m -race ./internal/domain ./internal/events ./internal/config ./internal/storage ./internal/storage/migrations ./internal/storage/sqlite ./internal/provider/... ./internal/runtime/... ./internal/tools ./internal/toolhost ./internal/modules/loop ./internal/modules/model ./internal/modules/storage ./internal/modules/checkpoint ./internal/modules/credential ./internal/modules/sandbox ./internal/modules/optional ./sdk/module ./sdk/port/... ./sdk/generation
+1730 executed tests passed; 1 skipped
+SKIPPED: TestBackendGrepRipgrepHonorsGitignore
+
+===== ui-typecheck.log =====
+
+> vivy-ui@1.0.0 pretypecheck /home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui
+> node scripts/stage-ui-assembly.mjs
+
+{"recipe":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/recipes/default.vivy.yml","output":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui/src/generated","assembly":"/home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui/src/generated/assembly.ts","sdkVersion":"1.0.0","extensions":["vivy.persona.sidebar","vivy.evolution.sidebar","vivy.memory.sidebar","vivy.notebook.sidebar","vivy.masks-ui.sidebar","vivy.workflow-ui.sidebar","vivy.session-tree.page"]}
+
+> vivy-ui@1.0.0 typecheck /home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui
+> tsc --noEmit
+
+
+===== ui-tests.log =====
+
+ RUN  v3.2.7 /home/mastwet/work/vivy-issue91-runtime/agent-vivy/ui
+
+ ✓ src/lib/model-completion.test.ts (8 tests) 3ms
+ ✓ src/lib/run-rows.test.ts (20 tests) 9ms
+ ✓ src/lib/run-subscription.test.ts (3 tests) 7ms
+ ✓ src/lib/store.test.ts (65 tests) 729ms
+ ✓ src/components/chat/ChatView.test.tsx (6 tests) 184ms
+
+ Test Files  5 passed (5)
+      Tests  102 passed (102)
+   Start at  09:26:57
+   Duration  2.03s (transform 650ms, setup 0ms, collect 1.62s, tests 932ms, environment 582ms, prepare 294ms)
+
+
+===== hosts-final.log =====
+ok  	agent-vivy/internal/contexthost	0.034s
+ok  	agent-vivy/internal/skillhost	0.010s
+ok  	agent-vivy/internal/mcphost	0.010s
+ok  	agent-vivy/internal/toolhost	0.010s
+ok  	agent-vivy/sdk/port/skillsource	0.009s
+
+===== app-final.log =====
+ok  	agent-vivy/internal/app	1.902s
+ok  	agent-vivy/internal/rpc	0.100s
+ok  	agent-vivy/internal/studio	0.095s

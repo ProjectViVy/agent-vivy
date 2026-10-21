@@ -44,15 +44,11 @@ func (world *ToolWorld) Discover(ctx context.Context, _ toolworld.Host) ([]toolw
 		for _, item := range items {
 			out = append(out, toolworld.ToolDefinition{
 				ID: item.ID, Description: item.Description,
-				Effect:     toolworld.EffectWrite,
-				Schema:     append(json.RawMessage(nil), item.Schema...),
-				SchemaHash: item.SchemaHash, InstanceHash: item.InstanceHash, RemoteHash: item.RemoteHash,
+				Effect: toolworld.EffectWrite,
+				Schema: append(json.RawMessage(nil), item.Schema...),
 				Provenance: toolworld.Provenance{
 					ServerInstanceID: item.InstanceID,
 					RemoteCapability: item.RemoteName,
-					SchemaHash:       item.SchemaHash,
-					InstanceHash:     item.InstanceHash,
-					RemoteHash:       item.RemoteHash,
 				},
 				ServerInstanceID: item.InstanceID,
 				RemoteCapability: item.RemoteName,

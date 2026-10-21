@@ -606,7 +606,7 @@ func conformanceChildAdmission(parentSessionID domain.SessionID, parentRunID dom
 	childRunID := domain.RunID("run-" + childSessionID)
 	task := "task-" + requestDigest
 	authority := domain.ChildAuthorityCeiling{
-		PolicyProfile: domain.PolicyProfileDefault, PolicyHash: "policy-hash-default",
+		PolicyProfile: domain.PolicyProfileDefault, PolicyDefinition: "policy-hash-default",
 		SandboxMode: domain.SandboxModeWorkspaceWrite, ApprovalPolicy: domain.ApprovalPolicyAsk,
 		ToolNames: []string{"read_file"},
 	}
@@ -1365,22 +1365,19 @@ func cnSessionWork(t *testing.T, h Harness) {
 
 func cnPromptAdmission(t *testing.T, runID domain.RunID, sessionID domain.SessionID) (storage.RunPromptSnapshot, storage.MaskCaptureCheck, []byte) {
 	t.Helper()
-	promptPayload, err := json.Marshal(storage.RunPromptPayload{Instruction: "storage conformance prompt"})
+	promptPayload, err := json.Marshal(storage.RunPromptPayload{Instruction: "storage conformance prompt", Policy: domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Definition: `{"Default":"","Rules":null}`}})
 	if err != nil {
 		t.Fatalf("marshal prompt payload: %v", err)
 	}
-	promptHash := sha256.Sum256(promptPayload)
 	prompt := storage.RunPromptSnapshot{
 		RunID: runID, SchemaVersion: 1, ComposerVersion: "mask-prompt/1",
 		GenerationID: "conformance-generation", Payload: promptPayload,
-		PayloadSHA256: hex.EncodeToString(promptHash[:]),
 	}
 	startedPayload, err := json.Marshal(struct {
 		Provider     string `json:"provider"`
 		Model        string `json:"model"`
 		PromptSchema int    `json:"prompt_schema"`
-		PromptDigest string `json:"prompt_digest"`
-	}{"test", "test", prompt.SchemaVersion, prompt.PayloadSHA256})
+	}{"test", "test", prompt.SchemaVersion})
 	if err != nil {
 		t.Fatalf("marshal run.started prompt marker: %v", err)
 	}
@@ -1475,7 +1472,7 @@ func cnAtomicGoalRun(t *testing.T, h Harness) {
 		t.Fatal("backend does not implement RunAdmissionStore")
 	}
 	loadedPrompt, err := promptStore.LoadRunPrompt(ctx, admission.Run.ID)
-	if err != nil || loadedPrompt.PayloadSHA256 != prompt.PayloadSHA256 || !bytes.Equal(loadedPrompt.Payload, prompt.Payload) {
+	if err != nil || !bytes.Equal(loadedPrompt.Payload, prompt.Payload) {
 		t.Fatalf("Goal prompt after admission = %+v, %v; want immutable admitted snapshot", loadedPrompt, err)
 	}
 	messages, err = b.ListMessages(ctx, sessionID)
@@ -1581,7 +1578,7 @@ func cnAtomicPrimaryRun(t *testing.T, h Harness) {
 		t.Fatal("backend does not implement RunAdmissionStore")
 	}
 	loadedPrompt, err := promptStore.LoadRunPrompt(ctx, runID)
-	if err != nil || loadedPrompt.PayloadSHA256 != prompt.PayloadSHA256 || !bytes.Equal(loadedPrompt.Payload, prompt.Payload) {
+	if err != nil || !bytes.Equal(loadedPrompt.Payload, prompt.Payload) {
 		t.Fatalf("primary prompt after admission = %+v, %v; want immutable admitted snapshot", loadedPrompt, err)
 	}
 	session, err := b.GetSession(ctx, sessionID)

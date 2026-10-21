@@ -793,9 +793,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		_ = backend.Close()
 		return nil, err
 	}
-	maskFrame, maskFrameDigest := "", ""
+	maskFrame := ""
 	if maskService != nil {
-		maskFrame, maskFrameDigest = maskService.PromptAssets()
+		maskFrame = maskService.PromptAssets()
 	}
 	var cognitiveBinding *runtime.CognitiveBinding
 	if cognitiveBundle != nil {
@@ -847,18 +847,17 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		// A backend without the atomic ContinuityStore seam leaves the dep
 		// nil; continuity submissions then fail unavailable rather than
 		// degrading to a non-atomic write (SC-D4).
-		Continuity:      func() storage.ContinuityStore { c, _ := backend.(storage.ContinuityStore); return c }(),
-		References:      referenceService,
-		Deliverables:    deliverableService,
-		Crons:           backend,
-		Channels:        channelHost,
-		Titles:          provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
-		Admission:       admission,
-		MaskResolver:    maskService,
-		MaskFrame:       maskFrame,
-		MaskFrameDigest: maskFrameDigest,
-		GenerationID:    generationID,
-		Cognitive:       cognitiveBinding,
+		Continuity:   func() storage.ContinuityStore { c, _ := backend.(storage.ContinuityStore); return c }(),
+		References:   referenceService,
+		Deliverables: deliverableService,
+		Crons:        backend,
+		Channels:     channelHost,
+		Titles:       provider.NewChainTitler(provider.TitleCandidates(modelHost, catalog, resolver, chatModel, cfg.Runtime.SmallModel)...),
+		Admission:    admission,
+		MaskResolver: maskService,
+		MaskFrame:    maskFrame,
+		GenerationID: generationID,
+		Cognitive:    cognitiveBinding,
 		RebuildEngine: func(ctx context.Context, ec runtime.EngineConfig) (*runtime.Engine, error) {
 			live, hidden, err := resolveActiveTools()
 			if err != nil {
@@ -986,11 +985,6 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 		}
 	}()
 
-	_, err = policy.Snapshot(liveProfile)
-	if err != nil {
-		_ = backend.Close()
-		return nil, fmt.Errorf("app: snapshot default policy: %w", err)
-	}
 	liveTools := make([]domain.ToolSpec, 0, len(ts))
 	for _, tool := range ts {
 		liveTools = append(liveTools, tool.Spec())

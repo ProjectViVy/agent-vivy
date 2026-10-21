@@ -95,9 +95,12 @@ func prepareBrokerTool(ctx context.Context, tool tools.Tool, policy *PolicyEngin
 	if err != nil {
 		return nil, err
 	}
+	if err := validateAdmittedPolicy(ctx, evaluation.Snapshot); err != nil {
+		return nil, err
+	}
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
-		Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: evaluation.Reason,
+		Profile: profile, Reason: evaluation.Reason,
 	})
 	if evaluation.Decision == domain.PolicyDeny || (!approved && evaluation.Decision != domain.PolicyAllow) {
 		return nil, fmt.Errorf("%w: child worker request for %s is not allowed", ErrPolicyDenied, spec.Name)
@@ -138,9 +141,12 @@ func validatePreparedBrokerTool(ctx context.Context, tool tools.Tool, policy *Po
 	if err != nil {
 		return err
 	}
+	if err := validateAdmittedPolicy(ctx, evaluation.Snapshot); err != nil {
+		return err
+	}
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type: domain.EventPolicyEvaluated, ToolName: spec.Name, Decision: string(evaluation.Decision),
-		Profile: profile, PolicyHash: evaluation.Snapshot.Hash, Reason: "revalidated persisted tool operation",
+		Profile: profile, Reason: "revalidated persisted tool operation",
 	})
 	if evaluation.Decision == domain.PolicyDeny || (!approved && evaluation.Decision != domain.PolicyAllow) {
 		return fmt.Errorf("%w: persisted child worker request for %s is not allowed", ErrPolicyDenied, spec.Name)

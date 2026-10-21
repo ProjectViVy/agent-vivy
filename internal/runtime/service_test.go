@@ -139,7 +139,7 @@ func TestChangeModelWhenIdleCommitsUnderRunStartupFence(t *testing.T) {
 	}
 	svc.mu.Lock()
 	delete(svc.active, "run-active")
-	svc.snapshots["child-active"] = domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Hash: "hash"}
+	svc.snapshots["child-active"] = domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Definition: "hash"}
 	svc.mu.Unlock()
 	if err := svc.ChangeModelWhenIdle("deepseek", "later", func() error { return nil }); !errors.Is(err, ErrModelChangeBusy) {
 		t.Fatalf("child worker model change = %v", err)
@@ -483,7 +483,7 @@ func TestDeleteSessionFencesContinuableChildTree(t *testing.T) {
 	childSessionID := domain.SessionID("sess-delete-continuable-child")
 	childRunID := domain.RunID("run-delete-continuable-child")
 	authority := domain.ChildAuthorityCeiling{
-		PolicyProfile: domain.PolicyProfileDefault, PolicyHash: "policy-hash",
+		PolicyProfile: domain.PolicyProfileDefault, PolicyDefinition: "policy-hash",
 		SandboxMode: domain.SandboxModeWorkspaceWrite, ApprovalPolicy: domain.ApprovalPolicyAsk,
 		ToolNames: []string{},
 	}
@@ -1085,7 +1085,7 @@ func TestParentRunReceivesChildReplyInModelInputAndConsumesAtCompletion(t *testi
 		t.Fatal(err)
 	}
 	sandbox, approval := parentSession.EffectiveSandbox()
-	authority := domain.ChildAuthorityCeiling{PolicyProfile: snapshot.Profile, PolicyHash: snapshot.Hash, SandboxMode: sandbox, ApprovalPolicy: approval, ToolNames: []string{tools.EchoInfoName}}
+	authority := domain.ChildAuthorityCeiling{PolicyProfile: snapshot.Profile, PolicyDefinition: snapshot.Definition, SandboxMode: sandbox, ApprovalPolicy: approval, ToolNames: []string{tools.EchoInfoName}}
 	authorityDigest, err := authority.Digest()
 	if err != nil {
 		t.Fatal(err)

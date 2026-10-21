@@ -29,9 +29,9 @@ snapshot — there is no other instruction path, and no new hook is needed:
   (`internal/runtime/service.go:662-668` builds `PromptInput` without a
   `Persona` field), so `buildPromptSnapshot` substitutes the embedded
   `persona-default.md` asset with `Source="runtime/persona-default"`,
-  `Revision="1"`, `Digest=sha256(body)` (`prompt_state.go:81-99`).
+  `Revision="1"` and the actual body.
 - `internal/storage/masks.go:33-38` — `PersonaSnapshot{Source, Revision,
-  Digest, Body}` is already the versioned, digest-pinned carrier the contract
+  Body}` is the exact-value, source/revision carrier the contract
   needs; it rides inside `RunPromptPayload.Persona` (`masks.go:40-45`).
 - `internal/runtime/prompt_state.go:163-191` —
   `composeAuthoritativeInstruction` is the only stage that promotes persona
@@ -45,16 +45,16 @@ snapshot — there is no other instruction path, and no new hook is needed:
   ordering; `internal/runtime/service.go:729-742`).
 - `internal/runtime/service.go:1439-1474` — on resume,
   `promptSnapshotContext` reloads the row via `Admission.LoadRunPrompt` and
-  re-validates run id, schema version, payload digest, GenerationID, and
+  re-validates Run ownership, schema version, canonical payload, GenerationID, and
   ComposerVersion; failure is closed (`CodeSnapshotMissing`,
   `CodeSnapshotCorrupt`, `CodeIncompatiblePrompt`, `CodeMaskUnavailable`).
 - `internal/runtime/prompt_middleware.go:41-77` —
   `promptMiddleware.BeforeAgent` **assigns** (never appends) the admitted
   instruction to `runCtx.Instruction`, preserving only transient native
   middleware suffixes; `promptInstruction` (`prompt_middleware.go:150-168`)
-  re-validates schema/composer/digest before the bytes reach Eino. The static
+  re-validates schema/composer and payload structure before bytes reach Eino. The static
   Engine instruction (`composeStaticInstruction`, `prompt.go:19-21`) remains
-  only as the legacy no-snapshot fallback.
+  only for non-durable embedders; checkpoint writes/resume require admission.
 
 **Seam verdict:** the persona projection attaches to `PromptInput.Persona` at
 admission. The contract below defines who may populate it and under what
@@ -72,7 +72,6 @@ Host-owned resolver from a versioned persona authority (e.g. a Laputa
 | --- | --- | --- |
 | `Source` | Identifies the authority and document, e.g. `laputa/persona:IDENTITY`; free-form but Host-assigned — never provider-payload-derived | `storage.PersonaSnapshot.Source` (`internal/storage/masks.go:34`) |
 | `Revision` | The authority's content revision label (Laputa revision counter; static assets use `"1"`) | `PersonaSnapshot.Revision` (`masks.go:35`) |
-| `Digest` | `sha256(Body)`, **recomputed by the Host** — a provider-supplied digest is never trusted verbatim (precedent: `prompt_state.go:91-93` fills an empty digest; the contract makes recomputation mandatory, not optional) | `digestText` (`prompt_state.go:207-210`) |
 | `Body` | The rendered Markdown bytes, bounded by the Host's prompt-byte rules | `PersonaSnapshot.Body` (`masks.go:37`) |
 
 Projection is *data until promoted*: the resolver output only becomes model
@@ -91,7 +90,7 @@ selection, revision-checked at admission:
   durable per-session row (`internal/maskcontract/masks.go:138-144`);
   `MaskResolver.Capture(sessionID)` reads it at admission
   (`masks.go:177-180`; `service.go:646-660`), and `MaskCaptureCheck`
-  CAS-validates `SelectionRevision`/`DefinitionRevision`/`DefinitionDigest`
+  CAS-validates `SelectionRevision`/`DefinitionRevision`
   inside the admission transaction (`internal/storage/masks.go:25-31`,
   `sqlite/run_admission.go`).
 - **Contract:** a session carries a Host-owned persona binding
@@ -126,7 +125,7 @@ requests queue) takes effect only at a defined boundary:
 Resume replays the committed snapshot, never re-resolves:
 
 - `promptSnapshotContext` (`service.go:1439-1474`) loads the durable row and
-  re-validates schema, digest, GenerationID, ComposerVersion; the admitted
+  re-validates Run/schema/composer/Generation identity and payload structure; admitted
   `payload.Persona` bytes are what `BeforeAgent` installs. There is no code
   path that re-asks the persona authority on resume — the contract freezes
   this: **no re-resolution on resume**.
@@ -142,7 +141,7 @@ Resume replays the committed snapshot, never re-resolves:
 - If the binding exists but the projection **cannot be produced** at the
   pinned revision — authority unavailable, revision no longer served
   (`contextsource.ErrVersionUnavailable` precedent,
-  `contextsource/contextsource.go:11`), or digest mismatch — run admission
+  `contextsource/contextsource.go:11`), or missing/invalid actual content — run admission
   **fails**: `buildPromptSnapshot` returns an error and `runWithOptions`
   returns before `CommitRunAdmission` (`service.go:663-669`), so no message,
   run row, journal event, or model call exists. On resume the equivalent
@@ -155,14 +154,12 @@ Resume replays the committed snapshot, never re-resolves:
 
 ### 1.7 Audit hooks
 
-- Every admitted run already journals persona provenance inside
-  `run.started`: `payloadRunStarted{PromptSchema, PromptDigest}`
-  (`internal/runtime/payloads.go:9-22`; built at `service.go:719-728`). The
-  digest binds the run to the exact `run_prompt_snapshots` row containing the
-  persona's `Source`/`Revision`/`Digest` — audit can reconstruct *which
-  persona revision authored which run* from the canonical Journal. Do not add
-  a second transcript or log private prompt/tool payloads; there is no separate
-  digest-only event audit stream.
+- Every admitted Run stores its actual persona body and source/revision in
+  the private immutable `run_prompt_snapshots` row. `run.started` carries
+  only `PromptSchema`; checkpoint v2 binds the Run and the existing snapshot
+  schema/composer/Generation identity. Recovery reads this owner rather than
+  recomputing current configuration. Public events never contain the private
+  prompt or policy definition, and no digest-only audit stream is retained.
 - Admission-time rejections propagate as typed `maskcontract` errors
   (`CodeSnapshotCorrupt`, `CodeMaskUnavailable`) and are recorded as run
   failures through the same terminal-event path as other pre-model failures.

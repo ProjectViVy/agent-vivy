@@ -844,7 +844,6 @@ export interface Preflight {
   mode: RunMode;
   face?: Face;
   policy_profile: string;
-  policy_hash?: string;
   selected_tools: string[];
   tool_decisions: Array<{ tool_name: string; decision: string; reason: string }>;
   context_bytes: number;

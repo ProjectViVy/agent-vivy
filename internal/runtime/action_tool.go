@@ -50,7 +50,7 @@ func (s *Service) InvokeActionTool(ctx context.Context, sessionID domain.Session
 	ledger := s.ledgers[runID]
 	eng := s.engine
 	s.mu.Unlock()
-	if !active || pending || boundSession != sessionID || !selected || ledger == nil || snapshot.Profile == "" || snapshot.Hash == "" {
+	if !active || pending || boundSession != sessionID || !selected || ledger == nil || snapshot.Profile == "" || snapshot.Definition == "" {
 		return "", ErrPolicyDenied
 	}
 	run, err := s.deps.Runs.GetRun(ctx, runID)
@@ -68,7 +68,7 @@ func (s *Service) InvokeActionTool(ctx context.Context, sessionID domain.Session
 		return "", ErrPolicyDenied
 	}
 	evaluation, err := eng.cfg.Policy.Evaluate(snapshot.Profile, tool.Spec(), args)
-	if err != nil || evaluation.Snapshot.Hash != snapshot.Hash || evaluation.Decision != domain.PolicyAllow {
+	if err != nil || evaluation.Snapshot.Definition != snapshot.Definition || evaluation.Decision != domain.PolicyAllow {
 		return "", ErrPolicyDenied
 	}
 

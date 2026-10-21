@@ -280,7 +280,7 @@ func TestServiceBashToolEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
 		Questions:          backend,
 		Sessions:           backend,
@@ -355,7 +355,7 @@ func TestServiceBashToolBackgroundEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
 		Questions:          backend,
 		Sessions:           backend,
@@ -426,7 +426,7 @@ func TestServiceBashTraversalRefusedWithoutFailingRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend,
 		Questions:          backend,
 		Sessions:           backend,

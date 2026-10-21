@@ -3,13 +3,12 @@ package mcphost
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -121,14 +120,11 @@ type RemoteTool struct {
 }
 
 type ToolDefinition struct {
-	ID           string
-	InstanceID   string
-	RemoteName   string
-	Description  string
-	Schema       json.RawMessage
-	SchemaHash   string
-	InstanceHash string
-	RemoteHash   string
+	ID          string
+	InstanceID  string
+	RemoteName  string
+	Description string
+	Schema      json.RawMessage
 }
 
 // TerminalFailurePolicy lets an adapter tell MCPHost that a failed operation
@@ -894,14 +890,11 @@ func (host *Host) projectTools(instance *instance, remote []RemoteTool) ([]ToolD
 		}
 		seenProjected[id] = struct{}{}
 		out = append(out, ToolDefinition{
-			ID:           id,
-			InstanceID:   instance.config.ID,
-			RemoteName:   name,
-			Description:  strings.TrimSpace(tool.Description),
-			Schema:       append(json.RawMessage(nil), tool.Schema...),
-			SchemaHash:   schemaHash(tool.Schema),
-			InstanceHash: identityHash("mcp-instance", instance.config.ID),
-			RemoteHash:   identityHash("mcp-remote", instance.config.ID, name),
+			ID:          id,
+			InstanceID:  instance.config.ID,
+			RemoteName:  name,
+			Description: strings.TrimSpace(tool.Description),
+			Schema:      append(json.RawMessage(nil), tool.Schema...),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -947,11 +940,11 @@ func definitionsChanged(previous, current []ToolDefinition) bool {
 		// Preserve that live compatibility: the new projection is allowed to
 		// carry an empty schema, but an actual non-empty schema change remains a
 		// fail-closed reconciliation event.
-		schemaChanged := old.SchemaHash != definition.SchemaHash
+		schemaChanged := !bytes.Equal(canonicalSchema(old.Schema), canonicalSchema(definition.Schema))
 		if len(definition.Schema) == 0 && len(old.Schema) > 0 {
 			schemaChanged = false
 		}
-		if !ok || schemaChanged || old.InstanceHash != definition.InstanceHash || old.RemoteHash != definition.RemoteHash || old.RemoteName != definition.RemoteName || old.InstanceID != definition.InstanceID {
+		if !ok || schemaChanged || old.RemoteName != definition.RemoteName || old.InstanceID != definition.InstanceID {
 			return true
 		}
 	}
@@ -1071,10 +1064,10 @@ func (host *Host) validateResources(resources []RemoteResource) error {
 }
 
 func projectedToolID(instanceID, remoteName string) string {
-	return "mcp." + instanceID + "." + remoteName
+	return "mcp." + strconv.Itoa(len(instanceID)) + "_" + instanceID + "." + remoteName
 }
 
-func schemaHash(raw json.RawMessage) string {
+func canonicalSchema(raw json.RawMessage) []byte {
 	canonical := bytes.TrimSpace(raw)
 	if len(canonical) > 0 {
 		decoder := json.NewDecoder(bytes.NewReader(canonical))
@@ -1086,18 +1079,7 @@ func schemaHash(raw json.RawMessage) string {
 			}
 		}
 	}
-	digest := sha256.Sum256(canonical)
-	return hex.EncodeToString(digest[:])
-}
-
-func identityHash(kind string, parts ...string) string {
-	digest := sha256.New()
-	_, _ = digest.Write([]byte(kind))
-	for _, part := range parts {
-		_, _ = digest.Write([]byte{0})
-		_, _ = digest.Write([]byte(part))
-	}
-	return hex.EncodeToString(digest.Sum(nil))
+	return canonical
 }
 
 func cloneDefinitions(definitions []ToolDefinition) []ToolDefinition {

@@ -236,8 +236,8 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 		}
 		capture.Mask = &mask.Snapshot{
 			ID: definition.ID, Name: definition.Name, Body: definition.Body,
-			Digest: definition.Digest, DefinitionRevision: definition.Revision,
-			SelectionRevision: selection.Revision, GenerationID: definition.GenerationID,
+			DefinitionRevision: definition.Revision,
+			SelectionRevision:  selection.Revision, GenerationID: definition.GenerationID,
 		}
 	}
 	if err := tx.Commit(); err != nil {

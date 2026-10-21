@@ -1,10 +1,7 @@
 package toolhost
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,7 +83,6 @@ type Request struct {
 
 type Entry struct {
 	Definition porttool.Definition
-	SchemaHash string
 	Provenance toolworld.Provenance
 	OwnerID    string
 	WorldID    string
@@ -157,7 +153,6 @@ func New(cfg Config) (*Host, error) {
 		h.static[definition.ID] = binding
 		h.staticEntries[definition.ID] = Entry{
 			Definition: definition,
-			SchemaHash: hashDefinition(definition),
 			OwnerID:    strings.TrimSpace(binding.OwnerID),
 		}
 	}
@@ -204,39 +199,6 @@ func normalizedToolDefinition(definition porttool.Definition) porttool.Definitio
 	definition.Description = strings.TrimSpace(definition.Description)
 	definition.Schema = append(json.RawMessage(nil), definition.Schema...)
 	return definition
-}
-
-func hashDefinition(definition porttool.Definition) string {
-	schema := bytes.TrimSpace(definition.Schema)
-	if len(schema) != 0 {
-		decoder := json.NewDecoder(bytes.NewReader(schema))
-		decoder.UseNumber()
-		var value any
-		if decoder.Decode(&value) == nil {
-			if canonical, err := json.Marshal(value); err == nil {
-				schema = canonical
-			}
-		}
-	}
-	digest := sha256.New()
-	_, _ = digest.Write([]byte(definition.ID))
-	_, _ = digest.Write([]byte{0})
-	_, _ = digest.Write([]byte(definition.Description))
-	_, _ = digest.Write([]byte{0})
-	_, _ = digest.Write([]byte(definition.Effect))
-	_, _ = digest.Write([]byte{0})
-	_, _ = digest.Write(schema)
-	return hex.EncodeToString(digest.Sum(nil))
-}
-
-func identityHash(kind string, parts ...string) string {
-	digest := sha256.New()
-	_, _ = digest.Write([]byte(kind))
-	for _, part := range parts {
-		_, _ = digest.Write([]byte{0})
-		_, _ = digest.Write([]byte(part))
-	}
-	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func (h *Host) IsProtected(id string) bool {
@@ -356,31 +318,11 @@ func (h *Host) Discover(ctx context.Context) ([]porttool.Definition, error) {
 			if provenance.RemoteCapability == "" {
 				provenance.RemoteCapability = remote.RemoteCapability
 			}
-			if provenance.SchemaHash == "" {
-				provenance.SchemaHash = remote.SchemaHash
-			}
-			if provenance.InstanceHash == "" {
-				provenance.InstanceHash = remote.InstanceHash
-			}
-			if provenance.RemoteHash == "" {
-				provenance.RemoteHash = remote.RemoteHash
-			}
-			if provenance.SchemaHash == "" {
-				provenance.SchemaHash = hashDefinition(definition)
-			}
 			provenance.ServerInstanceID = strings.TrimSpace(provenance.ServerInstanceID)
 			provenance.RemoteCapability = strings.TrimSpace(provenance.RemoteCapability)
-			provenance.SchemaHash = strings.TrimSpace(provenance.SchemaHash)
-			if provenance.InstanceHash == "" && provenance.ServerInstanceID != "" {
-				provenance.InstanceHash = identityHash("mcp-instance", provenance.ServerInstanceID)
-			}
-			if provenance.RemoteHash == "" && provenance.ServerInstanceID != "" && provenance.RemoteCapability != "" {
-				provenance.RemoteHash = identityHash("mcp-remote", provenance.ServerInstanceID, provenance.RemoteCapability)
-			}
 			next[id] = dynamicBinding{
 				entry: Entry{
 					Definition: definition,
-					SchemaHash: provenance.SchemaHash,
 					Provenance: provenance,
 					OwnerID:    strings.TrimSpace(world.OwnerID),
 					WorldID:    worldID,

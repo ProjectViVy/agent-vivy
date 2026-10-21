@@ -42,7 +42,7 @@ func (b *Backend) CommitRunAdmission(ctx context.Context, in storage.RunAdmissio
 		return existing.started, nil
 	}
 
-	if err := sqliteValidateAdmissionCapture(ctx, tx, in.ExpectedMask); err != nil {
+	if err := sqliteValidateAdmissionCapture(ctx, tx, in.ExpectedMask, in.Prompt); err != nil {
 		return in.Started, err
 	}
 	if in.Run.Kind == domain.RunKindChild && in.Run.EffectiveChildMode() == domain.ChildModeOneShot {
@@ -104,10 +104,10 @@ func (b *Backend) LoadRunPrompt(ctx context.Context, runID domain.RunID) (storag
 	var snapshot storage.RunPromptSnapshot
 	var payload []byte
 	err := b.db.QueryRowContext(ctx, `
-		SELECT run_id, schema_version, composer_version, generation_id, payload, payload_sha256
+		SELECT run_id, schema_version, composer_version, generation_id, payload
 		FROM run_prompt_snapshots WHERE run_id = ?`, runID).
 		Scan((*string)(&snapshot.RunID), &snapshot.SchemaVersion, &snapshot.ComposerVersion,
-			&snapshot.GenerationID, &payload, &snapshot.PayloadSHA256)
+			&snapshot.GenerationID, &payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.RunPromptSnapshot{}, mask.NewError(mask.CodeSnapshotMissing, storage.ErrNotFound)
 	}
@@ -136,7 +136,7 @@ func sqliteLockAdmissionSession(ctx context.Context, tx *sql.Tx, sessionID domai
 	return nil
 }
 
-func sqliteValidateAdmissionCapture(ctx context.Context, tx *sql.Tx, expected *storage.MaskCaptureCheck) error {
+func sqliteValidateAdmissionCapture(ctx context.Context, tx *sql.Tx, expected *storage.MaskCaptureCheck, prompt *storage.RunPromptSnapshot) error {
 	if expected == nil {
 		return nil
 	}
@@ -154,10 +154,10 @@ func sqliteValidateAdmissionCapture(ctx context.Context, tx *sql.Tx, expected *s
 	if err != nil {
 		return err
 	}
-	if definition.Revision != expected.DefinitionRevision || definition.Digest != expected.DefinitionDigest {
+	if definition.Revision != expected.DefinitionRevision {
 		return mask.NewRevisionError(mask.CodeRevisionConflict, definition.Revision, nil)
 	}
-	return nil
+	return storage.ValidatePromptMaskDefinition(prompt, definition)
 }
 
 func sqliteMessageExists(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
@@ -227,9 +227,9 @@ func sqliteInsertAdmissionRun(ctx context.Context, tx *sql.Tx, r domain.Run) err
 func sqliteInsertAdmissionPrompt(ctx context.Context, tx *sql.Tx, prompt storage.RunPromptSnapshot) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO run_prompt_snapshots
-			(run_id,schema_version,composer_version,generation_id,payload,payload_sha256)
-		VALUES (?,?,?,?,?,?)`, prompt.RunID, prompt.SchemaVersion, prompt.ComposerVersion,
-		prompt.GenerationID, prompt.Payload, prompt.PayloadSHA256); err != nil {
+			(run_id,schema_version,composer_version,generation_id,payload)
+		VALUES (?,?,?,?,?)`, prompt.RunID, prompt.SchemaVersion, prompt.ComposerVersion,
+		prompt.GenerationID, prompt.Payload); err != nil {
 		return storage.AdmissionUnavailable("insert admission prompt", err)
 	}
 	return nil
@@ -300,10 +300,10 @@ func sqliteReadAdmissionRun(ctx context.Context, tx *sql.Tx, runID domain.RunID)
 	var prompt storage.RunPromptSnapshot
 	var payload []byte
 	err = tx.QueryRowContext(ctx, `
-		SELECT run_id,schema_version,composer_version,generation_id,payload,payload_sha256
+		SELECT run_id,schema_version,composer_version,generation_id,payload
 		FROM run_prompt_snapshots WHERE run_id = ?`, runID).
 		Scan((*string)(&prompt.RunID), &prompt.SchemaVersion, &prompt.ComposerVersion,
-			&prompt.GenerationID, &payload, &prompt.PayloadSHA256)
+			&prompt.GenerationID, &payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return existing, true, nil
 	}
@@ -469,7 +469,7 @@ func sqliteSameAdmissionEvent(a, b domain.RunEvent) bool {
 
 func sqliteSamePrompt(a, b storage.RunPromptSnapshot) bool {
 	return a.RunID == b.RunID && a.SchemaVersion == b.SchemaVersion && a.ComposerVersion == b.ComposerVersion &&
-		a.GenerationID == b.GenerationID && a.PayloadSHA256 == b.PayloadSHA256 && bytes.Equal(a.Payload, b.Payload)
+		a.GenerationID == b.GenerationID && bytes.Equal(a.Payload, b.Payload)
 }
 
 func sqliteSameAdmissionMarker(a, b storage.SessionTruncation) bool {

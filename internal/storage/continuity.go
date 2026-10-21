@@ -13,7 +13,7 @@ const (
 	// ContinuityOperationAdmission is the task admission receipt identity.
 	// Turn admission uses a caller-stable request_id within the session.
 	ContinuityOperationAdmission = "run.admission"
-	ContinuityOperationPresent = "deliverable.present"
+	ContinuityOperationPresent   = "deliverable.present"
 )
 
 var (
@@ -53,12 +53,14 @@ type ContinuityAdmission struct {
 	SessionID    domain.SessionID
 	Message      domain.Message
 	Run          domain.Run
+	Prompt       *RunPromptSnapshot
+	ExpectedMask *MaskCaptureCheck
 	Events       []domain.RunEvent
 	Scope        domain.AcceptedHistoryScope
 	Expectations []SourceExpectation
 	Receipt      domain.ContinuityReceipt
 	// TestFaultHook injects a failure immediately after the named write
-	// step inside the transaction ("message", "run", "events", "receipt").
+	// step inside the transaction ("message", "run", "prompt", "events", "receipt").
 	// Backends invoke it only when non-nil; production callers leave it nil.
 	TestFaultHook func(step string) error
 }
@@ -89,7 +91,7 @@ func (a ContinuityAdmission) Validate() error {
 			return err
 		}
 	}
-	return nil
+	return ValidateRunAdmissionInput(RunAdmission{Message: a.Message, Run: a.Run, Started: a.Events[0], Prompt: a.Prompt, ExpectedMask: a.ExpectedMask})
 }
 
 // ContinuityMutation carries one typed domain event append guarded by an

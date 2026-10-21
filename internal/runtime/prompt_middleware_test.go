@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"agent-vivy/internal/domain"
 	"context"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func TestLiteralGenModelInputKeepsMaskBraces(t *testing.T) {
 }
 
 func TestPromptMiddlewareDoesNotDuplicateAuthoritativeInstruction(t *testing.T) {
-	snapshot, err := buildPromptSnapshot(PromptInput{
+	snapshot, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: "run-middleware", GenerationID: "generation-middleware", Capture: promptCapture(nil), Face: "web",
 	})
 	if err != nil {

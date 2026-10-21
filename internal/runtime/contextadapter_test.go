@@ -35,9 +35,8 @@ func TestContextCandidateAdapterUsesOnlyApprovedContent(t *testing.T) {
 	candidate.SourceID = "docs"
 	candidate.ContentID = "one"
 	candidate.Content = "approved"
-	candidate.ProvenanceID = "proof"
 	parts := contextCandidatesToUserParts([]contexthost.Candidate{candidate})
-	if len(parts) != 1 || parts[0].UserInputText.Text != "\n\n[context: docs/one provenance=proof]\napproved" {
+	if len(parts) != 1 || parts[0].UserInputText.Text != "\n\n[context: docs/one]\napproved" {
 		t.Fatalf("candidate parts = %#v", parts)
 	}
 }
@@ -48,9 +47,8 @@ func TestContextCandidateAdapterProjectsResolvedVersionProvenance(t *testing.T) 
 	candidate.ContentID = "plan.txt"
 	candidate.Version = "f1"
 	candidate.Content = "approved snapshot"
-	candidate.ProvenanceID = "proof-f1"
 	parts := contextCandidatesToUserParts([]contexthost.Candidate{candidate})
-	if len(parts) != 1 || parts[0].UserInputText.Text != "\n\n[context: fixture.files/plan.txt version=f1 provenance=proof-f1]\napproved snapshot" {
+	if len(parts) != 1 || parts[0].UserInputText.Text != "\n\n[context: fixture.files/plan.txt version=f1]\napproved snapshot" {
 		t.Fatalf("versioned candidate parts = %#v", parts)
 	}
 }

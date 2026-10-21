@@ -2,8 +2,6 @@ package storage
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,12 +84,12 @@ func ValidateRunAdmissionInput(in RunAdmission) error {
 	if in.ExpectedMask != nil && in.ExpectedMask.SessionID != in.Run.SessionID {
 		return admissionInvalid("mask capture and run sessions differ")
 	}
-	markerSchema, markerDigest, err := runStartedPromptMarker(in.Started.Payload)
+	markerSchema, err := runStartedPromptMarker(in.Started.Payload)
 	if err != nil {
 		return mask.NewError(mask.CodeSnapshotCorrupt, err)
 	}
 	if in.Prompt == nil {
-		if markerSchema != 0 || markerDigest != "" {
+		if markerSchema != 0 {
 			return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("run.started prompt marker requires a prompt snapshot"))
 		}
 		if in.ExpectedMask != nil {
@@ -99,7 +97,7 @@ func ValidateRunAdmissionInput(in RunAdmission) error {
 		}
 		return nil
 	}
-	if markerSchema != in.Prompt.SchemaVersion || markerDigest != in.Prompt.PayloadSHA256 {
+	if markerSchema != in.Prompt.SchemaVersion {
 		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("run.started prompt marker does not match prompt snapshot"))
 	}
 	payload, err := ValidateRunPromptSnapshot(*in.Prompt)
@@ -122,22 +120,20 @@ func ValidateRunAdmissionInput(in RunAdmission) error {
 // opaque run.started payload without importing Runtime's payload types. The
 // storage boundary owns the invariant that a new-format admission persists
 // its marker and snapshot together, while legacy admissions carry neither.
-func runStartedPromptMarker(raw []byte) (schemaVersion int, digest string, err error) {
+func runStartedPromptMarker(raw []byte) (schemaVersion int, err error) {
 	if len(raw) == 0 {
-		return 0, "", nil
+		return 0, nil
 	}
 	var marker struct {
-		PromptSchema int    `json:"prompt_schema"`
-		PromptDigest string `json:"prompt_digest"`
+		PromptSchema int `json:"prompt_schema"`
 	}
 	if err := json.Unmarshal(raw, &marker); err != nil {
-		return 0, "", fmt.Errorf("run.started payload is not valid JSON: %w", err)
+		return 0, fmt.Errorf("run.started payload is not valid JSON: %w", err)
 	}
-	if marker.PromptSchema < 0 || (marker.PromptSchema == 0 && strings.TrimSpace(marker.PromptDigest) != "") ||
-		(marker.PromptSchema > 0 && strings.TrimSpace(marker.PromptDigest) == "") {
-		return 0, "", errors.New("run.started prompt marker is incomplete")
+	if marker.PromptSchema < 0 {
+		return 0, errors.New("run.started prompt marker is invalid")
 	}
-	return marker.PromptSchema, marker.PromptDigest, nil
+	return marker.PromptSchema, nil
 }
 
 // ValidateMaskCaptureCheck validates the shape of the optimistic capture
@@ -157,13 +153,13 @@ func ValidateMaskCaptureCheck(in *MaskCaptureCheck) error {
 		return admissionInvalid(err.Error())
 	}
 	if in.MaskID == "" || mask.IsBuiltinID(in.MaskID) {
-		if in.DefinitionRevision != 0 || in.DefinitionDigest != "" {
+		if in.DefinitionRevision != 0 {
 			return admissionInvalid("empty and built-in masks do not carry custom definition metadata")
 		}
 		return nil
 	}
-	if in.DefinitionRevision <= 0 || strings.TrimSpace(in.DefinitionDigest) == "" {
-		return admissionInvalid("custom mask capture requires definition revision and digest")
+	if in.DefinitionRevision <= 0 {
+		return admissionInvalid("custom mask capture requires definition revision")
 	}
 	return nil
 }
@@ -181,13 +177,6 @@ func ValidateRunPromptSnapshot(in RunPromptSnapshot) (RunPromptPayload, error) {
 	if len(in.Payload) == 0 || !json.Valid(in.Payload) {
 		return RunPromptPayload{}, mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt snapshot payload is not valid JSON"))
 	}
-	if strings.TrimSpace(in.PayloadSHA256) == "" {
-		return RunPromptPayload{}, mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt snapshot digest is required"))
-	}
-	sum := sha256.Sum256(in.Payload)
-	if in.PayloadSHA256 != hex.EncodeToString(sum[:]) {
-		return RunPromptPayload{}, mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt snapshot digest does not match payload"))
-	}
 	var payload RunPromptPayload
 	if err := json.Unmarshal(in.Payload, &payload); err != nil {
 		return RunPromptPayload{}, mask.NewError(mask.CodeSnapshotCorrupt, err)
@@ -201,6 +190,9 @@ func ValidateRunPromptSnapshot(in RunPromptSnapshot) (RunPromptPayload, error) {
 	}
 	if strings.TrimSpace(payload.Instruction) == "" {
 		return RunPromptPayload{}, mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt snapshot instruction is empty"))
+	}
+	if !payload.Policy.Profile.Valid() || !json.Valid([]byte(payload.Policy.Definition)) {
+		return RunPromptPayload{}, mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt snapshot policy is unavailable"))
 	}
 	if payload.Mask != nil {
 		if err := validatePromptMask(*payload.Mask, in.GenerationID); err != nil {
@@ -226,8 +218,26 @@ func ValidatePromptMaskCapture(payload RunPromptPayload, in MaskCaptureCheck) er
 	if payload.Mask.ID != in.MaskID || payload.Mask.SelectionRevision != in.SelectionRevision {
 		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt mask does not match captured selection"))
 	}
-	if !mask.IsBuiltinID(in.MaskID) && (payload.Mask.DefinitionRevision != in.DefinitionRevision || payload.Mask.Digest != in.DefinitionDigest) {
+	if !mask.IsBuiltinID(in.MaskID) && payload.Mask.DefinitionRevision != in.DefinitionRevision {
 		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt mask does not match captured definition"))
+	}
+	return nil
+}
+
+// ValidatePromptMaskDefinition binds the admitted actual values to the custom
+// definition read under the backend's transaction lock. A revision claimed by
+// a caller cannot stand in for the contents that the owner assigned to it.
+func ValidatePromptMaskDefinition(snapshot *RunPromptSnapshot, definition mask.Definition) error {
+	if snapshot == nil {
+		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("captured definition requires a prompt snapshot"))
+	}
+	payload, err := ValidateRunPromptSnapshot(*snapshot)
+	if err != nil {
+		return err
+	}
+	if payload.Mask == nil || payload.Mask.ID != definition.ID ||
+		payload.Mask.DefinitionRevision != definition.Revision || payload.Mask.Name != definition.Name || payload.Mask.Body != definition.Body {
+		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt mask does not match the owned definition values"))
 	}
 	return nil
 }
@@ -236,14 +246,11 @@ func validatePromptMask(in mask.Snapshot, generationID string) error {
 	if err := mask.ValidateMaskID(in.ID); err != nil {
 		return mask.NewError(mask.CodeSnapshotCorrupt, err)
 	}
-	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.Body) == "" || strings.TrimSpace(in.Digest) == "" {
+	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.Body) == "" {
 		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt mask is incomplete"))
 	}
 	if in.DefinitionRevision <= 0 || in.SelectionRevision < 0 {
 		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt mask revisions are invalid"))
-	}
-	if in.Digest != mask.DefinitionDigest(in.ID, in.Name, in.Body) {
-		return mask.NewError(mask.CodeSnapshotCorrupt, errors.New("prompt mask digest does not match content"))
 	}
 	if mask.IsBuiltinID(in.ID) {
 		if in.DefinitionRevision != mask.BuiltinRevision || strings.TrimSpace(in.GenerationID) == "" || in.GenerationID != generationID {

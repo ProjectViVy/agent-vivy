@@ -26,7 +26,7 @@ func newGoalLifecycleService(t *testing.T, backend *sqlite.Backend, chat model.A
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	return NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	return NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: goalRuns, Work: backend, Workspaces: workspace,
 		Approvals: backend, Questions: backend, Sink: newTestSink(),
@@ -265,7 +265,7 @@ func TestOldGoalRunCannotReportEditedGoalReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: backend, Work: backend, Sink: newTestSink(),
 	})
@@ -372,7 +372,7 @@ func TestPendingGoalQuestionKeepsSessionBusy(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	goalRuns := &notifyingGoalRunStore{GoalRunStore: backend, committed: make(chan storage.GoalRunCommitResult, 1)}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: goalRuns, Work: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
@@ -432,7 +432,7 @@ func TestCancelResumedGoalQuestionSignalsTheCurrentModelContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: backend, Work: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
@@ -529,7 +529,7 @@ func TestPendingGoalApprovalKeepsSessionBusy(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 	goalRuns := &notifyingGoalRunStore{GoalRunStore: backend, committed: make(chan storage.GoalRunCommitResult, 1)}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: goalRuns, Work: backend, Notes: backend, Approvals: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),

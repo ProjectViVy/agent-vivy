@@ -305,7 +305,7 @@ func (b *Backend) CommitGoalRun(ctx context.Context, admission storage.GoalRunCo
 		}, nil
 	}
 
-	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask); err != nil {
+	if err := sqliteValidateAdmissionCapture(ctx, tx, admission.ExpectedMask, admission.Prompt); err != nil {
 		return storage.GoalRunCommitResult{}, err
 	}
 	state := domain.WorkState{SessionID: admission.Mutation.SessionID}

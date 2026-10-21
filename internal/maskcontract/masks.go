@@ -161,7 +161,6 @@ type Snapshot struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
 	Body               string `json:"body"`
-	Digest             string `json:"digest"`
 	DefinitionRevision int64  `json:"definition_revision"`
 	SelectionRevision  int64  `json:"selection_revision"`
 	GenerationID       string `json:"generation_id"`
@@ -260,7 +259,7 @@ type Manager interface {
 type Service interface {
 	Resolver
 	Manager
-	PromptAssets() (frame string, digest string)
+	PromptAssets() string
 }
 
 // ActionHost is the extra private facade made available only to the sealed T1

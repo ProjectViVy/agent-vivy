@@ -35,7 +35,7 @@ func TestOrchestrationNative(t *testing.T) {
 
 	// This immutable prompt and graph Run are the shared identity boundary for
 	// every workflow node and the Eino checkpoint.
-	prompt, err := buildPromptSnapshot(PromptInput{
+	prompt, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: runID, GenerationID: svc.deps.GenerationID,
 		Capture: maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}},
 	})
@@ -50,8 +50,8 @@ func TestOrchestrationNative(t *testing.T) {
 	mapper := newEventMapper(runID, 64<<10)
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: "test", Model: "test-model", Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
-		PolicyProfile: string(domain.PolicyProfileDefault), PolicyHash: "test-policy",
-		PromptSchema: prompt.SchemaVersion, PromptDigest: prompt.PayloadSHA256,
+		PolicyProfile: string(domain.PolicyProfileDefault),
+		PromptSchema:  prompt.SchemaVersion,
 	})
 	_, err = backend.CommitRunAdmission(ctx, storage.RunAdmission{
 		Message: domain.Message{
@@ -455,7 +455,7 @@ func newNativeOrchestrationApprovalFixture(t *testing.T) nativeOrchestrationAppr
 	if err != nil {
 		t.Fatalf("build workflow descriptor: %v", err)
 	}
-	prompt, err := buildPromptSnapshot(PromptInput{
+	prompt, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: runID, GenerationID: svc.deps.GenerationID,
 		Capture: maskcontract.Capture{Selection: maskcontract.Selection{SessionID: sessionID}},
 	})
@@ -465,8 +465,8 @@ func newNativeOrchestrationApprovalFixture(t *testing.T) nativeOrchestrationAppr
 	mapper := newEventMapper(runID, 64<<10)
 	started := mapper.build(domain.EventRunStarted, payloadRunStarted{
 		Provider: "test", Model: "test-model", Mode: string(domain.RunModeNormal), Face: string(domain.FaceWeb),
-		PolicyProfile: string(domain.PolicyProfileDefault), PolicyHash: "test-policy",
-		PromptSchema: prompt.SchemaVersion, PromptDigest: prompt.PayloadSHA256,
+		PolicyProfile: string(domain.PolicyProfileDefault),
+		PromptSchema:  prompt.SchemaVersion,
 	})
 	_, err = backend.CommitRunAdmission(ctx, storage.RunAdmission{
 		Message: domain.Message{ID: newMessageID(), SessionID: sessionID, RunID: runID, Role: domain.RoleUser,
@@ -479,7 +479,7 @@ func newNativeOrchestrationApprovalFixture(t *testing.T) nativeOrchestrationAppr
 	}
 	workflowCtx := withRunPrompt(ctx, prompt)
 	workflowCtx = withWorkspaceID(withSessionID(withRunID(workflowCtx, runID), sessionID), "")
-	workflowCtx = withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(workflowCtx, nil), domain.FaceWeb), domain.RunModeNormal), domain.PolicyProfileDefault), domain.PolicySnapshot{Hash: "test-policy"})
+	workflowCtx = withPolicySnapshot(withPolicyProfile(withRunMode(withFace(withSelectedTools(workflowCtx, nil), domain.FaceWeb), domain.RunModeNormal), domain.PolicyProfileDefault), defaultPolicyForTest(t, domain.PolicyProfileDefault))
 	workflowCtx = withSessionSandbox(workflowCtx, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk)
 	workflowCtx = withToolOperationCoordinator(workflowCtx, svc.newToolOperationCoordinator(runID, sessionID))
 	input := orchestrationProofInput{

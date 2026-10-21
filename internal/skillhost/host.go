@@ -2,8 +2,6 @@ package skillhost
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
@@ -72,15 +70,12 @@ type Request struct {
 
 type Summary struct {
 	skillsource.Summary
-	SourceID     string
-	ProvenanceID string
+	SourceID string
 }
 
 type ResolvedSkill struct {
 	skillsource.Skill
-	SourceID     string
-	ContentHash  string
-	ProvenanceID string
+	SourceID string
 }
 
 type Failure struct {
@@ -200,9 +195,8 @@ func (host *Host) List(ctx context.Context, request Request) ([]Summary, error) 
 			continue
 		}
 		out = append(out, Summary{
-			Summary:      cloneSummary(entry.summary),
-			SourceID:     entry.source.ID(),
-			ProvenanceID: summaryProvenance(entry.source.ID(), entry.summary),
+			Summary:  cloneSummary(entry.summary),
+			SourceID: entry.source.ID(),
 		})
 	}
 	return out, nil
@@ -259,14 +253,10 @@ func (host *Host) Get(ctx context.Context, request Request, id string) (Resolved
 	if len(skill.Content) > host.maxSkillBytes {
 		return ResolvedSkill{}, fmt.Errorf("%w: %s", ErrSkillTooLarge, entry.summary.ID)
 	}
-	content := skill.Content
-	contentHash := hashText(content)
 	sourceID := entry.source.ID()
 	return ResolvedSkill{
-		Skill:        skill,
-		SourceID:     sourceID,
-		ContentHash:  contentHash,
-		ProvenanceID: resolvedProvenance(sourceID, skill, contentHash),
+		Skill:    skill,
+		SourceID: sourceID,
 	}, nil
 }
 
@@ -483,8 +473,8 @@ func (host *Host) getFromSource(ctx context.Context, source skillsource.Provider
 func validateSkill(summary skillsource.Summary) error {
 	id := summary.ID
 	name := summary.Name
-	if strings.TrimSpace(id) != id || strings.TrimSpace(name) != name || strings.TrimSpace(summary.Version) != summary.Version || strings.TrimSpace(summary.SourceHash) != summary.SourceHash ||
-		!skillIDPattern.MatchString(id) || !skillIDPattern.MatchString(name) || summary.Version == "" || summary.SourceHash == "" {
+	if strings.TrimSpace(id) != id || strings.TrimSpace(name) != name || strings.TrimSpace(summary.Version) != summary.Version ||
+		!skillIDPattern.MatchString(id) || !skillIDPattern.MatchString(name) {
 		return fmt.Errorf("%w: invalid identity/version for %q", ErrInvalidSkill, id)
 	}
 	if strings.TrimSpace(summary.Context) != summary.Context {
@@ -504,42 +494,19 @@ func validateSkill(summary skillsource.Summary) error {
 }
 
 func sameIdentity(summary skillsource.Summary, skill skillsource.Skill) bool {
-	return summary.ID == skill.ID && summary.Name == skill.Name && summary.Version == skill.Version && summary.SourceHash == skill.SourceHash
+	return summary.ID == skill.ID && summary.Name == skill.Name && summary.Version == skill.Version
 }
 
 func cloneSummary(summary skillsource.Summary) skillsource.Summary {
 	skill := skillsource.Skill{
 		ID: summary.ID, Name: summary.Name, Description: summary.Description,
-		Version: summary.Version, SourceHash: summary.SourceHash,
-		Available: summary.Available, DisabledReason: summary.DisabledReason,
+		Version: summary.Version, Available: summary.Available, DisabledReason: summary.DisabledReason,
 		Dependencies: summary.Dependencies, Always: summary.Always,
 		UserInvocable: summary.UserInvocable, DeclaredTools: summary.DeclaredTools,
 		Context: summary.Context, Agent: summary.Agent, Model: summary.Model,
 		Metadata: summary.Metadata,
 	}.Clone()
 	return skill.Summary()
-}
-
-func summaryProvenance(sourceID string, summary skillsource.Summary) string {
-	return hashFields(sourceID, summary.ID, summary.Name, summary.Version, summary.SourceHash)
-}
-
-func resolvedProvenance(sourceID string, skill skillsource.Skill, contentHash string) string {
-	return hashFields(sourceID, skill.ID, skill.Name, skill.Version, skill.SourceHash, contentHash)
-}
-
-func hashText(text string) string {
-	sum := sha256.Sum256([]byte(text))
-	return hex.EncodeToString(sum[:])
-}
-
-func hashFields(fields ...string) string {
-	hash := sha256.New()
-	for _, field := range fields {
-		_, _ = hash.Write([]byte(strings.TrimSpace(field)))
-		_, _ = hash.Write([]byte{0})
-	}
-	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func truncateUTF8Bytes(value string, maxBytes int) string {

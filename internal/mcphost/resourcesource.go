@@ -2,8 +2,7 @@ package mcphost
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"fmt"
 	"strings"
 
 	"agent-vivy/sdk/port/contextsource"
@@ -75,15 +74,13 @@ func (source *ResourceSource) Query(ctx context.Context, request contextsource.R
 			if mediaType == "" {
 				mediaType = "text/plain"
 			}
-			sum := sha256.Sum256([]byte(status.ID + "\x00" + resource.URI + "\x00" + content.Text))
 			out = append(out, contextsource.NewCandidate(contextsource.Candidate{
 				SourceID:   mcpResourceSourceID,
-				ContentID:  status.ID + ":" + resource.URI,
+				ContentID:  fmt.Sprintf("%d:%s%s", len(status.ID), status.ID, resource.URI),
 				MediaType:  mediaType,
 				Content:    content.Text,
 				SizeHint:   len(content.Text),
 				Confidence: 0.5,
-				Version:    hex.EncodeToString(sum[:]),
 				Metadata: map[string]string{
 					"instance": status.ID,
 					"uri":      resource.URI,

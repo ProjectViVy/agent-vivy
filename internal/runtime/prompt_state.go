@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +18,7 @@ const (
 )
 
 // PromptInput is the complete host-owned input to the immutable prompt
-// composer. Runtime supplies the frame bytes and digest separately so the
+// composer. Runtime supplies the frame bytes separately so the
 // optional mask provider does not become a Runtime import.
 type PromptInput struct {
 	RunID        domain.RunID
@@ -29,13 +27,11 @@ type PromptInput struct {
 	Capture      maskcontract.Capture
 	Face         domain.Face
 	Frame        string
-	FrameDigest  string
+	Policy       domain.PolicySnapshot
 	// FrozenText is the rendered FrozenCore v2 authority section
-	// projected for this session's first primary run; FrozenDigest is
-	// its sha256. Both come from the bound cognitive bundle's Prepare
-	// and are persisted verbatim in the payload.
-	FrozenText   string
-	FrozenDigest string
+	// projected for this session's first primary run. The body comes from the
+	// bound cognitive bundle's Prepare and is persisted verbatim.
+	FrozenText string
 }
 
 type runPromptContextKey struct{}
@@ -84,18 +80,17 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 	if err := validatePromptCapture(in.Capture, in.GenerationID); err != nil {
 		return storage.RunPromptSnapshot{}, err
 	}
+	if !in.Policy.Profile.Valid() || !json.Valid([]byte(in.Policy.Definition)) {
+		return storage.RunPromptSnapshot{}, errors.New("runtime: prompt snapshot requires the admitted policy definition")
+	}
 	persona := in.Persona
 	if strings.TrimSpace(persona.Body) == "" {
 		persona.Body = promptAsset("persona-default.md")
 		persona.Source = "runtime/persona-default"
 		persona.Revision = "1"
-		persona.Digest = digestText(persona.Body)
 	}
 	if strings.TrimSpace(persona.Body) == "" {
 		return storage.RunPromptSnapshot{}, errors.New("runtime: default persona asset is empty")
-	}
-	if persona.Digest == "" {
-		persona.Digest = digestText(persona.Body)
 	}
 	if persona.Source == "" {
 		persona.Source = "runtime/persona"
@@ -103,37 +98,32 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 	if persona.Revision == "" {
 		persona.Revision = "1"
 	}
-	if (in.FrozenText == "") != (in.FrozenDigest == "") {
-		return storage.RunPromptSnapshot{}, errors.New("runtime: frozen core text and digest must travel together")
-	}
 	instruction, err := composeAuthoritativeInstruction(persona.Body, in.FrozenText, in.Capture.Mask, face, in.Frame)
 	if err != nil {
 		return storage.RunPromptSnapshot{}, err
 	}
 	payload := storage.RunPromptPayload{
-		Persona:       persona,
-		Mask:          clonePromptMask(in.Capture.Mask),
-		Instruction:   instruction,
-		FramingDigest: in.FrameDigest,
+		Persona:     persona,
+		Mask:        clonePromptMask(in.Capture.Mask),
+		Instruction: instruction,
+		Policy:      in.Policy,
 	}
-	if in.FrozenDigest != "" {
+	if in.FrozenText != "" {
 		payload.Frozen = &storage.PersonaSnapshot{
 			Source: "garden/frozen-core", Revision: "v2",
-			Digest: in.FrozenDigest, Body: in.FrozenText,
+			Body: in.FrozenText,
 		}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return storage.RunPromptSnapshot{}, fmt.Errorf("runtime: marshal prompt snapshot: %w", err)
 	}
-	sum := sha256.Sum256(encoded)
 	return storage.RunPromptSnapshot{
 		RunID:           in.RunID,
 		SchemaVersion:   promptSchemaVersion,
 		ComposerVersion: promptComposerVersion,
 		GenerationID:    in.GenerationID,
 		Payload:         append([]byte(nil), encoded...),
-		PayloadSHA256:   hex.EncodeToString(sum[:]),
 	}, nil
 }
 
@@ -159,11 +149,10 @@ func validatePromptCapture(capture maskcontract.Capture, generationID string) er
 	if err := maskcontract.ValidateMaskID(capture.Mask.ID); err != nil {
 		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, err)
 	}
-	if strings.TrimSpace(capture.Mask.Body) == "" || strings.TrimSpace(capture.Mask.Name) == "" || capture.Mask.Digest == "" {
+	if strings.TrimSpace(capture.Mask.Body) == "" || strings.TrimSpace(capture.Mask.Name) == "" {
 		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask snapshot is incomplete"))
 	}
-	if capture.Mask.SelectionRevision < 0 || capture.Mask.DefinitionRevision <= 0 ||
-		capture.Mask.Digest != maskcontract.DefinitionDigest(capture.Mask.ID, capture.Mask.Name, capture.Mask.Body) {
+	if capture.Mask.SelectionRevision < 0 || capture.Mask.DefinitionRevision <= 0 {
 		return maskcontract.NewError(maskcontract.CodeSnapshotCorrupt, errors.New("mask snapshot metadata does not match content"))
 	}
 	if !maskcontract.IsBuiltinID(capture.Mask.ID) && capture.Mask.GenerationID != "" {
@@ -219,12 +208,6 @@ func clonePromptMask(in *maskcontract.Snapshot) *maskcontract.Snapshot {
 	out.ID = string([]byte(in.ID))
 	out.Name = string([]byte(in.Name))
 	out.Body = string([]byte(in.Body))
-	out.Digest = string([]byte(in.Digest))
 	out.GenerationID = string([]byte(in.GenerationID))
 	return &out
-}
-
-func digestText(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
 }

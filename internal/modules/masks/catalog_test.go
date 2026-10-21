@@ -2,8 +2,6 @@ package masks
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io/fs"
 	"strings"
@@ -44,10 +42,9 @@ func TestMaskCatalogEmbedsCanonicalBuiltIns(t *testing.T) {
 		}
 	}
 
-	frame, digest := catalog.PromptAssets()
-	sum := sha256.Sum256([]byte(frame))
-	if digest != hex.EncodeToString(sum[:]) || frame == "" {
-		t.Fatalf("prompt assets digest/frame mismatch: digest=%q frame=%q", digest, frame)
+	frame := catalog.PromptAssets()
+	if frame == "" {
+		t.Fatal("mask prompt frame is empty")
 	}
 	if !strings.Contains(frame, "Runtime rules") || !strings.Contains(frame, "explicit") || !strings.Contains(frame, "task requirements") {
 		t.Fatalf("mask frame does not state authority/precedence: %q", frame)
@@ -123,7 +120,7 @@ func TestMaskCatalogNormalizesCRLFAssetBytes(t *testing.T) {
 	if definition.Body != "line one\nline two\n" {
 		t.Fatalf("body = %q, want LF-normalized", definition.Body)
 	}
-	frame, _ := catalog.PromptAssets()
+	frame := catalog.PromptAssets()
 	if frame != "frame\nsecond" {
 		t.Fatalf("frame = %q, want LF-normalized", frame)
 	}

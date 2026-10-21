@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -25,9 +26,70 @@ func RunMasks(t *testing.T, h Harness) {
 		{"selection-capture-and-delete-race", maskSelectionRace},
 		{"fork-copies-selection-and-serializes-delete", maskForkAndDelete},
 		{"session-delete-reopen-removes-selection-preserves-catalog", maskReopen},
+		{"admission-rejects-forged-definition-at-same-revision", maskAdmissionExactDefinition},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) { test.run(t, h) })
+	}
+}
+
+func maskAdmissionExactDefinition(t *testing.T, h Harness) {
+	b := fresh(t, h)
+	ctx := context.Background()
+	store := requireMaskStore(t, b)
+	admissions, ok := b.(storage.RunAdmissionStore)
+	if !ok {
+		t.Fatal("backend has no admission store")
+	}
+	const sessionID domain.SessionID = "mask-exact-admission"
+	if err := b.CreateSession(ctx, domain.Session{ID: sessionID, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := store.CreateCustomMask(ctx, conformanceMaskRequest("000000000005", "Owned body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := store.SetMaskSelection(ctx, mask.SetSelectionRequest{SessionID: sessionID, MaskID: definition.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"name", "body", "unchanged"} {
+		t.Run(field, func(t *testing.T) {
+			captured := &mask.Snapshot{ID: definition.ID, Name: definition.Name, Body: definition.Body, DefinitionRevision: definition.Revision, SelectionRevision: selection.Revision}
+			if field == "name" {
+				captured.Name = "forged name"
+			} else if field == "body" {
+				captured.Body = "forged body"
+			}
+			payload, err := json.Marshal(storage.RunPromptPayload{Instruction: "instruction", Mask: captured, Policy: domain.PolicySnapshot{Profile: domain.PolicyProfileDefault, Definition: `{"Default":"","Rules":null}`}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID := domain.RunID("mask-forged-" + field)
+			_, err = admissions.CommitRunAdmission(ctx, storage.RunAdmission{
+				Run:          domain.Run{ID: runID, SessionID: sessionID, CreatedAt: 2},
+				Message:      domain.Message{ID: "message-" + field, SessionID: sessionID, RunID: runID, Role: domain.RoleUser},
+				Started:      domain.RunEvent{RunID: runID, Type: domain.EventRunStarted, PayloadVersion: 1, Payload: []byte(`{"prompt_schema":1}`)},
+				Prompt:       &storage.RunPromptSnapshot{RunID: runID, SchemaVersion: 1, ComposerVersion: "mask-prompt/1", GenerationID: "mask-conformance", Payload: payload},
+				ExpectedMask: &storage.MaskCaptureCheck{SessionID: sessionID, MaskID: definition.ID, SelectionRevision: selection.Revision, DefinitionRevision: definition.Revision},
+			})
+			if field == "unchanged" {
+				if err != nil {
+					t.Fatalf("exact captured values refused: %v", err)
+				}
+				got, err := admissions.LoadRunPrompt(ctx, runID)
+				if err != nil || string(got.Payload) != string(payload) {
+					t.Fatalf("admitted values changed: %v", err)
+				}
+				return
+			}
+			if !maskHasCode(err, mask.CodeSnapshotCorrupt) {
+				t.Fatalf("forged %s admitted: %v", field, err)
+			}
+			if _, err := b.GetRun(ctx, runID); !errors.Is(err, storage.ErrNotFound) {
+				t.Fatalf("rejected snapshot left a Run: %v", err)
+			}
+		})
 	}
 }
 

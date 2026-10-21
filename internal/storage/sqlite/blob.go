@@ -2,9 +2,7 @@ package sqlite
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -58,14 +56,12 @@ func (s *Blobs) Put(ctx context.Context, id string, data []byte) error {
 		return fmt.Errorf("storage: insert generation %q/%d: %w", id, gen, err)
 	}
 
-	sum := sha256.Sum256(data)
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO checkpoints (id, generation, checksum, created_at) VALUES (?, ?, ?, ?)
+		`INSERT INTO checkpoints (id, generation, created_at) VALUES (?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			generation = excluded.generation,
-			checksum = excluded.checksum,
 			created_at = excluded.created_at`,
-		id, gen, hex.EncodeToString(sum[:]), time.Now().UnixMilli()); err != nil {
+		id, gen, time.Now().UnixMilli()); err != nil {
 		return fmt.Errorf("storage: flip pointer %q: %w", id, err)
 	}
 

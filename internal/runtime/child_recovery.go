@@ -20,7 +20,7 @@ func (s *Service) rebuildPendingChild(ctx context.Context, run domain.Run, appro
 		return errors.New("runtime: recovered child approval identity is invalid")
 	}
 	toolName, selectedTools, mode, face, profile, recordedSnapshot, sandboxMode, approvalPolicy := s.approvalDetails(ctx, run.ID)
-	if toolName == "" || recordedSnapshot.Hash == "" {
+	if toolName == "" || recordedSnapshot.Definition == "" {
 		return errors.New("runtime: recovered child approval is missing its immutable request scope")
 	}
 	canonical, err := domain.CanonicalToolNames(selectedTools)
@@ -31,7 +31,7 @@ func (s *Service) rebuildPendingChild(ctx context.Context, run domain.Run, appro
 		return errors.New("runtime: recovered approval tool is outside the child selection")
 	}
 	policy, err := s.engine.cfg.Policy.Snapshot(profile)
-	if err != nil || policy.Hash != recordedSnapshot.Hash {
+	if err != nil || policy.Definition != recordedSnapshot.Definition {
 		return errors.New("runtime: recovered child policy no longer matches the admitted policy")
 	}
 	if approval.SandboxMode != "" && domain.SandboxMode(approval.SandboxMode) != sandboxMode {
@@ -59,7 +59,7 @@ func (s *Service) rebuildPendingChild(ctx context.Context, run domain.Run, appro
 		if err != nil || digest != binding.AuthorityCeilingDigest {
 			return errors.New("runtime: recovered child authority ceiling failed its digest check")
 		}
-		if profile != binding.AuthorityCeiling.PolicyProfile || policy.Hash != binding.AuthorityCeiling.PolicyHash ||
+		if profile != binding.AuthorityCeiling.PolicyProfile || policy.Definition != binding.AuthorityCeiling.PolicyDefinition ||
 			sandboxMode != binding.AuthorityCeiling.SandboxMode || approvalPolicy != binding.AuthorityCeiling.ApprovalPolicy ||
 			!sameStrings(canonical, binding.ActivationToolNames) {
 			return storage.ErrChildAdmissionConflict

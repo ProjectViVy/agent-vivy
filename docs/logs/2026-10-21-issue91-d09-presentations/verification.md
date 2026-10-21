@@ -40,8 +40,29 @@ Affected runtime/domain/tools/RPC/App/all-storage/exportfile vet PASS.
 Full native SQLite PASS190.476s (same storage/migrations/SQLite command, exit0).
 The shared operation-name follow-up derives the runtime constant from its storage
 owner; focused storage1.593s/runtime7.847s presentation tests PASS.
-Exact candidate Linux wiring/kernel, real PostgreSQL, Face/Web, actual Provider
-and race outcomes are pending below.
+Exact candidate a48b54951e262a1f58a45ca79d378114360a9bce then passed in the
+independent ext4 checkout with its own pinned Laputa ff3936f44ff8cf08c12af2cf698c194cfe474fd3:
+
+- `just wiring-ci`:16 Node +105 Go cases PASS.
+- `just kernel-ci`:1847 cases PASS; one existing optional ripgrep case skipped;
+  minimal Recipe pack/Inspect/boot1 case PASS.
+- Real disposable PostgreSQL16 matrix:137 cases PASS, zero skips. It exercises
+  the new private-byte transaction, actual admission-edit cleanup, reopen,
+  conversion rollback and SQLite parity contracts. Container trap cleanup ran.
+- `just d02-ci`:81 runtime/RPC,175 shared Face,1 causal App,13 shutdown,
+  9 standalone cases PASS.
+- `just d02-web-ci`:regenerated/staged UI typecheck,106 cases and2 real UI
+  packs PASS. This resolves the native mapped-file staging limitation.
+- Full UI84 files/672 cases PASS7.30s, including authoritative Module tests.
+- SDK2 files/29 cases PASS323ms and actual SDK TypeScript PASS; dependency link
+  removed afterward.
+- Strict actual23 Provider suites PASS65.104s.
+- Relevant runtime/SQLite/RPC/exportfile race checks PASS69.082s/96.795s/
+  18.678s/1.195s. Linux symlink refusal cases execute here without Windows skip.
+- Check script exit0; candidate clean before/after. No tenant DSN or journals.
+
+This accepts the automated candidate scope, not standard3015 smoke or human
+Story acceptance. Later D08 integration is checked separately.
 
 Independent read-only review found no remaining substantiated defect after the
 PostgreSQL admission-pruning and exact retry-window corrections. It covered

@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -28,11 +26,10 @@ func TestBuildPromptSnapshotUsesOnePersonaAndLiteralMaskData(t *testing.T) {
 		Body:               "{system}\n{{persona}}\n\\literal",
 		DefinitionRevision: 2, SelectionRevision: 3,
 	}
-	mask.Digest = maskcontract.DefinitionDigest(mask.ID, mask.Name, mask.Body)
-	snapshot, err := buildPromptSnapshot(PromptInput{
+	snapshot, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: "run-prompt", GenerationID: "generation-1",
 		Capture: promptCapture(mask), Face: domain.FaceCode,
-		Frame: "Mask rules: style only.", FrameDigest: "frame-digest",
+		Frame: "Mask rules: style only.",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,17 +50,13 @@ func TestBuildPromptSnapshotUsesOnePersonaAndLiteralMaskData(t *testing.T) {
 	if !strings.Contains(payload.Instruction, "Code mode is active") || !strings.Contains(payload.Instruction, "Mask rules: style only.") {
 		t.Fatalf("authoritative sections missing: %q", payload.Instruction)
 	}
-	hash := sha256.Sum256(snapshot.Payload)
-	if snapshot.PayloadSHA256 != hex.EncodeToString(hash[:]) {
-		t.Fatalf("payload digest = %q, want %q", snapshot.PayloadSHA256, hex.EncodeToString(hash[:]))
-	}
 	if snapshot.SchemaVersion != promptSchemaVersion || snapshot.ComposerVersion != promptComposerVersion {
 		t.Fatalf("snapshot metadata = %#v", snapshot)
 	}
 }
 
 func TestBuildPromptSnapshotEmptyMaskHasNoMaskWrapper(t *testing.T) {
-	snapshot, err := buildPromptSnapshot(PromptInput{
+	snapshot, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: "run-empty", GenerationID: "generation-1", Capture: promptCapture(nil), Face: domain.FaceWeb,
 	})
 	if err != nil {
@@ -82,12 +75,12 @@ func TestBuildPromptSnapshotEmptyMaskHasNoMaskWrapper(t *testing.T) {
 }
 
 func TestBuildPromptSnapshotRejectsUnavailableOrMismatchedCapture(t *testing.T) {
-	base := PromptInput{RunID: "run-invalid", GenerationID: "generation-1", Face: domain.FaceWeb}
+	base := PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault), RunID: "run-invalid", GenerationID: "generation-1", Face: domain.FaceWeb}
 	base.Capture = maskcontract.Capture{Selection: maskcontract.Selection{SessionID: "session-prompt", MaskID: maskcontract.BuiltinWriterID, Revision: 1}}
 	if _, err := buildPromptSnapshot(base); err == nil {
 		t.Fatal("missing selected mask snapshot was accepted")
 	}
-	base.Capture = promptCapture(&maskcontract.Snapshot{ID: maskcontract.BuiltinWriterID, Name: "Writer", Body: "body", Digest: "digest", SelectionRevision: 1, GenerationID: "other-generation"})
+	base.Capture = promptCapture(&maskcontract.Snapshot{ID: maskcontract.BuiltinWriterID, Name: "Writer", Body: "body", SelectionRevision: 1, GenerationID: "other-generation"})
 	if _, err := buildPromptSnapshot(base); err == nil {
 		t.Fatal("cross-generation built-in snapshot was accepted")
 	}

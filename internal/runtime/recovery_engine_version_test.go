@@ -40,7 +40,7 @@ func restartServiceAt(t *testing.T, backend *sqlite.Backend, engineVersion strin
 		t.Fatalf("new engine: %v", err)
 	}
 	sink := newTestSink()
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Approvals: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: sink,
 	})
@@ -66,7 +66,7 @@ func restartQuestionServiceAt(t *testing.T, backend *sqlite.Backend, engineVersi
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	return NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	return NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
@@ -206,7 +206,7 @@ func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 		if err != nil {
 			t.Fatalf("new engine: %v", err)
 		}
-		return NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+		return NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 			Journal: backend, Runs: backend, Messages: backend, Sessions: backend,
 			PrimaryRuns: backend, Work: backend, Sink: newTestSink(),
 		})

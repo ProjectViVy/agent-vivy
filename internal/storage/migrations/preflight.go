@@ -69,6 +69,11 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 				return err
 			}
 		}
+		if head == 36 {
+			if err := validateLegacySnapshotColumns(ctx, db, dialect); err != nil {
+				return err
+			}
+		}
 		return fmt.Errorf("%w: old migration metadata; convert a copy using the finite upgrade artifact", ErrUpgradeRequired)
 	}
 	if err := validateFinalMetadata(ctx, db, dialect); err != nil {
@@ -87,6 +92,21 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 		return err
 	}
 	return validateOperationShape(ctx, db, dialect, true)
+}
+
+// D08 consumes the exact accepted D03 source shape, not any other 036 lineage.
+// Retired columns identify that old format; no digest bytes are evaluated.
+func validateLegacySnapshotColumns(ctx context.Context, db *sql.DB, dialect Dialect) error {
+	for table, column := range map[string]string{"run_prompt_snapshots": "payload_sha256", "checkpoints": "checksum"} {
+		exists, err := sourceColumnExists(ctx, db, dialect, table, column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("%w: incomplete legacy admitted snapshot shape", ErrUnsupportedSourceFormat)
+		}
+	}
+	return nil
 }
 
 func validateOperationShape(ctx context.Context, db *sql.DB, dialect Dialect, bound bool) error {

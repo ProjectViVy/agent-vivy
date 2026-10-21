@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 )
@@ -26,9 +28,21 @@ func newCheckpointFixture(t *testing.T, engineVersion string) (*VersionedCheckpo
 	return store, backend.Blobs()
 }
 
+func checkpointTestContext(t *testing.T, id string) context.Context {
+	t.Helper()
+	snapshot, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
+		RunID: domain.RunID(strings.TrimPrefix(id, "ckpt-")), GenerationID: "checkpoint-test",
+		Capture: promptCapture(nil), Face: domain.FaceWeb,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return withRunPrompt(context.Background(), snapshot)
+}
+
 func TestVersionedCheckpointStoreRoundTrip(t *testing.T) {
 	store, _ := newCheckpointFixture(t, "v0.9.13")
-	ctx := context.Background()
+	ctx := checkpointTestContext(t, "ckpt-run_1")
 	payload := []byte("\x00\x01gob-ish eino checkpoint bytes\xff")
 
 	if err := store.Set(ctx, "ckpt-run_1", payload); err != nil {
@@ -50,7 +64,7 @@ func TestVersionedCheckpointStoreRoundTrip(t *testing.T) {
 
 func TestVersionedCheckpointStoreGenerationFlip(t *testing.T) {
 	store, _ := newCheckpointFixture(t, "v0.9.13")
-	ctx := context.Background()
+	ctx := checkpointTestContext(t, "ckpt-run_2")
 
 	if err := store.Set(ctx, "ckpt-run_2", []byte("generation one")); err != nil {
 		t.Fatalf("set first: %v", err)
@@ -69,7 +83,7 @@ func TestVersionedCheckpointStoreGenerationFlip(t *testing.T) {
 
 func TestVersionedCheckpointStoreBindsPromptIdentity(t *testing.T) {
 	store, _ := newCheckpointFixture(t, "v0.9.13")
-	snapshot, err := buildPromptSnapshot(PromptInput{
+	snapshot, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: "run_checkpoint_prompt", GenerationID: "generation-checkpoint",
 		Capture: promptCapture(nil), Face: "web",
 	})
@@ -94,9 +108,9 @@ func TestVersionedCheckpointStoreBindsPromptIdentity(t *testing.T) {
 	}
 }
 
-func TestVersionedCheckpointStoreChecksumFailClosed(t *testing.T) {
+func TestVersionedCheckpointStoreOpaquePayloadHasNoChecksum(t *testing.T) {
 	store, blobs := newCheckpointFixture(t, "v0.9.13")
-	ctx := context.Background()
+	ctx := checkpointTestContext(t, "ckpt-run_3")
 
 	if err := store.Set(ctx, "ckpt-run_3", []byte("intact payload")); err != nil {
 		t.Fatalf("set: %v", err)
@@ -110,15 +124,21 @@ func TestVersionedCheckpointStoreChecksumFailClosed(t *testing.T) {
 		t.Fatalf("raw put: %v", err)
 	}
 
-	_, _, err = store.Get(ctx, "ckpt-run_3")
-	if !errors.Is(err, ErrCheckpointCorrupted) {
-		t.Fatalf("want corrupted error, got %v", err)
+	got, found, err := store.Get(ctx, "ckpt-run_3")
+	if err != nil || !found || bytes.Equal(got, []byte("intact payload")) {
+		t.Fatalf("native bytes are opaque, got %x / %v / %v", got, found, err)
+	}
+	if err := blobs.Put(ctx, "ckpt-run_3", []byte{0, 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Get(ctx, "ckpt-run_3"); !errors.Is(err, ErrCheckpointCorrupted) {
+		t.Fatalf("malformed framing accepted: %v", err)
 	}
 }
 
 func TestVersionedCheckpointStoreEngineVersionFailClosed(t *testing.T) {
 	store, blobs := newCheckpointFixture(t, "v0.9.13")
-	ctx := context.Background()
+	ctx := checkpointTestContext(t, "ckpt-run_4")
 	if err := store.Set(ctx, "ckpt-run_4", []byte("payload")); err != nil {
 		t.Fatalf("set: %v", err)
 	}
@@ -135,7 +155,7 @@ func TestVersionedCheckpointStoreEngineVersionFailClosed(t *testing.T) {
 
 func TestVersionedCheckpointStoreDelete(t *testing.T) {
 	store, _ := newCheckpointFixture(t, "v0.9.13")
-	ctx := context.Background()
+	ctx := checkpointTestContext(t, "ckpt-run_5")
 	if err := store.Set(ctx, "ckpt-run_5", []byte("payload")); err != nil {
 		t.Fatalf("set: %v", err)
 	}

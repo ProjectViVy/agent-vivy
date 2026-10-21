@@ -154,7 +154,6 @@ type GovernanceEvent struct {
 	Phase      string
 	Decision   string
 	Profile    domain.PolicyProfile
-	PolicyHash string
 	Reason     string
 	DurationMs int64
 	// MountedTools lists the names newly mounted by this tool call

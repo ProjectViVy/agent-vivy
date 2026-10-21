@@ -53,9 +53,9 @@ func NewService(store storage.MaskStore, catalog Catalog) (*Service, error) {
 	return &Service{store: store, catalog: catalog}, nil
 }
 
-func (s *Service) PromptAssets() (string, string) {
+func (s *Service) PromptAssets() string {
 	if s == nil {
-		return "", ""
+		return ""
 	}
 	return s.catalog.PromptAssets()
 }
@@ -280,7 +280,6 @@ func cloneSnapshot(in *maskcontract.Snapshot) *maskcontract.Snapshot {
 	out.ID = string([]byte(in.ID))
 	out.Name = string([]byte(in.Name))
 	out.Body = string([]byte(in.Body))
-	out.Digest = string([]byte(in.Digest))
 	out.GenerationID = string([]byte(in.GenerationID))
 	return &out
 }

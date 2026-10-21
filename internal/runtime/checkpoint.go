@@ -2,9 +2,7 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,8 +15,8 @@ import (
 // Fail-closed read errors: a checkpoint that cannot be verified is never
 // handed back to the engine (docs/eino-capability-verify.md §3.5).
 var (
-	// ErrCheckpointCorrupted means the stored payload no longer matches
-	// the checksum recorded in the Vivy envelope.
+	// ErrCheckpointCorrupted means the outer envelope is malformed or uses an
+	// unsupported format. The opaque native payload has no Vivy checksum.
 	ErrCheckpointCorrupted = errors.New("runtime: checkpoint blob is corrupted")
 	// ErrCheckpointEngineVersionMismatch means the checkpoint was written
 	// by a different eino build; eino's checkpoint format carries no
@@ -40,10 +38,9 @@ const einoModulePath = "github.com/cloudwego/eino"
 
 // The model generation a checkpoint was written under. The journal schema is
 // unchanged across the migration; only the persisted ADK message type moved,
-// which is exactly what makes a cross-generation resume unsafe. An envelope
-// with no generation field predates the migration and is therefore "chat".
+// which is exactly what makes a cross-generation resume unsafe.
+// Older envelopes are rejected rather than inferred to belong to a generation.
 const (
-	checkpointGenerationChat    = "chat"
 	checkpointGenerationAgentic = "agentic"
 )
 
@@ -51,11 +48,11 @@ const (
 // checkpoint bytes. On-disk layout: 4-byte big-endian header length,
 // header JSON, then the raw payload.
 type checkpointEnvelope struct {
-	EngineVersion  string                    `json:"engine_version"`
-	ChecksumSHA256 string                    `json:"checksum_sha256"`
-	CreatedAt      int64                     `json:"created_at"`
-	Generation     string                    `json:"generation,omitempty"`
-	Prompt         *checkpointPromptIdentity `json:"prompt,omitempty"`
+	Format        int                       `json:"format"`
+	EngineVersion string                    `json:"engine_version"`
+	CreatedAt     int64                     `json:"created_at"`
+	Generation    string                    `json:"generation,omitempty"`
+	Prompt        *checkpointPromptIdentity `json:"prompt,omitempty"`
 }
 
 type checkpointPromptIdentity struct {
@@ -63,14 +60,12 @@ type checkpointPromptIdentity struct {
 	SchemaVersion   int    `json:"schema_version"`
 	ComposerVersion string `json:"composer_version"`
 	GenerationID    string `json:"generation_id"`
-	PayloadSHA256   string `json:"payload_sha256"`
 }
 
 // VersionedCheckpointStore is the outer half of the two-layer checkpoint
 // bridge (C6): the eino runner treats checkpoint bytes as opaque, this
-// store wraps them in a Vivy envelope carrying the engine version and a
-// payload checksum before committing to the generation-based
-// storage.BlobStore, and verifies both on read (fail-closed).
+// store binds them to the admitted Run snapshot and engine before committing
+// to the generation-based storage.BlobStore. It does not inspect native bytes.
 type VersionedCheckpointStore struct {
 	blobs         storage.BlobStore
 	engineVersion string
@@ -107,7 +102,7 @@ func (s *VersionedCheckpointStore) Set(ctx context.Context, id string, payload [
 	return nil
 }
 
-// Get loads the current generation, verifies checksum and engine version,
+// Get loads the current generation, verifies ownership and engine version,
 // and returns the inner eino bytes. Absent ids yield (nil, false, nil);
 // any verification failure is a fail-closed error.
 func (s *VersionedCheckpointStore) Get(ctx context.Context, id string) ([]byte, bool, error) {
@@ -122,21 +117,11 @@ func (s *VersionedCheckpointStore) Get(ctx context.Context, id string) ([]byte, 
 	if env.EngineVersion != s.engineVersion {
 		return nil, false, fmt.Errorf("%w: stored %q, current %q", ErrCheckpointEngineVersionMismatch, env.EngineVersion, s.engineVersion)
 	}
-	// A pre-migration envelope carries no generation field; it was written by
-	// the text generation. Anything else must name the current generation.
-	generation := env.Generation
-	if generation == "" {
-		generation = checkpointGenerationChat
-	}
-	if generation != checkpointGenerationAgentic {
-		return nil, false, fmt.Errorf("%w: stored %q, current %q", ErrCheckpointGenerationMismatch, generation, checkpointGenerationAgentic)
+	if env.Generation != checkpointGenerationAgentic {
+		return nil, false, fmt.Errorf("%w: stored %q, current %q", ErrCheckpointGenerationMismatch, env.Generation, checkpointGenerationAgentic)
 	}
 	if err := verifyCheckpointPrompt(ctx, id, env.Prompt); err != nil {
 		return nil, false, err
-	}
-	sum := sha256.Sum256(payload)
-	if hex.EncodeToString(sum[:]) != env.ChecksumSHA256 {
-		return nil, false, fmt.Errorf("%w: %q", ErrCheckpointCorrupted, id)
 	}
 	return payload, true, nil
 }
@@ -147,13 +132,12 @@ func (s *VersionedCheckpointStore) Delete(ctx context.Context, id string) error 
 }
 
 func encodeCheckpointEnvelope(engineVersion string, payload []byte, prompt *checkpointPromptIdentity) ([]byte, error) {
-	sum := sha256.Sum256(payload)
 	env := checkpointEnvelope{
-		EngineVersion:  engineVersion,
-		ChecksumSHA256: hex.EncodeToString(sum[:]),
-		CreatedAt:      time.Now().UnixMilli(),
-		Generation:     checkpointGenerationAgentic,
-		Prompt:         prompt,
+		Format:        2,
+		EngineVersion: engineVersion,
+		CreatedAt:     time.Now().UnixMilli(),
+		Generation:    checkpointGenerationAgentic,
+		Prompt:        prompt,
 	}
 	header, err := json.Marshal(env)
 	if err != nil {
@@ -169,7 +153,7 @@ func encodeCheckpointEnvelope(engineVersion string, payload []byte, prompt *chec
 func checkpointPromptFor(ctx context.Context, id string) (*checkpointPromptIdentity, error) {
 	snapshot, ok := runPrompt(ctx)
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("%w: checkpoint %q requires its admitted snapshot", ErrCheckpointPromptMismatch, id)
 	}
 	if err := validateCheckpointPromptSnapshot(snapshot, id); err != nil {
 		return nil, err
@@ -179,17 +163,13 @@ func checkpointPromptFor(ctx context.Context, id string) (*checkpointPromptIdent
 		SchemaVersion:   snapshot.SchemaVersion,
 		ComposerVersion: snapshot.ComposerVersion,
 		GenerationID:    snapshot.GenerationID,
-		PayloadSHA256:   snapshot.PayloadSHA256,
 	}, nil
 }
 
 func verifyCheckpointPrompt(ctx context.Context, id string, stored *checkpointPromptIdentity) error {
 	snapshot, hasSnapshot := runPrompt(ctx)
 	if !hasSnapshot {
-		if stored != nil {
-			return fmt.Errorf("%w: checkpoint %q requires its prompt snapshot", ErrCheckpointPromptMismatch, id)
-		}
-		return nil
+		return fmt.Errorf("%w: checkpoint %q requires its prompt snapshot", ErrCheckpointPromptMismatch, id)
 	}
 	if err := validateCheckpointPromptSnapshot(snapshot, id); err != nil {
 		return err
@@ -200,7 +180,6 @@ func verifyCheckpointPrompt(ctx context.Context, id string, stored *checkpointPr
 	want := checkpointPromptIdentity{
 		RunID: string(snapshot.RunID), SchemaVersion: snapshot.SchemaVersion,
 		ComposerVersion: snapshot.ComposerVersion, GenerationID: snapshot.GenerationID,
-		PayloadSHA256: snapshot.PayloadSHA256,
 	}
 	if *stored != want {
 		return fmt.Errorf("%w: checkpoint %q does not match run %q", ErrCheckpointPromptMismatch, id, snapshot.RunID)
@@ -231,6 +210,9 @@ func decodeCheckpointEnvelope(blob []byte) (payload []byte, env checkpointEnvelo
 	}
 	if err := json.Unmarshal(blob[4:4+n], &env); err != nil {
 		return nil, env, fmt.Errorf("%w: %v", ErrCheckpointCorrupted, err)
+	}
+	if env.Format != 2 || env.CreatedAt <= 0 {
+		return nil, env, fmt.Errorf("%w: unsupported envelope format", ErrCheckpointCorrupted)
 	}
 	return blob[4+n:], env, nil
 }

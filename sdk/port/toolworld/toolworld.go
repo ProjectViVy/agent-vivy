@@ -31,18 +31,12 @@ type Definition struct{ ID, Description string }
 type Provenance struct {
 	ServerInstanceID string
 	RemoteCapability string
-	SchemaHash       string
-	InstanceHash     string
-	RemoteHash       string
 }
 
 type ToolDefinition struct {
 	ID, Description string
 	Effect          Effect
 	Schema          json.RawMessage
-	SchemaHash      string
-	InstanceHash    string
-	RemoteHash      string
 	Provenance      Provenance
 	// These aliases keep the individual identity fields available to simple
 	// consumers while Provenance remains the canonical grouped projection.

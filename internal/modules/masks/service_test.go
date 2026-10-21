@@ -126,7 +126,7 @@ func TestServiceCaptureResolvesBuiltinsAndOwnsCopies(t *testing.T) {
 	}
 	store.captures = map[domain.SessionID]maskcontract.Capture{
 		"builtin-session": {Selection: maskcontract.Selection{SessionID: "builtin-session", MaskID: maskcontract.BuiltinProgrammerID, Revision: 3}},
-		"custom-session":  {Selection: maskcontract.Selection{SessionID: "custom-session", MaskID: custom.ID, Revision: 2}, Mask: &maskcontract.Snapshot{ID: custom.ID, Name: custom.Name, Body: custom.Body, Digest: custom.Digest, DefinitionRevision: custom.Revision, SelectionRevision: 2}},
+		"custom-session":  {Selection: maskcontract.Selection{SessionID: "custom-session", MaskID: custom.ID, Revision: 2}, Mask: &maskcontract.Snapshot{ID: custom.ID, Name: custom.Name, Body: custom.Body, DefinitionRevision: custom.Revision, SelectionRevision: 2}},
 		"empty-session":   {Selection: maskcontract.Selection{SessionID: "empty-session", Revision: 4}},
 	}
 	service, err := NewService(store, catalog)

@@ -46,7 +46,7 @@ func TestCreateGoalNeverRequiresHumanApprovalBeforeDurableGoalOrWake(t *testing.
 			if err != nil {
 				t.Fatalf("new engine: %v", err)
 			}
-			svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+			svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 				Journal: backend, Work: backend, Runs: backend, Messages: backend, Sessions: backend,
 				PrimaryRuns: backend, GoalRuns: backend, Approvals: backend, Sink: newTestSink(),
 				ApprovalExpiration: 5 * time.Minute, PolicyDefaultProfile: domain.PolicyProfileFullAuto,
@@ -150,7 +150,7 @@ func TestReadFileClaimingUserApprovalCannotAuthorizeCreateGoal(t *testing.T) {
 		SandboxMode: string(domain.SandboxModeWorkspaceWrite), ApprovalPolicy: string(domain.ApprovalPolicyAuto)}); err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(engine, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Work: backend, Runs: backend, Messages: backend, Sessions: backend,
 		PrimaryRuns: backend, GoalRuns: backend, Approvals: backend, Sink: newTestSink(),
 		ApprovalExpiration: 5 * time.Minute, PolicyDefaultProfile: domain.PolicyProfileFullAuto,

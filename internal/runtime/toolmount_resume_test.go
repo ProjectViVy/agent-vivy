@@ -89,7 +89,7 @@ func TestServiceResumeRestoresSkillMountedTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
@@ -164,7 +164,7 @@ func TestServiceRecoverRestoresSkillMountedTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
@@ -199,7 +199,7 @@ func TestServiceRecoverRestoresSkillMountedTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new restarted engine: %v", err)
 	}
-	restarted := NewService(eng2, "scripted", "scripted-v0", ServiceDeps{
+	restarted := NewService(eng2, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})
@@ -267,7 +267,7 @@ func TestServiceJournalRecordsSkillToolMounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{
+	svc := NewService(eng, "scripted", "scripted-v0", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Questions: backend,
 		ApprovalExpiration: 5 * time.Minute, Sink: newTestSink(),
 	})

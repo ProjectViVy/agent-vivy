@@ -168,7 +168,7 @@ func TestDiscoverLazilyActivatesAndNamespacesTools(t *testing.T) {
 	if factory.opens != 1 || session.discoveries != 1 || len(tools) != 1 {
 		t.Fatalf("opens=%d discoveries=%d tools=%#v", factory.opens, session.discoveries, tools)
 	}
-	if tools[0].ID == "echo_tool" || tools[0].InstanceID != "docs" || tools[0].RemoteName != "echo_tool" || tools[0].SchemaHash == "" {
+	if tools[0].ID == "echo_tool" || tools[0].InstanceID != "docs" || tools[0].RemoteName != "echo_tool" {
 		t.Fatalf("projected tool = %#v", tools[0])
 	}
 	if status := host.Status(); len(status) != 1 || status[0].State != StateReady || status[0].ToolCount != 1 {
@@ -176,7 +176,7 @@ func TestDiscoverLazilyActivatesAndNamespacesTools(t *testing.T) {
 	}
 }
 
-func TestProjectedSchemaAndIdentityHashesAreDeterministic(t *testing.T) {
+func TestProjectedSchemaAndIdentityValuesAreDeterministic(t *testing.T) {
 	build := func(schema json.RawMessage) ToolDefinition {
 		session := &fakeSession{tools: []RemoteTool{{Name: "echo", Schema: schema}}}
 		host, err := New(Config{Factory: &fakeFactory{sessions: []*fakeSession{session}}, Instances: []InstanceConfig{{ID: "docs", Command: "fixture"}}})
@@ -191,11 +191,8 @@ func TestProjectedSchemaAndIdentityHashesAreDeterministic(t *testing.T) {
 	}
 	first := build(json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}}}`))
 	second := build(json.RawMessage(`{ "properties": { "value": { "type": "string" } }, "type": "object" }`))
-	if first.SchemaHash == "" || first.InstanceHash == "" || first.RemoteHash == "" {
-		t.Fatalf("projected hashes missing: %#v", first)
-	}
-	if first.SchemaHash != second.SchemaHash || first.InstanceHash != second.InstanceHash || first.RemoteHash != second.RemoteHash {
-		t.Fatalf("hashes are not deterministic: first=%#v second=%#v", first, second)
+	if !reflect.DeepEqual(canonicalSchema(first.Schema), canonicalSchema(second.Schema)) || first.InstanceID != second.InstanceID || first.RemoteName != second.RemoteName {
+		t.Fatalf("projected definitions are not deterministic: first=%#v second=%#v", first, second)
 	}
 }
 
@@ -216,7 +213,7 @@ func TestSchemaChangeMarksBindingUnavailable(t *testing.T) {
 	if _, err := host.DiscoverTools(context.Background(), "docs"); !errors.Is(err, ErrSchemaChanged) {
 		t.Fatalf("schema change error = %v, want ErrSchemaChanged", err)
 	}
-	if _, ok := host.LookupTool("mcp.docs.echo"); ok {
+	if _, ok := host.LookupTool("mcp.4_docs.echo"); ok {
 		t.Fatal("schema-changed binding remained executable")
 	}
 	status := host.Status()
@@ -240,10 +237,10 @@ func TestFailedDiscoveryAtomicallyClearsBindingAndSession(t *testing.T) {
 	if _, err := host.DiscoverTools(context.Background(), "docs"); err == nil {
 		t.Fatal("failed discovery unexpectedly succeeded")
 	}
-	if _, ok := host.LookupTool("mcp.docs.echo"); ok {
+	if _, ok := host.LookupTool("mcp.4_docs.echo"); ok {
 		t.Fatal("failed discovery left a stale ToolHost binding")
 	}
-	if _, err := host.CallTool(context.Background(), "mcp.docs.echo", nil); !errors.Is(err, ErrUnknownTool) {
+	if _, err := host.CallTool(context.Background(), "mcp.4_docs.echo", nil); !errors.Is(err, ErrUnknownTool) {
 		t.Fatalf("stale binding call error = %v, want ErrUnknownTool", err)
 	}
 	status := host.Status()
@@ -270,7 +267,7 @@ func TestFailedProjectionAtomicallyClearsBindingAndSession(t *testing.T) {
 	if _, err := host.DiscoverTools(context.Background(), "docs"); !errors.Is(err, ErrInvalidTool) {
 		t.Fatalf("projection error = %v, want ErrInvalidTool", err)
 	}
-	if _, ok := host.LookupTool("mcp.docs.echo"); ok {
+	if _, ok := host.LookupTool("mcp.4_docs.echo"); ok {
 		t.Fatal("failed projection left a stale ToolHost binding")
 	}
 	if session.closes != 1 {
@@ -278,7 +275,7 @@ func TestFailedProjectionAtomicallyClearsBindingAndSession(t *testing.T) {
 	}
 }
 
-func TestSchemaHashPreservesLargeJSONNumbers(t *testing.T) {
+func TestCanonicalSchemaPreservesLargeJSONNumbers(t *testing.T) {
 	build := func(schema json.RawMessage) string {
 		session := &fakeSession{tools: []RemoteTool{{Name: "echo", Schema: schema}}}
 		host, err := New(Config{Factory: &fakeFactory{sessions: []*fakeSession{session}}, Instances: []InstanceConfig{{ID: "docs", Command: "fixture"}}})
@@ -289,12 +286,12 @@ func TestSchemaHashPreservesLargeJSONNumbers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return items[0].SchemaHash
+		return string(canonicalSchema(items[0].Schema))
 	}
 	first := build(json.RawMessage(`{"type":"number","minimum":9007199254740992}`))
 	second := build(json.RawMessage(`{"type":"number","minimum":9007199254740993}`))
 	if first == second {
-		t.Fatalf("large JSON numbers collapsed to one schema hash: %q", first)
+		t.Fatalf("large JSON numbers collapsed to one canonical schema: %q", first)
 	}
 }
 
@@ -338,7 +335,7 @@ func TestProtectedProjectedIDFailsClosed(t *testing.T) {
 	session := &fakeSession{tools: []RemoteTool{{Name: "bash"}}}
 	host, err := New(Config{
 		Factory:      &fakeFactory{sessions: []*fakeSession{session}},
-		ProtectedIDs: []string{"mcp.docs.bash"},
+		ProtectedIDs: []string{"mcp.4_docs.bash"},
 		Instances:    []InstanceConfig{{ID: "docs", Command: "fixture"}},
 	})
 	if err != nil {
@@ -474,17 +471,17 @@ func TestReplaceInstancesRemovesChangedBindingBeforeReopening(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(initial) != 1 || initial[0].ID != "mcp.docs.old" {
+	if len(initial) != 1 || initial[0].ID != "mcp.4_docs.old" {
 		t.Fatalf("initial tools = %#v", initial)
 	}
 
 	if err := host.ReplaceInstances([]InstanceConfig{{ID: "docs", Endpoint: "https://new.example.invalid/mcp"}}); err != nil {
 		t.Fatalf("replace instances: %v", err)
 	}
-	if _, ok := host.LookupTool("mcp.docs.old"); ok {
+	if _, ok := host.LookupTool("mcp.4_docs.old"); ok {
 		t.Fatal("changed instance left its old binding executable")
 	}
-	if _, err := host.CallTool(context.Background(), "mcp.docs.old", nil); !errors.Is(err, ErrUnknownTool) {
+	if _, err := host.CallTool(context.Background(), "mcp.4_docs.old", nil); !errors.Is(err, ErrUnknownTool) {
 		t.Fatalf("old binding call error = %v, want ErrUnknownTool", err)
 	}
 	if oldSession.closes != 1 {
@@ -495,13 +492,13 @@ func TestReplaceInstancesRemovesChangedBindingBeforeReopening(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(replaced) != 1 || replaced[0].ID != "mcp.docs.new" {
+	if len(replaced) != 1 || replaced[0].ID != "mcp.4_docs.new" {
 		t.Fatalf("replacement tools = %#v", replaced)
 	}
-	if _, ok := host.LookupTool("mcp.docs.old"); ok {
+	if _, ok := host.LookupTool("mcp.4_docs.old"); ok {
 		t.Fatal("old binding reappeared after replacement discovery")
 	}
-	if _, ok := host.LookupTool("mcp.docs.new"); !ok {
+	if _, ok := host.LookupTool("mcp.4_docs.new"); !ok {
 		t.Fatal("new binding missing after replacement discovery")
 	}
 }
@@ -587,7 +584,7 @@ func TestConcurrentDiscoveryOlderResponseCannotOverwriteNewerSchema(t *testing.T
 	if !errors.Is(firstErr, ErrStaleDiscovery) {
 		t.Fatalf("older discovery error = %v, want ErrStaleDiscovery", firstErr)
 	}
-	definition, ok := host.LookupTool("mcp.docs.echo")
+	definition, ok := host.LookupTool("mcp.4_docs.echo")
 	if !ok {
 		t.Fatal("newer discovery binding disappeared")
 	}
@@ -641,7 +638,7 @@ func TestRetiredDiscoveryCannotResurrectBinding(t *testing.T) {
 	if err := <-result; !errors.Is(err, ErrInstanceUnavailable) {
 		t.Fatalf("retired discovery error = %v, want ErrInstanceUnavailable", err)
 	}
-	if _, ok := host.LookupTool("mcp.docs.old"); ok {
+	if _, ok := host.LookupTool("mcp.4_docs.old"); ok {
 		t.Fatal("retired discovery resurrected an old binding")
 	}
 }

@@ -41,11 +41,6 @@
       ],
       "description": "Immutable governance profile selected for this run."
     },
-    "policy_hash": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Digest of the policy definition used by the run."
-    },
     "history_scope": {
       "type": "object",
       "description": "Host-resolved bounded history scope accepted at task admission; absent for legacy run.started events.",
@@ -104,11 +99,6 @@
       "type": "integer",
       "minimum": 1,
       "description": "Immutable prompt snapshot schema admitted for this run."
-    },
-    "prompt_digest": {
-      "type": "string",
-      "minLength": 1,
-      "description": "SHA-256 digest of the admitted prompt snapshot payload."
     }
   },
   "required": [

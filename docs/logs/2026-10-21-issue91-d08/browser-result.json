@@ -1,0 +1,56 @@
+{
+  "venue": "Debian WSL split backend 8787 + Vite 3015",
+  "provider": "deterministic loopback mock 9918; fake credential only",
+  "cases": [
+    {
+      "case": "approve",
+      "run": "run_2a83f5dd11be0b39",
+      "call": "call_d08-approve",
+      "operation_state": "completed",
+      "status": "success",
+      "reason": "",
+      "effects": "unknown",
+      "file_exists": true,
+      "exact_next_model_handoffs": 1,
+      "run_terminals": 1,
+      "prompt_rows": 1
+    },
+    {
+      "case": "deny",
+      "run": "run_ffc727b1ff113cc3",
+      "call": "call_d08-deny",
+      "operation_state": "completed",
+      "status": "refused",
+      "reason": "user_denied",
+      "effects": "not_executed",
+      "file_exists": false,
+      "exact_next_model_handoffs": 1,
+      "run_terminals": 1,
+      "prompt_rows": 1
+    },
+    {
+      "case": "restart",
+      "run": "run_f4ccb52cdaaab82a",
+      "call": "call_d08-restart",
+      "operation_state": "completed",
+      "status": "success",
+      "reason": "",
+      "effects": "unknown",
+      "file_exists": true,
+      "exact_next_model_handoffs": 1,
+      "run_terminals": 1,
+      "prompt_rows": 1
+    }
+  ],
+  "restart_checkpoint": {
+    "run": "run_f4ccb52cdaaab82a",
+    "format": 2,
+    "engine": "v0.9.21",
+    "snapshot_bound": true,
+    "terminals_before": 0
+  },
+  "pending_approvals": 0,
+  "nonterminal_runs": 0,
+  "browser_status": "completed / Online; input available",
+  "checks": "all assertions passed"
+}

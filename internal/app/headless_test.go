@@ -49,7 +49,7 @@ func newHeadlessTestService(t *testing.T, script []*schema.AgenticMessage, toolN
 	}
 	var out, errw bytes.Buffer
 	sink := newHeadlessSink(&out, &errw)
-	svc := runtime.NewService(eng, "scripted", "scripted-v0", runtime.ServiceDeps{
+	svc := runtime.NewService(eng, "scripted", "scripted-v0", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
 		Approvals: backend, Questions: backend, ApprovalExpiration: 5 * time.Minute,
 		Sink: sink, Sessions: backend,

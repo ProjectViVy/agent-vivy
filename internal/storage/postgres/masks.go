@@ -233,8 +233,8 @@ func (b *Backend) ReadMaskCapture(ctx context.Context, sessionID domain.SessionI
 		}
 		capture.Mask = &mask.Snapshot{
 			ID: definitionID.String, Name: name.String, Body: string(body),
-			Digest: digest.String, DefinitionRevision: definitionRevision.Int64,
-			SelectionRevision: selection.Revision,
+			DefinitionRevision: definitionRevision.Int64,
+			SelectionRevision:  selection.Revision,
 		}
 	}
 	return capture, nil

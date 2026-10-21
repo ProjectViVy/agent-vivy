@@ -108,7 +108,7 @@ func newQueueTestService(t *testing.T, model domain.ChatModel) (*Service, *sqlit
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "test", "test-model", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
@@ -260,7 +260,7 @@ func newScriptedService(t *testing.T, m model.AgenticModel) (*Service, *sqlite.B
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	svc := NewService(eng, "test", "test-model", ServiceDeps{
+	svc := NewService(eng, "test", "test-model", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
@@ -455,7 +455,7 @@ func TestQueueRebuildsFromNewestRunJournal(t *testing.T) {
 	// Block the admitted run on a second gate so the queue tail (none) isn't
 	// the check — instead assert the queued marker is on run 1's journal and
 	// replay recovers it in a FRESH service over the same backend.
-	svc2 := NewService(svc.engine, "test", "test-model", ServiceDeps{
+	svc2 := NewService(svc.engine, "test", "test-model", ServiceDeps{Admission: backend, GenerationID: "test-generation",
 		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
 		Sessions: backend, Sink: newTestSink(), Truncations: backend,
 	})
