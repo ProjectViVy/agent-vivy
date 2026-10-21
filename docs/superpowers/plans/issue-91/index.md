@@ -120,7 +120,7 @@ Planned = concrete plan exists, awaiting implementation handoff or accepted prer
 | D05 | E3 / R1,R2,R3,R5,R6 | Settle the warming/steering seam and remove confirmed hash/duplicate coupling | D04 | [D05](D05.md) | Blocked | Accepted D04 output; reconcile proposed bindings while preserving stable behavior |
 | D06 | E4 / R1,R5,R6 | Delete source, Assembly and UI hash evidence generation end to end | D00 | [D06](D06.md) | Accepted (scoped) | Exact integrated cc74e7d8 passes full SDK (1,079 cases), all ten Recipes and external fixtures, 77-file double generation, scoped WSL/Face/Web gates and real split-browser checks. Actual Studio consumers fixed, separate ledger/core037 copied conversion and native Studio build verified; independent reviews clear. [Evidence and identities](../../../logs/2026-10-21-issue91-d06/verification.md). Compatible Studio gitlink is local-only; final upgrade/release publication remains separate. |
 | D07 | E4 / R1,R3,R4,R5 | Replace bundle and toolkit content addressing with owned releases | — | [D07](D07.md) | Retained — explanatory | Owner decision 2026-10-19: baseline A has no bundle/toolkit subsystem, so no deletion here; D07 is the re-intake checkpoint (resolve content-addressed identity/consent before a batch from `backup/main-pre-rollback-20261019` merges) |
-| D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03 | [D08](D08.md) | Accepted | Host direct values, private immutable prompt/policy, v2 Run/snapshot checkpoint binding and its original paired037 copied conversion pass WSL wiring/minimal kernel, real PostgreSQL (123 cases, zero skips), race and split-browser approve/deny/hard-restart checks. Independent review clear after closing the stale continuity TODO. [Evidence and limits](../../../logs/2026-10-21-issue91-d08/verification.md). The data lane consumes that unchanged business SQL as paired041 after D06/D09 allocations; integrated verification is pending. D14 retains final upgrade publication. |
+| D08 | E2 / R1,R2,R3,R4 | Delete Host and admitted-snapshot hashes, bind checkpoints directly | D03 | [D08](D08.md) | Accepted | Host direct values, private immutable prompt/policy, v2 Run/snapshot checkpoint binding and its original paired037 copied conversion pass WSL wiring/minimal kernel, real PostgreSQL (123 cases, zero skips), race and split-browser approve/deny/hard-restart checks. Independent review clear after closing the stale continuity TODO. [Evidence and limits](../../../logs/2026-10-21-issue91-d08/verification.md). The data lane consumes that unchanged business SQL as paired041 after D06/D09 allocations; exact integrated3cc284dd passes scoped Linux/kernel/race,142 real-PG cases,Face/Web/SDK and actual Provider checks. D14 retains final upgrade publication. |
 | D09 | E2 / R1,R3,R4,R5 | Remove file, history, reference and deliverable hash authority | D03 | [D09](D09.md) | Implemented — acceptance open | Accepted D03 and scoped D06 integrated; file/approval exact-byte slice with paired038 passes scoped Linux/real-PG/Face/Web checks. Stateless cursor v2 passes scoped Linux/real-PG/UI/race checks. Shared continuity exact-input receipts with paired039 pass scoped Linux/real-PG/Face/Web/race checks. Exact-preview references pass scoped Linux/real-PG/Face/Web/SDK/Provider/race checks. Retained presentation/immutable transfer/export closure with paired040 passes exact a48b5495 Linux/real-PG/Face/Web/SDK/Provider/race checks; human acceptance remains open. D12 standard3015 check is owner-deferred. |
 | D10 | E5 / R1,R3,R4,R5 | Preserve skill, memory and cognitive revision CAS without hashes | D08, D12 | [D10](D10.md) | Blocked | D08 accepted; D12 acceptance open. Actual ff3936f4 Capture/effect/memory/persona/StrategyDigest APIs remain incompatible; reviewed upstream delivery required. [Current-pin evidence](../../../logs/2026-10-21-data-lane-d08-integration/notes.md) |
 | D11 | E5 / R1,R3,R4,R5 | Remove baseline Work, workflow and notes business digests | D03, D08 | [D11](D11.md) | Blocked | D03/D08 accepted. Actual INOFY 71e2c9bb requires Program/input/answer/checkpoint digests; reviewed hash-free delivery and integration evidence missing. [Current-pin evidence](../../../logs/2026-10-21-data-lane-d08-integration/notes.md) |
@@ -191,3 +191,26 @@ This supplement's focused documentation verification is recorded in [the stable-
 Product checks were not run: no implementation changed. No `just ci`, generation, Postgres, live-provider, installed-data or post-deletion-audit result is inferred from document checks. Future execution must prepare the repository-supported environment and record missing prerequisites honestly.
 
 A shared-contract change invalidates downstream readiness and affected evidence. Revise this design/package, not a parallel report. Retained and retired scopes, support versions and public acceptance changes return to owner review. Local implementation details within the accepted contract can be corrected autonomously. The final implementation commit must identify exactly what was verified; a planning commit does not close #91.
+
+## Shared migration coordination at tested3cc284dd
+
+This data lane owns the integrated catalog; Story owners retain business schema
+and finite conversion semantics. Existing001–040 remain unchanged. No number
+after041 is reserved and041 is not a final converter target declaration.
+
+| Owner | Integrated pair | Provenance |
+| --- | --- | --- |
+| D03 | 036_tool_operation_private_binding | Accepted D03 fragment. |
+| D06 | 037_generation_identity | Accepted scoped D06 fragment. |
+| D09 | 038_file_approval_before_state | Exact private file approval/read state. |
+| D09 | 039_continuity_intended_input | Exact private normalized receipt input. |
+| D09 | 040_deliverable_presentations | Private presentation bytes; no guessed historical backfill. |
+| D08 | 041_admitted_checkpoint_binding | Exact unchanged SQL from accepted dd5610c3 original provisional037. |
+
+Pending integration coordination: a final read-only root check found another
+active D06 merge and a provisional038_generation_identity draft. That conflicts
+with this tested catalog and is not accepted by this lane. Root reconciliation
+must consume one coordinated catalog rather than copy competing numbered DDL.
+The root checkout remains owned by its active write lane and was not edited
+here. [Integrated verification](../../../logs/2026-10-21-data-lane-d08-integration/verification.md)
+records the exact candidate; D14 retains final finite assembly/acceptance.
