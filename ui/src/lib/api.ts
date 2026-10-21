@@ -345,10 +345,10 @@ export const importSession = (data: string) =>
   request<{ session_id: string; imported: number; skipped: number }>('session/import', { data });
 /** session/export：可见视图渲染为 exports 目录下的独立 HTML。 */
 export const exportSession = (sessionId: string) =>
-  request<{ path: string; name: string; sha256: string; size: number; message_count: number }>('session/export', { session_id: sessionId, format: 'html' });
-/** exports/read：digest 绑定的 exports 目录读取，是导出文件的验证下载通道。 */
-export const readExport = (name: string, expectedDigest?: string) =>
-  request<{ name: string; digest: string; size: number; data_base64: string }>('exports/read', { name, expected_digest: expectedDigest });
+  request<{ path: string; name: string; size: number; message_count: number }>('session/export', { session_id: sessionId, format: 'html' });
+/** exports/read：按发布时的不透明名称读取不可变导出。 */
+export const readExport = (name: string) =>
+  request<{ name: string; size: number; data_base64: string }>('exports/read', { name });
 export const editSession = (sessionId: string, messageId: string, text: string, mode: RunMode = 'normal', face?: Face, thinking?: ThinkingMode) =>
   request<{ run_id: string; status: RunStatus }>('session/edit', {
     session_id: sessionId, message_id: messageId, text,

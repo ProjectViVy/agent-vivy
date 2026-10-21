@@ -2,19 +2,17 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/exportfile"
 	"agent-vivy/internal/storage"
 )
 
@@ -32,12 +30,10 @@ var ErrImportMalformed = errors.New("runtime: import data is not a pi session tr
 // Bounds (VCP C1 contract): the tree is a bounded read model and the
 // import/export paths cap how many lines/messages they will process.
 const (
-	sessionTreeMaxNodes  = 500
-	importMaxLines       = 10000
-	sessionCopyMaxRows   = 5000
-	importSourceName     = "pi-jsonl"
-	sessionExportPerms   = 0o600
-	sessionExportDirPerm = 0o700
+	sessionTreeMaxNodes = 500
+	importMaxLines      = 10000
+	sessionCopyMaxRows  = 5000
+	importSourceName    = "pi-jsonl"
 )
 
 // SessionTreeNode is one session in the tree; ParentSessionID and
@@ -367,13 +363,10 @@ func parseEntryTimestamp(raw json.RawMessage) int64 {
 	return time.Now().UnixMilli()
 }
 
-// ExportResult reports a session export: the written file, its digest for
-// verified download (exports/read), and how many visible messages it
-// contains.
+// ExportResult identifies one write-once session export and its visible message count.
 type ExportResult struct {
 	Path         string `json:"path"`
 	Name         string `json:"name"`
-	SHA256       string `json:"sha256"`
 	Size         int64  `json:"size"`
 	MessageCount int    `json:"message_count"`
 }
@@ -405,20 +398,15 @@ func (s *Service) ExportSession(ctx context.Context, sessionID domain.SessionID,
 		return ExportResult{}, fmt.Errorf("runtime: export exceeds %d messages", sessionCopyMaxRows)
 	}
 	body := renderSessionHTML(session, messages)
-	if err := os.MkdirAll(s.deps.ExportDir, sessionExportDirPerm); err != nil {
-		return ExportResult{}, fmt.Errorf("runtime: create export dir: %w", err)
-	}
-	name := fmt.Sprintf("%s-%d.html", sanitizeExportName(string(sessionID)), time.Now().UnixMilli())
-	path := filepath.Join(s.deps.ExportDir, name)
 	raw := []byte(body)
-	if err := os.WriteFile(path, raw, sessionExportPerms); err != nil {
-		return ExportResult{}, fmt.Errorf("runtime: write export: %w", err)
+	name, err := exportfile.Write(s.deps.ExportDir, sanitizeExportName(string(sessionID)), ".html", raw)
+	if err != nil {
+		return ExportResult{}, fmt.Errorf("runtime: publish export: %w", err)
 	}
-	digest := sha256.Sum256(raw)
+	path := filepath.Join(s.deps.ExportDir, name)
 	return ExportResult{
 		Path:         path,
 		Name:         name,
-		SHA256:       hex.EncodeToString(digest[:]),
 		Size:         int64(len(raw)),
 		MessageCount: len(messages),
 	}, nil

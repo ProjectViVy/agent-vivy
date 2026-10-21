@@ -398,6 +398,12 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 	if err := postgresFault(m.TestFaultHook, "events"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
+	if err := postgresInsertPresentations(ctx, tx, m); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if err := postgresFault(m.TestFaultHook, "presentations"); err != nil {
+		return storage.ContinuityResult{}, err
+	}
 	receipt := m.Receipt
 	receipt.RunID = m.RunID
 	receipt.EventSeq = event.Seq

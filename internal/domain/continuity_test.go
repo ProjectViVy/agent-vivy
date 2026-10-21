@@ -26,10 +26,10 @@ func TestContinuityLimitsExactBounds(t *testing.T) {
 	if err := (PresentRequest{Files: []PresentFile{{Path: "a", Description: strings.Repeat("d", limits.DescriptionBytes+1)}}}).Validate(limits); err == nil {
 		t.Fatal("accepted oversized description")
 	}
-	if err := (DeliveryReadRequest{ItemID: "item", ExpectedDigest: "digest", Length: limits.BinaryPageBytes}).Validate(limits); err != nil {
+	if err := (DeliveryReadRequest{ItemID: "item", Length: limits.BinaryPageBytes}).Validate(limits); err != nil {
 		t.Fatalf("binary page at exact maximum: %v", err)
 	}
-	if err := (DeliveryReadRequest{ItemID: "item", ExpectedDigest: "digest", Length: limits.BinaryPageBytes + 1}).Validate(limits); err == nil {
+	if err := (DeliveryReadRequest{ItemID: "item", Length: limits.BinaryPageBytes + 1}).Validate(limits); err == nil {
 		t.Fatal("accepted oversized binary page")
 	}
 }
@@ -143,7 +143,7 @@ func TestContinuityAggregateLimits(t *testing.T) {
 func TestContinuityDeliveryChunkPageBound(t *testing.T) {
 	limits := DefaultContinuityLimits()
 	data := strings.Repeat("x", limits.BinaryPageBytes)
-	chunk := DeliveryChunk{TransferID: "transfer", ItemID: "item", Digest: "digest", DataBase64: base64.StdEncoding.EncodeToString([]byte(data))}
+	chunk := DeliveryChunk{TransferID: "transfer", ItemID: "item", DataBase64: base64.StdEncoding.EncodeToString([]byte(data))}
 	if err := chunk.Validate(limits); err != nil {
 		t.Fatalf("chunk at exact maximum: %v", err)
 	}
@@ -170,6 +170,6 @@ func validContextReference(id, text string) ContextReference {
 func validDeliverable(path string, size int64) Deliverable {
 	return Deliverable{
 		ID: path, SessionID: "session", RunID: "run", WorkspaceID: "workspace", Path: path, Name: path,
-		SHA256: "digest", MediaType: "text/plain", Size: size, OriginToolCallID: "call",
+		MediaType: "text/plain", Size: size, OriginToolCallID: "call",
 	}
 }

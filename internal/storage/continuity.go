@@ -95,11 +95,12 @@ func (a ContinuityAdmission) Validate() error {
 // idempotency receipt — the atomic form used by model-call operations. The
 // receipt's request_id folds the stable tool_call_id under the owner run.
 type ContinuityMutation struct {
-	SessionID    domain.SessionID
-	RunID        domain.RunID
-	Event        domain.RunEvent
-	Receipt      domain.ContinuityReceipt
-	Expectations []SourceExpectation
+	SessionID     domain.SessionID
+	RunID         domain.RunID
+	Event         domain.RunEvent
+	Receipt       domain.ContinuityReceipt
+	Expectations  []SourceExpectation
+	Presentations []DeliverablePresentation
 	// TestFaultHook mirrors ContinuityAdmission.TestFaultHook for the
 	// "events" and "receipt" write steps.
 	TestFaultHook func(step string) error
@@ -152,4 +153,7 @@ type ContinuityStore interface {
 	CommitContinuityOperation(ctx context.Context, m ContinuityMutation) (ContinuityResult, error)
 	// FindContinuityReceipt resolves one receipt without mutating state.
 	FindContinuityReceipt(ctx context.Context, sessionID domain.SessionID, operation, requestID string) (domain.ContinuityReceipt, bool, error)
+	// ReadDeliverablePresentation returns private immutable captured bytes.
+	// ErrNotFound denotes unavailable history; a known empty file returns []byte{}.
+	ReadDeliverablePresentation(ctx context.Context, sessionID domain.SessionID, itemID string) ([]byte, error)
 }

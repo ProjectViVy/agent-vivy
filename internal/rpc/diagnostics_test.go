@@ -127,6 +127,17 @@ func TestDiagnosticsBundleRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
+	second, rpcErr := callControl(t, env.handler, "diagnostics/bundle", map[string]string{"session_id": "sess-x"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if second.(map[string]any)["path"] == path {
+		t.Fatal("bug report publication reused an artifact identity")
+	}
+	retained, err := os.ReadFile(path)
+	if err != nil || string(retained) != string(body) {
+		t.Fatalf("earlier bug report changed: %v", err)
+	}
 	for _, want := range []string{"# Vivy bug report", "session_id: sess-x", "bundle line"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("bundle missing %q:\n%s", want, text)

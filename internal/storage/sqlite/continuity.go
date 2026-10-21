@@ -399,6 +399,12 @@ func (b *Backend) CommitContinuityOperation(ctx context.Context, m storage.Conti
 	if err := sqliteFault(m.TestFaultHook, "events"); err != nil {
 		return storage.ContinuityResult{}, err
 	}
+	if err := sqliteInsertPresentations(ctx, tx, m); err != nil {
+		return storage.ContinuityResult{}, err
+	}
+	if err := sqliteFault(m.TestFaultHook, "presentations"); err != nil {
+		return storage.ContinuityResult{}, err
+	}
 	receipt := m.Receipt
 	receipt.RunID = m.RunID
 	receipt.EventSeq = event.Seq

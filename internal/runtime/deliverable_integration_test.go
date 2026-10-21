@@ -29,8 +29,7 @@ func TestPresentFilesToolCommitsAndRecovers(t *testing.T) {
 	var result struct {
 		SetID string `json:"set_id"`
 		Items []struct {
-			ID     string `json:"id"`
-			SHA256 string `json:"sha256"`
+			ID string `json:"id"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
@@ -59,7 +58,7 @@ func TestPresentFilesToolCommitsAndRecovers(t *testing.T) {
 	if committed.ID != afterRestart.ID {
 		t.Fatal("lost durable set")
 	}
-	if len(afterRestart.Items) != 1 || afterRestart.Items[0].SHA256 != committed.Items[0].SHA256 {
+	if len(afterRestart.Items) != 1 || afterRestart.Items[0].ID != committed.Items[0].ID {
 		t.Fatal("downloaded wrong bytes")
 	}
 }

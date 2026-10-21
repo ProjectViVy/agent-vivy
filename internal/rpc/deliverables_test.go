@@ -155,7 +155,7 @@ func TestDeliverablesListGetCloseRoundtrip(t *testing.T) {
 // net.Pipe, peer dispatch, verified chunk back.
 func TestDeliverablesReadOverTransport(t *testing.T) {
 	ops := &fakeDeliverableOps{chunk: domain.DeliveryChunk{
-		TransferID: "xfr_1", ItemID: "dvl_1", Digest: "aa", Offset: 0,
+		TransferID: "xfr_1", ItemID: "dvl_1", Offset: 0,
 		DataBase64: "YWxwaGE=", EOF: true, ExpiresAt: 42,
 	}}
 	env := newDeliverableTestEnv(t, ops)
@@ -170,7 +170,7 @@ func TestDeliverablesReadOverTransport(t *testing.T) {
 	request, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": "r1", "method": "deliverables/read",
 		"params": map[string]any{
-			"session_id": "B", "item_id": "dvl_1", "expected_digest": "aa", "length": 8,
+			"session_id": "B", "item_id": "dvl_1", "length": 8,
 		},
 	})
 	if err := client.WriteFrame(request); err != nil {
@@ -194,7 +194,7 @@ func TestDeliverablesReadOverTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Result, &chunk); err != nil {
 		t.Fatalf("chunk: %v", err)
 	}
-	if chunk.DataBase64 != "YWxwaGE=" || !chunk.EOF || chunk.Digest != "aa" {
+	if chunk.DataBase64 != "YWxwaGE=" || !chunk.EOF {
 		t.Fatalf("chunk = %#v", chunk)
 	}
 	if ops.gotSession != "B" {
@@ -206,7 +206,7 @@ func TestDeliverablesReadErrorKeepsStableReason(t *testing.T) {
 	ops := &fakeDeliverableOps{err: runtime.DeliverableError{Status: string(domain.HistoryStatusConflict), Reason: "file changed since presentation"}}
 	env := newDeliverableTestEnv(t, ops)
 	_, rpcErr := callControl(t, env.handler, "deliverables/read", map[string]any{
-		"session_id": "B", "item_id": "dvl_1", "expected_digest": "aa", "length": 4,
+		"session_id": "B", "item_id": "dvl_1", "length": 4,
 	})
 	if rpcErr == nil || rpcErr.Code != InvalidParams || !strings.Contains(rpcErr.Message, "file changed since presentation") {
 		t.Fatalf("error = %v, want stable changed reason", rpcErr)
@@ -223,7 +223,8 @@ func TestDeliverablesRejectSpoofedUnknownAndForeign(t *testing.T) {
 		{"deliverables/list", map[string]any{"session_id": "B", "actor": "browser"}},
 		{"deliverables/list", map[string]any{"session_id": "B", "bogus": 1}},
 		{"deliverables/get", map[string]any{"session_id": "B", "set_id": "dvs_1", "identity": "root"}},
-		{"deliverables/read", map[string]any{"session_id": "B", "item_id": "dvl_1", "expected_digest": "aa", "length": 4, "workspace_id": "/etc"}},
+		{"deliverables/read", map[string]any{"session_id": "B", "item_id": "dvl_1", "length": 4, "workspace_id": "/etc"}},
+		{"deliverables/read", map[string]any{"session_id": "B", "item_id": "dvl_1", "expected_digest": "retired", "length": 4}},
 		{"deliverables/close", map[string]any{"session_id": "B", "transfer_id": "xfr_1", "caller": "root"}},
 		{"deliverables/get", map[string]any{"session_id": "ghost", "set_id": "dvs_1"}},
 	} {

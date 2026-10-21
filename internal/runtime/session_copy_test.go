@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -240,5 +241,41 @@ func TestExportSessionHTML(t *testing.T) {
 	}
 	if _, err := svc.ExportSession(ctx, "sess-ex", "pdf"); err == nil {
 		t.Fatalf("export format=pdf = nil, want unsupported-format error")
+	}
+}
+
+func TestExportSessionNamesAreOpaqueAndNeverReused(t *testing.T) {
+	svc, _, _ := newTestService(t, testsupport.NewEchoModel())
+	svc.deps.ExportDir = t.TempDir()
+	ctx := context.Background()
+	mustCreateSession(t, svc.deps.Sessions, "sess-export-owner")
+	first, err := svc.ExportSession(ctx, "sess-export-owner", "html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(first.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.deps.Messages.AppendMessage(ctx, domain.Message{ID: "added", SessionID: "sess-export-owner", Role: domain.RoleUser, Content: "new output", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.ExportSession(ctx, "sess-export-owner", "html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Name == second.Name {
+		t.Fatal("export identity reused")
+	}
+	wire, err := json.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(wire), "sha256") || strings.Contains(string(wire), "digest") {
+		t.Fatalf("retired export field: %s", wire)
+	}
+	retained, err := os.ReadFile(first.Path)
+	if err != nil || string(retained) != string(original) {
+		t.Fatalf("first export changed: %v", err)
 	}
 }

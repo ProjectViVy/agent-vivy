@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -375,7 +373,7 @@ func TestContinuityCodingLoop(t *testing.T) {
 	}
 
 	// Delivery discovery: the committed set lists both artifacts and the
-	// read path returns byte-identical content bound to its digest.
+	// read path returns the exact bytes of its immutable item snapshot.
 	setCtx := tools.WithSessionID(ctx, "sess-b")
 	page, err := f.deliverables.List(setCtx, "sess-b", "", 10)
 	if err != nil || len(page.Items) != 1 {
@@ -394,15 +392,10 @@ func TestContinuityCodingLoop(t *testing.T) {
 	if reportItem == nil {
 		t.Fatalf("report.txt missing from delivered items: %+v", set.Items)
 	}
-	diskSHA := sha256.Sum256(mustReadFile(t, filepath.Join(f.workspaceBDir, "report.txt")))
-	if reportItem.SHA256 != hex.EncodeToString(diskSHA[:]) {
-		t.Fatalf("item sha256 %s != disk %s", reportItem.SHA256, hex.EncodeToString(diskSHA[:]))
-	}
 	chunk, err := f.deliverables.Read(setCtx, domain.DeliveryReadRequest{
-		ItemID:         reportItem.ID,
-		ExpectedDigest: reportItem.SHA256,
-		Offset:         0,
-		Length:         256 << 10,
+		ItemID: reportItem.ID,
+		Offset: 0,
+		Length: 256 << 10,
 	})
 	if err != nil {
 		t.Fatalf("deliverables read: %v", err)

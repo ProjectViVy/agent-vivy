@@ -162,14 +162,7 @@ func postgresMessageExists(ctx context.Context, tx *Tx, id string) (bool, error)
 }
 
 func postgresInsertAdmissionMarker(ctx context.Context, tx *Tx, marker storage.SessionTruncation) error {
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO session_truncations
-			(session_id,run_id,cutoff_message_id,tail_message_id,work_seq,reason,fork_session_id,created_at)
-		VALUES (?,?,?,?,?,?,?,?)`, marker.SessionID, marker.RunID, marker.CutoffMessageID, marker.TailMessageID,
-		int64(marker.WorkSeq), marker.Reason, marker.ForkSessionID, marker.CreatedAt); err != nil {
-		return err
-	}
-	return nil
+	return postgresInsertMarker(ctx, tx.SQL, marker)
 }
 
 func postgresInsertAdmissionMessage(ctx context.Context, tx *Tx, m domain.Message) error {

@@ -2,9 +2,7 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,7 +73,7 @@ type DeliverableService struct {
 	messages    storage.MessageStore
 	truncations storage.TruncationStore
 
-	// postReadHook is a test seam executed after hashing a file and before
+	// postReadHook is a test seam executed after reading a file and before
 	// the identity recheck; it simulates a path swap mid-read.
 	postReadHook func()
 }
@@ -110,7 +108,7 @@ func (s *DeliverableService) SetLimits(limits domain.ContinuityLimits) {
 	s.limits = limits.Effective(0)
 }
 
-// Present fingerprints each requested file independently and commits the
+// Present captures each requested file independently and commits the
 // resulting set as one deliverables.presented event. Successes and failures
 // are recorded honestly in the same event; an all-failure request yields a
 // failed set rather than a fake success.
@@ -160,14 +158,16 @@ func (s *DeliverableService) Present(ctx context.Context, request domain.Present
 		Title:      request.Title,
 	}
 	var total int64
+	var presentations []storage.DeliverablePresentation
 	for _, file := range request.Files {
-		item, failure := s.fingerprint(ctx, workspace, file, sessionID, runID, callID, total)
+		item, content, failure := s.capture(ctx, workspace, file, sessionID, runID, callID, total)
 		if failure != nil {
 			set.Failures = append(set.Failures, *failure)
 			continue
 		}
 		total += item.Size
 		set.Items = append(set.Items, item)
+		presentations = append(presentations, storage.DeliverablePresentation{SessionID: sessionID, ItemID: item.ID, Content: content})
 	}
 	switch {
 	case len(set.Items) == 0:
@@ -185,10 +185,11 @@ func (s *DeliverableService) Present(ctx context.Context, request domain.Present
 		return domain.DeliverySet{}, err
 	}
 	result, err := s.continuity.CommitContinuityOperation(ctx, storage.ContinuityMutation{
-		SessionID: sessionID,
-		RunID:     runID,
-		Event:     event,
-		Receipt:   receipt,
+		SessionID:     sessionID,
+		RunID:         runID,
+		Event:         event,
+		Receipt:       receipt,
+		Presentations: presentations,
 	})
 	if err != nil {
 		return domain.DeliverySet{}, err
@@ -202,17 +203,17 @@ func (s *DeliverableService) Present(ctx context.Context, request domain.Present
 	return set, nil
 }
 
-// fingerprint opens one workspace file through the shared safe-open helper
-// and hashes its bytes from the validated descriptor. Every failure returns
+// capture opens one workspace file through the shared safe-open helper
+// and retains bounded bytes from the validated descriptor. Every failure returns
 // a safe reason; nothing about the internal path layout is exposed.
-func (s *DeliverableService) fingerprint(ctx context.Context, workspace Workspace, file domain.PresentFile, sessionID domain.SessionID, runID domain.RunID, callID string, used int64) (domain.Deliverable, *domain.DeliveryFailure) {
-	fail := func(err error) (domain.Deliverable, *domain.DeliveryFailure) {
+func (s *DeliverableService) capture(ctx context.Context, workspace Workspace, file domain.PresentFile, sessionID domain.SessionID, runID domain.RunID, callID string, used int64) (domain.Deliverable, []byte, *domain.DeliveryFailure) {
+	fail := func(err error) (domain.Deliverable, []byte, *domain.DeliveryFailure) {
 		public := "file cannot be presented"
 		var openErr *secureOpenError
 		if errors.As(err, &openErr) {
 			public = openErr.public
 		}
-		return domain.Deliverable{}, &domain.DeliveryFailure{Path: file.Path, Reason: public}
+		return domain.Deliverable{}, nil, &domain.DeliveryFailure{Path: file.Path, Reason: public}
 	}
 	sf, err := openWorkspaceFileSecure(workspace.Path, file.Path)
 	if err != nil {
@@ -221,27 +222,32 @@ func (s *DeliverableService) fingerprint(ctx context.Context, workspace Workspac
 	defer sf.close()
 	max := s.limits.PresentFileBytes
 	if sf.info.Size() > max {
-		return domain.Deliverable{}, &domain.DeliveryFailure{Path: file.Path, Reason: fmt.Sprintf("file exceeds the %d byte limit", max)}
+		return domain.Deliverable{}, nil, &domain.DeliveryFailure{Path: file.Path, Reason: fmt.Sprintf("file exceeds the %d byte limit", max)}
 	}
 	if used+sf.info.Size() > s.limits.PresentSetBytes {
-		return domain.Deliverable{}, &domain.DeliveryFailure{Path: file.Path, Reason: fmt.Sprintf("delivery set exceeds the %d byte limit", s.limits.PresentSetBytes)}
+		return domain.Deliverable{}, nil, &domain.DeliveryFailure{Path: file.Path, Reason: fmt.Sprintf("delivery set exceeds the %d byte limit", s.limits.PresentSetBytes)}
 	}
-	prefix := make([]byte, 512)
-	n, readErr := sf.file.Read(prefix)
-	if readErr != nil && !errors.Is(readErr, io.EOF) {
-		return fail(readErr)
+	if remaining := s.limits.PresentSetBytes - used; remaining < max {
+		max = remaining
 	}
-	prefix = prefix[:n]
-	if _, err := sf.file.Seek(0, io.SeekStart); err != nil {
+	content, err := io.ReadAll(io.LimitReader(ctxReader{ctx: ctx, r: sf.file}, max+1))
+	if err != nil {
 		return fail(err)
 	}
-	hash := sha256.New()
-	written, err := io.CopyN(hash, ctxReader{ctx: ctx, r: sf.file}, max+1)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return fail(err)
-	}
+	written := int64(len(content))
 	if written > max {
-		return domain.Deliverable{}, &domain.DeliveryFailure{Path: file.Path, Reason: fmt.Sprintf("file exceeds the %d byte limit", max)}
+		return domain.Deliverable{}, nil, &domain.DeliveryFailure{Path: file.Path, Reason: "file exceeds the presentation byte limit"}
+	}
+	after, err := sf.file.Stat()
+	if err != nil {
+		return fail(err)
+	}
+	if after.Size() != sf.info.Size() || !after.ModTime().Equal(sf.info.ModTime()) || written != after.Size() {
+		return fail(&secureOpenError{public: "file changed while reading", cause: errSecureChanged})
+	}
+	prefix := content
+	if len(prefix) > 512 {
+		prefix = prefix[:512]
 	}
 	if err := ctx.Err(); err != nil {
 		return fail(err)
@@ -265,11 +271,10 @@ func (s *DeliverableService) fingerprint(ctx context.Context, workspace Workspac
 		Name:             safeDeliveryName(path.Base(sf.clean)),
 		Description:      file.Description,
 		Size:             written,
-		SHA256:           hex.EncodeToString(hash.Sum(nil)),
 		MediaType:        http.DetectContentType(prefix),
 		CapturedAt:       s.now().UnixMilli(),
 		OriginToolCallID: callID,
-	}, nil
+	}, content, nil
 }
 
 // List folds the session's committed deliverables.presented events into one
@@ -328,8 +333,8 @@ func (s *DeliverableService) Get(ctx context.Context, sessionID domain.SessionID
 }
 
 // Read serves one bounded chunk of a presented file. The first read creates
-// a verified temporary snapshot — the complete file is re-hashed and the
-// copy is kept only when it still matches the presented digest; subsequent
+// a verified temporary snapshot after exact comparison with the private
+// presentation bytes; subsequent
 // chunks must name the live transfer, stay sequential and remain inside the
 // owner session.
 func (s *DeliverableService) Read(ctx context.Context, request domain.DeliveryReadRequest) (domain.DeliveryChunk, error) {
@@ -350,16 +355,19 @@ func (s *DeliverableService) Read(ctx context.Context, request domain.DeliveryRe
 	if item == nil {
 		return domain.DeliveryChunk{}, DeliverableError{Status: string(domain.HistoryStatusNotFound), Reason: "deliverable item not found"}
 	}
-	if request.ExpectedDigest != item.SHA256 {
-		return domain.DeliveryChunk{}, DeliverableError{Status: string(domain.HistoryStatusConflict), Reason: "expected digest does not match the presented item"}
-	}
 	var tr *deliveryTransfer
 	if request.TransferID == "" {
 		tr, err = s.openTransfer(ctx, sessionID, *set, *item)
 	} else {
-		tr, err = s.transfers.lookup(sessionID, request.TransferID, request.ItemID, item.SHA256)
+		tr, err = s.transfers.lookup(sessionID, request.TransferID, request.ItemID)
 	}
 	if err != nil {
+		return domain.DeliveryChunk{}, mapDeliverableReadError(err)
+	}
+	// Revalidate live transfer state under its owner lock, including first reads.
+	s.transfers.mu.Lock()
+	defer s.transfers.mu.Unlock()
+	if _, err := s.transfers.lookupLocked(sessionID, tr.id, request.ItemID); err != nil {
 		return domain.DeliveryChunk{}, mapDeliverableReadError(err)
 	}
 	return s.serveChunk(request, tr)
@@ -369,6 +377,19 @@ func (s *DeliverableService) Read(ctx context.Context, request domain.DeliveryRe
 // workspace and snapshots its bytes into the transfer scratch. A file that
 // moved, vanished or became a link is reported per the SC-D4 access table.
 func (s *DeliverableService) openTransfer(ctx context.Context, sessionID domain.SessionID, set domain.DeliverySet, item domain.Deliverable) (*deliveryTransfer, error) {
+	if s.continuity == nil {
+		return nil, DeliverableError{Status: string(domain.HistoryStatusUnavailable), Reason: "presentation bytes unavailable; present the file again"}
+	}
+	expected, err := s.continuity.ReadDeliverablePresentation(ctx, sessionID, item.ID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, DeliverableError{Status: string(domain.HistoryStatusUnavailable), Reason: "presentation bytes unavailable; present the file again"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(expected)) != item.Size || int64(len(expected)) > s.limits.PresentFileBytes {
+		return nil, DeliverableError{Status: string(domain.HistoryStatusUnavailable), Reason: "presentation bytes unavailable; present the file again"}
+	}
 	workspace, found, err := s.manager.Existing(ctx, set.RunID)
 	if err != nil {
 		return nil, err
@@ -385,7 +406,7 @@ func (s *DeliverableService) openTransfer(ctx context.Context, sessionID domain.
 	if err != nil {
 		return nil, &secureOpenError{public: "workspace is unavailable", cause: err}
 	}
-	tr, err := s.transfers.create(ctx, sf, rootReal, sessionID, item.ID, item.SHA256, s.limits.PresentFileBytes)
+	tr, err := s.transfers.create(ctx, sf, rootReal, sessionID, item.ID, expected, s.limits.PresentFileBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -399,6 +420,9 @@ func (s *DeliverableService) serveChunk(request domain.DeliveryReadRequest, tr *
 	// The verified snapshot is immutable, so re-requesting the last served
 	// window replays identical bytes; only offsets past it must advance.
 	replay := tr.hasServed && request.Offset == tr.servedStart
+	if replay && min(int64(request.Length), tr.size-request.Offset) != tr.servedLen {
+		return domain.DeliveryChunk{}, DeliverableError{Status: string(domain.HistoryStatusInvalidArgument), Reason: "retry must replay the last served window"}
+	}
 	if !replay {
 		expected := int64(0)
 		if tr.hasServed {
@@ -433,7 +457,6 @@ func (s *DeliverableService) serveChunk(request domain.DeliveryReadRequest, tr *
 	return domain.DeliveryChunk{
 		TransferID: tr.id,
 		ItemID:     request.ItemID,
-		Digest:     tr.digest,
 		Offset:     request.Offset,
 		DataBase64: base64.StdEncoding.EncodeToString(data),
 		EOF:        eof,

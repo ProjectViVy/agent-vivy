@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FaceSessionTree, FaceSessionTreeNode } from '@vivy/ui-sdk';
-import { flattenTree } from './tree';
+import { decodeExport, flattenTree } from './tree';
 
 const node = (id: string, created: number, parent?: string): FaceSessionTreeNode => ({
   session_id: id,
@@ -48,5 +48,29 @@ describe('flattenTree', () => {
     expect(flat.map((row) => row.node.session_id)).toContain('cycle-a');
     expect(flat.map((row) => row.node.session_id)).toContain('cycle-b');
     expect(flat).toHaveLength(4);
+  });
+});
+
+
+describe('decodeExport', () => {
+  const published = { path: '/exports/export_opaque.html', name: 'export_opaque.html', size: 3, message_count: 1 };
+  const complete = { name: published.name, size: 3, data_base64: btoa('abc') };
+
+  it('accepts one complete immutable publication without digest fields', () => {
+    expect(new TextDecoder().decode(decodeExport(published, complete))).toBe('abc');
+  });
+
+  it('rejects another publication even if its size matches', () => {
+    expect(() => decodeExport(published, { ...complete, name: 'other.html' })).toThrow();
+  });
+
+  it('refuses incomplete, excess, malformed, or unbounded bytes before saving', () => {
+    for (const read of [
+      { ...complete, size: 2 },
+      { ...complete, data_base64: btoa('ab') },
+      { ...complete, data_base64: btoa('abcd') },
+      { ...complete, data_base64: '%%%?' },
+    ]) expect(() => decodeExport(published, read)).toThrow();
+    expect(() => decodeExport({ ...published, size: 33 * 1024 * 1024 }, complete)).toThrow();
   });
 });

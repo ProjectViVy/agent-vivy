@@ -72,7 +72,7 @@ function lastRunId(messages: api.Message[]): string | null {
 /** 历史运行事件缓存上限：转写只折叠最近若干个运行，避免一次会话拉爆内存。 */
 const RUN_LOG_CACHE_LIMIT = 8;
 
-/** 交付传输的 RPC 接缝（SC-D4 §12）：只有 digest 绑定的 read + close。
+/** 交付传输的 RPC 接缝（SC-D4 §12）：只有条目与不可变传输绑定的 read + close。
  * 调用时解析引用，测试可替换 api 模块实现。 */
 const deliverableRpc = {
   read: (sessionId: string, req: api.DeliveryReadRequest) => api.deliverablesRead(sessionId, req),
@@ -81,6 +81,11 @@ const deliverableRpc = {
 
 /** 每个 item 同时只允许一个活动下载（由 store 内存控制器保证）。 */
 const deliveryDownloads = new Map<string, AbortController>();
+
+function stopDeliveryDownloads(): void {
+  for (const controller of deliveryDownloads.values()) controller.abort();
+  deliveryDownloads.clear();
+}
 
 const deliveryErrorStatus = (err: unknown): api.DeliveryItemStatus => {
   const reason = err instanceof DeliverableTransferError ? err.reason : 'unavailable';
@@ -667,6 +672,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     if (!get().initialized) return;
     stopSubscription();
     stopWorkSubscription();
+    stopDeliveryDownloads();
     resetRpcClient();
     initialization = null;
     sessionEpoch += 1;
@@ -760,6 +766,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       const remaining = get().sessions.filter((item) => item.id !== id);
       set({ sessions: remaining, sessionsPhase: remaining.length ? 'ready' : 'empty' });
       if (get().activeSessionId === id) {
+        stopDeliveryDownloads();
         stopSubscription(); stopWorkSubscription(); localStorage.removeItem(ACTIVE_SESSION_KEY);
         set({ activeSessionId: null, messages: [], sessionContext: null, todos: [], todosPhase: 'idle', todosError: null, currentRun: null, runEvents: [], queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'idle', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
         if (remaining[0]) await get().selectSession(remaining[0].id);
@@ -769,6 +776,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
+    stopDeliveryDownloads();
     runOpen += 1;
     stopSubscription(); stopWorkSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
     set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
@@ -1056,6 +1064,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   deliveryItemStates: {},
   loadDeliverySets: async () => {
     const sessionId = get().activeSessionId;
+    const epoch = sessionEpoch;
     if (!sessionId || get().deliverySetsPhase === 'loading') return;
     set({ deliverySetsPhase: 'loading' });
     try {
@@ -1064,6 +1073,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       let cursor: string | undefined;
       do {
         const page = await api.deliverablesList(sessionId, { cursor, limit: 100 });
+        if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
         for (const set_ of page.items) {
           if (seen.has(set_.id)) continue;
           seen.add(set_.id);
@@ -1073,45 +1083,55 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       } while (cursor !== undefined);
       set({ deliverySets: items, deliverySetsPhase: items.length === 0 ? 'empty' : 'ready' });
     } catch {
+      if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       set({ deliverySetsPhase: 'error' });
     }
   },
   checkDeliveryItem: async (item) => {
     const sessionId = get().activeSessionId;
+    const epoch = sessionEpoch;
     const current = get().deliveryItemStates[item.id];
-    if (!sessionId || current?.status === 'checking' || current?.status === 'downloading') return;
+    if (!sessionId || item.session_id !== sessionId || current?.status === 'checking' || current?.status === 'downloading') return;
     set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { status: 'checking' } } }));
     try {
       await checkDeliverable(item, sessionId, deliverableRpc);
+      if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'available' } } }));
     } catch (err) {
+      if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: deliveryErrorStatus(err) } } }));
     }
   },
   previewDeliveryItem: async (item) => {
     const sessionId = get().activeSessionId;
-    if (!sessionId || get().deliveryItemStates[item.id]?.status === 'checking') return;
+    const epoch = sessionEpoch;
+    if (!sessionId || item.session_id !== sessionId || get().deliveryItemStates[item.id]?.status === 'checking') return;
     try {
       const preview = await readDeliveryPreview(item, sessionId, deliverableRpc);
+      if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'available', preview } } }));
     } catch (err) {
+      if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: deliveryErrorStatus(err) } } }));
     }
   },
   downloadDeliveryItem: async (item) => {
     const sessionId = get().activeSessionId;
-    if (!sessionId || deliveryDownloads.has(item.id)) return;
+    const epoch = sessionEpoch;
+    if (!sessionId || item.session_id !== sessionId || deliveryDownloads.has(item.id)) return;
     const controller = new AbortController();
     deliveryDownloads.set(item.id, controller);
     set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'downloading' } } }));
     try {
       await downloadDeliverable(item, sessionId, deliverableRpc, controller.signal);
+      if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: 'downloaded' } } }));
     } catch (err) {
+      if (epoch !== sessionEpoch || get().activeSessionId !== sessionId) return;
       const aborted = err instanceof DeliverableTransferError && err.reason === 'aborted';
       set((state) => ({ deliveryItemStates: { ...state.deliveryItemStates, [item.id]: { ...state.deliveryItemStates[item.id], status: aborted ? 'unchecked' : deliveryErrorStatus(err) } } }));
     } finally {
-      deliveryDownloads.delete(item.id);
+      if (deliveryDownloads.get(item.id) === controller) deliveryDownloads.delete(item.id);
     }
   },
   cancelDeliveryDownload: (itemId) => {
@@ -1292,6 +1312,7 @@ export async function reconcileRun(runId: string, sessionId: string): Promise<vo
 }
 
 export function resetStoreForTests(): void {
+  stopDeliveryDownloads();
   stopSubscription(); stopWorkSubscription(); initialization = null; sessionEpoch = 0; reviewEpoch = 0;
   workRead = 0; workEventSeq = 0;
   settingsRead = 0; settingsMutation = 0; pendingSettingsMutation = null;

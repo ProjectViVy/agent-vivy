@@ -806,7 +806,6 @@ export interface FaceDeliverable {
   readonly name: string;
   readonly description: string;
   readonly size: number;
-  readonly sha256: string;
   readonly media_type: string;
   readonly captured_at: number;
   readonly origin_tool_call_id: string;
@@ -865,12 +864,10 @@ export interface FaceSessionImportResult {
   readonly skipped: number;
 }
 
-/** session/export: the written artifact, its verified-download binding
- * (name + sha256 for exports/read), and the visible message count. */
+/** session/export: the immutable published artifact and visible message count. */
 export interface FaceSessionExportResult {
   readonly path: string;
   readonly name: string;
-  readonly sha256: string;
   readonly size: number;
   readonly message_count: number;
 }
@@ -878,16 +875,14 @@ export interface FaceSessionExportResult {
 /** exports/read: one bounded artifact from the exports directory. */
 export interface FaceExportReadResult {
   readonly name: string;
-  readonly digest: string;
   readonly size: number;
   readonly data_base64: string;
 }
 
-/** deliverables/read request: digest binding is mandatory; a received
- * transfer_id resumes that owner's open transfer. */
+/** deliverables/read request: ItemID selects the durable presentation; a
+ * transfer_id resumes the same owner-bound immutable snapshot. */
 export interface FaceDeliveryReadRequest {
   readonly item_id: string;
-  readonly expected_digest: string;
   readonly transfer_id?: string;
   readonly offset: number;
   readonly length: number;
@@ -896,7 +891,6 @@ export interface FaceDeliveryReadRequest {
 export interface FaceDeliveryChunk {
   readonly transfer_id: string;
   readonly item_id: string;
-  readonly digest: string;
   readonly offset: number;
   readonly data_base64: string;
   readonly eof: boolean;
@@ -1921,9 +1915,8 @@ export interface FaceClientAPI {
   cloneSession(sessionId: string, title?: string): Promise<FaceSessionCloneResult>;
   importSession(data: string): Promise<FaceSessionImportResult>;
   exportSession(sessionId: string): Promise<FaceSessionExportResult>;
-  /** Digest-bound read of one exports-dir artifact; pass the sha256 the
-   * export result reported so a changed file answers an error. */
-  readExport(name: string, expectedDigest?: string): Promise<FaceExportReadResult>;
+  /** Bounded read of one immutable export by its opaque published name. */
+  readExport(name: string): Promise<FaceExportReadResult>;
   editSession(
     sessionId: string,
     messageId: string,
@@ -1950,7 +1943,7 @@ export interface FaceClientAPI {
   previewReference(sessionId: string, selection: FaceHistorySelection): Promise<FaceReferencePreview>;
   referenceGet(sessionId: string, referenceId: string): Promise<FaceReferenceView>;
   historyRead(sessionId: string, request: FaceHistoryReadRequest): Promise<FaceHistoryPage>;
-  /** Explicit delivery RPCs (SC-D4 §12): reads are digest-bound and
+  /** Explicit delivery RPCs (SC-D4 §12): reads are bound to immutable item/transfer IDs and
    * connection-owned; there is no arbitrary HTTP transfer route. */
   deliverablesList(sessionId: string, params?: { readonly cursor?: string; readonly limit?: number }): Promise<FaceDeliverySetPage>;
   deliverablesGet(sessionId: string, setId: string): Promise<{ readonly set: FaceDeliverySet }>;
@@ -2245,7 +2238,7 @@ export interface FaceStoreState {
   checkDeliveryItem(item: FaceDeliverable): Promise<void>;
   /** Loads a bounded UTF-8 text preview for text-previewable media types. */
   previewDeliveryItem(item: FaceDeliverable): Promise<void>;
-  /** Sequential verified download: completes only after EOF + digest match;
+  /** Sequential verified download: completes only after one transfer reaches its declared size and EOF;
    * a second click while downloading is a no-op (cancel via
    * cancelDeliveryDownload). */
   downloadDeliveryItem(item: FaceDeliverable): Promise<void>;

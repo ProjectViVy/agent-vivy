@@ -1,4 +1,4 @@
-import type { FaceSessionTree, FaceSessionTreeNode } from '@vivy/ui-sdk';
+import type { FaceExportReadResult, FaceSessionExportResult, FaceSessionTree, FaceSessionTreeNode } from '@vivy/ui-sdk';
 
 /** One rendered row: the node plus its indentation depth in the layout. */
 export interface TreeRow {
@@ -46,16 +46,16 @@ export function flattenTree(tree: FaceSessionTree): TreeRow[] {
   return rows;
 }
 
-/** Decodes one exports/read payload back to bytes. */
-export function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
+/** Checks the immutable publication identity and bounded complete read before saving. */
+export function decodeExport(result: FaceSessionExportResult, read: FaceExportReadResult): Uint8Array {
+  const maxBytes = 32 * 1024 * 1024;
+  if (!result.name || read.name !== result.name || !Number.isSafeInteger(result.size) || result.size < 0 || result.size > maxBytes || read.size !== result.size) {
+    throw new Error('Export response does not match the published artifact');
+  }
+  if (read.data_base64.length > Math.ceil(result.size / 3) * 4) throw new Error('Export exceeds its declared size');
+  const binary = atob(read.data_base64);
+  if (binary.length !== result.size) throw new Error('Export is incomplete');
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return bytes;
-}
-
-/** SHA-256 hex of the downloaded bytes, compared against the export result. */
-export async function sha256Hex(data: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', data.slice().buffer);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
