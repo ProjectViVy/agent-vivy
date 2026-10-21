@@ -37,7 +37,7 @@ func (m ContinuityMutation) ValidatePresentations() error {
 	if err := set.Validate(limits); err != nil {
 		return fmt.Errorf("storage: invalid presentation metadata: %w", err)
 	}
-	if m.Receipt.Operation != "deliverable.present" || set.SessionID != m.SessionID || set.RunID != m.RunID || set.ToolCallID != m.Receipt.RequestID || len(set.Items) != len(m.Presentations) {
+	if m.Receipt.Operation != ContinuityOperationPresent || set.SessionID != m.SessionID || set.RunID != m.RunID || set.ToolCallID != m.Receipt.RequestID || len(set.Items) != len(m.Presentations) {
 		return fmt.Errorf("storage: presentation ownership or item correspondence mismatch")
 	}
 	expected := make(map[string]int64, len(set.Items))

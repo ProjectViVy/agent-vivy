@@ -19,7 +19,7 @@ func presentationMutation(sid domain.SessionID, run domain.RunID, item string, c
 	}})
 	return storage.ContinuityMutation{SessionID: sid, RunID: run,
 		Event:         domain.RunEvent{RunID: run, Type: domain.EventDeliverablesPresented, CreatedAt: 8, PayloadVersion: 1, Payload: body},
-		Receipt:       domain.ContinuityReceipt{SessionID: sid, Operation: "deliverable.present", RequestID: "call-" + item, Input: []byte(`{"path":"` + item + `"}`)},
+		Receipt:       domain.ContinuityReceipt{SessionID: sid, Operation: storage.ContinuityOperationPresent, RequestID: "call-" + item, Input: []byte(`{"path":"` + item + `"}`)},
 		Presentations: []storage.DeliverablePresentation{{SessionID: sid, ItemID: item, Content: content}},
 	}
 }

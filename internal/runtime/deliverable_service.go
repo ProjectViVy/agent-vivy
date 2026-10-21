@@ -26,7 +26,7 @@ import (
 // DeliverableOperationPresent names the durable operation a model
 // present_files call commits; the receipt is keyed on the stable tool_call
 // id so a checkpoint resume replays the committed set.
-const DeliverableOperationPresent = "deliverable.present"
+const DeliverableOperationPresent = storage.ContinuityOperationPresent
 
 // Delivery read outcome statuses beyond the shared history vocabulary; they
 // answer "can the presented bytes still be served" per SC-D4 §8.

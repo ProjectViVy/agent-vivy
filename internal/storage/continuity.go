@@ -13,6 +13,7 @@ const (
 	// ContinuityOperationAdmission is the task admission receipt identity.
 	// Turn admission uses a caller-stable request_id within the session.
 	ContinuityOperationAdmission = "run.admission"
+	ContinuityOperationPresent = "deliverable.present"
 )
 
 var (

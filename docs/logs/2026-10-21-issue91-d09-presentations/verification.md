@@ -37,8 +37,11 @@ Lifecycle cases cover direct edit, CommitSessionRewind, CommitSessionEdit and
 actual CommitRunAdmission(Edit), including rollback after prune. A PostgreSQL
 compile-only check PASS2.188s ran zero tests and is not PostgreSQL evidence.
 Affected runtime/domain/tools/RPC/App/all-storage/exportfile vet PASS.
-Full native SQLite and exact candidate Linux wiring/kernel, real PostgreSQL,
-Face/Web, actual Provider and race outcomes are pending below.
+Full native SQLite PASS190.476s (same storage/migrations/SQLite command, exit0).
+The shared operation-name follow-up derives the runtime constant from its storage
+owner; focused storage1.593s/runtime7.847s presentation tests PASS.
+Exact candidate Linux wiring/kernel, real PostgreSQL, Face/Web, actual Provider
+and race outcomes are pending below.
 
 Independent read-only review found no remaining substantiated defect after the
 PostgreSQL admission-pruning and exact retry-window corrections. It covered
