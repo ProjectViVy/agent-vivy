@@ -19,18 +19,20 @@ origin to avoid stale local workspace selection and retains its truthful built
 authoring-default UI identity; it is not stamped as the tiny Generation, and its
 unrelated capabilities are outside this acceptance. Vite preview serves the
 default UI built by native CI while `3015` serves the matching staged tiny UI.
-The selected custom provider is `Gemini 3.8 local gateway`, using the
-OpenAI-compatible adapter, base URL `http://127.0.0.1:8045/v1`, and default
-model `gemini-3.8-flash-tiered`. Its API Key field is blank. The separate
-Python SDK smoke request below succeeded, but its credential was not saved to
-Vivy.
+The direct Python SDK smoke succeeded, but the Vivy attempt through the custom
+provider `Gemini 3.8 local gateway` failed before sending a request to the
+gateway: the embedded runtime reported `no embedded vendor data`. Do not use
+that custom provider for a Vivy run. Relaunch the isolated Vivy process with
+its embedded OpenAI-compatible provider frozen to the local gateway:
+`VIVY_PROVIDER=deepseek`, `VIVY_API_BASE=http://127.0.0.1:8045/v1`,
+`VIVY_MODEL=gemini-3.8-flash-tiered`, and `DEEPSEEK_API_KEY` supplied through a
+hidden local prompt. Keep `VIVY_USER_HOME` on the disposable D14 home. Never put
+the key in chat, a command line, a file, a screenshot, or a verification log.
 
-For the Tiny Face run, enter the provider credential in this local settings
-owner's custom-provider API Key field. It is written only to the disposable
-runtime and is write-only. Do not repeat it in records or screenshots. Click
-the Tiny Face tab to leave the field, then refresh `3015` while idle. The chat
-draft is prefilled with the workspace list/read acceptance prompt; send it
-after saving the key. No Tiny Face run has been sent yet.
+After that isolated backend restart, refresh the tiny Face page at `3015` while
+idle. Its draft is prefilled with the workspace list/read acceptance prompt;
+send it only after the process is healthy. The earlier full-shell attempt at
+`3017/` is not the Tiny Face acceptance run.
 
 Suggested prompt: "List this workspace, read nonce.txt, and quote its contents
 in your final answer." Do not include the file's value in the prompt. Confirm
@@ -45,9 +47,10 @@ model settings page at `http://127.0.0.1:3017/settings?tab=model` both return
 HTTP200. Session creation succeeded through the existing RPC path, and the
 session is bound to the disposable workspace. The packed and inspected
 Generation is `6b41cd840bde56a3e97312ed00674327`. `nonce.txt` exists in that
-workspace. No Vivy Run has been issued and no credential is configured in the
-isolated Vivy runtime. Both visible pages are ready for the owner's manual
-real-model pass.
+workspace. Three Vivy runs were attempted from the full UI; all failed before
+completion, and none reached the gateway. No successful Vivy model call or
+Tiny Face tool/action acceptance has occurred. The custom-provider key field
+is write-only and was not re-read after the manual attempt.
 
 Record the human result and redacted Run/call/result identities before marking
 D14 or issue91 complete. A successful loopback fixture is automatic evidence,

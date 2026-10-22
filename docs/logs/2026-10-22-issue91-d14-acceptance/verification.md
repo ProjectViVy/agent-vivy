@@ -165,12 +165,17 @@ packed native minimal-chat artifact and exact inspected Generation
 3015 and a private disposable workspace at `.workspace/d14-manual-5b0b572d/`.
 Backend `/healthz`, tiny UI and fresh-origin auxiliary model settings at3017
 each return HTTP200; the existing RPC created Session `sess_c5533c0a93858efa`
-bound to that workspace. The local settings page now has the custom
-OpenAI-compatible provider `Gemini 3.8 local gateway` selected with base URL
-`http://127.0.0.1:8045/v1` and model `gemini-3.8-flash-tiered`; its API Key
-field remains blank. The Tiny Face page is ready with the workspace list/read
-acceptance prompt drafted, but no Vivy Run has been sent and no credential is
-stored in the isolated runtime.
+bound to that workspace. The local settings page selected the custom
+OpenAI-compatible provider `Gemini 3.8 local gateway` with base URL
+`http://127.0.0.1:8045/v1` and model `gemini-3.8-flash-tiered`. Three full-UI
+runs were attempted; one failed with `model provider is not configured` and
+two failed with `provider "Gemini 3.8 local gateway": no embedded vendor data`
+before the gateway request. The failing runs are
+`run_19bd1b257a8c9d51`, `run_8904f52ba14333ea`, and
+`run_6a23cae7aaa62bf8`. The custom-provider API Key field is write-only and was
+not re-read after the user's attempt. No successful Vivy model call or Tiny
+Face tool/action acceptance has occurred. The Tiny Face page still has the
+workspace list/read prompt drafted.
 
 Direct SDK smoke, 2026-10-22: Python 3.13.12 with OpenAI SDK 2.33.0 sent
 `Hello` to `http://127.0.0.1:8045/v1` using model
@@ -179,6 +184,14 @@ Direct SDK smoke, 2026-10-22: Python 3.13.12 with OpenAI SDK 2.33.0 sent
 that in-memory request and was not written to the workspace, Vivy settings, or
 verification output. This confirms the gateway credential/model route, not the
 Tiny Face tool/action acceptance.
+
+The UI custom-provider entry is registry metadata, not a runnable embedded
+vendor. The backend errors above match the provider catalog's fail-closed
+lookup for a provider without embedded vendor data. A valid Vivy run against
+the gateway requires the isolated process to start with the embedded
+`deepseek` OpenAI-compatible vendor and `VIVY_API_BASE`, `VIVY_MODEL`, and
+`DEEPSEEK_API_KEY` environment overrides. A secure restart attempt was blocked
+by execution policy before stopping the existing process; no restart occurred.
 
 The first pack attempt could not write Go overlays to the
 app-owned visualization temp path; it passed after moving Go temp files under

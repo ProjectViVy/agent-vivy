@@ -53,13 +53,14 @@ native minimal-chat Generation and matching split `3015` UI use a disposable
 home/workspace; the auxiliary settings page at `3017` configures the same
 healthy backend on a fresh browser origin. Generation
 `6b41cd840bde56a3e97312ed00674327` is bound to the existing RPC-created session.
-The local settings page now selects the custom OpenAI-compatible provider at
-`http://127.0.0.1:8045/v1` with model `gemini-3.8-flash-tiered`; the credential
-field remains blank. The separate Python SDK smoke request succeeded with the
-provided credential and `Hello`, but it did not issue a Vivy Run or save the
-credential. A workspace list/read prompt is drafted in the visible Tiny Face
-page. D14/#91 remain open until the owner completes and records that real-model
-tool turn.
+The local settings page selected a custom OpenAI-compatible provider at
+`http://127.0.0.1:8045/v1` with model `gemini-3.8-flash-tiered`. The separate
+Python SDK smoke request succeeded, while three full-UI Vivy attempts failed
+before any gateway request; two report `no embedded vendor data` for that
+custom provider. Vivy needs its embedded OpenAI-compatible provider frozen to
+the gateway through process environment. The Tiny Face workspace list/read
+prompt remains drafted. D14/#91 remain open until the owner completes and
+records the real-model tool turn.
 No push, publication, stable-root merge or tenant cutover is claimed.
 
 Evolution remains explicitly deferred UI-EVO demo; existing live skill approval
