@@ -20,8 +20,8 @@ func insertD09DeleteChild(t *testing.T, ctx context.Context, db d09ChildInserter
 	if _, err := db.ExecContext(ctx, `INSERT INTO sessions(id,title,created_at) VALUES($1,'child',1)`, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO child_sessions(child_session_id,origin_parent_session_id,origin_parent_run_id,authorizer_run_id,initial_activation_run_id,activation_run_id,operation_key,request_digest,authority_ceiling_digest,authority_ceiling_json,activation_operation_key,activation_request_digest,activation_tools_json,state,created_at,updated_at)
- VALUES($1,'z-parent','parent-run','parent-run','child-run','child-run',$1,'fixture','fixture','{}',$1,'fixture','[]','open',1,1)`, id); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO child_sessions(child_session_id,origin_parent_session_id,origin_parent_run_id,authorizer_run_id,initial_activation_run_id,activation_run_id,operation_key,request_input,authority_ceiling_json,activation_operation_key,activation_request_input,activation_tools_json,state,created_at,updated_at)
+ VALUES($1,'z-parent','parent-run','parent-run','child-run','child-run',$1,'fixture','{}',$1,'fixture','[]','open',1,1)`, id); err != nil {
 		t.Fatal(err)
 	}
 }

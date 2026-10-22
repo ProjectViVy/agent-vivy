@@ -134,6 +134,7 @@ INSERT INTO studio_events(type,object_id,created_at,payload) VALUES('generation.
 		t.Fatal(err)
 	}
 	defer target.Close()
+	restoreCopiedWorkflowIndexName(t, ctx, target)
 	if _, err := target.ExecContext(ctx, "CREATE VIEW generation_drop_guard AS SELECT artifact_sha256 FROM generations"); err != nil {
 		t.Fatal(err)
 	}

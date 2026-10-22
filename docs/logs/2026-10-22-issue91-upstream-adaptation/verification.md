@@ -18,6 +18,13 @@ tail changes beyond5KiB conflict; oversize input creates no child.
 
 Actual runtime SQLite bridge against the separately emitted finite046 fixture
 passes, including old-source refusal without writes and two target reopens.
-The initial PostgreSQL bridge failed in its temporary restore harness; correction
-and rerun remain pending. Full-product Windows CI is running; PostgreSQL/race,
+The initial PostgreSQL bridge failed in its temporary restore harness; correcting
+the restored search_path and explicit database DSN yields PASS0.492s. The full
+PostgreSQL gate then exposed stale test-only child columns and PostgreSQL's
+LIKE-generated index names. Matching the actual current columns and restoring
+the historical index name in those synthetic copies yields143 PASS, zero skip.
+Released migrations were not rewritten. Full-product Windows CI reached passing
+UI typecheck and683 cases but failed esbuild temporary-file deletion with Access
+Denied. A task-owned TEMP has the same failure; an independent Windows checkout
+under the writable workspace is being prepared. Race,
 remaining Recipe/browser smokes and final independent verdicts remain pending.

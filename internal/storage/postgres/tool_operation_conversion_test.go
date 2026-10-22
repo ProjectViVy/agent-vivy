@@ -108,6 +108,7 @@ func TestToolOperationCopiedBaselineConversionPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer target.Close()
+	restoreCopiedWorkflowIndexName(t, ctx, target)
 	finishMigrationFixture(t, ctx, target, manifest, 35)
 	fragment, err := os.ReadFile("../migrations/transition/postgres/expire_baseline_approvals.sql")
 	if err != nil {
