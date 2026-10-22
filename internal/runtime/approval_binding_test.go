@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -46,41 +47,41 @@ func TestToolApprovalProposalBindingRoundTrip(t *testing.T) {
 }
 
 func TestNativeOrchestrationApprovalBindsRunNodeAndCheckpointTarget(t *testing.T) {
-	descriptor, revision, err := nativeOrchestrationDescriptorWithApproval("alpha", "beta", true)
+	descriptor, err := nativeOrchestrationDescriptorWithApproval("alpha", "beta", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = descriptor
 	input := orchestrationProofInput{
-		A: nativeOrchestrationRequest{RunID: "run-1", RevisionDigest: revision, NodeKey: "a", Task: "alpha", RequiresApproval: true},
-		B: nativeOrchestrationRequest{RunID: "run-1", RevisionDigest: revision, NodeKey: "b", Task: "beta"},
+		A: nativeOrchestrationRequest{RunID: "run-1", DescriptorJSON: descriptor, NodeKey: "a", Task: "alpha", RequiresApproval: true},
+		B: nativeOrchestrationRequest{RunID: "run-1", DescriptorJSON: descriptor, NodeKey: "b", Task: "beta"},
 	}
 	arguments, err := json.Marshal(struct {
-		WorkflowRunID    string `json:"workflow_run_id"`
-		Revision         string `json:"revision_digest"`
-		NodeKey          string `json:"node_key"`
-		Task             string `json:"task"`
-		RequiresApproval bool   `json:"requires_approval,omitempty"`
-	}{string(input.A.RunID), input.A.RevisionDigest, input.A.NodeKey, input.A.Task, input.A.RequiresApproval})
+		WorkflowRunID    string          `json:"workflow_run_id"`
+		Descriptor       json.RawMessage `json:"descriptor"`
+		NodeKey          string          `json:"node_key"`
+		Task             string          `json:"task"`
+		RequiresApproval bool            `json:"requires_approval,omitempty"`
+	}{string(input.A.RunID), input.A.DescriptorJSON, input.A.NodeKey, input.A.Task, input.A.RequiresApproval})
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash, err := canonicalToolArguments(arguments)
+	intended, err := canonicalToolArguments(arguments)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposal, err := bindToolApprovalProposal(nil, hash)
+	proposal, err := bindToolApprovalProposal(nil, intended)
 	if err != nil {
 		t.Fatal(err)
 	}
 	approval := domain.Approval{
-		RunID: input.A.RunID, ToolCallID: workflowNodeOperationID(revision, "a"), ToolName: "orchestration.node",
+		RunID: input.A.RunID, ToolCallID: workflowNodeOperationID("a"), ToolName: "orchestration.node",
 		ResumeTarget: nativeOrchestrationResumeTarget("runnable:vivy;node:a"), ProposalData: proposal,
 	}
 	if err := validateNativeOrchestrationApprovalBinding(approval, input); err != nil {
 		t.Fatalf("valid native approval binding: %v", err)
 	}
-	approval.ToolCallID = workflowNodeOperationID(revision, "b")
+	approval.ToolCallID = workflowNodeOperationID("b")
 	if err := validateNativeOrchestrationApprovalBinding(approval, input); err == nil {
 		t.Fatal("approval for a different workflow node was accepted")
 	}
@@ -104,5 +105,34 @@ func TestRedactedApprovalArgumentsCopiesNestedValues(t *testing.T) {
 	}
 	if original["credential"] != "sk-live-middleware-secret" {
 		t.Fatal("redaction mutated the authoritative arguments")
+	}
+}
+
+func TestNativeOrchestrationApprovalBindsCompleteOriginalDescriptor(t *testing.T) {
+	descriptor, err := nativeOrchestrationDescriptorWithApproval("alpha", "beta", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := nativeOrchestrationRequest{RunID: "run-1", DescriptorJSON: descriptor, NodeKey: "a", Task: "alpha", RequiresApproval: true}
+	arguments, err := nativeOrchestrationArguments(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := encodeToolApprovalInterrupt("orchestration.node", arguments, "approval")
+	restored, err := nativeOrchestrationRequestFromApprovalState(encoded)
+	if err != nil || string(restored.DescriptorJSON) != string(descriptor) {
+		t.Fatalf("complete original descriptor was not restored: %+v %v", restored, err)
+	}
+	request.Task = "changed"
+	arguments, err = nativeOrchestrationArguments(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nativeOrchestrationRequestFromApprovalState(encodeToolApprovalInterrupt("orchestration.node", arguments, "approval")); err == nil {
+		t.Fatal("changed task borrowed another original descriptor")
+	}
+	oldArguments := json.RawMessage(`{"workflow_run_id":"run-1","node_key":"a","task":"alpha","requires_approval":true}`)
+	if _, err := nativeOrchestrationRequestFromApprovalState(encodeToolApprovalInterrupt("orchestration.node", oldArguments, "approval")); !errors.Is(err, ErrWorkflowRecoveryRequired) {
+		t.Fatalf("missing original descriptor did not require recovery: %v", err)
 	}
 }

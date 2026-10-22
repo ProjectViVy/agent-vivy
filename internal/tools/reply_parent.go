@@ -3,8 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,8 +68,10 @@ func (t *replyParentTool) InvokableRun(ctx context.Context, args json.RawMessage
 	if text == "" || len([]byte(text)) > maxParentReplyLen {
 		return "", fmt.Errorf("parent reply must contain 1 to %d bytes", maxParentReplyLen)
 	}
-	digest := sha256.Sum256([]byte(string(runID) + "\x00" + callID))
-	operationKey := "child-reply-" + hex.EncodeToString(digest[:])
+	operationKey := "child-reply-" + base64.RawURLEncoding.EncodeToString([]byte(runID)) + "." + base64.RawURLEncoding.EncodeToString([]byte(callID))
+	if len(operationKey) > 256 {
+		return "", errors.New("reply_parent model call identity exceeds the operation key byte bound")
+	}
 	result, err := t.ops.SendParentMessage(ctx, runID, sessionID, operationKey, text)
 	if err != nil {
 		return "", err

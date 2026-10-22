@@ -3,8 +3,6 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,11 +24,24 @@ var ErrNativeOrchestrationApprovalPending = errors.New("runtime: native orchestr
 const nativeOrchestrationResumeTargetPrefix = "native-orchestration:"
 
 type nativeOrchestrationRequest struct {
-	RunID            domain.RunID
-	RevisionDigest   string
+	RunID domain.RunID
+	// Plain bytes round-trip through Eino native slice serialization.
+	DescriptorJSON   []byte
 	NodeKey          string
 	Task             string
 	RequiresApproval bool
+}
+
+type nativeOrchestrationBinding struct {
+	WorkflowRunID    string          `json:"workflow_run_id"`
+	Descriptor       json.RawMessage `json:"descriptor"`
+	NodeKey          string          `json:"node_key"`
+	Task             string          `json:"task"`
+	RequiresApproval bool            `json:"requires_approval,omitempty"`
+}
+
+func nativeOrchestrationArguments(request nativeOrchestrationRequest) ([]byte, error) {
+	return json.Marshal(nativeOrchestrationBinding{string(request.RunID), request.DescriptorJSON, request.NodeKey, request.Task, request.RequiresApproval})
 }
 
 type nativeOrchestrationResult struct {
@@ -79,16 +90,16 @@ func init() {
 	schema.RegisterName[orchestrationProofOutput]("vivy_orchestration_proof_output_v1")
 }
 
-func nativeOrchestrationDescriptor(taskA, taskB string) ([]byte, string, error) {
+func nativeOrchestrationDescriptor(taskA, taskB string) ([]byte, error) {
 	return nativeOrchestrationDescriptorWithApproval(taskA, taskB, false)
 }
 
-func nativeOrchestrationDescriptorWithApproval(taskA, taskB string, requiresApproval bool) ([]byte, string, error) {
+func nativeOrchestrationDescriptorWithApproval(taskA, taskB string, requiresApproval bool) ([]byte, error) {
 	if strings.TrimSpace(taskA) == "" || strings.TrimSpace(taskB) == "" {
-		return nil, "", errors.New("runtime: native orchestration tasks must not be empty")
+		return nil, errors.New("runtime: native orchestration tasks must not be empty")
 	}
 	descriptor := orchestrationDescriptor{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Nodes: []orchestrationNodeDescriptor{
 			{Key: "a", Task: taskA, RequiresApproval: requiresApproval}, {Key: "b", Task: taskB}, {Key: "join"}, {Key: "audit"},
 		},
@@ -104,9 +115,9 @@ func nativeOrchestrationDescriptorWithApproval(taskA, taskB string, requiresAppr
 	}
 	encoded, err := json.Marshal(descriptor)
 	if err != nil {
-		return nil, "", fmt.Errorf("runtime: marshal native orchestration descriptor: %w", err)
+		return nil, fmt.Errorf("runtime: marshal native orchestration descriptor: %w", err)
 	}
-	return encoded, operationDigest(encoded), nil
+	return canonicalToolArguments(encoded)
 }
 
 type nativeOrchestrationNodeRunner func(context.Context, nativeOrchestrationRequest) (nativeOrchestrationResult, error)
@@ -130,8 +141,11 @@ func (s *Service) executeNativeOrchestrationWorkflowWith(ctx context.Context, in
 	if !hasPrompt || prompt.RunID != coordinator.runID {
 		return orchestrationProofOutput{}, ErrCheckpointPromptMismatch
 	}
+	if len(input.A.DescriptorJSON) == 0 || len(input.B.DescriptorJSON) == 0 {
+		return orchestrationProofOutput{}, fmt.Errorf("%w: native workflow input has no original descriptor", ErrWorkflowRecoveryRequired)
+	}
 	if input.A.RunID != coordinator.runID || input.B.RunID != coordinator.runID ||
-		!validWorkflowRevisionDigest(input.A.RevisionDigest) || input.A.RevisionDigest != input.B.RevisionDigest ||
+		!bytes.Equal(input.A.DescriptorJSON, input.B.DescriptorJSON) ||
 		input.A.NodeKey != "a" || input.B.NodeKey != "b" ||
 		strings.TrimSpace(input.A.Task) == "" || strings.TrimSpace(input.B.Task) == "" {
 		return orchestrationProofOutput{}, errors.New("runtime: invalid native orchestration workflow descriptor")
@@ -139,13 +153,14 @@ func (s *Service) executeNativeOrchestrationWorkflowWith(ctx context.Context, in
 	if input.B.RequiresApproval {
 		return orchestrationProofOutput{}, errors.New("runtime: approval is only supported for workflow node a in the bounded proof")
 	}
-	descriptor, revision, err := nativeOrchestrationDescriptorWithApproval(input.A.Task, input.B.Task, input.A.RequiresApproval)
+	admitted, err := decodeNativeOrchestrationInput(coordinator.runID, input.A.DescriptorJSON)
 	if err != nil {
 		return orchestrationProofOutput{}, err
 	}
-	if revision != input.A.RevisionDigest {
+	if input.A.Task != admitted.A.Task || input.B.Task != admitted.B.Task || input.A.RequiresApproval != admitted.A.RequiresApproval {
 		return orchestrationProofOutput{}, storage.ErrToolOperationConflict
 	}
+	descriptor := input.A.DescriptorJSON
 	if err := coordinator.ensureRunCanExecute(ctx); err != nil {
 		return orchestrationProofOutput{}, err
 	}
@@ -214,6 +229,9 @@ func (s *Service) validateNativeOrchestrationRun(ctx context.Context, coordinato
 		if message.RunID != coordinator.runID || message.Source != "workflow" || message.Role != domain.RoleUser {
 			continue
 		}
+		if _, err := decodeNativeOrchestrationInput(coordinator.runID, []byte(message.Content)); err != nil {
+			return err
+		}
 		if string(descriptor) != message.Content {
 			return storage.ErrToolOperationConflict
 		}
@@ -234,41 +252,12 @@ func (s *Service) loadNativeOrchestrationInput(ctx context.Context, coordinator 
 		if message.RunID != coordinator.runID || message.Source != "workflow" || message.Role != domain.RoleUser {
 			continue
 		}
-		var descriptor orchestrationDescriptor
-		if err := json.Unmarshal([]byte(message.Content), &descriptor); err != nil {
-			return orchestrationProofInput{}, nil, fmt.Errorf("runtime: decode workflow descriptor: %w", err)
-		}
-		if descriptor.SchemaVersion != 1 || len(descriptor.Nodes) != 4 {
-			return orchestrationProofInput{}, nil, errors.New("runtime: unsupported native orchestration descriptor")
-		}
-		var taskA, taskB string
-		var requiresApproval bool
-		for _, node := range descriptor.Nodes {
-			switch node.Key {
-			case "a":
-				taskA, requiresApproval = node.Task, node.RequiresApproval
-			case "b":
-				taskB = node.Task
-			case "join", "audit":
-				if node.Task != "" || node.RequiresApproval {
-					return orchestrationProofInput{}, nil, errors.New("runtime: invalid native orchestration join descriptor")
-				}
-			default:
-				return orchestrationProofInput{}, nil, errors.New("runtime: unknown native orchestration node")
-			}
-		}
-		canonical, revision, err := nativeOrchestrationDescriptorWithApproval(taskA, taskB, requiresApproval)
+		raw := []byte(message.Content)
+		input, err := decodeNativeOrchestrationInput(coordinator.runID, raw)
 		if err != nil {
 			return orchestrationProofInput{}, nil, err
 		}
-		if string(canonical) != message.Content {
-			return orchestrationProofInput{}, nil, storage.ErrToolOperationConflict
-		}
-		input := orchestrationProofInput{
-			A: nativeOrchestrationRequest{RunID: coordinator.runID, RevisionDigest: revision, NodeKey: "a", Task: taskA, RequiresApproval: requiresApproval},
-			B: nativeOrchestrationRequest{RunID: coordinator.runID, RevisionDigest: revision, NodeKey: "b", Task: taskB},
-		}
-		return input, canonical, nil
+		return input, raw, nil
 	}
 	return orchestrationProofInput{}, nil, errors.New("runtime: workflow descriptor is not bound to its Run")
 }
@@ -285,18 +274,12 @@ func (s *Service) persistNativeOrchestrationApproval(ctx context.Context, coordi
 		if !ok || toolName != "orchestration.node" {
 			continue
 		}
-		var binding struct {
-			WorkflowRunID    string `json:"workflow_run_id"`
-			Revision         string `json:"revision_digest"`
-			NodeKey          string `json:"node_key"`
-			Task             string `json:"task"`
-			RequiresApproval bool   `json:"requires_approval,omitempty"`
-		}
+		var binding nativeOrchestrationBinding
 		encoded, err := json.Marshal(args)
 		if err != nil || json.Unmarshal(encoded, &binding) != nil {
 			return false, errors.New("runtime: orchestration approval payload is invalid")
 		}
-		if binding.WorkflowRunID != string(coordinator.runID) || binding.Revision != input.A.RevisionDigest ||
+		if binding.WorkflowRunID != string(coordinator.runID) || !bytes.Equal(binding.Descriptor, input.A.DescriptorJSON) ||
 			binding.NodeKey != "a" || binding.Task != input.A.Task || !binding.RequiresApproval || !input.A.RequiresApproval ||
 			interrupt.ID == "" {
 			return false, errors.New("runtime: orchestration approval does not match the active workflow")
@@ -304,7 +287,7 @@ func (s *Service) persistNativeOrchestrationApproval(ctx context.Context, coordi
 		mapper := s.newResumeEventMapper(ctx, coordinator.runID)
 		mapper.interrupt = &interruptDetails{
 			ResumeTarget:      nativeOrchestrationResumeTarget(interrupt.ID),
-			ToolCallID:        workflowNodeOperationID(input.A.RevisionDigest, "a"),
+			ToolCallID:        workflowNodeOperationID("a"),
 			ToolName:          toolName,
 			Args:              args,
 			IntendedArguments: intendedArguments,
@@ -333,9 +316,12 @@ func (s *Service) runNativeOrchestration(ctx context.Context, request nativeOrch
 		}
 		request = restored
 	}
-	if request.RunID == "" || !validWorkflowRevisionDigest(request.RevisionDigest) || !validWorkflowNodeKey(request.NodeKey) || strings.TrimSpace(request.Task) == "" {
-		return nativeOrchestrationResult{}, fmt.Errorf("runtime: invalid orchestration node identity or task (run_id=%t revision=%t node=%q task_empty=%t)",
-			request.RunID != "", validWorkflowRevisionDigest(request.RevisionDigest), request.NodeKey, strings.TrimSpace(request.Task) == "")
+	if len(request.DescriptorJSON) == 0 {
+		return nativeOrchestrationResult{}, fmt.Errorf("%w: native workflow checkpoint has no original descriptor", ErrWorkflowRecoveryRequired)
+	}
+	if request.RunID == "" || !validWorkflowNodeKey(request.NodeKey) || strings.TrimSpace(request.Task) == "" {
+		return nativeOrchestrationResult{}, fmt.Errorf("runtime: invalid orchestration node identity or task (run_id=%t descriptor_present=%t node=%q task_empty=%t)",
+			request.RunID != "", len(request.DescriptorJSON) > 0, request.NodeKey, strings.TrimSpace(request.Task) == "")
 	}
 	coordinator := toolOperationCoordinatorFromContext(ctx)
 	serviceCoordinator, ok := coordinator.(serviceToolOperationCoordinator)
@@ -348,18 +334,24 @@ func (s *Service) runNativeOrchestration(ctx context.Context, request nativeOrch
 	if s.deps.ToolOperations == nil {
 		return nativeOrchestrationResult{}, ErrToolOperationUnavailable
 	}
-	operationID := workflowNodeOperationID(request.RevisionDigest, request.NodeKey)
-	requestPayload := struct {
-		WorkflowRunID    string `json:"workflow_run_id"`
-		Revision         string `json:"revision_digest"`
-		NodeKey          string `json:"node_key"`
-		Task             string `json:"task"`
-		RequiresApproval bool   `json:"requires_approval,omitempty"`
-	}{
-		WorkflowRunID: string(request.RunID), Revision: request.RevisionDigest,
-		NodeKey: request.NodeKey, Task: request.Task, RequiresApproval: request.RequiresApproval,
+	admitted, err := decodeNativeOrchestrationInput(request.RunID, request.DescriptorJSON)
+	if err != nil {
+		return nativeOrchestrationResult{}, err
 	}
-	requestBytes, err := json.Marshal(requestPayload)
+	expected := admitted.A
+	if request.NodeKey == "b" {
+		expected = admitted.B
+	} else if request.NodeKey != "a" {
+		return nativeOrchestrationResult{}, storage.ErrToolOperationConflict
+	}
+	if request.Task != expected.Task || request.RequiresApproval != expected.RequiresApproval {
+		return nativeOrchestrationResult{}, storage.ErrToolOperationConflict
+	}
+	if err := s.validateNativeOrchestrationRun(ctx, serviceCoordinator, request.DescriptorJSON); err != nil {
+		return nativeOrchestrationResult{}, err
+	}
+	operationID := workflowNodeOperationID(request.NodeKey)
+	requestBytes, err := nativeOrchestrationArguments(request)
 	if err != nil {
 		return nativeOrchestrationResult{}, fmt.Errorf("runtime: marshal orchestration node binding: %w", err)
 	}
@@ -438,30 +430,34 @@ func nativeOrchestrationRequestFromApprovalState(encodedState string) (nativeOrc
 	if err != nil || !bytes.Equal(verifiedArguments, intendedArguments) {
 		return nativeOrchestrationRequest{}, errors.New("runtime: workflow approval checkpoint state failed its integrity check")
 	}
-	var binding struct {
-		WorkflowRunID    string `json:"workflow_run_id"`
-		Revision         string `json:"revision_digest"`
-		NodeKey          string `json:"node_key"`
-		Task             string `json:"task"`
-		RequiresApproval bool   `json:"requires_approval,omitempty"`
-	}
+	var binding nativeOrchestrationBinding
 	if err := json.Unmarshal(requestBytes, &binding); err != nil {
 		return nativeOrchestrationRequest{}, fmt.Errorf("runtime: decode workflow approval state: %w", err)
 	}
 	request := nativeOrchestrationRequest{
-		RunID: domain.RunID(binding.WorkflowRunID), RevisionDigest: binding.Revision,
+		RunID: domain.RunID(binding.WorkflowRunID), DescriptorJSON: binding.Descriptor,
 		NodeKey: binding.NodeKey, Task: binding.Task, RequiresApproval: binding.RequiresApproval,
 	}
-	if request.RunID == "" || !validWorkflowRevisionDigest(request.RevisionDigest) || request.NodeKey != "a" ||
+	if len(request.DescriptorJSON) == 0 {
+		return nativeOrchestrationRequest{}, fmt.Errorf("%w: native workflow approval has no original descriptor", ErrWorkflowRecoveryRequired)
+	}
+	if request.RunID == "" || request.NodeKey != "a" ||
 		strings.TrimSpace(request.Task) == "" || !request.RequiresApproval {
 		return nativeOrchestrationRequest{}, errors.New("runtime: workflow approval checkpoint does not contain an approvable node")
+	}
+	admitted, err := decodeNativeOrchestrationInput(request.RunID, request.DescriptorJSON)
+	if err != nil {
+		return nativeOrchestrationRequest{}, err
+	}
+	if request.Task != admitted.A.Task || request.RequiresApproval != admitted.A.RequiresApproval {
+		return nativeOrchestrationRequest{}, storage.ErrToolOperationConflict
 	}
 	return request, nil
 }
 
 func validateNativeOrchestrationApprovalBinding(approval domain.Approval, input orchestrationProofInput) error {
 	if approval.RunID != input.A.RunID || approval.ToolName != "orchestration.node" ||
-		approval.ToolCallID != workflowNodeOperationID(input.A.RevisionDigest, "a") ||
+		approval.ToolCallID != workflowNodeOperationID("a") ||
 		!isNativeOrchestrationResumeTarget(approval.ResumeTarget) ||
 		strings.TrimPrefix(approval.ResumeTarget, nativeOrchestrationResumeTargetPrefix) == "" {
 		return errors.New("runtime: workflow approval identity does not match its node")
@@ -470,13 +466,7 @@ func validateNativeOrchestrationApprovalBinding(approval domain.Approval, input 
 	if err != nil {
 		return fmt.Errorf("runtime: workflow approval proposal is invalid: %w", err)
 	}
-	arguments, err := json.Marshal(struct {
-		WorkflowRunID    string `json:"workflow_run_id"`
-		Revision         string `json:"revision_digest"`
-		NodeKey          string `json:"node_key"`
-		Task             string `json:"task"`
-		RequiresApproval bool   `json:"requires_approval,omitempty"`
-	}{string(input.A.RunID), input.A.RevisionDigest, input.A.NodeKey, input.A.Task, input.A.RequiresApproval})
+	arguments, err := nativeOrchestrationArguments(input.A)
 	if err != nil {
 		return fmt.Errorf("runtime: encode workflow approval binding: %w", err)
 	}
@@ -590,21 +580,9 @@ func (s *Service) resumeNativeOrchestrationApproval(p pendingRun, approval domai
 	s.emitTerminal(ctx, m, m.build(domain.EventRunCompleted, payloadRunCompleted{}))
 }
 
-func workflowNodeOperationID(revisionDigest, nodeKey string) string {
-	return "workflow-node-" + operationDigest([]byte(revisionDigest+"\x00"+nodeKey))
-}
-
-func validWorkflowRevisionDigest(digest string) bool {
-	if len(digest) != 64 {
-		return false
-	}
-	for _, char := range digest {
-		if !(char >= '0' && char <= '9' || char >= 'a' && char <= 'f') {
-			return false
-		}
-	}
-	return true
-}
+// SQL tool-operation ownership already scopes this node key to one Run. Exact
+// original arguments, including the descriptor, decide replay versus conflict.
+func workflowNodeOperationID(nodeKey string) string { return "workflow-node-" + nodeKey }
 
 func validWorkflowNodeKey(key string) bool {
 	if key == "" || len(key) > 64 {
@@ -618,8 +596,52 @@ func validWorkflowNodeKey(key string) bool {
 	return true
 }
 
-// operationDigest remains only for D11 workflow revision/node identities.
-func operationDigest(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+// decodeNativeOrchestrationInput validates the complete canonical proof graph.
+// Its authority remains the original workflow message committed with the Run.
+func decodeNativeOrchestrationInput(runID domain.RunID, raw []byte) (orchestrationProofInput, error) {
+	if len(raw) == 0 {
+		return orchestrationProofInput{}, fmt.Errorf("%w: native workflow checkpoint has no original descriptor", ErrWorkflowRecoveryRequired)
+	}
+	if len(raw) > 64<<10 {
+		return orchestrationProofInput{}, errors.New("runtime: native orchestration descriptor exceeds its byte bound")
+	}
+	var descriptor orchestrationDescriptor
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&descriptor); err != nil {
+		return orchestrationProofInput{}, fmt.Errorf("runtime: decode workflow descriptor: %w", err)
+	}
+	if descriptor.SchemaVersion != 2 {
+		return orchestrationProofInput{}, fmt.Errorf("%w: native workflow descriptor requires the exact-input format", ErrWorkflowRecoveryRequired)
+	}
+	if len(descriptor.Nodes) != 4 {
+		return orchestrationProofInput{}, errors.New("runtime: unsupported native orchestration descriptor")
+	}
+	var taskA, taskB string
+	var requiresApproval bool
+	for _, node := range descriptor.Nodes {
+		switch node.Key {
+		case "a":
+			taskA, requiresApproval = node.Task, node.RequiresApproval
+		case "b":
+			taskB = node.Task
+		case "join", "audit":
+			if node.Task != "" || node.RequiresApproval {
+				return orchestrationProofInput{}, storage.ErrToolOperationConflict
+			}
+		default:
+			return orchestrationProofInput{}, storage.ErrToolOperationConflict
+		}
+	}
+	canonical, err := nativeOrchestrationDescriptorWithApproval(taskA, taskB, requiresApproval)
+	if err != nil {
+		return orchestrationProofInput{}, err
+	}
+	if !bytes.Equal(canonical, raw) {
+		return orchestrationProofInput{}, storage.ErrToolOperationConflict
+	}
+	return orchestrationProofInput{
+		A: nativeOrchestrationRequest{RunID: runID, DescriptorJSON: append(json.RawMessage(nil), canonical...), NodeKey: "a", Task: taskA, RequiresApproval: requiresApproval},
+		B: nativeOrchestrationRequest{RunID: runID, DescriptorJSON: append(json.RawMessage(nil), canonical...), NodeKey: "b", Task: taskB},
+	}, nil
 }

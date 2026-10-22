@@ -42,7 +42,7 @@ func TestOrchestrationNative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build prompt snapshot: %v", err)
 	}
-	descriptorBytes, revision, err := nativeOrchestrationDescriptor("alpha", "beta")
+	descriptorBytes, err := nativeOrchestrationDescriptor("alpha", "beta")
 	if err != nil {
 		t.Fatalf("build workflow descriptor: %v", err)
 	}
@@ -67,8 +67,8 @@ func TestOrchestrationNative(t *testing.T) {
 	workflowCtx := withRunPrompt(ctx, prompt)
 	workflowCtx = withToolOperationCoordinator(workflowCtx, svc.newToolOperationCoordinator(runID, sessionID))
 	workflowInput := orchestrationProofInput{
-		A: nativeOrchestrationRequest{RunID: runID, RevisionDigest: revision, NodeKey: "a", Task: "alpha"},
-		B: nativeOrchestrationRequest{RunID: runID, RevisionDigest: revision, NodeKey: "b", Task: "beta"},
+		A: nativeOrchestrationRequest{RunID: runID, DescriptorJSON: descriptorBytes, NodeKey: "a", Task: "alpha"},
+		B: nativeOrchestrationRequest{RunID: runID, DescriptorJSON: descriptorBytes, NodeKey: "b", Task: "beta"},
 	}
 	withoutPromptCtx := withToolOperationCoordinator(ctx, svc.newToolOperationCoordinator(runID, sessionID))
 	if _, err := svc.executeNativeOrchestrationWorkflowWith(withoutPromptCtx, workflowInput, nil); !errors.Is(err, ErrCheckpointPromptMismatch) {
@@ -86,7 +86,7 @@ func TestOrchestrationNative(t *testing.T) {
 		t.Fatal("workflow without its engine/checkpoint authority unexpectedly ran")
 	}
 	svc.engine = engine
-	if _, err := backend.GetToolOperation(ctx, runID, workflowNodeOperationID(revision, "a")); !errors.Is(err, storage.ErrNotFound) {
+	if _, err := backend.GetToolOperation(ctx, runID, workflowNodeOperationID("a")); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("invalid workflow attempts admitted a node operation: %v", err)
 	}
 
@@ -243,8 +243,8 @@ func TestOrchestrationApprovalResumesThroughService(t *testing.T) {
 	if approval.ResumeTarget == "" {
 		t.Fatal("workflow approval has no durable resume target")
 	}
-	operationA := workflowNodeOperationID(workflowInput.A.RevisionDigest, "a")
-	operationB := workflowNodeOperationID(workflowInput.A.RevisionDigest, "b")
+	operationA := workflowNodeOperationID("a")
+	operationB := workflowNodeOperationID("b")
 	if op, err := backend.GetToolOperation(ctx, runID, operationA); err != nil || op.State != domain.ToolOperationAdmitted {
 		t.Fatalf("approval-gated node operation = %+v/%v, want admitted but unclaimed", op, err)
 	}
@@ -355,7 +355,7 @@ func TestOrchestrationApprovalCancellationDoesNotClaimNode(t *testing.T) {
 	if err != nil || settled.Decision != domain.ApprovalCancelled {
 		t.Fatalf("workflow approval after cancellation = %+v/%v, want cancelled", settled, err)
 	}
-	operationA := workflowNodeOperationID(fixture.input.A.RevisionDigest, "a")
+	operationA := workflowNodeOperationID("a")
 	if op, err := backend.GetToolOperation(context.Background(), runID, operationA); err != nil || op.State != domain.ToolOperationAdmitted {
 		t.Fatalf("cancelled approval-gated operation = %+v/%v, want admitted and unclaimed", op, err)
 	}
@@ -417,7 +417,7 @@ func TestOrchestrationCancellationStopsApprovalSiblingAndLeavesNoPendingApproval
 			t.Fatalf("cancelled workflow left approval pending: %+v", approval)
 		}
 	}
-	operationA := workflowNodeOperationID(fixture.input.A.RevisionDigest, "a")
+	operationA := workflowNodeOperationID("a")
 	if op, err := fixture.backend.GetToolOperation(context.Background(), fixture.runID, operationA); err != nil || op.State != domain.ToolOperationAdmitted {
 		t.Fatalf("cancelled approval-gated operation = %+v/%v, want admitted and unclaimed", op, err)
 	}
@@ -434,6 +434,10 @@ type nativeOrchestrationApprovalFixture struct {
 }
 
 func newNativeOrchestrationApprovalFixture(t *testing.T) nativeOrchestrationApprovalFixture {
+	return newNativeOrchestrationApprovalFixtureWithVersion(t, 2)
+}
+
+func newNativeOrchestrationApprovalFixtureWithVersion(t *testing.T, version int) nativeOrchestrationApprovalFixture {
 	t.Helper()
 	ctx := context.Background()
 	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
@@ -451,9 +455,20 @@ func newNativeOrchestrationApprovalFixture(t *testing.T) nativeOrchestrationAppr
 		t.Fatalf("create checkpoint store: %v", err)
 	}
 	svc.engine.cfg.Checkpoints = checkpointStore
-	descriptorBytes, revision, err := nativeOrchestrationDescriptorWithApproval("alpha", "beta", true)
+	descriptorBytes, err := nativeOrchestrationDescriptorWithApproval("alpha", "beta", true)
 	if err != nil {
 		t.Fatalf("build workflow descriptor: %v", err)
+	}
+	if version != 2 {
+		var source map[string]any
+		if err := json.Unmarshal(descriptorBytes, &source); err != nil {
+			t.Fatal(err)
+		}
+		source["schema_version"] = version
+		descriptorBytes, err = json.Marshal(source)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	prompt, err := buildPromptSnapshot(PromptInput{Policy: defaultPolicyForTest(t, domain.PolicyProfileDefault),
 		RunID: runID, GenerationID: svc.deps.GenerationID,
@@ -483,8 +498,8 @@ func newNativeOrchestrationApprovalFixture(t *testing.T) nativeOrchestrationAppr
 	workflowCtx = withSessionSandbox(workflowCtx, domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyAsk)
 	workflowCtx = withToolOperationCoordinator(workflowCtx, svc.newToolOperationCoordinator(runID, sessionID))
 	input := orchestrationProofInput{
-		A: nativeOrchestrationRequest{RunID: runID, RevisionDigest: revision, NodeKey: "a", Task: "alpha", RequiresApproval: true},
-		B: nativeOrchestrationRequest{RunID: runID, RevisionDigest: revision, NodeKey: "b", Task: "beta"},
+		A: nativeOrchestrationRequest{RunID: runID, DescriptorJSON: descriptorBytes, NodeKey: "a", Task: "alpha", RequiresApproval: true},
+		B: nativeOrchestrationRequest{RunID: runID, DescriptorJSON: descriptorBytes, NodeKey: "b", Task: "beta"},
 	}
 	return nativeOrchestrationApprovalFixture{ctx: ctx, svc: svc, backend: backend, runID: runID, sessionID: sessionID, workflowCtx: workflowCtx, input: input}
 }
@@ -548,4 +563,85 @@ func replayEvents(t *testing.T, backend *sqlite.Backend, runID domain.RunID) []d
 		t.Fatalf("read workflow Journal: %v", err)
 	}
 	return events
+}
+
+func TestOrchestrationChangedDescriptorCannotAllocateAnotherNodeEffect(t *testing.T) {
+	fixture := newNativeOrchestrationApprovalFixture(t)
+	request := fixture.input.B
+	if _, err := fixture.svc.runNativeOrchestration(fixture.workflowCtx, request); err != nil {
+		t.Fatal(err)
+	}
+	changedDescriptor, err := nativeOrchestrationDescriptorWithApproval("alpha", "changed", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Task = "changed"
+	request.DescriptorJSON = changedDescriptor
+	if _, err := fixture.svc.runNativeOrchestration(fixture.workflowCtx, request); !errors.Is(err, storage.ErrToolOperationConflict) {
+		t.Fatalf("changed actual descriptor allocated another effect: %v", err)
+	}
+}
+
+func TestOrchestrationExactReplayAndUnknownClaimStayFenced(t *testing.T) {
+	t.Run("completed node replay", func(t *testing.T) {
+		fixture := newNativeOrchestrationApprovalFixture(t)
+		first, err := fixture.svc.runNativeOrchestration(fixture.workflowCtx, fixture.input.B)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := countWorkflowOperationEvents(t, fixture.backend, fixture.runID, workflowNodeOperationID("b"))
+		replay, err := fixture.svc.runNativeOrchestration(fixture.workflowCtx, fixture.input.B)
+		if err != nil || replay != first {
+			t.Fatalf("exact node replay: %+v %v", replay, err)
+		}
+		if after := countWorkflowOperationEvents(t, fixture.backend, fixture.runID, workflowNodeOperationID("b")); after != count {
+			t.Fatal("completed node was executed again")
+		}
+		changed := fixture.input.B
+		changed.Task = "changed"
+		if _, err := fixture.svc.runNativeOrchestration(fixture.workflowCtx, changed); !errors.Is(err, storage.ErrToolOperationConflict) {
+			t.Fatalf("changed task remained replayable: %v", err)
+		}
+	})
+	t.Run("unknown claim", func(t *testing.T) {
+		fixture := newNativeOrchestrationApprovalFixture(t)
+		args, err := nativeOrchestrationArguments(fixture.input.B)
+		if err != nil {
+			t.Fatal(err)
+		}
+		coordinator := fixture.svc.newToolOperationCoordinator(fixture.runID, fixture.sessionID)
+		id := workflowNodeOperationID("b")
+		if _, err := coordinator.Admit(fixture.workflowCtx, id, "orchestration.node", args, args, args); err != nil {
+			t.Fatal(err)
+		}
+		if _, acquired, _, err := fixture.backend.ClaimToolOperation(fixture.ctx, fixture.runID, id, "previous-process"); err != nil || !acquired {
+			t.Fatalf("claim: %v %v", acquired, err)
+		}
+		if _, err := fixture.svc.runNativeOrchestration(fixture.workflowCtx, fixture.input.B); !errors.Is(err, ErrToolOperationUnknown) {
+			t.Fatalf("unknown claimed node was retried: %v", err)
+		}
+		stored, err := fixture.backend.GetToolOperation(fixture.ctx, fixture.runID, id)
+		if err != nil || stored.State != domain.ToolOperationClaimed {
+			t.Fatalf("unknown outcome fence changed: %+v %v", stored, err)
+		}
+	})
+}
+
+func TestOrchestrationOldOwnerFormatRequiresRecoveryBeforeCheckpoint(t *testing.T) {
+	fixture := newNativeOrchestrationApprovalFixtureWithVersion(t, 1)
+	checkpoint := []byte("historical opaque native checkpoint")
+	id := checkpointIDFor(fixture.runID)
+	if err := fixture.svc.engine.cfg.Checkpoints.Set(fixture.workflowCtx, id, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.svc.executeNativeOrchestrationWorkflow(fixture.workflowCtx, fixture.input); !errors.Is(err, ErrWorkflowRecoveryRequired) {
+		t.Fatalf("old native owner format was not fenced: %v", err)
+	}
+	if _, err := fixture.backend.GetToolOperation(fixture.ctx, fixture.runID, workflowNodeOperationID("b")); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatal("old native state admitted a new effect")
+	}
+	stored, found, err := fixture.svc.engine.cfg.Checkpoints.Get(fixture.workflowCtx, id)
+	if err != nil || !found || string(stored) != string(checkpoint) {
+		t.Fatalf("historical checkpoint was overwritten: %v %v", found, err)
+	}
 }
