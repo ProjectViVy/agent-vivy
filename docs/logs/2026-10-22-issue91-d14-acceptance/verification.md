@@ -159,17 +159,30 @@ later-baseline capabilities are not claimed.
 
 Temporary source overlays/browser specs/configs and Postgres containers are
 removed after checks. Disposable artifacts and raw logs remain for review.
-Human real-model acceptance is LAST and pending. Candidate5b0's actual packed
-native minimal-chat artifact and its exact inspected Generation
+Human Tiny Face acceptance is LAST and pending. Candidate `5b0b572d`'s actual
+packed native minimal-chat artifact and exact inspected Generation
 `6b41cd840bde56a3e97312ed00674327` are running with the matching staged UI on
 3015 and a private disposable workspace at `.workspace/d14-manual-5b0b572d/`.
 Backend `/healthz`, tiny UI and fresh-origin auxiliary model settings at3017
 each return HTTP200; the existing RPC created Session `sess_c5533c0a93858efa`
-bound to that workspace. DeepSeek OpenAI-compatible settings are expanded and
-the API Key field is empty. The setup issued no Run or provider request. The
-first pack attempt could not write Go overlays to the
+bound to that workspace. The local settings page now has the custom
+OpenAI-compatible provider `Gemini 3.8 local gateway` selected with base URL
+`http://127.0.0.1:8045/v1` and model `gemini-3.8-flash-tiered`; its API Key
+field remains blank. The Tiny Face page is ready with the workspace list/read
+acceptance prompt drafted, but no Vivy Run has been sent and no credential is
+stored in the isolated runtime.
+
+Direct SDK smoke, 2026-10-22: Python 3.13.12 with OpenAI SDK 2.33.0 sent
+`Hello` to `http://127.0.0.1:8045/v1` using model
+`gemini-3.8-flash-tiered`. The request succeeded and returned
+`Hello! How can I help you today?`. The supplied credential was held only for
+that in-memory request and was not written to the workspace, Vivy settings, or
+verification output. This confirms the gateway credential/model route, not the
+Tiny Face tool/action acceptance.
+
+The first pack attempt could not write Go overlays to the
 app-owned visualization temp path; it passed after moving Go temp files under
 the independent native checkout's ignored `.workspace/temp`. No product source
-changed for this environment-only adjustment. No credential is requested in
-chat or recorded. D14/#91 stay open until the human outcome is recorded. No push,
+changed for this environment-only adjustment. No key value is recorded. D14/#91
+stay open until the human Tiny Face outcome is recorded. No push,
 stable-root merge or publication.

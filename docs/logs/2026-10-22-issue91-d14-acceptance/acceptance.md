@@ -19,16 +19,18 @@ origin to avoid stale local workspace selection and retains its truthful built
 authoring-default UI identity; it is not stamped as the tiny Generation, and its
 unrelated capabilities are outside this acceptance. Vite preview serves the
 default UI built by native CI while `3015` serves the matching staged tiny UI.
-The DeepSeek OpenAI-compatible provider panel is expanded and its API Key field
-is blank; choose another provider or add a custom provider if that matches your
-account.
+The selected custom provider is `Gemini 3.8 local gateway`, using the
+OpenAI-compatible adapter, base URL `http://127.0.0.1:8045/v1`, and default
+model `gemini-3.8-flash-tiered`. Its API Key field is blank. The separate
+Python SDK smoke request below succeeded, but its credential was not saved to
+Vivy.
 
-Enter the provider credential only in that local settings owner. No key belongs
-in this chat, source, screenshots or verification logs. For the expanded
-DeepSeek panel, leaving the API Key field saves it to the disposable local
-runtime; the field is write-only. Click the tiny Face tab to leave the field,
-then refresh `3015` while idle. New model requests see a saved key immediately;
-the setup itself sends no provider request.
+For the Tiny Face run, enter the provider credential in this local settings
+owner's custom-provider API Key field. It is written only to the disposable
+runtime and is write-only. Do not repeat it in records or screenshots. Click
+the Tiny Face tab to leave the field, then refresh `3015` while idle. The chat
+draft is prefilled with the workspace list/read acceptance prompt; send it
+after saving the key. No Tiny Face run has been sent yet.
 
 Suggested prompt: "List this workspace, read nonce.txt, and quote its contents
 in your final answer." Do not include the file's value in the prompt. Confirm
@@ -43,8 +45,9 @@ model settings page at `http://127.0.0.1:3017/settings?tab=model` both return
 HTTP200. Session creation succeeded through the existing RPC path, and the
 session is bound to the disposable workspace. The packed and inspected
 Generation is `6b41cd840bde56a3e97312ed00674327`. `nonce.txt` exists in that
-workspace. Setup issued no Run or provider request; no credential is configured.
-Both visible pages are ready for the owner's manual real-model pass.
+workspace. No Vivy Run has been issued and no credential is configured in the
+isolated Vivy runtime. Both visible pages are ready for the owner's manual
+real-model pass.
 
 Record the human result and redacted Run/call/result identities before marking
 D14 or issue91 complete. A successful loopback fixture is automatic evidence,

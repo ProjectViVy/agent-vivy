@@ -48,14 +48,18 @@ refuses unknown shapes before writes, and keeps original sources/programs for
 rollback. No production Journal was accessed. Detailed source boundaries and
 artifact identities are in verification.md and the separate delivery README.
 
-The owner's real-model tiny-Face verdict remains pending. The final manual
-setup is live: the packed/inspected native minimal-chat Generation and matching
-split3015 UI use a disposable home/workspace; the auxiliary settings page at
-3017 configures the same healthy backend on a fresh browser origin. The exact
-Generation is `6b41cd840bde56a3e97312ed00674327`; the existing RPC created the
-bound session, and both pages return HTTP200. No Run or provider call has occurred.
-No credential is requested in chat or recorded. D14/#91 remain open until the
-human result is recorded.
+The owner's real-model Tiny Face verdict remains pending. The packed/inspected
+native minimal-chat Generation and matching split `3015` UI use a disposable
+home/workspace; the auxiliary settings page at `3017` configures the same
+healthy backend on a fresh browser origin. Generation
+`6b41cd840bde56a3e97312ed00674327` is bound to the existing RPC-created session.
+The local settings page now selects the custom OpenAI-compatible provider at
+`http://127.0.0.1:8045/v1` with model `gemini-3.8-flash-tiered`; the credential
+field remains blank. The separate Python SDK smoke request succeeded with the
+provided credential and `Hello`, but it did not issue a Vivy Run or save the
+credential. A workspace list/read prompt is drafted in the visible Tiny Face
+page. D14/#91 remain open until the owner completes and records that real-model
+tool turn.
 No push, publication, stable-root merge or tenant cutover is claimed.
 
 Evolution remains explicitly deferred UI-EVO demo; existing live skill approval
