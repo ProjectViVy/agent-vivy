@@ -2,8 +2,6 @@ package conformance
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"testing"
@@ -16,7 +14,7 @@ import (
 // Reusable-workflow-definition contract (S11-F, G9). The CAS/allocation
 // semantics mirror INOFY's definitions.Repository: one mutable draft per
 // workflow under ETag CAS, immutable monotone published revisions deduped
-// by (workflow, artifact+catalog digest), author-scoped drafts and
+// by (workflow, actual artifact+used implementations), author-scoped drafts and
 // organism-visible revisions.
 
 func definitionStore(t *testing.T, slot Slot) storage.WorkflowDefinitionStore {
@@ -30,23 +28,21 @@ func definitionStore(t *testing.T, slot Slot) storage.WorkflowDefinitionStore {
 
 // draftArtifact builds a small valid artifact document.
 func draftArtifact(tag string) []byte {
-	return []byte(fmt.Sprintf(`{"definition":{"schema_version":"inofy.workflow/v1","graph":{"nodes":[],"edges":[],"exits":[]}},"presentation":{"title":%q}}`, "wf-"+tag))
-}
-
-func digestOf(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
+	raw := []byte(fmt.Sprintf(`{"definition":{"schema_version":"inofy.workflow/v1","graph":{"nodes":[],"edges":[],"exits":[]}},"presentation":{"title":%q}}`, "wf-"+tag))
+	normalized, err := storage.NormalizeWorkflowDocument(raw)
+	if err != nil {
+		panic(err)
+	}
+	return normalized
 }
 
 func defDraftUpdate(workflowID, etag, tag string, now int64) storage.WorkflowDraftUpdate {
 	artifact := draftArtifact(tag)
 	return storage.WorkflowDraftUpdate{
-		WorkflowID:       workflowID,
-		ExpectedETag:     etag,
-		ArtifactJSON:     artifact,
-		DefinitionDigest: digestOf([]byte("def:" + tag)),
-		ArtifactDigest:   digestOf(artifact),
-		Now:              now,
+		WorkflowID:   workflowID,
+		ExpectedETag: etag,
+		ArtifactJSON: artifact,
+		Now:          now,
 	}
 }
 
@@ -55,9 +51,6 @@ func defRevision(workflowID, tag string) storage.WorkflowPublishedRevision {
 	return storage.WorkflowPublishedRevision{
 		WorkflowID:              workflowID,
 		ArtifactJSON:            artifact,
-		DefinitionDigest:        digestOf([]byte("def:" + tag)),
-		ArtifactDigest:          digestOf(artifact),
-		UsedCatalogDigest:       "sha256:" + digestOf([]byte("catalog:"+tag)),
 		UsedImplementationsJSON: []byte(`{"vivy.child-task@1":"vivy.child-task@1"}`),
 		AuthorSessionID:         "",
 		PublishedAt:             time.Now().UnixMilli(),
@@ -135,15 +128,15 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 	})
 
 	t.Run("PublishMonotoneAndDedup", func(t *testing.T) {
-		rev1, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, etag, defRevision(wf, "p1"))
+		rev1, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, etag, defRevision(wf, "a3"))
 		if err != nil {
 			t.Fatalf("publish rev1: %v", err)
 		}
 		if rev1.Revision != 1 {
 			t.Fatalf("first revision must be 1, got %d", rev1.Revision)
 		}
-		// Same artifact+catalog digest republish dedups to the same revision.
-		again, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, etag, defRevision(wf, "p1"))
+		// Same actual artifact+used implementations republish dedups to the same revision.
+		again, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, etag, defRevision(wf, "a3"))
 		if err != nil {
 			t.Fatalf("republish identical artifact: %v", err)
 		}
@@ -151,7 +144,7 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 			t.Fatalf("dedup must return revision %d, got %d", rev1.Revision, again.Revision)
 		}
 		// Stale etag publish conflicts.
-		if _, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, "stale", defRevision(wf, "p2")); !errors.Is(err, storage.ErrWorkflowDefinitionConflict) {
+		if _, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, "stale", defRevision(wf, "p2-draft")); !errors.Is(err, storage.ErrWorkflowDefinitionConflict) {
 			t.Fatalf("stale-etag publish must conflict, got %v", err)
 		}
 		// Edit the draft then publish: next revision is monotone.
@@ -159,7 +152,7 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 		if err != nil {
 			t.Fatalf("post-publish edit: %v", err)
 		}
-		rev2, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, next.ETag, defRevision(wf, "p2"))
+		rev2, err := s.PublishWorkflowRevisionCAS(ctx, authorA, wf, next.ETag, defRevision(wf, "p2-draft"))
 		if err != nil {
 			t.Fatalf("publish rev2: %v", err)
 		}
@@ -173,7 +166,7 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 		if err != nil {
 			t.Fatalf("read rev1: %v", err)
 		}
-		if string(rev1.ArtifactJSON) != string(draftArtifact("p1")) || rev1.UsedCatalogDigest == "" ||
+		if string(rev1.ArtifactJSON) != string(draftArtifact("a3")) || len(rev1.UsedImplementationsJSON) == 0 ||
 			string(rev1.UsedImplementationsJSON) == "" || rev1.AuthorSessionID != authorA {
 			t.Fatalf("revision row drifted: %+v", rev1)
 		}
@@ -202,6 +195,35 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 		}
 	})
 
+	t.Run("PublicationBindsActualCatalogAndCurrentDraft", func(t *testing.T) {
+		id := "wfdef-exact-publication"
+		draft, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(id, storage.WorkflowDefinitionETagAbsent, "same", 20))
+		if err != nil {
+			t.Fatal(err)
+		}
+		original := defRevision(id, "same")
+		first, err := s.PublishWorkflowRevisionCAS(ctx, authorA, id, draft.ETag, original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed := original
+		changed.UsedImplementationsJSON = []byte(`{"vivy.child-task@1":"reviewed-other-implementation"}`)
+		next, err := s.PublishWorkflowRevisionCAS(ctx, authorA, id, draft.ETag, changed)
+		if err != nil || next.Revision != first.Revision+1 {
+			t.Fatalf("catalog change reused immutable revision: %+v %v", next, err)
+		}
+		updated, err := s.UpdateWorkflowDraftCAS(ctx, authorA, defDraftUpdate(id, draft.ETag, "changed", 20))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.ETag == draft.ETag {
+			t.Fatal("same-timestamp edit reused draft ETag")
+		}
+		if _, err := s.PublishWorkflowRevisionCAS(ctx, authorA, id, updated.ETag, original); !errors.Is(err, storage.ErrWorkflowDefinitionConflict) {
+			t.Fatalf("current ETag accepted another artifact: %v", err)
+		}
+	})
+
 	t.Run("ReopenKeepsIdentity", func(t *testing.T) {
 		if slot.Reopen == nil {
 			t.Skip("slot has no reopen")
@@ -218,7 +240,7 @@ func AssertWorkflowDefinitionContract(t *testing.T, slot Slot) {
 		if err != nil {
 			t.Fatalf("rev1 after reopen: %v", err)
 		}
-		if string(rev1.ArtifactJSON) != string(draftArtifact("p1")) {
+		if string(rev1.ArtifactJSON) != string(draftArtifact("a3")) {
 			t.Fatal("revision bytes differ after reopen")
 		}
 		d, err := rs.GetWorkflowDraft(ctx, authorA, wf)

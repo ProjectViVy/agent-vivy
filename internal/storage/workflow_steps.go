@@ -1,10 +1,10 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 
 	"agent-vivy/internal/domain"
 )
@@ -48,46 +48,44 @@ func (s WorkflowStepStatus) NativeRunStatus() (domain.RunStatus, bool) {
 // WorkflowStepEvent is one redacted Journal event committed by a step. The
 // Journal assigns the contiguous sequence inside the commit transaction.
 type WorkflowStepEvent struct {
+	Payload        []byte
 	Type           domain.EventType
 	CreatedAt      int64
 	PayloadVersion int
-	Payload        []byte
 }
 
 // WorkflowStepResult is the transaction-local reference to a protected node
-// output. Output bytes live in a content-addressed workflow-scoped blob that
-// the runtime adapter stages before Commit.
+// output. The protected bytes commit atomically with their path and attempt.
 type WorkflowStepResult struct {
+	Output  []byte `json:"output,omitempty"`
 	Path    string `json:"path"`
 	Attempt int    `json:"attempt"`
-	Digest  string `json:"digest"`
-	BlobID  string `json:"blob_id"`
 	Bytes   int64  `json:"bytes"`
 }
 
 // WorkflowStepCheckpoint references the latest committed checkpoint: the
-// serialized envelope (payload elided) plus the staged payload blob.
+// complete native serialized envelope, including its private payload.
 type WorkflowStepCheckpoint struct {
 	Envelope []byte `json:"envelope"`
-	BlobID   string `json:"blob_id"`
-	Digest   string `json:"digest"`
 }
 
 // WorkflowStepCommit is one atomic INOFY commit as host storage state.
 // Expected "" means the projection row does not exist yet (the initial
 // admit transition); every later commit must name the current state.
 type WorkflowStepCommit struct {
-	RunID         domain.RunID
-	CommitID      string
-	Digest        string
-	Epoch         uint64
-	ProgramDigest string
-	HostBindingID string
-	Expected      WorkflowStepStatus
-	Target        WorkflowStepStatus
-	Events        []WorkflowStepEvent
-	Results       []WorkflowStepResult
-	Checkpoint    *WorkflowStepCheckpoint
+	RunID             domain.RunID
+	CommitID          string
+	Epoch             uint64
+	ProgramID         string
+	HostBindingID     string
+	Expected          WorkflowStepStatus
+	Target            WorkflowStepStatus
+	Events            []WorkflowStepEvent
+	Results           []WorkflowStepResult
+	AdmittedInput     json.RawMessage `json:"-"`
+	ResumeKey         string          `json:"-"`
+	ResumeAnswersJSON json.RawMessage `json:"-"`
+	Checkpoint        *WorkflowStepCheckpoint
 }
 
 // WorkflowStepReceipt is the durable acknowledgement of a committed step.
@@ -103,20 +101,18 @@ type WorkflowStepReceipt struct {
 
 // WorkflowStepProjection is the mutable execution projection row.
 type WorkflowStepProjection struct {
-	Status              WorkflowStepStatus `json:"status"`
-	Epoch               uint64             `json:"epoch"`
-	Revision            uint64             `json:"revision"`
-	UsageJSON           []byte             `json:"usage,omitempty"`
-	CheckpointJSON      []byte             `json:"checkpoint,omitempty"`
-	CheckpointBlobID    string             `json:"checkpoint_blob_id,omitempty"`
-	CheckpointDigest    string             `json:"checkpoint_digest,omitempty"`
-	WaitsJSON           []byte             `json:"waits,omitempty"`
-	InterruptsJSON      []byte             `json:"interrupts,omitempty"`
-	GatesJSON           []byte             `json:"gates,omitempty"`
-	ResumeKey           string             `json:"resume_key,omitempty"`
-	ResumeAnswersDigest string             `json:"resume_answers_digest,omitempty"`
-	UnresolvedJSON      []byte             `json:"unresolved,omitempty"`
-	UpdatedAt           int64              `json:"updated_at"`
+	Status            WorkflowStepStatus `json:"status"`
+	Epoch             uint64             `json:"epoch"`
+	Revision          uint64             `json:"revision"`
+	UsageJSON         []byte             `json:"usage,omitempty"`
+	CheckpointJSON    []byte             `json:"checkpoint,omitempty"`
+	WaitsJSON         []byte             `json:"waits,omitempty"`
+	InterruptsJSON    []byte             `json:"interrupts,omitempty"`
+	GatesJSON         []byte             `json:"gates,omitempty"`
+	ResumeAnswersJSON []byte             `json:"-"`
+	ResumeKey         string             `json:"resume_key,omitempty"`
+	UnresolvedJSON    []byte             `json:"unresolved,omitempty"`
+	UpdatedAt         int64              `json:"updated_at"`
 }
 
 // WorkflowStepState is the full recovery view returned by Load.
@@ -134,18 +130,14 @@ type WorkflowStepStore interface {
 	LoadWorkflowStep(ctx context.Context, runID domain.RunID) (WorkflowStepState, error)
 }
 
-var workflowStepDigestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
-
 // ValidateWorkflowStepCommit performs cheap caller-side validation; the
 // drivers re-verify everything inside the commit transaction.
 func ValidateWorkflowStepCommit(c WorkflowStepCommit) error {
 	if c.RunID == "" || c.CommitID == "" {
 		return fmt.Errorf("storage: workflow step commit requires run id and commit id")
 	}
-	if !workflowStepDigestPattern.MatchString(c.Digest) {
-		return fmt.Errorf("storage: workflow step commit digest must be 64 hex chars")
-	}
-	if !validINOFYDigest(c.ProgramDigest) {
+
+	if c.ProgramID == "" || c.HostBindingID == "" {
 		return ErrWorkflowStepIdentity
 	}
 	if c.Epoch == 0 {
@@ -180,14 +172,13 @@ func ValidateWorkflowStepCommit(c WorkflowStepCommit) error {
 		return fmt.Errorf("storage: non-terminal workflow step carries a terminal event")
 	}
 	for _, r := range c.Results {
-		if r.Path == "" || r.BlobID == "" || !workflowStepDigestPattern.MatchString(r.Digest) {
-			return fmt.Errorf("storage: workflow step result requires path, blob id and digest")
+		if r.Path == "" || r.Attempt < 1 || len(r.Output) == 0 || r.Bytes != int64(len(r.Output)) {
+			return fmt.Errorf("storage: workflow step result requires path and output")
 		}
 	}
 	if c.Checkpoint != nil {
-		if len(c.Checkpoint.Envelope) == 0 || c.Checkpoint.BlobID == "" ||
-			!workflowStepDigestPattern.MatchString(c.Checkpoint.Digest) {
-			return fmt.Errorf("storage: workflow step checkpoint requires envelope, blob id and digest")
+		if len(c.Checkpoint.Envelope) == 0 {
+			return fmt.Errorf("storage: workflow step checkpoint requires envelope")
 		}
 	}
 	return nil
@@ -196,8 +187,7 @@ func ValidateWorkflowStepCommit(c WorkflowStepCommit) error {
 // workflowStepAdmissionMeta is the identity data parsed from the
 // workflow.admitted event payload.
 type workflowStepAdmissionMeta struct {
-	InputDigest string          `json:"input_digest"`
-	Limits      json.RawMessage `json:"limits"`
+	Limits json.RawMessage `json:"limits"`
 }
 
 // workflowStepWaitingMeta is parsed from the workflow.waiting event payload.
@@ -205,12 +195,6 @@ type workflowStepWaitingMeta struct {
 	Waits      json.RawMessage            `json:"waits"`
 	Interrupts map[string]json.RawMessage `json:"interrupts"`
 	Gates      json.RawMessage            `json:"gates"`
-}
-
-// workflowStepResumedMeta is parsed from the workflow.resumed event payload.
-type workflowStepResumedMeta struct {
-	IdempotencyKey string `json:"idempotency_key"`
-	AnswersDigest  string `json:"answers_digest"`
 }
 
 // workflowStepNodeMeta is parsed from every workflow.node.* event payload.
@@ -236,23 +220,34 @@ type workflowStepUnresolved struct {
 
 // WorkflowStepDerive applies one commit's events to the current projection
 // in memory. The drivers call it inside the commit transaction so waits,
-// interrupts, resume identity, unresolved operations and usage stay derived
-// from the same event evidence everywhere.
+// interrupts, unresolved operations and usage stay derived from committed
+// events. Input/resume claims come only from the private commit fields.
 func WorkflowStepDerive(proj *WorkflowStepProjection, c WorkflowStepCommit, revision domain.WorkflowRevision) (*WorkflowStepProjection, error) {
+	if (c.Expected == "" || len(c.AdmittedInput) > 0) && !jsonBytesEqual(c.AdmittedInput, revision.InputJSON) {
+		return nil, ErrWorkflowStepIdentity
+	}
+	hasResume := false
+	for _, event := range c.Events {
+		if event.Type == domain.EventWorkflowResumed {
+			hasResume = true
+		}
+	}
+	if (c.ResumeKey != "" || len(c.ResumeAnswersJSON) > 0) && !hasResume {
+		return nil, ErrWorkflowStepIdentity
+	}
+
 	next := WorkflowStepProjection{
-		Status:              c.Target,
-		Epoch:               c.Epoch,
-		Revision:            proj.Revision + 1,
-		UsageJSON:           proj.UsageJSON,
-		CheckpointJSON:      proj.CheckpointJSON,
-		CheckpointBlobID:    proj.CheckpointBlobID,
-		CheckpointDigest:    proj.CheckpointDigest,
-		WaitsJSON:           proj.WaitsJSON,
-		InterruptsJSON:      proj.InterruptsJSON,
-		GatesJSON:           proj.GatesJSON,
-		ResumeKey:           proj.ResumeKey,
-		ResumeAnswersDigest: proj.ResumeAnswersDigest,
-		UnresolvedJSON:      proj.UnresolvedJSON,
+		Status:            c.Target,
+		Epoch:             c.Epoch,
+		Revision:          proj.Revision + 1,
+		UsageJSON:         proj.UsageJSON,
+		CheckpointJSON:    proj.CheckpointJSON,
+		WaitsJSON:         proj.WaitsJSON,
+		InterruptsJSON:    proj.InterruptsJSON,
+		GatesJSON:         proj.GatesJSON,
+		ResumeKey:         proj.ResumeKey,
+		ResumeAnswersJSON: append([]byte(nil), proj.ResumeAnswersJSON...),
+		UnresolvedJSON:    proj.UnresolvedJSON,
 	}
 	usage := workflowStepUsage{}
 	if len(proj.UsageJSON) > 0 {
@@ -277,7 +272,7 @@ func WorkflowStepDerive(proj *WorkflowStepProjection, c WorkflowStepCommit, revi
 			if err := json.Unmarshal(e.Payload, &meta); err != nil {
 				return nil, fmt.Errorf("storage: decode workflow.admitted payload: %w", err)
 			}
-			if meta.InputDigest != revision.InputDigest {
+			if !jsonBytesEqual(c.AdmittedInput, revision.InputJSON) {
 				return nil, ErrWorkflowStepIdentity
 			}
 			if len(meta.Limits) > 0 && len(revision.EffectiveLimits) > 0 &&
@@ -299,12 +294,14 @@ func WorkflowStepDerive(proj *WorkflowStepProjection, c WorkflowStepCommit, revi
 			}
 			next.GatesJSON = append([]byte(nil), meta.Gates...)
 		case domain.EventWorkflowResumed:
-			var meta workflowStepResumedMeta
-			if err := json.Unmarshal(e.Payload, &meta); err != nil {
-				return nil, fmt.Errorf("storage: decode workflow.resumed payload: %w", err)
+			if c.ResumeKey == "" || len(c.ResumeAnswersJSON) == 0 || !json.Valid(c.ResumeAnswersJSON) {
+				return nil, ErrWorkflowStepIdentity
 			}
-			next.ResumeKey = meta.IdempotencyKey
-			next.ResumeAnswersDigest = meta.AnswersDigest
+			if proj.ResumeKey == c.ResumeKey && !jsonBytesEqual(proj.ResumeAnswersJSON, c.ResumeAnswersJSON) {
+				return nil, ErrWorkflowStepIdempotency
+			}
+			next.ResumeKey = c.ResumeKey
+			next.ResumeAnswersJSON = append([]byte(nil), c.ResumeAnswersJSON...)
 			next.WaitsJSON = nil
 			next.InterruptsJSON = nil
 			next.GatesJSON = nil
@@ -355,8 +352,7 @@ func WorkflowStepDerive(proj *WorkflowStepProjection, c WorkflowStepCommit, revi
 	next.UsageJSON = raw
 	if c.Checkpoint != nil {
 		next.CheckpointJSON = append([]byte(nil), c.Checkpoint.Envelope...)
-		next.CheckpointBlobID = c.Checkpoint.BlobID
-		next.CheckpointDigest = c.Checkpoint.Digest
+
 	}
 	return &next, nil
 }
@@ -374,11 +370,52 @@ func sortWorkflowStepUnresolved(ops []workflowStepUnresolved) {
 }
 
 func jsonBytesEqual(a, b []byte) bool {
+	if bytes.Equal(a, b) {
+		return true
+	}
 	var x, y any
-	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+	if decodeWorkflowJSON(a, &x) != nil || decodeWorkflowJSON(b, &y) != nil {
 		return false
 	}
 	ra, err1 := json.Marshal(x)
 	rb, err2 := json.Marshal(y)
 	return err1 == nil && err2 == nil && string(ra) == string(rb)
+}
+
+// WorkflowStepInput is the private canonical receipt body. It is derived at the
+// existing SQL owner, including inputs omitted by INOFY's public JSON tags.
+// Epoch and wall-clock event times are writer/receipt metadata, not intent.
+func WorkflowStepInput(c WorkflowStepCommit) ([]byte, error) {
+	events := append([]WorkflowStepEvent(nil), c.Events...)
+	for i := range events {
+		events[i].CreatedAt = 0
+	}
+	raw, err := json.Marshal(struct {
+		ProgramID     string
+		HostBindingID string
+		Expected      WorkflowStepStatus
+		Target        WorkflowStepStatus
+		Events        []WorkflowStepEvent
+		Results       []WorkflowStepResult
+		Checkpoint    *WorkflowStepCheckpoint
+		AdmittedInput json.RawMessage
+		ResumeKey     string
+		ResumeAnswers json.RawMessage
+	}{c.ProgramID, c.HostBindingID, c.Expected, c.Target, events, c.Results, c.Checkpoint, c.AdmittedInput, c.ResumeKey, c.ResumeAnswersJSON})
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return json.Marshal(v)
+}
+
+func decodeWorkflowJSON(raw []byte, value *any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	return decoder.Decode(value)
 }

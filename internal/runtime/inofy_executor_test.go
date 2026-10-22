@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -20,14 +18,7 @@ import (
 	"agent-vivy/internal/tools"
 )
 
-func inofyTestDigest(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
-}
-
-func inofyTestInputDigest() string {
-	return "inofy-normal-v1:sha256:" + inofyTestDigest("{}")
-}
+func inofyTestID(value string) string { return "workflow-test:" + value }
 
 // prepareINOFYExecParent admits a schema-2 workflow revision plus its graph
 // Run, marks it active and registers in-memory authority — the same state a
@@ -47,16 +38,13 @@ func prepareINOFYExecParent(t *testing.T, svc *Service, backend *sqlite.Backend,
 	authorityJSON := []byte(`{"authority":1}`)
 	revision := domain.WorkflowRevision{
 		RunID: wfID, ParentRunID: parentRunID, ParentSessionID: sessionID, RootRunID: parentRunID,
-		OperationKey:     "wf-op-" + string(parentRunID),
-		DescriptorDigest: inofyTestDigest(string(descriptorJSON)), AuthorityDigest: inofyTestDigest(string(authorityJSON)),
+		OperationKey:   "wf-op-" + string(parentRunID),
 		DescriptorJSON: descriptorJSON, AuthorityJSON: authorityJSON,
-		SchemaVersion: 2, CreatedAt: 2,
-		ProgramDigest: inofyTestDigest("program-" + string(parentRunID)), CatalogDigest: inofyTestDigest("catalog"),
-		CompilerVersion: "inofy@6acfcc6", EinoBuild: "v0.9.13",
-		InputDigest:     inofyTestDigest("input-" + string(parentRunID)),
+		SchemaVersion: 3, CreatedAt: 2,
+		ProgramID: inofyTestID("program-" + string(parentRunID)), CompilerVersion: "inofy@6acfcc6", EinoBuild: "v0.9.13",
 		InputJSON:       []byte(`{}`),
 		EffectiveLimits: []byte(`{"max_nodes":12,"max_attempts":1}`),
-		HostBindingID:   inofyTestDigest("binding-" + string(parentRunID)),
+		HostBindingID:   inofyTestID("binding-" + string(parentRunID)),
 	}
 	if _, err := backend.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{
 		Revision: revision,
@@ -87,7 +75,7 @@ func prepareINOFYExecParent(t *testing.T, svc *Service, backend *sqlite.Backend,
 	return wfID, inofy.ExecutionRef{
 		RunID:         string(wfID),
 		Epoch:         1,
-		ProgramDigest: revision.ProgramDigest,
+		ProgramID:     revision.ProgramID,
 		HostBindingID: revision.HostBindingID,
 	}
 }
@@ -245,7 +233,7 @@ func TestINOFYChildExecutorConflictingOperationInput(t *testing.T) {
 	}
 	var unknown *inofy.UnknownOutcomeError
 	if _, err := exec.Execute(ctx, changed); errors.As(err, &unknown) {
-		t.Fatal("changed digest must conflict, never report an unknown outcome")
+		t.Fatal("changed exact input must conflict, never report an unknown outcome")
 	}
 }
 
@@ -313,12 +301,12 @@ func TestINOFYChildExecutorProgramBinding(t *testing.T) {
 	exec := newINOFYNodeExecutor(svc)
 
 	forged := ref
-	forged.ProgramDigest = inofyTestDigest("forged")
+	forged.ProgramID = inofyTestID("forged")
 	if _, err := exec.Execute(ctx, inofyNodeCall(forged, "root/x", "task", nil)); err == nil {
-		t.Fatal("call under a foreign program digest was executed")
+		t.Fatal("call under a foreign program ID was executed")
 	}
 	forged = ref
-	forged.HostBindingID = inofyTestDigest("forged-binding")
+	forged.HostBindingID = inofyTestID("forged-binding")
 	if _, err := exec.Execute(ctx, inofyNodeCall(forged, "root/x", "task", nil)); err == nil {
 		t.Fatal("call under a foreign host binding was executed")
 	}
@@ -454,7 +442,7 @@ func TestINOFYProgramRunCommitsThroughCoreStorage(t *testing.T) {
 		{"id":"a","kind":"call","type":"vivy.child-task@1","config":{"task":"first half"}},
 		{"id":"join","kind":"call","type":"vivy.child-task@1","config":{"task":"combine"},"inputs":{"first":{"source":"a","pointer":"/result"}}}
 	],"edges":[{"from":"a","to":"join"}],"exits":["join"],"outputs":{"answer":{"source":"join","pointer":"/result"}}}}`)
-	admitted, err := validateINOFYDefinition(ctx, raw, []string{tools.EchoInfoName})
+	admitted, err := validateINOFYDefinition(ctx, raw, []string{tools.EchoInfoName}, "test-program")
 	if err != nil {
 		t.Fatalf("validate definition: %v", err)
 	}
@@ -473,19 +461,15 @@ func TestINOFYProgramRunCommitsThroughCoreStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputDigest := "inofy-normal-v1:sha256:" + inofyTestDigest("{}")
-	hostBinding := inofyTestDigest("host-binding-e2e")
+	hostBinding := inofyTestID("host-binding-e2e")
 	revision := domain.WorkflowRevision{
 		RunID: wfID, ParentRunID: parentRunID, ParentSessionID: sessionID, RootRunID: parentRunID,
-		OperationKey:     "wf-e2e",
-		DescriptorDigest: inofyTestDigest(string(admitted.CanonicalJSON)),
-		AuthorityDigest:  inofyTestDigest(`{"authority":1}`),
-		DescriptorJSON:   admitted.CanonicalJSON, AuthorityJSON: []byte(`{"authority":1}`),
-		SchemaVersion: 2, CreatedAt: 2,
-		ProgramDigest:   admitted.Meta.ProgramDigest,
-		CatalogDigest:   admitted.Meta.CatalogDigest,
+		OperationKey:   "wf-e2e",
+		DescriptorJSON: admitted.CanonicalJSON, AuthorityJSON: []byte(`{"authority":1}`),
+		SchemaVersion: 3, CreatedAt: 2,
+		ProgramID:       admitted.Meta.ProgramID,
 		CompilerVersion: admitted.Meta.CompilerVersion, EinoBuild: admitted.Meta.EinoBuild,
-		InputDigest: inputDigest, InputJSON: []byte(`{}`), EffectiveLimits: limitsJSON,
+		InputJSON: []byte(`{}`), EffectiveLimits: limitsJSON,
 		HostBindingID: hostBinding,
 	}
 	if _, err := backend.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{
@@ -516,7 +500,7 @@ func TestINOFYProgramRunCommitsThroughCoreStorage(t *testing.T) {
 	svc.mu.Unlock()
 
 	result, err := admitted.Program.Run(ctx, inofy.RunRequest{
-		Ref:    inofy.ExecutionRef{RunID: string(wfID), Epoch: 1, ProgramDigest: admitted.Meta.ProgramDigest, HostBindingID: hostBinding},
+		Ref:    inofy.ExecutionRef{RunID: string(wfID), Epoch: 1, ProgramID: admitted.Meta.ProgramID, HostBindingID: hostBinding},
 		Input:  json.RawMessage(`{}`),
 		Limits: requestLimits,
 	}, inofy.Bindings{Nodes: newINOFYNodeExecutor(svc), Runs: newINOFYRunStore(backend)})

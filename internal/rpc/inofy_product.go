@@ -231,7 +231,7 @@ func (h *controlHandler) inofyPublish(ctx context.Context, peer *Peer, request R
 	if err != nil {
 		return nil, inofyRPCError(err)
 	}
-	return map[string]any{"workflow": revision.WorkflowID, "revision": revision.Revision, "definition_digest": revision.DefinitionDigest}, nil
+	return map[string]any{"workflow": revision.WorkflowID, "revision": revision.Revision, "program_id": revision.ProgramID}, nil
 }
 
 func (h *controlHandler) inofyGetRevision(ctx context.Context, peer *Peer, request Request) (any, *Error) {
@@ -260,8 +260,7 @@ func (h *controlHandler) inofyGetRevision(ctx context.Context, peer *Peer, reque
 	}
 	return map[string]any{
 		"workflow": revision.WorkflowID, "revision": revision.Revision,
-		"definition_digest": revision.DefinitionDigest, "artifact": revision.Artifact,
-		"used_catalog_digest": revision.UsedCatalogDigest,
+		"program_id": revision.ProgramID, "artifact": revision.Artifact,
 	}, nil
 }
 

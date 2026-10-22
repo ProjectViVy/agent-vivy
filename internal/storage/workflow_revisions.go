@@ -2,12 +2,9 @@ package storage
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"agent-vivy/internal/domain"
 )
@@ -39,28 +36,13 @@ type WorkflowRevisionStore interface {
 func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 	r := in.Revision
 	if r.RunID == "" || r.ParentRunID == "" || r.ParentSessionID == "" || r.RootRunID == "" ||
-		r.OperationKey == "" || len(r.OperationKey) > 128 || r.DescriptorDigest == "" ||
-		r.AuthorityDigest == "" || len(r.DescriptorJSON) == 0 || len(r.AuthorityJSON) == 0 || r.SchemaVersion <= 0 || r.CreatedAt <= 0 {
+		r.OperationKey == "" || len(r.OperationKey) > 128 || len(r.DescriptorJSON) == 0 || len(r.AuthorityJSON) == 0 || r.SchemaVersion <= 0 || r.CreatedAt <= 0 {
 		return errors.New("storage: workflow revision identity is incomplete")
 	}
-	if !validSHA256Hex(r.DescriptorDigest) || !validSHA256Hex(r.AuthorityDigest) {
-		return errors.New("storage: workflow revision digests must be lowercase SHA-256 hex")
-	}
-	digest := sha256.Sum256(r.DescriptorJSON)
-	if hex.EncodeToString(digest[:]) != r.DescriptorDigest {
-		return errors.New("storage: workflow descriptor digest does not match its bytes")
-	}
-	authorityDigest := sha256.Sum256(r.AuthorityJSON)
-	if hex.EncodeToString(authorityDigest[:]) != r.AuthorityDigest {
-		return errors.New("storage: workflow authority digest does not match its bytes")
-	}
-	// Storage discriminator: 1 = legacy descriptor path, 2 = INOFY. A
-	// discriminator-2 admission must carry the complete INOFY identity so a
-	// later recovery can rebind to the same immutable program; discriminator-1
-	// rows must not carry it.
-	if r.SchemaVersion == 2 {
-		if !validINOFYDigest(r.ProgramDigest) || !validINOFYDigest(r.CatalogDigest) ||
-			!validINOFYDigest(r.InputDigest) || r.CompilerVersion == "" ||
+	// Schema 3 owns exact inputs and opaque ProgramID. Earlier rows are
+	// historical records and never accepted by the execution step owner.
+	if r.SchemaVersion == 3 {
+		if r.ProgramID == "" || len(r.ProgramID) > 1024 || r.CompilerVersion == "" ||
 			len(r.EffectiveLimits) == 0 || !json.Valid(r.EffectiveLimits) || r.HostBindingID == "" ||
 			len(r.InputJSON) == 0 || !json.Valid(r.InputJSON) {
 			return errors.New("storage: inofy workflow revision identity is incomplete")
@@ -71,8 +53,8 @@ func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 		if r.DefinitionID == "" && r.DefinitionRevision != 0 {
 			return errors.New("storage: workflow definition revision requires a definition id")
 		}
-	} else if r.ProgramDigest != "" || r.CatalogDigest != "" || r.CompilerVersion != "" ||
-		r.EinoBuild != "" || r.InputDigest != "" || len(r.InputJSON) != 0 ||
+	} else if r.ProgramID != "" || r.CompilerVersion != "" ||
+		r.EinoBuild != "" || len(r.InputJSON) != 0 ||
 		len(r.EffectiveLimits) != 0 || r.HostBindingID != "" ||
 		r.DefinitionID != "" || r.DefinitionRevision != 0 {
 		return errors.New("storage: legacy workflow revision must not carry inofy identity")
@@ -89,22 +71,15 @@ func ValidateWorkflowAdmission(in WorkflowAdmission) error {
 	return nil
 }
 
-func validSHA256Hex(value string) bool {
-	if len(value) != sha256.Size*2 {
-		return false
-	}
-	decoded, err := hex.DecodeString(value)
-	return err == nil && hex.EncodeToString(decoded) == value
-}
-
-// validINOFYDigest accepts the named digest envelope INOFY emits
-// ("inofy-normal-v1:sha256:<64 hex>") as well as bare SHA-256 hex.
-func validINOFYDigest(value string) bool {
-	if validSHA256Hex(value) {
-		return true
-	}
-	const prefix = "inofy-normal-v1:sha256:"
-	return strings.HasPrefix(value, prefix) && validSHA256Hex(strings.TrimPrefix(value, prefix))
-}
-
 func WorkflowAdmissionConflict() error { return fmt.Errorf("%w", ErrWorkflowRevisionConflict) }
+
+// EqualWorkflowAdmissionInput compares the actual immutable owner inputs. Run
+// allocation and timestamps are outputs; the operation key owns the receipt.
+func EqualWorkflowAdmissionInput(a, b domain.WorkflowRevision) bool {
+	return a.SchemaVersion == b.SchemaVersion &&
+		a.ParentRunID == b.ParentRunID && a.ParentSessionID == b.ParentSessionID && a.RootRunID == b.RootRunID &&
+		a.OperationKey == b.OperationKey && a.DefinitionID == b.DefinitionID && a.DefinitionRevision == b.DefinitionRevision &&
+		a.CompilerVersion == b.CompilerVersion && a.EinoBuild == b.EinoBuild &&
+		jsonBytesEqual(a.DescriptorJSON, b.DescriptorJSON) && jsonBytesEqual(a.AuthorityJSON, b.AuthorityJSON) &&
+		jsonBytesEqual(a.InputJSON, b.InputJSON) && jsonBytesEqual(a.EffectiveLimits, b.EffectiveLimits)
+}

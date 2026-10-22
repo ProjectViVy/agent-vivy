@@ -60,23 +60,14 @@ func (r *inofyDefinitionRepository) GetDraft(ctx context.Context, workflowID str
 	}
 	return definitions.Draft{
 		WorkflowID: rec.WorkflowID, ETag: rec.ETag, Artifact: a,
-		DefinitionDigest: rec.DefinitionDigest, ArtifactDigest: rec.ArtifactDigest,
 		Archived: rec.Archived,
 	}, nil
 }
 
 func (r *inofyDefinitionRepository) UpdateDraftCAS(ctx context.Context, workflowID, expectedETag string, a inofy.Artifact) (definitions.Draft, error) {
-	artifactJSON, err := json.Marshal(a)
+	artifactJSON, err := inofy.NormalizeArtifact(a)
 	if err != nil {
 		return definitions.Draft{}, &inofy.Error{Code: inofy.ErrInvalidDefinition, Path: workflowID, Message: err.Error()}
-	}
-	defDigest, err := inofy.DefinitionDigest(a.Definition)
-	if err != nil {
-		return definitions.Draft{}, err
-	}
-	artDigest, err := inofy.ArtifactDigest(a)
-	if err != nil {
-		return definitions.Draft{}, err
 	}
 	expected := expectedETag
 	switch expectedETag {
@@ -91,20 +82,18 @@ func (r *inofyDefinitionRepository) UpdateDraftCAS(ctx context.Context, workflow
 		}
 	}
 	rec, err := r.store.UpdateWorkflowDraftCAS(ctx, string(r.session), storage.WorkflowDraftUpdate{
-		WorkflowID: workflowID, ExpectedETag: expected, ArtifactJSON: artifactJSON,
-		DefinitionDigest: defDigest, ArtifactDigest: artDigest, Now: time.Now().UnixMilli(),
+		WorkflowID: workflowID, ExpectedETag: expected, ArtifactJSON: artifactJSON, Now: time.Now().UnixMilli(),
 	})
 	if err != nil {
 		return definitions.Draft{}, inofyDefinitionError(workflowID, err)
 	}
 	return definitions.Draft{
 		WorkflowID: rec.WorkflowID, ETag: rec.ETag, Artifact: a,
-		DefinitionDigest: rec.DefinitionDigest, ArtifactDigest: rec.ArtifactDigest,
 	}, nil
 }
 
 func (r *inofyDefinitionRepository) PublishCAS(ctx context.Context, workflowID, expectedETag string, rev definitions.Revision) (definitions.Revision, error) {
-	artifactJSON, err := json.Marshal(rev.Artifact)
+	artifactJSON, err := inofy.NormalizeArtifact(rev.Artifact)
 	if err != nil {
 		return definitions.Revision{}, &inofy.Error{Code: inofy.ErrInvalidDefinition, Path: workflowID, Message: err.Error()}
 	}
@@ -114,9 +103,8 @@ func (r *inofyDefinitionRepository) PublishCAS(ctx context.Context, workflowID, 
 	}
 	rec, err := r.store.PublishWorkflowRevisionCAS(ctx, string(r.session), workflowID, expectedETag, storage.WorkflowPublishedRevision{
 		WorkflowID: workflowID, ArtifactJSON: artifactJSON,
-		DefinitionDigest: rev.DefinitionDigest, ArtifactDigest: rev.ArtifactDigest,
-		UsedCatalogDigest: rev.UsedCatalogDigest, UsedImplementationsJSON: implJSON,
-		PublishedAt: time.Now().UnixMilli(),
+		UsedImplementationsJSON: implJSON,
+		PublishedAt:             time.Now().UnixMilli(),
 	})
 	if err != nil {
 		return definitions.Revision{}, inofyDefinitionError(workflowID, err)
@@ -126,9 +114,8 @@ func (r *inofyDefinitionRepository) PublishCAS(ctx context.Context, workflowID, 
 		return definitions.Revision{}, &inofy.Error{Code: inofy.ErrStorageFailed, Path: workflowID, Message: "stored revision artifact is unreadable"}
 	}
 	return definitions.Revision{
-		WorkflowID: rec.WorkflowID, Revision: rec.Revision, Artifact: a,
-		DefinitionDigest: rec.DefinitionDigest, ArtifactDigest: rec.ArtifactDigest,
-		UsedCatalogDigest: rec.UsedCatalogDigest, UsedImplementations: rev.UsedImplementations,
+		WorkflowID: rec.WorkflowID, Revision: rec.Revision, ProgramID: definitions.ProgramID(rec.WorkflowID, rec.Revision), Artifact: a,
+		UsedImplementations: rev.UsedImplementations,
 	}, nil
 }
 
@@ -142,11 +129,12 @@ func (r *inofyDefinitionRepository) GetRevision(ctx context.Context, workflowID 
 		return definitions.Revision{}, &inofy.Error{Code: inofy.ErrStorageFailed, Path: workflowID, Message: "stored revision artifact is unreadable"}
 	}
 	var used map[string]string
-	_ = json.Unmarshal(rec.UsedImplementationsJSON, &used)
+	if err := json.Unmarshal(rec.UsedImplementationsJSON, &used); err != nil {
+		return definitions.Revision{}, inofyDefinitionError(workflowID, err)
+	}
 	return definitions.Revision{
-		WorkflowID: rec.WorkflowID, Revision: rec.Revision, Artifact: a,
-		DefinitionDigest: rec.DefinitionDigest, ArtifactDigest: rec.ArtifactDigest,
-		UsedCatalogDigest: rec.UsedCatalogDigest, UsedImplementations: used,
+		WorkflowID: rec.WorkflowID, Revision: rec.Revision, ProgramID: definitions.ProgramID(rec.WorkflowID, rec.Revision), Artifact: a,
+		UsedImplementations: used,
 	}, nil
 }
 
@@ -162,11 +150,12 @@ func (r *inofyDefinitionRepository) List(ctx context.Context, cursor string, lim
 			return definitions.Page{}, &inofy.Error{Code: inofy.ErrStorageFailed, Path: rec.WorkflowID, Message: "stored revision artifact is unreadable"}
 		}
 		var used map[string]string
-		_ = json.Unmarshal(rec.UsedImplementationsJSON, &used)
+		if err := json.Unmarshal(rec.UsedImplementationsJSON, &used); err != nil {
+			return definitions.Page{}, inofyDefinitionError(rec.WorkflowID, err)
+		}
 		out.Revisions = append(out.Revisions, definitions.Revision{
-			WorkflowID: rec.WorkflowID, Revision: rec.Revision, Artifact: a,
-			DefinitionDigest: rec.DefinitionDigest, ArtifactDigest: rec.ArtifactDigest,
-			UsedCatalogDigest: rec.UsedCatalogDigest, UsedImplementations: used,
+			WorkflowID: rec.WorkflowID, Revision: rec.Revision, ProgramID: definitions.ProgramID(rec.WorkflowID, rec.Revision), Artifact: a,
+			UsedImplementations: used,
 		})
 	}
 	return out, nil

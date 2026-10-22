@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -33,21 +34,25 @@ func (b *Backend) CommitWorkflowStep(ctx context.Context, c storage.WorkflowStep
 	if err != nil {
 		return storage.WorkflowStepReceipt{}, err
 	}
-	if revision.SchemaVersion != 2 {
+	if revision.SchemaVersion != 3 {
 		return storage.WorkflowStepReceipt{}, storage.ErrNotFound
 	}
-	if revision.ProgramDigest != c.ProgramDigest ||
-		(c.HostBindingID != "" && revision.HostBindingID != c.HostBindingID) {
+	if revision.ProgramID != c.ProgramID ||
+		revision.HostBindingID != c.HostBindingID {
 		return storage.WorkflowStepReceipt{}, storage.ErrWorkflowStepIdentity
 	}
 
-	var digest string
+	input, err := storage.WorkflowStepInput(c)
+	if err != nil {
+		return storage.WorkflowStepReceipt{}, err
+	}
+	var priorInput []byte
 	var firstSeq, lastSeq, rev int64
 	err = tx.QueryRowContext(ctx,
-		`SELECT digest,first_seq,last_seq,revision FROM workflow_commits WHERE workflow_run_id = ? AND commit_id = ?`,
-		c.RunID, c.CommitID).Scan(&digest, &firstSeq, &lastSeq, &rev)
+		`SELECT input_json,first_seq,last_seq,revision FROM workflow_commits WHERE workflow_run_id = ? AND commit_id = ?`,
+		c.RunID, c.CommitID).Scan(&priorInput, &firstSeq, &lastSeq, &rev)
 	if err == nil {
-		if digest != c.Digest {
+		if !bytes.Equal(priorInput, input) {
 			return storage.WorkflowStepReceipt{}, storage.ErrWorkflowStepIdempotency
 		}
 		if err := tx.Commit(); err != nil {
@@ -120,20 +125,20 @@ func (b *Backend) CommitWorkflowStep(ctx context.Context, c storage.WorkflowStep
 
 	now := time.Now().UnixMilli()
 	for _, r := range c.Results {
-		var existing string
+		var existing []byte
 		err := tx.QueryRowContext(ctx,
-			`INSERT INTO workflow_results (workflow_run_id,path,attempt,digest,blob_id,bytes,created_at)
-			 VALUES (?,?,?,?,?,?,?) ON CONFLICT (workflow_run_id,path,attempt) DO NOTHING
-			 RETURNING digest`,
-			c.RunID, r.Path, r.Attempt, r.Digest, r.BlobID, r.Bytes, now).Scan(&existing)
+			`INSERT INTO workflow_results (workflow_run_id,path,attempt,output,bytes,created_at)
+			 VALUES (?,?,?,?,?,?) ON CONFLICT (workflow_run_id,path,attempt) DO NOTHING
+			 RETURNING output`,
+			c.RunID, r.Path, r.Attempt, r.Output, r.Bytes, now).Scan(&existing)
 		if errors.Is(err, sql.ErrNoRows) {
-			// Conflict: the row already exists; compare digests.
+			// Conflict: the row already exists; compare actual outputs.
 			if err := tx.QueryRowContext(ctx,
-				`SELECT digest FROM workflow_results WHERE workflow_run_id = ? AND path = ? AND attempt = ?`,
+				`SELECT output FROM workflow_results WHERE workflow_run_id = ? AND path = ? AND attempt = ?`,
 				c.RunID, r.Path, r.Attempt).Scan(&existing); err != nil {
 				return storage.WorkflowStepReceipt{}, storage.AdmissionUnavailable("read workflow result", err)
 			}
-			if existing != r.Digest {
+			if !bytes.Equal(existing, r.Output) {
 				return storage.WorkflowStepReceipt{}, storage.ErrWorkflowStepIdempotency
 			}
 			continue
@@ -146,24 +151,24 @@ func (b *Backend) CommitWorkflowStep(ctx context.Context, c storage.WorkflowStep
 	if proj == nil {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workflow_executions
-				(workflow_run_id,status,epoch,revision,usage,checkpoint,checkpoint_blob_id,checkpoint_digest,
-				 waits,interrupts,gates,resume_key,resume_answers_digest,unresolved,updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				(workflow_run_id,status,epoch,revision,usage,checkpoint,
+				 waits,interrupts,gates,resume_key,resume_answers_json,unresolved,updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			c.RunID, string(next.Status), int64(next.Epoch), int64(next.Revision), next.UsageJSON,
-			next.CheckpointJSON, next.CheckpointBlobID, next.CheckpointDigest,
+			next.CheckpointJSON,
 			next.WaitsJSON, next.InterruptsJSON, next.GatesJSON,
-			next.ResumeKey, next.ResumeAnswersDigest, next.UnresolvedJSON, now); err != nil {
+			next.ResumeKey, next.ResumeAnswersJSON, next.UnresolvedJSON, now); err != nil {
 			return storage.WorkflowStepReceipt{}, storage.AdmissionUnavailable("insert workflow execution", err)
 		}
 	} else {
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE workflow_executions SET status=?,epoch=?,revision=?,usage=?,checkpoint=?,checkpoint_blob_id=?,
-				checkpoint_digest=?,waits=?,interrupts=?,gates=?,resume_key=?,resume_answers_digest=?,unresolved=?,updated_at=?
+			UPDATE workflow_executions SET status=?,epoch=?,revision=?,usage=?,checkpoint=?,
+				waits=?,interrupts=?,gates=?,resume_key=?,resume_answers_json=?,unresolved=?,updated_at=?
 			WHERE workflow_run_id = ?`,
 			string(next.Status), int64(next.Epoch), int64(next.Revision), next.UsageJSON,
-			next.CheckpointJSON, next.CheckpointBlobID, next.CheckpointDigest,
+			next.CheckpointJSON,
 			next.WaitsJSON, next.InterruptsJSON, next.GatesJSON,
-			next.ResumeKey, next.ResumeAnswersDigest, next.UnresolvedJSON, now, c.RunID); err != nil {
+			next.ResumeKey, next.ResumeAnswersJSON, next.UnresolvedJSON, now, c.RunID); err != nil {
 			return storage.WorkflowStepReceipt{}, storage.AdmissionUnavailable("update workflow execution", err)
 		}
 	}
@@ -193,9 +198,9 @@ func (b *Backend) CommitWorkflowStep(ctx context.Context, c storage.WorkflowStep
 		firstSeqOut = seq - int64(len(c.Events)) + 1
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO workflow_commits (workflow_run_id,commit_id,digest,first_seq,last_seq,revision,created_at)
+		`INSERT INTO workflow_commits (workflow_run_id,commit_id,input_json,first_seq,last_seq,revision,created_at)
 		 VALUES (?,?,?,?,?,?,?)`,
-		c.RunID, c.CommitID, c.Digest, firstSeqOut, seq, int64(next.Revision), now); err != nil {
+		c.RunID, c.CommitID, input, firstSeqOut, seq, int64(next.Revision), now); err != nil {
 		return storage.WorkflowStepReceipt{}, storage.AdmissionUnavailable("record workflow commit", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -219,12 +224,12 @@ func (b *Backend) LoadWorkflowStep(ctx context.Context, runID domain.RunID) (sto
 	if err != nil {
 		return storage.WorkflowStepState{}, err
 	}
-	if revision.SchemaVersion != 2 {
+	if revision.SchemaVersion != 3 {
 		return storage.WorkflowStepState{}, storage.ErrNotFound
 	}
 	proj, err := postgresScanWorkflowExecution(b.db.QueryRowContext(ctx, `
-		SELECT status,epoch,revision,usage,checkpoint,checkpoint_blob_id,checkpoint_digest,
-			waits,interrupts,gates,resume_key,resume_answers_digest,unresolved,updated_at
+		SELECT status,epoch,revision,usage,checkpoint,
+			waits,interrupts,gates,resume_key,resume_answers_json,unresolved,updated_at
 		FROM workflow_executions WHERE workflow_run_id = ?`, runID))
 	if err != nil {
 		return storage.WorkflowStepState{}, err
@@ -244,9 +249,8 @@ func postgresScanWorkflowExecution(row postgresStepScanner) (*storage.WorkflowSt
 	var p storage.WorkflowStepProjection
 	var status string
 	var epoch, revision, updatedAt int64
-	err := row.Scan(&status, &epoch, &revision, &p.UsageJSON, &p.CheckpointJSON,
-		&p.CheckpointBlobID, &p.CheckpointDigest, &p.WaitsJSON, &p.InterruptsJSON,
-		&p.GatesJSON, &p.ResumeKey, &p.ResumeAnswersDigest, &p.UnresolvedJSON, &updatedAt)
+	err := row.Scan(&status, &epoch, &revision, &p.UsageJSON, &p.CheckpointJSON, &p.WaitsJSON, &p.InterruptsJSON,
+		&p.GatesJSON, &p.ResumeKey, &p.ResumeAnswersJSON, &p.UnresolvedJSON, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -262,8 +266,8 @@ func postgresScanWorkflowExecution(row postgresStepScanner) (*storage.WorkflowSt
 
 func postgresReadWorkflowExecution(ctx context.Context, tx *Tx, runID domain.RunID) (*storage.WorkflowStepProjection, error) {
 	return postgresScanWorkflowExecution(tx.QueryRowContext(ctx, `
-		SELECT status,epoch,revision,usage,checkpoint,checkpoint_blob_id,checkpoint_digest,
-			waits,interrupts,gates,resume_key,resume_answers_digest,unresolved,updated_at
+		SELECT status,epoch,revision,usage,checkpoint,
+			waits,interrupts,gates,resume_key,resume_answers_json,unresolved,updated_at
 		FROM workflow_executions WHERE workflow_run_id = ? FOR UPDATE`, runID))
 }
 
@@ -292,7 +296,7 @@ func postgresReadRunForUpdate(ctx context.Context, tx *Tx, runID domain.RunID) (
 
 func postgresListWorkflowResults(ctx context.Context, q postgresWorkflowQueryer, runID domain.RunID) ([]storage.WorkflowStepResult, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT path,attempt,digest,blob_id,bytes FROM workflow_results
+		SELECT path,attempt,output,bytes FROM workflow_results
 		WHERE workflow_run_id = ? ORDER BY path, attempt`, runID)
 	if err != nil {
 		return nil, storage.AdmissionUnavailable("list workflow results", err)
@@ -301,7 +305,7 @@ func postgresListWorkflowResults(ctx context.Context, q postgresWorkflowQueryer,
 	var out []storage.WorkflowStepResult
 	for rows.Next() {
 		var r storage.WorkflowStepResult
-		if err := rows.Scan(&r.Path, &r.Attempt, &r.Digest, &r.BlobID, &r.Bytes); err != nil {
+		if err := rows.Scan(&r.Path, &r.Attempt, &r.Output, &r.Bytes); err != nil {
 			return nil, storage.AdmissionUnavailable("scan workflow result", err)
 		}
 		out = append(out, r)

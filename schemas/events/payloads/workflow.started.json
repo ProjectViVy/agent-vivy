@@ -4,9 +4,18 @@
   "title": "workflow.started payload (v1)",
   "type": "object",
   "properties": {
-    "revision_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "node_count": { "type": "integer", "minimum": 1, "maximum": 12 }
+    "node_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12
+    },
+    "program_id": {
+      "type": "string",
+      "minLength": 1
+    }
   },
-  "required": ["revision_digest", "node_count"],
+  "required": [
+    "program_id"
+  ],
   "additionalProperties": false
 }

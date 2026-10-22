@@ -2,7 +2,7 @@ package runtime
 
 import (
 	"context"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -305,11 +305,11 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 
 func validWorkflowChildRunID(runID domain.RunID) bool {
 	value := strings.TrimPrefix(string(runID), "workflow_child_")
-	if value == string(runID) || len(value) != 64 {
+	if value == string(runID) || len(value) == 0 || len(value) > 2048 {
 		return false
 	}
-	decoded, err := hex.DecodeString(value)
-	return err == nil && len(decoded) == 32
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) > 0 && base64.RawURLEncoding.EncodeToString(decoded) == value
 }
 
 func (s *Service) verifyOneShotChildRequest(ctx context.Context, childRunID, parentRunID domain.RunID, task string) (requested, started bool, err error) {

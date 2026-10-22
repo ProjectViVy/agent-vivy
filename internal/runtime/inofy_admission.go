@@ -28,7 +28,6 @@ type inofyAdmission struct {
 
 type WorkflowDefinitionProposal struct {
 	Definition json.RawMessage `json:"definition"`
-	Digest     string          `json:"digest"`
 }
 
 var ErrINOFYStorageUnavailable = errors.New("runtime: INOFY workflow execution awaits atomic RunStore admission")
@@ -51,13 +50,13 @@ func (s *Service) ProposeINOFYWorkflow(ctx context.Context, parentRunID domain.R
 	if err != nil {
 		return WorkflowDefinitionProposal{}, fmt.Errorf("%w: %w", ErrINOFYInvalidDefinition, err)
 	}
-	return WorkflowDefinitionProposal{Definition: admitted.CanonicalJSON, Digest: admitted.Meta.DefinitionDigest}, nil
+	return WorkflowDefinitionProposal{Definition: admitted.CanonicalJSON}, nil
 }
 
 // validateINOFYDefinition freezes the only executable graph vocabulary at
 // the runtime boundary. The caller supplies the already narrowed host tools;
 // a tool-facing JSON Schema never grants authority.
-func validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTools []string) (inofyAdmission, error) {
+func validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTools []string, ownerID ...string) (inofyAdmission, error) {
 	if !json.Valid(raw) || len(raw) > 64<<10 || len(bytes.TrimSpace(raw)) == 0 {
 		return inofyAdmission{}, errors.New("runtime: invalid or oversized workflow definition")
 	}
@@ -121,7 +120,11 @@ func validateINOFYDefinition(ctx context.Context, raw json.RawMessage, allowedTo
 		return inofyAdmission{}, err
 	}
 	limits := inofyWorkflowLimits()
-	program, diags, err := inofy.Compile(ctx, def, catalog, inofy.CompileOptions{Limits: limits})
+	programID := ""
+	if len(ownerID) > 0 {
+		programID = ownerID[0]
+	}
+	program, diags, err := inofy.Compile(ctx, def, catalog, inofy.CompileOptions{ProgramID: programID, Limits: limits})
 	if err != nil {
 		return inofyAdmission{}, fmt.Errorf("runtime: compile INOFY workflow: %w", err)
 	}

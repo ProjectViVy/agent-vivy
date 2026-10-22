@@ -116,7 +116,7 @@ func TestINOFYAdmissionRejectsUnsupportedOrWidenedDefinitions(t *testing.T) {
 			}
 			admitted, err := validateINOFYDefinition(t.Context(), raw, []string{"read_file"})
 			if tc.want == "" {
-				if err != nil || admitted.Program == nil || admitted.Meta.ProgramDigest == "" || len(admitted.CanonicalJSON) == 0 {
+				if err != nil || admitted.Program == nil || len(admitted.CanonicalJSON) == 0 {
 					t.Fatalf("valid definition rejected: admission=%+v error=%v", admitted, err)
 				}
 				return

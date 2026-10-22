@@ -5,9 +5,16 @@
   "description": "Resume claim committed by the winning writer epoch; clears the outstanding waits projection.",
   "type": "object",
   "properties": {
-    "idempotency_key": { "type": "string" },
-    "answers_digest": { "type": "string" },
-    "resumed_waits": { "type": "array", "items": { "type": "string" } }
+    "idempotency_key": {
+      "type": "string"
+    },
+    "resumed_waits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "required": []
 }

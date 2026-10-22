@@ -3,8 +3,6 @@ package conformance
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,18 +26,8 @@ func stepStore(t *testing.T, b storage.Engine) storage.WorkflowStepStore {
 	return s
 }
 
-// StepDigest builds a stable 64-hex digest for test tags.
-func StepDigest(tag string) string {
-	sum := sha256.Sum256([]byte("workflow-step:" + tag))
-	return hex.EncodeToString(sum[:])
-}
-
-// digestHex hashes raw bytes for descriptor/authority digest fields, which
-// the admission validator checks against the stored bytes.
-func digestHex(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
+// StepID returns a readable owner identity for fixture values.
+func StepID(tag string) string { return "workflow-step:" + tag }
 
 // workflowStepFixture admits one INOFY (schema_version=2) workflow revision
 // under an active parent run and returns the admitted workflow run id.
@@ -65,25 +53,21 @@ func WorkflowStepFixture(t *testing.T, slot Slot, tag string) (domain.RunID, sto
 	descriptorJSON := []byte(`{"descriptor":1}`)
 	authorityJSON := []byte(`{"authority":1}`)
 	revision := domain.WorkflowRevision{
-		RunID:            wfID,
-		ParentRunID:      parentID,
-		ParentSessionID:  sessionID,
-		RootRunID:        parentID,
-		OperationKey:     "op-" + tag,
-		DescriptorDigest: digestHex(descriptorJSON),
-		AuthorityDigest:  digestHex(authorityJSON),
-		DescriptorJSON:   descriptorJSON,
-		AuthorityJSON:    authorityJSON,
-		SchemaVersion:    2,
-		CreatedAt:        3,
-		ProgramDigest:    StepDigest("program-" + tag),
-		CatalogDigest:    StepDigest("catalog-" + tag),
-		CompilerVersion:  "inofy@6acfcc6",
-		EinoBuild:        "v0.9.13",
-		InputDigest:      StepDigest("input-" + tag),
-		InputJSON:        []byte(`{}`),
-		EffectiveLimits:  []byte(`{"max_nodes":12,"max_attempts":1}`),
-		HostBindingID:    StepDigest("binding-" + tag),
+		RunID:           wfID,
+		ParentRunID:     parentID,
+		ParentSessionID: sessionID,
+		RootRunID:       parentID,
+		OperationKey:    "op-" + tag,
+		DescriptorJSON:  descriptorJSON,
+		AuthorityJSON:   authorityJSON,
+		SchemaVersion:   3,
+		CreatedAt:       3,
+		ProgramID:       StepID("program-" + tag),
+		CompilerVersion: "inofy@6acfcc6",
+		EinoBuild:       "v0.9.13",
+		InputJSON:       []byte(`{}`),
+		EffectiveLimits: []byte(`{"max_nodes":12,"max_attempts":1}`),
+		HostBindingID:   StepID("binding-" + tag),
 	}
 	run := domain.Run{ID: wfID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: 3,
 		Kind: domain.RunKindWorkflow, ParentID: parentID, RootID: parentID, Depth: 1}
@@ -101,10 +85,10 @@ func NewStepCommit(runID domain.RunID, commitID string, epoch uint64, expected, 
 	return storage.WorkflowStepCommit{
 		RunID:         runID,
 		CommitID:      commitID,
-		Digest:        StepDigest("commit-" + commitID),
 		Epoch:         epoch,
-		ProgramDigest: StepDigest("program-" + tag),
-		HostBindingID: StepDigest("binding-" + tag),
+		ProgramID:     StepID("program-" + tag),
+		HostBindingID: StepID("binding-" + tag),
+		AdmittedInput: []byte(`{}`),
 		Expected:      expected,
 		Target:        target,
 	}
@@ -118,11 +102,11 @@ func StepEvent(typ domain.EventType, payload string) storage.WorkflowStepEvent {
 // StepAdmitEvent is the workflow.admitted event matching the fixture revision.
 func StepAdmitEvent(tag string) storage.WorkflowStepEvent {
 	return StepEvent(domain.EventWorkflowAdmitted, fmt.Sprintf(
-		`{"input_digest":%q,"limits":{"max_nodes":12,"max_attempts":1}}`, StepDigest("input-"+tag)))
+		`{"program_id":%q,"limits":{"max_nodes":12,"max_attempts":1}}`, StepID("program-"+tag)))
 }
 
 func startedEvent() storage.WorkflowStepEvent {
-	return StepEvent(domain.EventWorkflowStarted, `{"revision_digest":"`+StepDigest("rev")+`","node_count":1}`)
+	return StepEvent(domain.EventWorkflowStarted, `{"program_id":"`+StepID("rev")+`","node_count":1}`)
 }
 
 func journalSeqs(t *testing.T, b storage.Engine, runID domain.RunID) []domain.EventSeq {
@@ -162,7 +146,7 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		if err != nil {
 			t.Fatalf("load fresh: %v", err)
 		}
-		if st.Projection != nil || st.Revision.ProgramDigest != StepDigest("program-lifecycle") ||
+		if st.Projection != nil || st.Revision.ProgramID != StepID("program-lifecycle") ||
 			st.Run.Status != domain.RunActive {
 			t.Fatalf("fresh state = %+v", st)
 		}
@@ -230,7 +214,7 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		if _, err := s.CommitWorkflowStep(context.Background(), c); err != nil {
 			t.Fatalf("first commit: %v", err)
 		}
-		c.Digest = StepDigest("different-body")
+		c.Events = append(c.Events, StepEvent(domain.EventWorkflowStarted, `{"node_count":2}`))
 		_, err := s.CommitWorkflowStep(context.Background(), c)
 		if !errors.Is(err, storage.ErrWorkflowStepIdempotency) {
 			t.Fatalf("want ErrWorkflowStepIdempotency, got %v", err)
@@ -328,8 +312,8 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		bad := NewStepCommit(wf, "a2", 1, storage.WorkflowStepAdmitted, storage.WorkflowStepRunning, "atomic")
 		bad.Events = []storage.WorkflowStepEvent{startedEvent()}
 		bad.Results = []storage.WorkflowStepResult{
-			{Path: "n1", Attempt: 1, Digest: StepDigest("r1"), BlobID: "wf/a2/r/1", Bytes: 4},
-			{Path: "n1", Attempt: 1, Digest: StepDigest("r2"), BlobID: "wf/a2/r/2", Bytes: 4},
+			{Path: "n1", Attempt: 1, Output: []byte("one!"), Bytes: 4},
+			{Path: "n1", Attempt: 1, Output: []byte("two!"), Bytes: 4},
 		}
 		if _, err := s.CommitWorkflowStep(ctx, bad); err == nil {
 			t.Fatal("conflicting results commit succeeded")
@@ -350,13 +334,13 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		wf, s := WorkflowStepFixture(t, slot, "identity")
 		c := NewStepCommit(wf, "i1", 1, "", storage.WorkflowStepAdmitted, "identity")
 		c.Events = []storage.WorkflowStepEvent{StepAdmitEvent("identity")}
-		c.ProgramDigest = StepDigest("other-program")
+		c.ProgramID = StepID("other-program")
 		if _, err := s.CommitWorkflowStep(context.Background(), c); !errors.Is(err, storage.ErrWorkflowStepIdentity) {
 			t.Fatalf("program mismatch: %v", err)
 		}
 		c2 := NewStepCommit(wf, "i2", 1, "", storage.WorkflowStepAdmitted, "identity")
 		c2.Events = []storage.WorkflowStepEvent{StepAdmitEvent("identity")}
-		c2.HostBindingID = StepDigest("other-binding")
+		c2.HostBindingID = StepID("other-binding")
 		if _, err := s.CommitWorkflowStep(context.Background(), c2); !errors.Is(err, storage.ErrWorkflowStepIdentity) {
 			t.Fatalf("binding mismatch: %v", err)
 		}
@@ -381,8 +365,7 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 			StepEvent(domain.EventWorkflowWaiting, `{"waits":[{"request_id":"wq1","kind":"question","continuation_ref":"k"}],"interrupts":{"wq1":"intr-1"},"gates":["g1"]}`),
 		}
 		c3.Checkpoint = &storage.WorkflowStepCheckpoint{
-			Envelope: []byte(`{"continuation_generation":1}`), BlobID: "wf/waits/c/1", Digest: StepDigest("cp1"),
-		}
+			Envelope: []byte(`{"continuation_generation":1}`)}
 		if _, err := s.CommitWorkflowStep(ctx, c3); err != nil {
 			t.Fatalf("waiting commit: %v", err)
 		}
@@ -391,7 +374,7 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 			t.Fatalf("load waiting: %+v err=%v", st, err)
 		}
 		p := st.Projection
-		if p.Status != storage.WorkflowStepWaiting || p.CheckpointBlobID != "wf/waits/c/1" {
+		if p.Status != storage.WorkflowStepWaiting || string(p.CheckpointJSON) != `{"continuation_generation":1}` {
 			t.Fatalf("waiting projection = %+v", p)
 		}
 		var waits []struct {
@@ -409,8 +392,10 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		}
 		// Resume claim: epoch +1, waits cleared, resume key stored.
 		c4 := NewStepCommit(wf, "w4", 2, storage.WorkflowStepWaiting, storage.WorkflowStepRunning, "waits")
+		c4.ResumeKey = "rk1"
+		c4.ResumeAnswersJSON = []byte(`{"wq1":"yes"}`)
 		c4.Events = []storage.WorkflowStepEvent{StepEvent(domain.EventWorkflowResumed,
-			`{"idempotency_key":"rk1","answers_digest":"`+StepDigest("ans")+`","resumed_waits":["wq1"]}`)}
+			`{"idempotency_key":"rk1","resumed_waits":["wq1"]}`)}
 		if _, err := s.CommitWorkflowStep(ctx, c4); err != nil {
 			t.Fatalf("resume claim: %v", err)
 		}
@@ -421,6 +406,16 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		if st.Projection.Epoch != 2 || st.Projection.Status != storage.WorkflowStepRunning ||
 			st.Projection.ResumeKey != "rk1" {
 			t.Fatalf("resumed projection = %+v", st.Projection)
+		}
+		if string(st.Projection.ResumeAnswersJSON) != `{"wq1":"yes"}` {
+			t.Fatalf("private answers not persisted: %s", st.Projection.ResumeAnswersJSON)
+		}
+		changed := NewStepCommit(wf, "changed-answers", 3, storage.WorkflowStepRunning, storage.WorkflowStepRunning, "waits")
+		changed.ResumeKey = "rk1"
+		changed.ResumeAnswersJSON = []byte(`{"wq1":"no"}`)
+		changed.Events = []storage.WorkflowStepEvent{StepEvent(domain.EventWorkflowResumed, `{"idempotency_key":"rk1"}`)}
+		if _, err := s.CommitWorkflowStep(ctx, changed); !errors.Is(err, storage.ErrWorkflowStepIdempotency) {
+			t.Fatalf("changed private answers must conflict: %v", err)
 		}
 		if len(st.Projection.WaitsJSON) != 0 && string(st.Projection.WaitsJSON) != "null" && !bytes.Equal(st.Projection.WaitsJSON, []byte("[]")) {
 			t.Fatalf("waits not cleared: %s", st.Projection.WaitsJSON)
@@ -450,7 +445,7 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 			t.Fatalf("admit: %v", err)
 		}
 		c3 := NewStepCommit(wf, "tr3", 1, storage.WorkflowStepAdmitted, storage.WorkflowStepSucceeded, "termrule")
-		c3.Events = []storage.WorkflowStepEvent{StepEvent(domain.EventWorkflowNodeCompleted, `{"node_key":"n1","child_run_id":"c","result_digest":"`+StepDigest("r")+`"}`)}
+		c3.Events = []storage.WorkflowStepEvent{StepEvent(domain.EventWorkflowNodeCompleted, `{"node_key":"n1","child_run_id":"c"}`)}
 		if _, err := s.CommitWorkflowStep(ctx, c3); err == nil {
 			t.Fatal("terminal target without terminal event was accepted")
 		}
@@ -475,8 +470,7 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		legacyDescriptor, legacyAuthority := []byte(`{"legacy":true}`), []byte(`{"legacy":true}`)
 		revision := domain.WorkflowRevision{
 			RunID: wfID, ParentRunID: parentID, ParentSessionID: sessionID, RootRunID: parentID,
-			OperationKey: "legacy-op", DescriptorDigest: digestHex(legacyDescriptor), AuthorityDigest: digestHex(legacyAuthority),
-			DescriptorJSON: legacyDescriptor, AuthorityJSON: legacyAuthority,
+			OperationKey: "legacy-op", DescriptorJSON: legacyDescriptor, AuthorityJSON: legacyAuthority,
 			SchemaVersion: 1, CreatedAt: 3,
 		}
 		run := domain.Run{ID: wfID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: 3,
@@ -512,9 +506,8 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		started := domain.RunEvent{RunID: wfID, Type: domain.EventRunStarted, CreatedAt: 3, PayloadVersion: 1, Payload: []byte(`{}`)}
 		revision := domain.WorkflowRevision{
 			RunID: wfID, ParentRunID: parentID, ParentSessionID: sessionID, RootRunID: parentID,
-			OperationKey: "incomplete-op", DescriptorDigest: digestHex([]byte(`{}`)), AuthorityDigest: digestHex([]byte(`{}`)),
-			DescriptorJSON: []byte(`{}`), AuthorityJSON: []byte(`{}`), SchemaVersion: 2, CreatedAt: 3,
-			// ProgramDigest, CatalogDigest, InputDigest, EffectiveLimits and
+			OperationKey: "incomplete-op", DescriptorJSON: []byte(`{}`), AuthorityJSON: []byte(`{}`), SchemaVersion: 3, CreatedAt: 3,
+			// ProgramID, EffectiveLimits and
 			// HostBindingID intentionally absent.
 		}
 		run := domain.Run{ID: wfID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: 3,
@@ -537,16 +530,28 @@ func AssertWorkflowStepContract(t *testing.T, slot Slot) {
 		if _, err := s.CommitWorkflowStep(ctx, c1); err != nil {
 			t.Fatalf("admit: %v", err)
 		}
+		waiting := NewStepCommit(wf, "re2", 1, storage.WorkflowStepAdmitted, storage.WorkflowStepWaiting, "restart")
+		waiting.Events = []storage.WorkflowStepEvent{StepEvent(domain.EventWorkflowWaiting, `{"waits":[{"request_id":"q"}]}`)}
+		if _, err := s.CommitWorkflowStep(ctx, waiting); err != nil {
+			t.Fatal(err)
+		}
+		resumed := NewStepCommit(wf, "re3", 2, storage.WorkflowStepWaiting, storage.WorkflowStepRunning, "restart")
+		resumed.ResumeKey = "resume-private"
+		resumed.ResumeAnswersJSON = []byte(`{"q":{"approved":true}}`)
+		resumed.Events = []storage.WorkflowStepEvent{StepEvent(domain.EventWorkflowResumed, `{"idempotency_key":"resume-private"}`)}
+		if _, err := s.CommitWorkflowStep(ctx, resumed); err != nil {
+			t.Fatal(err)
+		}
 		reopened, err := slot.Reopen()
 		if err != nil {
 			t.Fatalf("reopen: %v", err)
 		}
 		s2 := stepStore(t, reopened)
 		st, err := s2.LoadWorkflowStep(ctx, wf)
-		if err != nil || st.Projection == nil || st.Projection.Status != storage.WorkflowStepAdmitted {
+		if err != nil || st.Projection == nil || st.Projection.Status != storage.WorkflowStepRunning || st.Projection.ResumeKey != "resume-private" || string(st.Projection.ResumeAnswersJSON) != `{"q":{"approved":true}}` {
 			t.Fatalf("reopened load = %+v err=%v", st, err)
 		}
-		if st.Revision.ProgramDigest != StepDigest("program-restart") {
+		if st.Revision.ProgramID != StepID("program-restart") {
 			t.Fatalf("reopened revision identity lost: %+v", st.Revision)
 		}
 	})

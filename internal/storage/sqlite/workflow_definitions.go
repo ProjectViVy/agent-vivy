@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -20,9 +21,9 @@ func (b *Backend) GetWorkflowDraft(ctx context.Context, sessionID, workflowID st
 func sqliteReadWorkflowDraft(ctx context.Context, q sqliteWorkflowQueryer, sessionID, workflowID string) (storage.WorkflowDraft, error) {
 	var d storage.WorkflowDraft
 	var archived int
-	err := q.QueryRowContext(ctx, `SELECT workflow_id,etag,artifact,definition_digest,artifact_digest,archived,author_session_id,created_at,updated_at
+	err := q.QueryRowContext(ctx, `SELECT workflow_id,etag,artifact,archived,author_session_id,created_at,updated_at
 		FROM workflow_definition_drafts WHERE workflow_id = ?`, workflowID).
-		Scan(&d.WorkflowID, &d.ETag, &d.ArtifactJSON, &d.DefinitionDigest, &d.ArtifactDigest,
+		Scan(&d.WorkflowID, &d.ETag, &d.ArtifactJSON,
 			&archived, &d.AuthorSessionID, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.WorkflowDraft{}, storage.ErrWorkflowDefinitionNotFound
@@ -69,19 +70,16 @@ func (b *Backend) UpdateWorkflowDraftCAS(ctx context.Context, sessionID string, 
 	case found && in.ExpectedETag != "" && existing.ETag != in.ExpectedETag:
 		return storage.WorkflowDraft{}, storage.ErrWorkflowDefinitionConflict
 	}
-	seq := int64(1)
-	if found {
-		seq = existing.UpdatedAt + 1
-		if existing.CreatedAt >= in.Now {
-			seq = existing.CreatedAt + 1
-		}
+	if found && in.Now <= existing.UpdatedAt {
+		in.Now = existing.UpdatedAt + 1
 	}
+	seq := in.Now
 	etag := storage.WorkflowDefinitionETag(in.WorkflowID, seq)
 	if found {
 		res, err := tx.ExecContext(ctx, `UPDATE workflow_definition_drafts
-			SET etag=?, artifact=?, definition_digest=?, artifact_digest=?, updated_at=?
+			SET etag=?, artifact=?, updated_at=?
 			WHERE workflow_id=? AND etag=? AND author_session_id=?`,
-			etag, in.ArtifactJSON, in.DefinitionDigest, in.ArtifactDigest, in.Now,
+			etag, in.ArtifactJSON, in.Now,
 			in.WorkflowID, existing.ETag, sessionID)
 		if err != nil {
 			return storage.WorkflowDraft{}, fmt.Errorf("sqlite: update workflow draft: %w", err)
@@ -91,9 +89,9 @@ func (b *Backend) UpdateWorkflowDraftCAS(ctx context.Context, sessionID string, 
 		}
 	} else {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_definition_drafts
-			(workflow_id,etag,artifact,definition_digest,artifact_digest,archived,author_session_id,created_at,updated_at)
-			VALUES (?,?,?,?,?,0,?,?,?)`,
-			in.WorkflowID, etag, in.ArtifactJSON, in.DefinitionDigest, in.ArtifactDigest,
+			(workflow_id,etag,artifact,archived,author_session_id,created_at,updated_at)
+			VALUES (?,?,?,0,?,?,?)`,
+			in.WorkflowID, etag, in.ArtifactJSON,
 			sessionID, in.Now, in.Now); err != nil {
 			return storage.WorkflowDraft{}, fmt.Errorf("sqlite: insert workflow draft: %w", err)
 		}
@@ -107,7 +105,6 @@ func (b *Backend) UpdateWorkflowDraftCAS(ctx context.Context, sessionID string, 
 	}
 	return storage.WorkflowDraft{
 		WorkflowID: in.WorkflowID, ETag: etag, ArtifactJSON: append([]byte(nil), in.ArtifactJSON...),
-		DefinitionDigest: in.DefinitionDigest, ArtifactDigest: in.ArtifactDigest,
 		AuthorSessionID: sessionID, CreatedAt: created, UpdatedAt: in.Now,
 	}, nil
 }
@@ -115,9 +112,9 @@ func (b *Backend) UpdateWorkflowDraftCAS(ctx context.Context, sessionID string, 
 func sqliteReadDraftAnyAuthor(ctx context.Context, q sqliteWorkflowQueryer, workflowID string) (storage.WorkflowDraft, error) {
 	var d storage.WorkflowDraft
 	var archived int
-	err := q.QueryRowContext(ctx, `SELECT workflow_id,etag,artifact,definition_digest,artifact_digest,archived,author_session_id,created_at,updated_at
+	err := q.QueryRowContext(ctx, `SELECT workflow_id,etag,artifact,archived,author_session_id,created_at,updated_at
 		FROM workflow_definition_drafts WHERE workflow_id = ?`, workflowID).
-		Scan(&d.WorkflowID, &d.ETag, &d.ArtifactJSON, &d.DefinitionDigest, &d.ArtifactDigest,
+		Scan(&d.WorkflowID, &d.ETag, &d.ArtifactJSON,
 			&archived, &d.AuthorSessionID, &d.CreatedAt, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.WorkflowDraft{}, storage.ErrWorkflowDefinitionNotFound
@@ -134,6 +131,15 @@ func (b *Backend) PublishWorkflowRevisionCAS(ctx context.Context, sessionID, wor
 		return storage.WorkflowPublishedRevision{}, storage.ErrWorkflowDefinitionConflict
 	}
 	in.AuthorSessionID = sessionID
+	var normalizeErr error
+	in.ArtifactJSON, normalizeErr = storage.NormalizeWorkflowDocument(in.ArtifactJSON)
+	if normalizeErr != nil {
+		return storage.WorkflowPublishedRevision{}, normalizeErr
+	}
+	in.UsedImplementationsJSON, normalizeErr = storage.NormalizeWorkflowDocument(in.UsedImplementationsJSON)
+	if normalizeErr != nil {
+		return storage.WorkflowPublishedRevision{}, normalizeErr
+	}
 	if err := storage.ValidateWorkflowPublishedRevision(in); err != nil {
 		return storage.WorkflowPublishedRevision{}, err
 	}
@@ -159,24 +165,47 @@ func (b *Backend) PublishWorkflowRevisionCAS(ctx context.Context, sessionID, wor
 		return storage.WorkflowPublishedRevision{}, storage.ErrWorkflowDefinitionConflict
 	}
 	// Same-artifact republication dedups to the stored revision.
-	var existing storage.WorkflowPublishedRevision
-	var implJSON []byte
-	err = tx.QueryRowContext(ctx, `SELECT workflow_id,revision,artifact,definition_digest,artifact_digest,used_catalog_digest,used_implementations,author_session_id,published_at
-		FROM workflow_definition_revisions
-		WHERE workflow_id=? AND artifact_digest=? AND used_catalog_digest=?`,
-		workflowID, in.ArtifactDigest, in.UsedCatalogDigest).
-		Scan(&existing.WorkflowID, &existing.Revision, &existing.ArtifactJSON, &existing.DefinitionDigest,
-			&existing.ArtifactDigest, &existing.UsedCatalogDigest, &implJSON, &existing.AuthorSessionID, &existing.PublishedAt)
-	if err == nil {
-		existing.UsedImplementationsJSON = implJSON
-		if err := tx.Commit(); err != nil {
-			return storage.WorkflowPublishedRevision{}, fmt.Errorf("sqlite: commit publish dedup: %w", err)
+	if artifact, err := storage.NormalizeWorkflowDocument(draft.ArtifactJSON); err != nil || !bytes.Equal(artifact, in.ArtifactJSON) {
+		return storage.WorkflowPublishedRevision{}, storage.ErrWorkflowDefinitionConflict
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT workflow_id,revision,artifact,used_implementations,author_session_id,published_at FROM workflow_definition_revisions WHERE workflow_id=? ORDER BY revision`, workflowID)
+	if err != nil {
+		return storage.WorkflowPublishedRevision{}, err
+	}
+	var match *storage.WorkflowPublishedRevision
+	for rows.Next() {
+		var prior storage.WorkflowPublishedRevision
+		if err := rows.Scan(&prior.WorkflowID, &prior.Revision, &prior.ArtifactJSON, &prior.UsedImplementationsJSON, &prior.AuthorSessionID, &prior.PublishedAt); err != nil {
+			_ = rows.Close()
+			return storage.WorkflowPublishedRevision{}, err
 		}
-		return existing, nil
+		artifact, err := storage.NormalizeWorkflowDocument(prior.ArtifactJSON)
+		if err != nil {
+			_ = rows.Close()
+			return storage.WorkflowPublishedRevision{}, err
+		}
+		implementations, err := storage.NormalizeWorkflowDocument(prior.UsedImplementationsJSON)
+		if err != nil {
+			_ = rows.Close()
+			return storage.WorkflowPublishedRevision{}, err
+		}
+		if bytes.Equal(artifact, in.ArtifactJSON) && bytes.Equal(implementations, in.UsedImplementationsJSON) {
+			match = &prior
+			break
+		}
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return storage.WorkflowPublishedRevision{}, fmt.Errorf("sqlite: read publish dedup: %w", err)
+	rowErr := rows.Err()
+	_ = rows.Close()
+	if rowErr != nil {
+		return storage.WorkflowPublishedRevision{}, rowErr
 	}
+	if match != nil {
+		if err := tx.Commit(); err != nil {
+			return storage.WorkflowPublishedRevision{}, err
+		}
+		return *match, nil
+	}
+
 	var next uint64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(revision),0)+1 FROM workflow_definition_revisions WHERE workflow_id=?`,
 		workflowID).Scan(&next); err != nil {
@@ -184,10 +213,10 @@ func (b *Backend) PublishWorkflowRevisionCAS(ctx context.Context, sessionID, wor
 	}
 	in.Revision = next
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_definition_revisions
-		(workflow_id,revision,artifact,definition_digest,artifact_digest,used_catalog_digest,used_implementations,author_session_id,published_at)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		workflowID, next, in.ArtifactJSON, in.DefinitionDigest, in.ArtifactDigest,
-		in.UsedCatalogDigest, in.UsedImplementationsJSON, sessionID, in.PublishedAt); err != nil {
+		(workflow_id,revision,artifact,used_implementations,author_session_id,published_at)
+		VALUES (?,?,?,?,?,?)`,
+		workflowID, next, in.ArtifactJSON,
+		in.UsedImplementationsJSON, sessionID, in.PublishedAt); err != nil {
 		return storage.WorkflowPublishedRevision{}, fmt.Errorf("sqlite: insert published revision: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -198,10 +227,10 @@ func (b *Backend) PublishWorkflowRevisionCAS(ctx context.Context, sessionID, wor
 
 func (b *Backend) GetWorkflowPublishedRevision(ctx context.Context, workflowID string, revision uint64) (storage.WorkflowPublishedRevision, error) {
 	var r storage.WorkflowPublishedRevision
-	err := b.db.QueryRowContext(ctx, `SELECT workflow_id,revision,artifact,definition_digest,artifact_digest,used_catalog_digest,used_implementations,author_session_id,published_at
+	err := b.db.QueryRowContext(ctx, `SELECT workflow_id,revision,artifact,used_implementations,author_session_id,published_at
 		FROM workflow_definition_revisions WHERE workflow_id=? AND revision=?`, workflowID, revision).
-		Scan(&r.WorkflowID, &r.Revision, &r.ArtifactJSON, &r.DefinitionDigest, &r.ArtifactDigest,
-			&r.UsedCatalogDigest, &r.UsedImplementationsJSON, &r.AuthorSessionID, &r.PublishedAt)
+		Scan(&r.WorkflowID, &r.Revision, &r.ArtifactJSON,
+			&r.UsedImplementationsJSON, &r.AuthorSessionID, &r.PublishedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.WorkflowPublishedRevision{}, storage.ErrWorkflowDefinitionNotFound
 	}
@@ -231,7 +260,7 @@ func (b *Backend) ListWorkflowDefinitions(ctx context.Context, cursor string, li
 		}
 		curWf, curRev = parts[0], v
 	}
-	rows, err := b.db.QueryContext(ctx, `SELECT workflow_id,revision,artifact,definition_digest,artifact_digest,used_catalog_digest,used_implementations,author_session_id,published_at
+	rows, err := b.db.QueryContext(ctx, `SELECT workflow_id,revision,artifact,used_implementations,author_session_id,published_at
 		FROM workflow_definition_revisions
 		WHERE (workflow_id > ?) OR (workflow_id = ? AND revision > ?)
 		ORDER BY workflow_id, revision LIMIT ?`, curWf, curWf, curRev, limit+1)
@@ -242,8 +271,8 @@ func (b *Backend) ListWorkflowDefinitions(ctx context.Context, cursor string, li
 	page := storage.WorkflowDefinitionPage{}
 	for rows.Next() {
 		var r storage.WorkflowPublishedRevision
-		if err := rows.Scan(&r.WorkflowID, &r.Revision, &r.ArtifactJSON, &r.DefinitionDigest, &r.ArtifactDigest,
-			&r.UsedCatalogDigest, &r.UsedImplementationsJSON, &r.AuthorSessionID, &r.PublishedAt); err != nil {
+		if err := rows.Scan(&r.WorkflowID, &r.Revision, &r.ArtifactJSON,
+			&r.UsedImplementationsJSON, &r.AuthorSessionID, &r.PublishedAt); err != nil {
 			return page, fmt.Errorf("sqlite: scan workflow definition: %w", err)
 		}
 		page.Revisions = append(page.Revisions, r)

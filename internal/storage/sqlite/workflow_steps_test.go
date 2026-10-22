@@ -101,7 +101,7 @@ func TestWorkflowStepUpgradeFrom033(t *testing.T) {
 	}
 	var count int
 	if err := b.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM workflow_revisions WHERE workflow_run_id = ? AND program_digest IS NOT NULL`, wf).Scan(&count); err != nil || count != 1 {
+		`SELECT COUNT(*) FROM workflow_revisions WHERE workflow_run_id = ? AND program_id IS NOT NULL`, wf).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("upgraded revision identity columns: count=%d err=%v", count, err)
 	}
 	fmt.Println("upgraded schema at head", applied, "-> current")
