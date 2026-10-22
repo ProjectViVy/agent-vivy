@@ -161,8 +161,42 @@ func indexOfType(events []domain.RunEvent, want domain.EventType) int {
 	return -1
 }
 
+type approvalInputObserver struct {
+	model.AgenticModel
+	inspect func(context.Context, []*schema.AgenticMessage) error
+}
+
+func (m *approvalInputObserver) Stream(ctx context.Context, input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
+	if err := m.inspect(ctx, input); err != nil {
+		return nil, err
+	}
+	return m.AgenticModel.Stream(ctx, input, opts...)
+}
+
 func TestServiceApprovalApproveFlow(t *testing.T) {
-	svc, backend, sink := newApprovalService(t, 5*time.Minute)
+	chat := &approvalInputObserver{AgenticModel: NewApprovalFlowModel()}
+	svc, backend, sink := newApprovalServiceWithModel(t, 5*time.Minute, chat)
+	providerResults := make(chan string, 1)
+	chat.inspect = func(ctx context.Context, input []*schema.AgenticMessage) error {
+		for _, message := range input {
+			for _, result := range agenticToolResults(message) {
+				operation, err := backend.GetToolOperation(ctx, contextRunID(ctx), result.CallID)
+				if err != nil {
+					return fmt.Errorf("provider entered before durable tool outcome: %w", err)
+				}
+				text := agenticToolResultText(result)
+				if result.CallID != ApprovalFlowCallID || result.Name != tools.WriteNoteName || operation.State != domain.ToolOperationCompleted || operation.OutcomeStatus != domain.ToolOutcomeSuccess || text != operation.Result {
+					return fmt.Errorf("provider received tool result without its completed operation: result=%+v operation=%+v", result, operation)
+				}
+				select {
+				case providerResults <- text:
+				default:
+					return errors.New("approved result entered the provider more than once")
+				}
+			}
+		}
+		return nil
+	}
 	ctx := context.Background()
 
 	mustCreateSession(t, backend, "sess-1")
@@ -249,8 +283,9 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 
 	events := replayAll(t, backend, runID)
 	ai := indexOfType(events, domain.EventToolApprovalRequired)
+	post := events[ai+1:]
 	var types []string
-	for _, ev := range events[ai+1:] {
+	for _, ev := range post {
 		types = append(types, string(ev.Type))
 	}
 	prefix := []domain.EventType{
@@ -259,9 +294,8 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 		domain.EventPolicyEvaluated,
 		domain.EventToolOperation,
 		domain.EventToolOperation,
-		domain.EventToolStarted, domain.EventToolFinished,
 	}
-	if len(types) < len(prefix)+3 {
+	if len(types) < len(prefix)+7 {
 		t.Fatalf("post-approval events = %v", types)
 	}
 	for i, w := range prefix {
@@ -269,26 +303,85 @@ func TestServiceApprovalApproveFlow(t *testing.T) {
 			t.Fatalf("post-approval event %d = %s, want %s (%v)", i, types[i], w, types)
 		}
 	}
-	for i := len(prefix); i < len(types)-3; i++ {
-		switch domain.EventType(types[i]) {
-		case domain.EventModelDelta, domain.EventModelRequest, domain.EventModelUsage, domain.EventModelCallFinished, domain.EventModelCompleted:
-		default:
-			t.Fatalf("post-approval body event %d = %s, want model.delta (%v)", i, types[i], types)
+	var decided payloadApprovalDecided
+	mustUnmarshal(t, post[0].Payload, &decided)
+	if decided.ApprovalID != approval.ID || decided.Decision != domain.ApprovalApproved {
+		t.Fatalf("approval decision binding = %+v", decided)
+	}
+	for _, event := range post[1:3] {
+		var evaluated payloadPolicyEvaluated
+		mustUnmarshal(t, event.Payload, &evaluated)
+		if evaluated.ToolName != tools.WriteNoteName || (evaluated.Decision != string(domain.PolicyAllow) && evaluated.Decision != string(domain.PolicyPrompt)) {
+			t.Fatalf("resumed policy binding = %+v", evaluated)
 		}
+	}
+	for i, state := range []domain.ToolOperationState{domain.ToolOperationClaimed, domain.ToolOperationCompleted} {
+		var operation struct {
+			OperationID string                    `json:"operation_id"`
+			ToolName    string                    `json:"tool_name"`
+			State       domain.ToolOperationState `json:"state"`
+		}
+		mustUnmarshal(t, post[3+i].Payload, &operation)
+		if operation.OperationID != ApprovalFlowCallID || operation.ToolName != tools.WriteNoteName || operation.State != state {
+			t.Fatalf("approval operation boundary = %+v, want %s", operation, state)
+		}
+	}
+	// Native continuation requires the durable operation, not consumer
+	// acknowledgment of the derived tool.started/finished projection (§11.4).
+	requestIndex := indexOfType(post, domain.EventModelRequest)
+	startedIndex := indexOfType(post, domain.EventToolStarted)
+	finishedIndex := indexOfType(post, domain.EventToolFinished)
+	deltaIndex := indexOfType(post, domain.EventModelDelta)
+	if requestIndex < len(prefix) || post[4].Seq >= post[requestIndex].Seq || startedIndex < len(prefix) || finishedIndex <= startedIndex || deltaIndex <= finishedIndex {
+		t.Fatalf("approval causal boundaries = %v", types)
+	}
+	var request payloadModelRequestV4
+	mustUnmarshal(t, post[requestIndex].Payload, &request)
+	if request.Source != "main" || request.CallID == "" {
+		t.Fatalf("resumed model request = %+v", request)
+	}
+	counts := map[domain.EventType]int{}
+	for i := len(prefix); i < len(types)-3; i++ {
+		counts[post[i].Type]++
+		switch domain.EventType(types[i]) {
+		case domain.EventToolStarted, domain.EventToolFinished, domain.EventModelDelta, domain.EventModelRequest, domain.EventModelUsage, domain.EventModelCallFinished, domain.EventModelCompleted:
+		default:
+			t.Fatalf("unexpected post-approval body event %d = %s (%v)", i, types[i], types)
+		}
+	}
+	if counts[domain.EventModelRequest] != 1 || counts[domain.EventToolStarted] != 1 || counts[domain.EventToolFinished] != 1 {
+		t.Fatalf("duplicate or missing resumed call boundaries = %v", counts)
 	}
 	if domain.EventType(types[len(types)-3]) != domain.EventModelCallFinished ||
 		domain.EventType(types[len(types)-2]) != domain.EventModelCompleted ||
 		domain.EventType(types[len(types)-1]) != domain.EventRunCompleted {
 		t.Fatalf("post-approval terminal boundary = %v", types)
 	}
+	var callFinished payloadModelCallFinished
+	mustUnmarshal(t, post[len(post)-3].Payload, &callFinished)
+	if callFinished.CallID != request.CallID || callFinished.Source != "main" || callFinished.Status != "completed" {
+		t.Fatalf("resumed model finish = %+v", callFinished)
+	}
+	var started payloadToolStarted
+	mustUnmarshal(t, post[startedIndex].Payload, &started)
+	if started.ToolCallID != ApprovalFlowCallID || started.ToolName != tools.WriteNoteName {
+		t.Fatalf("tool.started binding = %+v", started)
+	}
 	var fin payloadToolFinished
-	finishedIndex := indexOfType(events, domain.EventToolFinished)
-	mustUnmarshal(t, events[finishedIndex].Payload, &fin)
-	if fin.ToolCallID != ApprovalFlowCallID {
+	mustUnmarshal(t, post[finishedIndex].Payload, &fin)
+	if fin.ToolCallID != ApprovalFlowCallID || fin.ToolName != tools.WriteNoteName {
 		t.Fatalf("tool.finished call id = %q, want %q", fin.ToolCallID, ApprovalFlowCallID)
 	}
 	if !strings.Contains(fin.Result, "saved (1 total)") || !strings.Contains(fin.Result, "note_") {
 		t.Fatalf("approved tool must execute: result = %q", fin.Result)
+	}
+	select {
+	case providerResult := <-providerResults:
+		if providerResult != fin.Result {
+			t.Fatalf("provider result = %q, projected result = %q", providerResult, fin.Result)
+		}
+	default:
+		t.Fatal("resumed provider never received the durable approved tool result")
 	}
 	if n := countTerminal(events); n != 1 {
 		t.Fatalf("terminal events = %d, want exactly 1", n)
