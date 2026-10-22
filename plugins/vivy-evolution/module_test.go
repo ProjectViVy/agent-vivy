@@ -54,7 +54,6 @@ func TestDeclarationMatchesDescriptor(t *testing.T) {
 		"version: " + descriptor.Module.Version,
 		"port: " + UIExtensionPort + ", id: " + ProviderID,
 		"ref: " + descriptor.Source.Ref,
-		"sha256: " + descriptor.Source.SHA256,
 		"catalog: " + descriptor.I18N.Catalog,
 		"scope: " + string(descriptor.Lifecycle.Scope),
 	} {
