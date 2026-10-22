@@ -330,6 +330,26 @@ func (sink *appEventSink) capturedEvents() []domain.RunEvent {
 	return append([]domain.RunEvent(nil), sink.events...)
 }
 
+type governanceApprovalJournalGate struct {
+	*sqlite.Backend
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (journal *governanceApprovalJournalGate) Append(ctx context.Context, commit storage.Commit) (domain.EventSeq, error) {
+	for _, event := range commit.Events {
+		if event.Type == domain.EventToolApprovalRequired {
+			close(journal.entered)
+			select {
+			case <-journal.release:
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
+		}
+	}
+	return journal.Backend.Append(ctx, commit)
+}
+
 func replayGovernanceEvents(t *testing.T, backend *sqlite.Backend, runID domain.RunID) []domain.RunEvent {
 	t.Helper()
 	iterator, err := backend.Replay(context.Background(), runID, 0)
@@ -350,19 +370,50 @@ func replayGovernanceEvents(t *testing.T, backend *sqlite.Backend, runID domain.
 func waitGovernanceApproval(t *testing.T, backend *sqlite.Backend, runID domain.RunID) domain.Approval {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
+	var status domain.RunStatus
+	var pendingRow bool
+	var recent []domain.EventType
 	for time.Now().Before(deadline) {
+		run, err := backend.GetRun(context.Background(), runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status = run.Status
 		approvals, err := backend.ListPendingApprovals(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
+		events := replayGovernanceEvents(t, backend, runID)
+		recent = recent[:0]
+		for _, event := range events[max(0, len(events)-8):] {
+			recent = append(recent, event.Type)
+		}
+		if status.Terminal() {
+			t.Fatalf("run %s ended before approval visibility: status=%s recent_events=%v", runID, status, recent)
+		}
+		pendingRow = false
 		for _, approval := range approvals {
-			if approval.RunID == runID {
-				return approval
+			if approval.RunID != runID {
+				continue
+			}
+			pendingRow = true
+			for _, event := range events {
+				if event.Type != domain.EventToolApprovalRequired || run.Status != domain.RunActive {
+					continue
+				}
+				var identity struct {
+					ApprovalID string `json:"approval_id"`
+					ToolCallID string `json:"tool_call_id"`
+					ToolName   string `json:"tool_name"`
+				}
+				if json.Unmarshal(event.Payload, &identity) == nil && identity.ApprovalID == approval.ID && identity.ToolCallID == approval.ToolCallID && identity.ToolName == approval.ToolName {
+					return approval
+				}
 			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("run %s did not produce an approval", runID)
+	t.Fatalf("run %s did not publish a durable approval: status=%s pending_row=%t recent_events=%v", runID, status, pendingRow, recent)
 	return domain.Approval{}
 }
 
@@ -450,16 +501,8 @@ func TestProductionMCPGovernancePathUsesToolHostOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	approval := waitGovernanceApproval(t, backend, runID)
-	decisionDeadline := time.Now().Add(5 * time.Second)
-	for {
-		err = service.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved)
-		if err == nil {
-			break
-		}
-		if !strings.Contains(err.Error(), "approval is not durable yet") || time.Now().After(decisionDeadline) {
-			t.Fatal(err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := service.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatal(err)
 	}
 	waitGovernanceRun(t, backend, runID, domain.RunCompleted)
 
@@ -532,8 +575,19 @@ func TestToolApprovalFailsClosedWhenMiddlewareRewriteDriftsOnResume(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	journal := &governanceApprovalJournalGate{Backend: backend, entered: make(chan struct{}), release: make(chan struct{})}
+	var release sync.Once
+	unblock := func() { release.Do(func() { close(journal.release) }) }
+	t.Cleanup(unblock)
 	service := runtime.NewService(engine, "fixture", "fixture-v1", runtime.ServiceDeps{Admission: backend, GenerationID: "test-generation",
-		Journal: backend, Runs: backend, Messages: backend, Approvals: backend, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
+		Journal: journal, Runs: backend, Messages: backend, Approvals: backend, ApprovalExpiration: 5 * time.Minute, Sink: &appEventSink{},
+	})
+	t.Cleanup(func() {
+		unblock()
+		service.CancelAll()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		service.WaitIdle(ctx)
 	})
 	if err := backend.CreateSession(context.Background(), domain.Session{ID: "session-p3-drift", Title: "fixture", CreatedAt: 1}); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -542,7 +596,25 @@ func TestToolApprovalFailsClosedWhenMiddlewareRewriteDriftsOnResume(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	select {
+	case <-journal.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("approval never reached the Journal boundary")
+	}
+	// CreateApproval has committed, but the visibility event is deliberately
+	// held. A raw pending row must not authorize the test's next decision.
+	rows, err := backend.ListPendingApprovals(context.Background())
+	if err != nil || len(rows) != 1 || rows[0].RunID != runID {
+		t.Fatalf("pending row at held approval boundary: count=%d err=%v", len(rows), err)
+	}
+	timer := time.AfterFunc(40*time.Millisecond, unblock)
+	t.Cleanup(func() { timer.Stop() })
 	approval := waitGovernanceApproval(t, backend, runID)
+	select {
+	case <-journal.release:
+	default:
+		t.Fatal("approval helper returned a raw row before its durable visibility event")
+	}
 	if got := provider.capturedArguments(); len(got) != 0 {
 		t.Fatalf("provider ran before approval with %s", got)
 	}
@@ -702,7 +774,7 @@ func TestToolApprovalJournalRedactsMiddlewareInjectedSecret(t *testing.T) {
 	approval := waitGovernanceApproval(t, backend, runID)
 	for _, event := range replayGovernanceEvents(t, backend, runID) {
 		if strings.Contains(string(event.Payload), secret) {
-			t.Fatalf("event %s leaked middleware-injected secret: %s", event.Type, event.Payload)
+			t.Fatalf("event %s at seq %d leaked middleware-injected secret", event.Type, event.Seq)
 		}
 	}
 	if err := service.DecideApproval(context.Background(), approval.ID, domain.ApprovalDenied); err != nil {
@@ -787,16 +859,8 @@ func TestProductionMCPTransportGovernancePathUsesToolHostOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	approval := waitGovernanceApproval(t, backend, runID)
-	decisionDeadline := time.Now().Add(5 * time.Second)
-	for {
-		err = service.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved)
-		if err == nil {
-			break
-		}
-		if !strings.Contains(err.Error(), "approval is not durable yet") || time.Now().After(decisionDeadline) {
-			t.Fatal(err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := service.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatal(err)
 	}
 	waitGovernanceRun(t, backend, runID, domain.RunCompleted)
 
@@ -1018,16 +1082,8 @@ func assertGovernedToolEnvelope(t *testing.T, registry *tools.Registry, toolID s
 	if got := capturedArguments(); len(got) != 0 {
 		t.Fatalf("provider ran before approval with %s", got)
 	}
-	decisionDeadline := time.Now().Add(5 * time.Second)
-	for {
-		err = service.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved)
-		if err == nil {
-			break
-		}
-		if !strings.Contains(err.Error(), "approval is not durable yet") || time.Now().After(decisionDeadline) {
-			t.Fatal(err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if err := service.DecideApproval(context.Background(), approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatal(err)
 	}
 	waitGovernanceRun(t, backend, runID, domain.RunCompleted)
 
