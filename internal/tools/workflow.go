@@ -3,8 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,8 +64,10 @@ func (t *workflowTool) InvokableRun(ctx context.Context, args json.RawMessage) (
 	if err := ValidateArgs(t.Spec(), args); err != nil {
 		return "", err
 	}
-	callDigest := sha256.Sum256([]byte(callID))
-	operationKey := "workflow-tool-" + hex.EncodeToString(callDigest[:])
+	operationKey := "workflow-tool-" + base64.RawURLEncoding.EncodeToString([]byte(callID))
+	if len(operationKey) > 128 {
+		return "", errors.New("workflow model call identity exceeds the operation key byte bound")
+	}
 	result, err := t.ops.RunWorkflow(ctx, parentRunID, operationKey, args)
 	if err != nil {
 		return "", err

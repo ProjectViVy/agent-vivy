@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/domain"
@@ -69,5 +71,50 @@ func TestReplyParentRequiresScopedChildIdentity(t *testing.T) {
 	tool := NewReplyParent(&fakeParentMessageOperations{})
 	if _, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"text":"hello"}`)); err == nil {
 		t.Fatal("reply_parent accepted an unscoped invocation")
+	}
+}
+
+func TestParentReplyOperationKeyRetainsUnambiguousOwnerFields(t *testing.T) {
+	operations := &fakeParentMessageOperations{}
+	tool := NewReplyParent(operations)
+	runID := domain.RunID("child.α\x00a")
+	callID := "call.β\x00b"
+	ctx := WithToolCallID(WithSessionID(WithRunID(context.Background(), runID), "child-session"), callID)
+	if _, err := tool.InvokableRun(ctx, json.RawMessage(`{"text":"answer"}`)); err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(strings.TrimPrefix(operations.operation, "child-reply-"), ".")
+	if len(parts) != 2 {
+		t.Fatalf("owner identity has no exact component boundary: %q", operations.operation)
+	}
+	decodedRun, runErr := base64.RawURLEncoding.DecodeString(parts[0])
+	decodedCall, callErr := base64.RawURLEncoding.DecodeString(parts[1])
+	if runErr != nil || callErr != nil || string(decodedRun) != string(runID) || string(decodedCall) != callID {
+		t.Fatalf("owner fields changed: %q", operations.operation)
+	}
+}
+
+func TestParentReplyRejectsUnboundedIdentityBeforeMailboxAdmission(t *testing.T) {
+	operations := &fakeParentMessageOperations{}
+	ctx := WithToolCallID(WithSessionID(WithRunID(context.Background(), "child"), "child-session"), strings.Repeat("x", 300))
+	if _, err := NewReplyParent(operations).InvokableRun(ctx, json.RawMessage(`{"text":"answer"}`)); err == nil {
+		t.Fatal("unbounded reply identity was admitted")
+	}
+	if operations.operation != "" {
+		t.Fatal("oversized operation identity reached the mailbox owner")
+	}
+}
+
+func TestParentReplyIdentitySeparatesAmbiguousOriginalFields(t *testing.T) {
+	operations := &fakeParentMessageOperations{}
+	invoke := func(runID domain.RunID, callID string) string {
+		ctx := WithToolCallID(WithSessionID(WithRunID(context.Background(), runID), "child-session"), callID)
+		if _, err := NewReplyParent(operations).InvokableRun(ctx, json.RawMessage(`{"text":"answer"}`)); err != nil {
+			t.Fatal(err)
+		}
+		return operations.operation
+	}
+	if invoke("run\x00part", "call") == invoke("run", "part\x00call") {
+		t.Fatal("ambiguous original fields shared an operation identity")
 	}
 }

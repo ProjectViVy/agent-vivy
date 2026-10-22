@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"agent-vivy/internal/domain"
@@ -94,4 +96,30 @@ func TestBuiltinRegistryAddsWorkflowOnlyWhenWired(t *testing.T) {
 
 func toolsValidateWorkflowArgs(spec domain.ToolSpec, args json.RawMessage) error {
 	return ValidateArgs(spec, args)
+}
+
+func TestWorkflowOperationKeyRetainsOriginalCallIdentity(t *testing.T) {
+	operations := &fakeWorkflowOperations{result: WorkflowTaskResult{WorkflowRunID: "workflow-1"}}
+	tool := NewWorkflow(operations)
+	callID := "provider/call.α\x00part"
+	ctx := WithToolCallID(WithRunID(context.Background(), "parent"), callID)
+	if _, err := tool.InvokableRun(ctx, json.RawMessage(`{"schema_version":"inofy.workflow/v1","graph":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+	encoded := strings.TrimPrefix(operations.operation, "workflow-tool-")
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || string(decoded) != callID {
+		t.Fatalf("operation identity is not reversible: %q %v", operations.operation, err)
+	}
+}
+
+func TestWorkflowRejectsUnboundedCallIdentityBeforeOwnerAdmission(t *testing.T) {
+	operations := &fakeWorkflowOperations{result: WorkflowTaskResult{WorkflowRunID: "workflow-1"}}
+	ctx := WithToolCallID(WithRunID(context.Background(), "parent"), strings.Repeat("x", 200))
+	if _, err := NewWorkflow(operations).InvokableRun(ctx, json.RawMessage(`{"schema_version":"inofy.workflow/v1","graph":{}}`)); err == nil {
+		t.Fatal("unbounded call identity was admitted")
+	}
+	if operations.operation != "" {
+		t.Fatal("oversized operation identity reached the runtime owner")
+	}
 }
