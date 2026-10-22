@@ -284,12 +284,17 @@ func (h *Home) writableStore(ctx context.Context) (*Store, error) {
 	return store, nil
 }
 
-// openExistingMutable opens the database at path read-write with no schema
-// initialization, failing when the file is absent or bound to another
-// workspace (TypedMemoryStore::open_existing_database).
+// openExistingMutable opens initialized authority without schema writes. A
+// proven pristine file projects no store, just like an absent file: cancelled
+// first initialization may leave the file after its schema transaction rolls
+// back. Only a subsequent write initializes it through writableStore.
 func openExistingMutable(ctx context.Context, path, workspaceID string) (*Store, error) {
-	if _, _, err := inspectStore(ctx, path, workspaceID); err != nil {
+	_, pristine, err := inspectStore(ctx, path, workspaceID)
+	if err != nil {
 		return nil, err
+	}
+	if pristine {
+		return nil, nil
 	}
 	if !isFile(path) {
 		return nil, invalidBackupErr()
