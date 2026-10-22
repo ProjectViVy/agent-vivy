@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"agent-vivy/internal/domain"
@@ -69,6 +70,12 @@ func (b *Backend) Append(ctx context.Context, commit storage.Commit) (domain.Eve
 	}
 
 	if err := tx.Commit(); err != nil {
+		// database/sql's context watcher may roll back before Commit observes
+		// cancellation, leaving only ErrTxDone. Preserve both causes so callers
+		// can distinguish cancelled admission from a real persistence failure.
+		if errors.Is(err, sql.ErrTxDone) && ctx.Err() != nil {
+			err = errors.Join(err, ctx.Err())
+		}
 		return 0, fmt.Errorf("storage: commit append: %w", err)
 	}
 	return domain.EventSeq(seq), nil
