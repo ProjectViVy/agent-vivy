@@ -15,4 +15,4 @@ These Go commands used the installed Windows Go toolchain at `C:\Program Files\G
 ## Not run
 
 - `just ci` and the Linux/WSL scoped gates were not run; this focused change touches only App provider selection and the existing provider adapter, and the Linux Go toolchain is unavailable in the current WSL environment.
-- Browser smoke at `http://127.0.0.1:3015` was not run against the candidate code. The isolated backend serving the manual page is still the pre-fix binary; its replacement/restart was blocked by execution policy. The HTTP-path regression test exercises the same Eino adapter against a deterministic local server.
+- At source delivery time the manual backend still used the pre-fix binary and replacement was blocked. The later [live readiness follow-up](../2026-10-22-d14-provider-live/verification.md) records an approved native pack/Inspect/restart at this exact candidate and a real Tiny UI attempt. That attempt now reaches credential resolution and reports `API key missing`; credentialed browser success and human acceptance remain pending.

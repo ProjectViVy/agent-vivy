@@ -1,5 +1,17 @@
 # Human real-model acceptance — pending
 
+## Current entry point
+
+The isolated backend now runs repaired candidate `397b6f17`, and the served
+Tiny UI matches inspected Generation `1c6fd4a5bf0a9ebfb3f4a0be06465186`.
+The custom provider is supported. Its latest real Tiny request fails explicitly
+with `API key missing`; enter the credential locally at
+`http://127.0.0.1:3017/settings?tab=model`, then test at `3015`.
+See the [current handoff](../2026-10-22-d14-provider-live/acceptance.md).
+The embedded-provider workaround below belongs only to the original failure.
+
+## Original pre-fix handoff
+
 Automatic gates cover executable `5b0b572da80602f46d7496d004aa9d88fc6f5eeb`;
 the record-only delivery commit does not change it. The human verdict is the
 only remaining D14 gate.
