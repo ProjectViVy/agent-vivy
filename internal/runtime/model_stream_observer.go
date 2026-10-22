@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -56,7 +57,20 @@ type modelCallRoute struct {
 	FallbackModel bool
 }
 
-const modelCallSourceSummary = "summary"
+const (
+	modelCallSourceSummary     = "summary"
+	modelCallSourceMaintenance = "maintenance"
+)
+
+var errModelCallObservation = errors.New("runtime: mandatory model observation failed")
+var errModelCallAdmission = errors.New("runtime: model call admission failed")
+
+func modelObservationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return errors.Join(errModelCallObservation, err)
+}
 
 // modelCallObserver is the runtime-owned seam every observed model call
 // reports through. Begin persists the v3 request before the provider is
@@ -86,15 +100,6 @@ func modelCallObserverFactoryFrom(ctx context.Context) modelCallObserverFactory 
 	return factory
 }
 
-// withoutModelCallObserver strips the per-run observer binding: cache-warm
-// calls (VCP F2) are runtime-owned maintenance traffic, never journaled as
-// model.request/model.usage/model.call.finished — cache.warmed is their
-// only trace. Other context values (run id, workspace, cancellation) pass
-// through unchanged.
-func withoutModelCallObserver(ctx context.Context) context.Context {
-	return context.WithValue(ctx, modelCallObserverKey{}, modelCallObserverFactory(nil))
-}
-
 // observedModelCallCore carries the wrapper state shared by the
 // AgenticModel and BaseModel observers.
 type observedModelCallCore struct {
@@ -120,7 +125,7 @@ func (c *observedModelCallCore) begin(ctx context.Context, mode string, input []
 	}
 	meta, err := obs.Begin(ctx, modelCallInput{Mode: mode, Messages: input, Tools: tools})
 	if err != nil {
-		return nil, meta, err
+		return nil, meta, errors.Join(errModelCallAdmission, modelObservationError(err))
 	}
 	return obs, meta, nil
 }
@@ -162,16 +167,18 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 		return inner.Generate(ctx, input, opts...)
 	}
 	msg, callErr := inner.Generate(ctx, input, opts...)
-	if callErr != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: callErr})
-		return nil, callErr
+	var chunkErr error
+	if msg != nil {
+		obs.StreamOpened(meta)
+		chunkErr = obs.Chunk(ctx, meta, msg)
 	}
-	obs.StreamOpened(meta)
-	if err := obs.Chunk(ctx, meta, msg); err != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: err, Usage: agenticUsage(msg)})
+	endErr := obs.End(ctx, meta, modelCallResult{
+		Err: errors.Join(callErr, chunkErr), Usage: agenticUsage(msg),
+		ResponseComplete: callErr == nil && chunkErr == nil,
+	})
+	if err := errors.Join(callErr, modelObservationError(chunkErr), modelObservationError(endErr)); err != nil {
 		return nil, err
 	}
-	_ = obs.End(ctx, meta, modelCallResult{Usage: agenticUsage(msg), ResponseComplete: true})
 	return msg, nil
 }
 
@@ -199,8 +206,8 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 	}
 	upstream, err := inner.Stream(ctx, input, opts...)
 	if err != nil {
-		_ = obs.End(ctx, meta, modelCallResult{Err: err})
-		return nil, err
+		endErr := obs.End(ctx, meta, modelCallResult{Err: err})
+		return nil, errors.Join(err, modelObservationError(endErr))
 	}
 	// Mark the call before exposing the tee to Eino. Starting the marker
 	// in the pump goroutine races Eino's eager stream forwarding: the
@@ -216,7 +223,9 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 		// run terminal can never overtake the call's finish record.
 		finish := func() {
 			result.Usage = lastUsage
-			_ = obs.End(ctx, meta, result)
+			if err := obs.End(ctx, meta, result); err != nil {
+				writer.Send(nil, modelObservationError(err))
+			}
 			writer.Close()
 		}
 		// fail journals the finish record BEFORE the error enters the
@@ -224,8 +233,8 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 		// budget breaker) must never overtake the mandatory closure.
 		fail := func(err error) {
 			result.Usage = lastUsage
-			_ = obs.End(ctx, meta, result)
-			writer.Send(nil, err)
+			endErr := obs.End(ctx, meta, result)
+			writer.Send(nil, errors.Join(err, modelObservationError(endErr)))
 			writer.Close()
 		}
 		for {

@@ -82,9 +82,10 @@
       "enum": [
         "main",
         "child",
-        "summary"
+        "summary",
+        "maintenance"
       ],
-      "description": "Route attribution: chat main leg, child run leg, or compaction summary call (v4)."
+      "description": "Route attribution: main, child, compaction summary, or paid maintenance call (v4)."
     }
   },
   "required": [

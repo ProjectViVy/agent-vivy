@@ -83,6 +83,35 @@ func observedCtx(o modelCallObserver) context.Context {
 	return withModelCallObserverFactory(context.Background(), func(modelCallRoute) modelCallObserver { return o })
 }
 
+func TestObservedGenerateReturnsMandatoryEndFailure(t *testing.T) {
+	want := errors.New("finish storage failed")
+	observer := &recordingObserver{endErr: want}
+	_, err := observeChatModel(&fakeChatModel{generateMsg: usageText("paid", 11, 3)}).Generate(observedCtx(observer), []*schema.AgenticMessage{testUser("request")})
+	if !errors.Is(err, want) {
+		t.Fatalf("mandatory End error = %v, want %v", err, want)
+	}
+}
+
+func TestObservedStreamReturnsMandatoryEndFailure(t *testing.T) {
+	want := errors.New("stream finish storage failed")
+	observer := &recordingObserver{endErr: want}
+	inner := &scriptedUsageModel{chunks: [][]*schema.AgenticMessage{{usageText("paid", 11, 3)}}}
+	r, err := observeChatModel(inner).Stream(observedCtx(observer), []*schema.AgenticMessage{testUser("request")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	for {
+		_, err = r.Recv()
+		if err != nil {
+			break
+		}
+	}
+	if !errors.Is(err, want) {
+		t.Fatalf("mandatory stream End error = %v, want %v", err, want)
+	}
+}
+
 // TestObserverLifecycleGenerateAndStream asserts the canonical hook order
 // for both invocation modes: Begin (mode tagged, input digested) ->
 // StreamOpened -> Chunk* -> End(ResponseComplete for a clean EOF).

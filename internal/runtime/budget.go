@@ -237,7 +237,13 @@ func (l *BudgetLedger) ReplayEvent(ev domain.RunEvent) error {
 		// replay charges here and credits the call's later mapped
 		// accounting events.
 		if ev.PayloadVersion >= 3 {
-			l.replayObservedCalls++
+			var request struct {
+				Source string `json:"source"`
+			}
+			_ = json.Unmarshal(ev.Payload, &request)
+			if request.Source != modelCallSourceMaintenance {
+				l.replayObservedCalls++
+			}
 			return l.ReserveModelCall()
 		}
 		return nil

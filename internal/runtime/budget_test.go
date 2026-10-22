@@ -11,6 +11,27 @@ import (
 	"agent-vivy/internal/testsupport"
 )
 
+func TestBudgetMaintenanceReplayDoesNotCreditForegroundCompletion(t *testing.T) {
+	ledger, err := NewBudgetLedger(BudgetPolicy{MaxModelCalls: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.ReplayEvent(domain.RunEvent{Type: domain.EventModelRequest, PayloadVersion: 4, Payload: []byte(`{"source":"maintenance"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	// Maintenance has no mapped completion; this row is a separate unobserved
+	// foreground call and must consume its own unit after restart.
+	if err := ledger.ReplayEvent(domain.RunEvent{Type: domain.EventModelCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ledger.Snapshot().Usage.ModelCalls; got != 2 {
+		t.Fatalf("replayed paid model calls = %d, want 2", got)
+	}
+	if !errors.Is(ledger.ReserveModelCall(), ErrBudgetExceeded) {
+		t.Fatal("maintenance replay widened the foreground budget")
+	}
+}
+
 func TestBudgetLedgerChildCannotBypassParent(t *testing.T) {
 	parent, err := NewBudgetLedger(BudgetPolicy{MaxToolCalls: 2})
 	if err != nil {
