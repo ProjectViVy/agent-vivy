@@ -147,6 +147,12 @@ type SessionStore interface {
 	DeleteSession(ctx context.Context, id domain.SessionID) error
 }
 
+// ChannelSessionStore resolves platform identity through the existing session
+// owner. CreateSession stores Session.ChannelBinding in the same insertion.
+type ChannelSessionStore interface {
+	FindChannelSession(context.Context, domain.ChannelSessionBinding) (domain.SessionID, error)
+}
+
 // SessionWorkspaceStore changes the directory attached to a conversation.
 // First-party backends accept the mutation only before the first run so a
 // historical run can never resolve against a different filesystem root.

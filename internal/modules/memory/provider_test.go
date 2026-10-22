@@ -314,8 +314,7 @@ func TestProviderIngestSeparatesCollidingRunIDs(t *testing.T) {
 	openService(t)
 	provider := memory.NewProvider()
 
-	// "a/b" and "a\b" sanitize to the same id stem; the raw-id hash suffix
-	// must keep their dedupe keys distinct.
+	// The full reversible RunID keeps slash and backslash identities distinct.
 	slash := completedEvent(t, "a/b", 1, "collision alpha")
 	backslash := completedEvent(t, "a\\b", 1, "collision alpha")
 	slashReceipt, err := provider.ObserveRunWithReceipt(ctx, slash)
@@ -338,6 +337,29 @@ func TestProviderIngestSeparatesCollidingRunIDs(t *testing.T) {
 	}
 	if page.Candidates[0].ContentID == page.Candidates[1].ContentID {
 		t.Fatalf("colliding RunIDs share record id %q", page.Candidates[0].ContentID)
+	}
+}
+
+func TestProviderIngestReusesConvertedHistoryIdentity(t *testing.T) {
+	ctx := context.Background()
+	service := openService(t)
+	event := completedEvent(t, "run-upgrade", 3, "retained original history")
+	const oldID = "historical-opaque-record"
+	if _, _, err := service.AppendHistory(ctx, bml.AppendHistoryInput{ID: oldID, Content: "retained original history", SourceID: event.ID.String(), CapturedAt: time.UnixMilli(event.CreatedAt)}); err != nil {
+		t.Fatal(err)
+	}
+	provider := memory.NewProvider()
+	first, err := provider.ObserveRunWithReceipt(ctx, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := provider.ObserveRunWithReceipt(ctx, event)
+	if err != nil || first != again {
+		t.Fatalf("receipt replay=%+v %v", again, err)
+	}
+	page, err := provider.Query(ctx, contextsource.Request{Query: "retained original history", Limit: 10})
+	if err != nil || len(page.Candidates) != 1 || page.Candidates[0].ContentID != oldID || page.Candidates[0].Version != "1" {
+		t.Fatalf("historical identity forked: %+v %v", page, err)
 	}
 }
 

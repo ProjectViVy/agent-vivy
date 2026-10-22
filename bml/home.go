@@ -523,9 +523,9 @@ func (h *Home) RemoveRecord(ctx context.Context, id, reason string, baseRevision
 	return entryFromStored(*current), nil
 }
 
-// AppendHistoryInput carries the caller-owned fields of an idempotent
-// history append. ID is the idempotency key: re-applying the same ID returns
-// the stored record with applied=false and writes nothing.
+// AppendHistoryInput carries the caller-owned fields of an idempotent history
+// append. SourceID is the original delivery identity; ID is the allocation
+// used only when that source has not been stored before.
 type AppendHistoryInput struct {
 	// ID is the stable, caller-chosen record ID.
 	ID string
@@ -544,8 +544,10 @@ type AppendHistoryInput struct {
 
 // AppendHistory applies a history record under the machine scope. Unlike
 // AddRecord it permits KindHistory (committed-experience ingestion) and is
-// idempotent on ID: a redelivery returns the existing record with
-// applied=false instead of a conflict error.
+// idempotent on the original SourceID: a redelivery returns the existing record with
+// applied=false instead of a conflict error. The production source is an
+// immutable committed Journal EventID; a newer projection of that event must
+// preserve the stored representation rather than rewrite its history.
 func (h *Home) AppendHistory(ctx context.Context, input AppendHistoryInput) (StoredRecord, bool, error) {
 	id := strings.TrimSpace(input.ID)
 	if id == "" {
@@ -555,8 +557,8 @@ func (h *Home) AppendHistory(ctx context.Context, input AppendHistoryInput) (Sto
 	if content == "" {
 		return StoredRecord{}, false, homeInvalid("content is empty")
 	}
-	sourceID := strings.TrimSpace(input.SourceID)
-	if sourceID == "" {
+	sourceID := input.SourceID
+	if strings.TrimSpace(sourceID) == "" {
 		return StoredRecord{}, false, homeInvalid("provenance source id is empty")
 	}
 	at := input.CapturedAt.UTC()
@@ -570,6 +572,20 @@ func (h *Home) AppendHistory(ctx context.Context, input AppendHistoryInput) (Sto
 	store, err := h.writableStore(ctx)
 	if err != nil {
 		return StoredRecord{}, false, err
+	}
+	// Capture the existing store CAS before resolving the source. A competing
+	// append between these reads and Put must conflict rather than allocate a
+	// second ID for the same source.
+	metadata, err := store.Metadata(ctx)
+	if err != nil {
+		return StoredRecord{}, false, homeBmlUnavailable(err)
+	}
+	existing, err := store.historyBySource(ctx, sourceID)
+	if err != nil {
+		return StoredRecord{}, false, homeBmlUnavailable(err)
+	}
+	if existing != nil {
+		return entryFromStored(*existing), false, nil
 	}
 	record := Record{
 		ID:      id,
@@ -594,10 +610,6 @@ func (h *Home) AppendHistory(ctx context.Context, input AppendHistoryInput) (Sto
 		EffectiveAt:   at,
 		Supersedes:    []string{},
 	}
-	metadata, err := store.Metadata(ctx)
-	if err != nil {
-		return StoredRecord{}, false, homeBmlUnavailable(err)
-	}
 	stored, err := store.Put(ctx, record, metadata.StoreRevision, nil)
 	if err != nil {
 		var se *StoreError
@@ -607,6 +619,9 @@ func (h *Home) AppendHistory(ctx context.Context, input AppendHistoryInput) (Sto
 				return StoredRecord{}, false, homeBmlUnavailable(getErr)
 			}
 			if existing != nil {
+				if existing.Record.Kind != KindHistory || existing.Record.Provenance.Source != ProvenanceSourceSessionSync || existing.Record.Provenance.SourceID != sourceID {
+					return StoredRecord{}, false, homeBmlUnavailable(importConflictErr(id))
+				}
 				return *existing, false, nil
 			}
 		}

@@ -454,6 +454,41 @@ func (s *Store) Get(ctx context.Context, id string) (*StoredRecord, error) {
 	return &stored, nil
 }
 
+// historyBySource resolves the original delivery identity in the existing
+// record owner, including historical IDs and records hidden by tombstones.
+// Two rows for one source are ambiguous and must never authorize a replay.
+func (s *Store) historyBySource(ctx context.Context, sourceID string) (*StoredRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT record_revision, record_json FROM memory_records
+		WHERE kind = ? AND workspace_id = ? AND tenant_id = ? AND session_id IS NULL
+		AND json_extract(record_json, '$.provenance.source') = ?
+		AND json_extract(record_json, '$.provenance.source_id') = ? LIMIT 2`,
+		string(KindHistory), s.workspaceID, machineScope(nil).TenantID, string(ProvenanceSourceSessionSync), sourceID)
+	if err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	defer rows.Close()
+	var found *StoredRecord
+	for rows.Next() {
+		if found != nil {
+			return nil, importConflictErr("history source identity")
+		}
+		var revision int64
+		var raw string
+		if err := rows.Scan(&revision, &raw); err != nil {
+			return nil, persistenceErr(s.path, err)
+		}
+		stored, err := decodeStored(revision, raw)
+		if err != nil {
+			return nil, err
+		}
+		found = &stored
+	}
+	if err := rows.Err(); err != nil {
+		return nil, persistenceErr(s.path, err)
+	}
+	return found, nil
+}
+
 // List returns records in deterministic memory_id order, capped at limit and
 // at the bounded-store capacity.
 func (s *Store) List(ctx context.Context, limit uint32) ([]StoredRecord, error) {
