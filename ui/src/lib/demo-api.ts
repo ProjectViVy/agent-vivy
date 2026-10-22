@@ -1211,7 +1211,6 @@ export async function searchSessions(query: string): Promise<SessionSearchRespon
           timestamp: new Date(msg.timestamp || Date.now()).toISOString(),
           snippet: msg.content.substring(0, 200),
           source_uri: `/chat/${session.id}`,
-          hash: `hash-${session.id}-${i}`,
           source: 'session',
           snippet_truncated: msg.content.length > 200,
           message_index: i,

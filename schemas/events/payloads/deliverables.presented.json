@@ -22,7 +22,6 @@
         "name": { "type": "string", "minLength": 1, "maxLength": 512 },
         "description": { "type": "string", "maxLength": 512 },
         "size": { "type": "integer", "minimum": 0, "maximum": 33554432 },
-        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "media_type": { "type": "string", "maxLength": 255 },
         "captured_at": { "type": "integer", "minimum": 0 },
         "origin_tool_call_id": { "type": "string", "minLength": 1, "maxLength": 512 },
@@ -37,7 +36,6 @@
         "name",
         "description",
         "size",
-        "sha256",
         "media_type",
         "captured_at",
         "origin_tool_call_id"

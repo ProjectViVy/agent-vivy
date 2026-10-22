@@ -53,7 +53,6 @@ export interface PersonaDocument {
   readonly valid: boolean;
   readonly content: string;
   readonly revision: number;
-  readonly content_hash: string;
   readonly updated_at: string | null;
   readonly pending_count: number;
 }
@@ -67,7 +66,7 @@ export interface PersonaReview {
   readonly id: string;
   readonly kind: PersonaKind;
   readonly base_revision: number;
-  readonly base_hash: string;
+  readonly expected_document: { readonly exists: boolean; readonly content: string } | null;
   readonly proposed_markdown: string;
   readonly actor: string;
   readonly reason: string;
