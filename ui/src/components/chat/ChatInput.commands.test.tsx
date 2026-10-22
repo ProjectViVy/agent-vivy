@@ -14,7 +14,7 @@ vi.mock('@/lib/run-subscription', () => ({ subscribeRun: vi.fn(() => ({ close: v
 
 const initial = useVivyStore.getState();
 const emptyWork: api.WorkState = { session_id: 's1', version: 1, activation: 'disarmed', plan: { active: false, review_status: 'none' } };
-const skill: api.SkillSummary = { name: 'release-review', description: 'Review a release', origin: 'user', enabled: true, hash: 'h1', warnings: [] };
+const skill: api.SkillSummary = { name: 'release-review', description: 'Review a release', origin: 'user', enabled: true, warnings: [] };
 
 describe('composer slash commands', () => {
   let container: HTMLDivElement;

@@ -101,7 +101,7 @@ func TestRecoveredGoalRefRejectsCorruptLaterReplayPage(t *testing.T) {
 			t.Fatalf("marshal transition %d: %v", seq, err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO session_work_events (session_id, work_seq, kind, payload_version, request_id, request_hash, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO session_work_events (session_id, work_seq, kind, payload_version, request_id, request_input, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 			sessionID, seq, kind, domain.WorkPayloadVersion, requestID, requestID, int64(seq), payload); err != nil {
 			t.Fatalf("insert transition %d: %v", seq, err)
 		}

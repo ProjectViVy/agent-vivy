@@ -12,6 +12,7 @@ import (
 	controlaction "agent-vivy/sdk/port/controlaction"
 
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
 )
 
 func testFactoryInput(t *testing.T) cognitivecontract.FactoryInput {
@@ -80,8 +81,25 @@ func TestOpenArmsSourceSinkMissionWithoutBackend(t *testing.T) {
 	if binding.SubjectID != profileID || binding.DestinationID != destinationID {
 		t.Fatalf("binding = %#v", binding)
 	}
-	if binding.StrategyDigest == "" {
-		t.Fatal("binding does not pin the trusted strategy digest")
+	if binding.StrategyID != laputainofy.StrategyID || binding.StrategyVersion != laputainofy.StrategyVersion {
+		t.Fatal("binding does not pin the trusted strategy identity and version")
+	}
+}
+
+func TestBindingUsesDurableControlPolicyRevision(t *testing.T) {
+	ctx, owner := openBundle(t)
+	control := &fakeControl{state: cognitivecontract.ControlState{PolicyRevision: 7}}
+	if err := owner.AttachRuntime(control); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := owner.ResolveBinding(ctx)
+	if err != nil || binding.PolicyRevision != "7" {
+		t.Fatalf("owner policy revision: %+v %v", binding, err)
+	}
+	control.state.PolicyRevision = 8
+	binding, err = owner.ResolveBinding(ctx)
+	if err != nil || binding.PolicyRevision != "8" {
+		t.Fatalf("updated owner policy revision: %+v %v", binding, err)
 	}
 }
 
@@ -104,6 +122,11 @@ func TestCaptureIsDurableAndDeduped(t *testing.T) {
 	}
 	if again.Seq != first.Seq || again.IngestionID != first.IngestionID {
 		t.Fatalf("deduped redelivery minted a new record: %#v vs %#v", again, first)
+	}
+
+	capture.Content = `{"outcome":"different"}`
+	if _, err := bundle.Sink().Capture(ctx, capture); err == nil {
+		t.Fatal("same durable capture identity accepted changed content")
 	}
 	if _, err := bundle.Sink().Capture(ctx, cognitivecontract.Capture{
 		SessionID: "session-a", RunID: "run-b", EventID: "run-b:1", Phase: "nonsense",

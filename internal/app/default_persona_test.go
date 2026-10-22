@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestDefaultPersonaAuthorityPersistsAndFreezesPerSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Digest != first.Digest || again.Text != first.Text {
+	if !reflect.DeepEqual(again.Frozen, first.Frozen) || again.Text != first.Text {
 		t.Fatal("reopened session authority drifted")
 	}
 	next, err := bundle.Prepare(ctx, cognitivecontract.PrimaryContextInput{SessionID: "next"})

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
 
 	"agent-vivy/internal/cognitivecontract"
 	"agent-vivy/internal/domain"
@@ -45,7 +46,7 @@ const frozenSlotOrderText = "# mission\nMISSION BODY\n# identity\nIDENTITY BODY\
 func TestPrimaryFrozenCoreActualModelInput(t *testing.T) {
 	ctx := context.Background()
 	preparer := &recordingPreparer{prepared: cognitivecontract.PreparedPrimaryContext{
-		Text: frozenSlotOrderText, Digest: "frozen-digest-1",
+		Text: frozenSlotOrderText,
 	}}
 	recorder := &recordingChatModel{inner: NewScriptedModel(
 		testAssistant("first"), testAssistant("second"), testAssistant("code"))}
@@ -182,7 +183,7 @@ func TestMissionAdmissionFence(t *testing.T) {
 		Mission: mission,
 		Binding: laputaevolution.RunBinding{
 			SubjectID: "profile-1", WorkspaceID: "ws-1", DestinationID: "mentle",
-			PolicyRevision: "pol-1", StrategyDigest: "dig-1", MissionRevision: 4,
+			PolicyRevision: "pol-1", StrategyID: laputainofy.StrategyID, StrategyVersion: laputainofy.StrategyVersion, MissionRevision: 4,
 		},
 	}
 	svc.deps.Cognitive = b
@@ -203,6 +204,11 @@ func TestMissionAdmissionFence(t *testing.T) {
 	foreign.WorkspaceID = "ws-foreign"
 	if _, err := svc.workflowNodes(ctx, "run-fence", TrustedStrategyDIVA, marshal(foreign)); err == nil {
 		t.Fatal("foreign scope binding was accepted")
+	}
+	foreign = b.Binding
+	foreign.StrategyVersion = "other-implementation"
+	if _, err := svc.workflowNodes(ctx, "run-fence", TrustedStrategyDIVA, marshal(foreign)); err == nil {
+		t.Fatal("different strategy version was accepted")
 	}
 	mission.rev = 9
 	if _, err := svc.workflowNodes(ctx, "run-fence", TrustedStrategyDIVA, marshal(b.Binding)); err == nil ||

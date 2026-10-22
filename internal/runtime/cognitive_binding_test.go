@@ -10,6 +10,7 @@ import (
 
 	"github.com/ProjectViVy/inofy"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/storage"
@@ -102,13 +103,12 @@ func (d *fakeCognitiveDomain) Apply(_ context.Context, e laputaevolution.Effect)
 	if d.failAt > 0 && d.applyCalls == d.failAt {
 		return laputaevolution.EffectReceipt{}, errors.New("fixture: bound domain rejected the effect")
 	}
-	receipt := laputaevolution.EffectReceipt{
-		OperationID:   e.OperationID,
-		PayloadDigest: e.PayloadDigest,
-		Status:        laputaevolution.StatusApplied,
-		TargetRef:     "fixture-target",
-		Revision:      1,
-	}
+	receipt := laputaevolution.BindReceiptIntent(laputaevolution.EffectReceipt{
+		OperationID: e.OperationID,
+		Status:      laputaevolution.StatusApplied,
+		TargetRef:   "fixture-target",
+		Revision:    1,
+	}, e)
 	if d.receipts == nil {
 		d.receipts = map[string]laputaevolution.EffectReceipt{}
 	}
@@ -129,7 +129,7 @@ func (d *fakeCognitiveDomain) Lookup(_ context.Context, operationID string) (lap
 func cognitiveFixtureRunBinding() laputaevolution.RunBinding {
 	return laputaevolution.RunBinding{
 		SubjectID: "profile-1", WorkspaceID: "ws-1", DestinationID: "mentle",
-		PolicyRevision: "pol-1", StrategyDigest: "dig-1", MissionRevision: 1,
+		PolicyRevision: "pol-1", StrategyID: laputainofy.StrategyID, StrategyVersion: laputainofy.StrategyVersion, MissionRevision: 1,
 	}
 }
 
@@ -386,5 +386,34 @@ func TestCognitiveChildTaskWideningRejected(t *testing.T) {
 	admitted, err := validateINOFYDefinition(ctx, json.RawMessage(inofyTwoNodeDefinition), []string{tools.EchoInfoName})
 	if err != nil || admitted.Program == nil {
 		t.Fatalf("authored child-task admission broke: %v", err)
+	}
+}
+
+func TestCognitiveInferenceJoinsOnlyExactOperationInput(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	parentID := domain.RunID("run-cognitive-exact-infer")
+	prepareChildSessionAuthorizer(t, svc, backend, "session-cognitive-exact-infer", parentID, nil)
+	model := cognitiveModel{svc: svc, parentRunID: parentID}
+	prefix := strings.Repeat("x", 5<<10)
+	request := laputaevolution.ModelRequest{Stage: laputaevolution.StageReflect, Prompt: prefix + "first", InputJSON: json.RawMessage(`{}`), OutputSchema: json.RawMessage(`{}`)}
+	if _, err := model.Infer(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := model.Infer(ctx, request); err != nil {
+		t.Fatalf("same actual input did not rejoin: %v", err)
+	}
+	request.Prompt = prefix + "other"
+	if _, err := model.Infer(ctx, request); err == nil {
+		t.Fatal("changed input under one operation created or rejoined inference")
+	}
+	request.Stage = laputaevolution.StageReconcile
+	request.Prompt = strings.Repeat("x", maxChildTaskBytes)
+	if _, err := model.Infer(ctx, request); err == nil {
+		t.Fatal("oversize request was truncated into a different admitted intent")
+	}
+	children, err := backend.ListChildRuns(ctx, parentID)
+	if err != nil || len(children) != 1 {
+		t.Fatalf("inference effect repeated: %d %v", len(children), err)
 	}
 }

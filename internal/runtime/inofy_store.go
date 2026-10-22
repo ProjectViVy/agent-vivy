@@ -116,6 +116,11 @@ func (s *inofyRunStore) Commit(ctx context.Context, ref inofy.ExecutionRef, chan
 }
 
 func (s *inofyRunStore) Load(ctx context.Context, runID string) (inofy.RecoveryState, error) {
+	// INOFY must read the admitted state before it can classify a cancelled
+	// Run and commit that known outcome through its native settlement path.
+	// Keep this read bounded; node execution still receives the cancelled ctx.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+	defer cancel()
 	state, err := s.steps.LoadWorkflowStep(ctx, domain.RunID(runID))
 	if err != nil {
 		return inofy.RecoveryState{}, mapINOFYStoreError(err)

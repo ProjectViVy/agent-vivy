@@ -2,8 +2,6 @@ package divacognitive
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +14,6 @@ import (
 
 	"agent-vivy/internal/cognitivecontract"
 
-	"github.com/ProjectViVy/inofy"
 	"github.com/ProjectViVy/laputa/garden/agentapi"
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
 	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
@@ -57,7 +54,7 @@ func Open(ctx context.Context, in cognitivecontract.FactoryInput) (cognitivecont
 	if err != nil {
 		return nil, fmt.Errorf("diva-cognitive: open garden owner: %w", err)
 	}
-	b := &bundle{owner: owner, strategyDigest: strategyDigest()}
+	b := &bundle{owner: owner}
 	b.scope = laputaevolution.Scope{
 		SubjectID:   profileID,
 		Kind:        laputaevolution.ScopePersonal,
@@ -68,10 +65,6 @@ func Open(ctx context.Context, in cognitivecontract.FactoryInput) (cognitivecont
 		_ = owner.Close()
 		return nil, fmt.Errorf("diva-cognitive: bind evolution source: %w", err)
 	}
-	if b.strategyDigest == "" {
-		_ = owner.Close()
-		return nil, fmt.Errorf("diva-cognitive: strategy definition unavailable")
-	}
 	b.sourceID = src.SourceID
 	b.source = boundSource{highWatermark: src.HighWatermark}
 	b.sink = boundSink{client: owner}
@@ -79,23 +72,10 @@ func Open(ctx context.Context, in cognitivecontract.FactoryInput) (cognitivecont
 	return b, nil
 }
 
-func strategyDigest() string {
-	def, err := laputainofy.Definition()
-	if err != nil {
-		return ""
-	}
-	digest, err := inofy.DefinitionDigest(def)
-	if err != nil {
-		return ""
-	}
-	return digest
-}
-
 type bundle struct {
-	owner          *agentapi.Client
-	scope          laputaevolution.Scope
-	sourceID       string
-	strategyDigest string
+	owner    *agentapi.Client
+	scope    laputaevolution.Scope
+	sourceID string
 
 	source  boundSource
 	sink    boundSink
@@ -153,11 +133,6 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 	if err := frozen.Validate(); err != nil {
 		return cognitivecontract.PreparedPrimaryContext{}, fmt.Errorf("diva-cognitive: frozen core invalid: %w", err)
 	}
-	raw, err := json.Marshal(frozen)
-	if err != nil {
-		return cognitivecontract.PreparedPrimaryContext{}, err
-	}
-	sum := sha256.Sum256(raw)
 	var text strings.Builder
 	for _, section := range frozen.Sections {
 		text.WriteString("# ")
@@ -174,7 +149,6 @@ func (b *bundle) Prepare(ctx context.Context, in cognitivecontract.PrimaryContex
 	}
 	return cognitivecontract.PreparedPrimaryContext{
 		Frozen: frozen,
-		Digest: hex.EncodeToString(sum[:]),
 		Text:   text.String(),
 	}, nil
 }
@@ -190,17 +164,27 @@ func (b *bundle) ResolveBinding(ctx context.Context) (laputaevolution.RunBinding
 	if err != nil {
 		return laputaevolution.RunBinding{}, err
 	}
-	policyJSON, err := json.Marshal(b.policySnapshot())
-	if err != nil {
-		return laputaevolution.RunBinding{}, err
+	// Before runtime attachment this is the initial owner revision (zero).
+	// Admissions after attachment read the durable control owner, including
+	// after restart; policy content is never transformed into an identity.
+	var policyRevision uint64
+	b.mu.Lock()
+	control := b.control
+	b.mu.Unlock()
+	if control != nil {
+		state, err := control.GetState(ctx)
+		if err != nil {
+			return laputaevolution.RunBinding{}, err
+		}
+		policyRevision = state.PolicyRevision
 	}
-	sum := sha256.Sum256(policyJSON)
 	return laputaevolution.RunBinding{
 		SubjectID:       b.scope.SubjectID,
 		WorkspaceID:     b.scope.WorkspaceID,
 		DestinationID:   destinationID,
-		PolicyRevision:  hex.EncodeToString(sum[:]),
-		StrategyDigest:  b.strategyDigest,
+		PolicyRevision:  strconv.FormatUint(policyRevision, 10),
+		StrategyID:      laputainofy.StrategyID,
+		StrategyVersion: laputainofy.StrategyVersion,
 		MissionRevision: revision,
 	}, nil
 }
@@ -242,12 +226,6 @@ func (b *bundle) policySnapshot() laputaevolution.TriggerPolicy {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.policy
-}
-
-func (b *bundle) setPolicy(policy laputaevolution.TriggerPolicy) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.policy = policy
 }
 
 // AttachRuntime stores the single armed control cell used by the generated
@@ -317,13 +295,11 @@ func (s boundSink) Capture(ctx context.Context, cap cognitivecontract.Capture) (
 	if err != nil {
 		return cognitivecontract.CaptureReceipt{}, err
 	}
-	sum := sha256.Sum256([]byte(cap.Content))
 	receipt, err := bound.Capture(ctx, agentapi.CaptureRequest{
-		Phase:       phase,
-		Content:     cap.Content,
-		ContentHash: "sha256:" + hex.EncodeToString(sum[:]),
-		Provenance:  provenanceOf(cap),
-		OccurredAt:  time.UnixMilli(cap.OccurredAt).UTC(),
+		Phase:      phase,
+		Content:    cap.Content,
+		Provenance: provenanceOf(cap),
+		OccurredAt: time.UnixMilli(cap.OccurredAt).UTC(),
 	})
 	if err != nil {
 		return cognitivecontract.CaptureReceipt{}, fmt.Errorf("diva-cognitive: capture: %w", err)

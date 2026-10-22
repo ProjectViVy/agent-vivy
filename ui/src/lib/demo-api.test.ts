@@ -2,7 +2,7 @@ import { hydrateLocale, resetLocaleForTests } from '@/i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Demo records are seeded at module evaluation, so select their fixture locale first.
 hydrateLocale('zh');
-const { formatTokenCost, formatTokenCount, getDemoGenParams, getDemoMemories, getDemoComposerState, getDemoTokenUsage, saveDemoGenParams, searchSessions, updateDemoComposerState } = await import('./demo-api');
+const { acceptSkillRequest, createSkillRequest, getSkillDocument, updateSkillDocument, formatTokenCost, formatTokenCount, getDemoGenParams, getDemoMemories, getDemoComposerState, getDemoTokenUsage, saveDemoGenParams, searchSessions, updateDemoComposerState } = await import('./demo-api');
 
 const values = new Map<string, string>();
 
@@ -29,6 +29,27 @@ async function settle<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe('restored local demo API', () => {
+  it('rejects a stale exact skill document without overwriting a same-length edit', async () => {
+    const original = await settle(getSkillDocument('vivy-doc-sync'));
+    expect(original).not.toBeNull();
+    const first = await settle(updateSkillDocument('vivy-doc-sync', 'first', original!.markdown));
+    expect(first.document.markdown).toBe('first');
+    const stale = await settle(updateSkillDocument('vivy-doc-sync', 'other', original!.markdown).then(() => false, () => true));
+    expect(stale).toBe(true);
+    expect((await settle(getSkillDocument('vivy-doc-sync')))!.markdown).toBe('first');
+    const historySave = await settle(updateSkillDocument('vivy-doc-sync', 'other', 'first'));
+    expect(historySave.document.markdown).toBe('other');
+  });
+
+  it('distinguishes missing from empty skill request before-state', async () => {
+    const pending = await settle(createSkillRequest({ slug: 'new-empty', title: 'new', proposed_markdown: '', expected_exists: false, expected_markdown: '', reason: 'owner request' }));
+    const stale = await settle(createSkillRequest({ slug: 'new-empty', title: 'stale', proposed_markdown: 'replacement', expected_exists: false, expected_markdown: '', reason: 'owner request' }));
+    await settle(acceptSkillRequest(pending.id));
+    expect((await settle(getSkillDocument('new-empty')))!.markdown).toBe('');
+    expect(await settle(acceptSkillRequest(stale.id).then(() => false, () => true))).toBe(true);
+    expect((await settle(getSkillDocument('new-empty')))!.markdown).toBe('');
+  });
+
   it('initializes every restored surface under vivy.demo.* keys', async () => {
     await settle(getDemoMemories());
     expect([...values.keys()].sort()).toEqual(['vivy.demo.memory']);

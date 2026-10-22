@@ -65,7 +65,7 @@ describe('evolution demo governance', () => {
 
     const after = await settle(getSkillDocument('vivy-doc-sync'));
     expect(after?.markdown).toContain('## 回滚');
-    expect(after?.content_hash).not.toBe(before?.content_hash);
+    expect(after?.markdown).not.toBe(before?.markdown);
     expect(after?.evolution_managed).toBe(true);
 
     const history = await settle(getSkillHistory('vivy-doc-sync'));
@@ -74,7 +74,7 @@ describe('evolution demo governance', () => {
 
   it('marks a request stale and refuses to accept when the skill head moved on', async () => {
     const doc = await settle(getSkillDocument('vivy-doc-sync'));
-    await settle(updateSkillDocument('vivy-doc-sync', '# 文档同步\n\n编辑后的新头。\n', doc!.content_hash));
+    await settle(updateSkillDocument('vivy-doc-sync', '# 文档同步\n\n编辑后的新头。\n', doc!.markdown));
 
     await expect(settle(acceptSkillRequest('req-demo-pending'))).rejects.toThrow();
     const requests = await settle(getSkillRequests());
@@ -88,13 +88,13 @@ describe('evolution demo governance', () => {
     await expect(settle(acceptSkillRequest('req-demo-pending'))).rejects.toThrow();
   });
 
-  it('refuses skill saves with a stale base hash (CAS)', async () => {
+  it('refuses skill saves when the expected original text is stale', async () => {
     const doc = await settle(getSkillDocument('vivy-doc-sync'));
     await expect(
-      settle(updateSkillDocument('vivy-doc-sync', '# 改动\n', 'not-the-current-hash')),
+      settle(updateSkillDocument('vivy-doc-sync', '# 改动\n', 'not the current text')),
     ).rejects.toThrow();
     const unchanged = await settle(getSkillDocument('vivy-doc-sync'));
-    expect(unchanged?.content_hash).toBe(doc?.content_hash);
+    expect(unchanged?.markdown).toBe(doc?.markdown);
   });
 
   it('hard-deletes only skills that allow it', async () => {

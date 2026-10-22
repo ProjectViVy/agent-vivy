@@ -575,7 +575,6 @@ func (d dispatch) policySet(ctx context.Context, _ *agentapi.HumanClient, input 
 	if err != nil {
 		return nil, err
 	}
-	d.bundle.setPolicy(policy)
 	return state, nil
 }
 

@@ -22,7 +22,7 @@ type mountSkillOps struct{}
 func (mountSkillOps) ListSkills(context.Context, domain.RunID) ([]tools.SkillSummary, error) {
 	return []tools.SkillSummary{{
 		Name: "writer", Description: "declares echo_info", Tools: []string{tools.EchoInfoName},
-		Enabled: true, Hash: "test-hash",
+		Enabled: true,
 	}}, nil
 }
 
@@ -30,7 +30,7 @@ func (mountSkillOps) ViewSkill(_ context.Context, _ domain.RunID, name, _ string
 	return tools.SkillView{
 		SkillSummary: tools.SkillSummary{
 			Name: name, Description: "declares echo_info", Tools: []string{tools.EchoInfoName},
-			Enabled: true, Hash: "test-hash",
+			Enabled: true,
 		},
 		Content:      "skill body",
 		RelativePath: "SKILL.md",
@@ -49,7 +49,7 @@ func (mountSkillOps) ApplySkillRevision(context.Context, domain.RunID, string) (
 	return tools.SkillManageResult{}, errors.New("not exercised by this test")
 }
 
-func (mountSkillOps) SetSkillEnabled(context.Context, string, bool, string) (tools.SkillSummary, error) {
+func (mountSkillOps) SetSkillEnabled(context.Context, tools.SkillEnableRequest) (tools.SkillSummary, error) {
 	return tools.SkillSummary{}, errors.New("not exercised by this test")
 }
 

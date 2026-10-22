@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	laputaevolution "github.com/ProjectViVy/laputa/laputa/evolution"
+	laputainofy "github.com/ProjectViVy/laputa/laputa/evolution/inofy"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/observerhost"
@@ -53,8 +56,81 @@ func cognitiveBinding(domain_ laputaevolution.Domain, source CognitiveSource, st
 		Now:    now,
 		Binding: laputaevolution.RunBinding{
 			SubjectID: "profile-1", WorkspaceID: "ws-1", DestinationID: "mentle",
-			PolicyRevision: "pol-1", StrategyDigest: "dig-1", MissionRevision: 1,
+			PolicyRevision: "pol-1", StrategyID: laputainofy.StrategyID, StrategyVersion: laputainofy.StrategyVersion, MissionRevision: 1,
 		},
+	}
+}
+
+// Both writers read the same durable revision; the second resumes only after
+// the first writes. Re-reading a newer storage version during save loses CAS.
+type orderedPolicySnapshot struct {
+	storage.SnapshotStore
+	reads                             atomic.Int64
+	firstRead, secondRead, firstWrite chan struct{}
+	written                           sync.Once
+}
+
+func (s *orderedPolicySnapshot) Get(ctx context.Context, key string) ([]byte, int64, error) {
+	value, version, err := s.SnapshotStore.Get(ctx, key)
+	if err != nil {
+		return nil, 0, err
+	}
+	var wait <-chan struct{}
+	switch s.reads.Add(1) {
+	case 1:
+		close(s.firstRead)
+		wait = s.secondRead
+	case 2:
+		close(s.secondRead)
+		wait = s.firstWrite
+	}
+	if wait != nil {
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil, 0, ctx.Err()
+		}
+	}
+	return value, version, nil
+}
+
+func (s *orderedPolicySnapshot) Put(ctx context.Context, key string, value []byte, version int64) error {
+	err := s.SnapshotStore.Put(ctx, key, value, version)
+	s.written.Do(func() { close(s.firstWrite) })
+	return err
+}
+
+func TestCognitivePolicyCASUsesTheVersionActuallyRead(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	svc, backend := inofyExecService(t, cognitiveTestModel())
+	store := &orderedPolicySnapshot{SnapshotStore: backend.Snapshot(), firstRead: make(chan struct{}), secondRead: make(chan struct{}), firstWrite: make(chan struct{})}
+	svc.deps.Cognitive = &CognitiveBinding{Store: store}
+	results := make(chan error, 2)
+	go func() {
+		results <- svc.UpdateCognitivePolicyCAS(ctx, laputaevolution.TriggerPolicy{Enabled: true, MinIntervalMS: 10}, 0)
+	}()
+	select {
+	case <-store.firstRead:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	go func() {
+		results <- svc.UpdateCognitivePolicyCAS(ctx, laputaevolution.TriggerPolicy{Enabled: true, MinIntervalMS: 20}, 0)
+	}()
+	var accepted, conflicted int
+	for range 2 {
+		err := <-results
+		if err == nil {
+			accepted++
+		} else if errors.Is(err, ErrPolicyConflict) {
+			conflicted++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if accepted != 1 || conflicted != 1 {
+		t.Fatalf("same revision writes accepted=%d conflicted=%d", accepted, conflicted)
 	}
 }
 

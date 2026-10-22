@@ -15,7 +15,7 @@ import (
 	"agent-vivy/internal/testsupport"
 )
 
-// admitCognitiveWorkflowFixture commits a schema-2 trusted-strategy revision
+// admitCognitiveWorkflowFixture commits a schema-3 trusted-strategy revision
 // plus its workflow Run, mirroring admitINOFYWorkflowFixture for the trusted
 // lane so recovery exercises rebind-to-code-catalog instead of the authored
 // decoder.
@@ -23,7 +23,8 @@ func admitCognitiveWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.B
 	parentRunID domain.RunID, operationKey string, input json.RawMessage, mutate ...func(*domain.WorkflowRevision)) (domain.Run, domain.WorkflowRevision) {
 	t.Helper()
 	ctx := context.Background()
-	admitted, err := trustedStrategyAdmission(ctx, TrustedStrategyDIVA)
+	wfID := domain.RunID("wfc-" + string(parentRunID))
+	admitted, err := trustedStrategyAdmission(ctx, TrustedStrategyDIVA, "program-"+string(wfID))
 	if err != nil {
 		t.Fatalf("trusted admission: %v", err)
 	}
@@ -56,7 +57,7 @@ func admitCognitiveWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.B
 		}
 	}
 	sandboxMode, approvalPolicy := session.EffectiveSandbox()
-	authorityJSON, authorityDigest, err := trustedWorkflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, TrustedStrategyDIVA)
+	authorityJSON, err := trustedWorkflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, TrustedStrategyDIVA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,22 +68,19 @@ func admitCognitiveWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.B
 	if len(input) == 0 {
 		input = cognitiveInput(t)
 	}
-	canonicalInput, inputDigest, err := normalizeINOFYInput(input)
+	canonicalInput, err := normalizeINOFYInput(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostBinding := inofyHostBinding(authorityDigest, admitted.Meta.ProgramDigest)
-	wfID := domain.RunID("wfc-" + string(parentRunID))
+	hostBinding := "binding-" + string(wfID)
 	revision := domain.WorkflowRevision{
 		RunID: wfID, ParentRunID: parentRunID, ParentSessionID: sessionID, RootRunID: rootID,
-		OperationKey:     operationKey,
-		DescriptorDigest: sha256Hex(admitted.CanonicalJSON), AuthorityDigest: authorityDigest,
+		OperationKey:   operationKey,
 		DescriptorJSON: admitted.CanonicalJSON, AuthorityJSON: authorityJSON,
-		SchemaVersion: 2, CreatedAt: 2,
-		ProgramDigest:   admitted.Meta.ProgramDigest,
-		CatalogDigest:   admitted.Meta.CatalogDigest,
+		SchemaVersion: 3, CreatedAt: 2,
+		ProgramID:       admitted.Meta.ProgramID,
 		CompilerVersion: admitted.Meta.CompilerVersion, EinoBuild: admitted.Meta.EinoBuild,
-		InputDigest: inputDigest, InputJSON: canonicalInput, EffectiveLimits: limitsJSON,
+		InputJSON: canonicalInput, EffectiveLimits: limitsJSON,
 		HostBindingID: hostBinding,
 	}
 	for _, m := range mutate {
@@ -152,16 +150,16 @@ func TestCognitiveRecoveryClassifiesRunning(t *testing.T) {
 	store := newINOFYRunStore(backend)
 	ref := inofy.ExecutionRef{
 		RunID: string(wfRun.ID), Epoch: 1,
-		ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID,
+		ProgramID: revision.ProgramID, HostBindingID: revision.HostBindingID,
 	}
 	admitData, _ := json.Marshal(map[string]any{
-		"input_digest": revision.InputDigest,
-		"limits":       json.RawMessage(revision.EffectiveLimits),
+		"limits": json.RawMessage(revision.EffectiveLimits),
 	})
 	if _, err := store.Commit(ctx, ref, inofy.RunCommit{
-		CommitID:   "admit",
-		Events:     []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: admitData}},
-		Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
+		CommitID:      "admit",
+		AdmittedInput: append([]byte(nil), revision.InputJSON...),
+		Events:        []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: admitData}},
+		Transition:    inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
 	}); err != nil {
 		t.Fatalf("commit admitted: %v", err)
 	}
@@ -225,7 +223,7 @@ func TestCognitiveRecoveryClassifiesRunning(t *testing.T) {
 
 // TestCognitiveRecoveryRejectsAlteredDescriptor fails the rebind when the
 // persisted trusted definition drifted from the code-owned strategy: the
-// program/descriptor digests no longer match the live catalog.
+// actual normalized descriptor no longer matches the saved bytes.
 func TestCognitiveRecoveryRejectsAlteredDescriptor(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
@@ -237,9 +235,8 @@ func TestCognitiveRecoveryRejectsAlteredDescriptor(t *testing.T) {
 	wfRun, _ := admitCognitiveWorkflowFixture(t, svc, backend, sessionID, parentRunID, "cog-op-altered", nil,
 		func(revision *domain.WorkflowRevision) {
 			// Tampered saved definition: valid JSON, different canonical bytes,
-			// self-consistent digest — only the live-catalog compare catches it.
+			// only the live-catalog comparison catches noncanonical saved bytes.
 			revision.DescriptorJSON = append(revision.DescriptorJSON, ' ')
-			revision.DescriptorDigest = sha256Hex(revision.DescriptorJSON)
 		})
 	if err := backend.SetRunStatus(ctx, wfRun.ID, domain.RunActive); err != nil {
 		t.Fatal(err)

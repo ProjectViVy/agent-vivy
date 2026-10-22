@@ -10,6 +10,15 @@ import * as api from './api';
 
 describe('typed Vivy API', () => {
   beforeEach(() => { call.mockReset(); call.mockResolvedValue({}); });
+  it('toggles a skill using the raw authorized SKILL.md before-state', async () => {
+    const content = '---\nname: precise\nenabled: true\n---\nUnicode: 技能\n';
+    call.mockResolvedValueOnce({ content }).mockResolvedValueOnce({ name: 'precise', enabled: false });
+    await api.setSkillEnabled('precise', false);
+    expect(call.mock.calls).toEqual([
+      ['skills/get', { name: 'precise', path: 'SKILL.md' }],
+      ['skills/set-enabled', { name: 'precise', enabled: false, expected_exists: true, expected_content: content }],
+    ]);
+  });
   it('tracks every server method without duplicates', () => {
     expect(new Set(api.RPC_METHODS).size).toBe(api.RPC_METHODS.length);
     expect(api.RPC_METHODS).toContain('background/recover');

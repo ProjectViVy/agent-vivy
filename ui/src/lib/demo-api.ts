@@ -145,7 +145,6 @@ const MOCK_SKILLS: SkillDto[] = [
     always: false,
     available: true,
     active: true,
-    content_hash: 'abc123',
     updated_at: '2024-01-15T10:00:00Z',
     can_hard_delete: false,
     path: '/skills/react-design',
@@ -160,7 +159,6 @@ const MOCK_SKILLS: SkillDto[] = [
     always: false,
     available: true,
     active: true,
-    content_hash: 'def456',
     updated_at: '2024-01-15T10:00:00Z',
     can_hard_delete: false,
     path: '/skills/meoo-cloud',
@@ -175,7 +173,6 @@ const MOCK_SKILLS: SkillDto[] = [
     always: false,
     available: true,
     active: false,
-    content_hash: 'ghi789',
     updated_at: '2024-01-15T10:00:00Z',
     can_hard_delete: false,
     path: '/skills/web-design-guidelines',
@@ -190,7 +187,6 @@ const MOCK_SKILLS: SkillDto[] = [
     always: false,
     available: true,
     active: true,
-    content_hash: 'evo-hash-review-2',
     updated_at: '2026-08-24T09:30:00Z',
     can_hard_delete: true,
     evolution_managed: true,
@@ -206,7 +202,6 @@ const MOCK_SKILLS: SkillDto[] = [
     always: false,
     available: true,
     active: true,
-    content_hash: 'evo-hash-sync-1',
     updated_at: '2026-08-23T16:00:00Z',
     can_hard_delete: true,
     evolution_managed: true,
@@ -233,7 +228,6 @@ const MOCK_SKILL_DOCS: Record<string, DemoSkillDocRecord> = {
       {
         slug: 'vivy-code-review',
         revision: 1,
-        content_hash: 'evo-hash-review-1',
         updated_at: '2026-08-22T11:00:00Z',
         markdown: t('demo.evolution.skillReviewMarkdownV1'),
       },
@@ -253,7 +247,8 @@ const MOCK_SKILL_REQUESTS: SkillRequest[] = [
     proposed_markdown: t('demo.evolution.pendingRequestMarkdown'),
     evidence: [{ autodream_run_id: 'run-demo-1', tool: 'autodream', artifact: null }],
     attestation: null,
-    base_hash: 'evo-hash-sync-1',
+    expected_exists: true,
+    expected_markdown: t('demo.evolution.skillSyncMarkdown'),
     source: 'autodream',
     reason: t('demo.evolution.pendingRequestReason'),
     status: 'pending',
@@ -267,7 +262,8 @@ const MOCK_SKILL_REQUESTS: SkillRequest[] = [
     proposed_markdown: t('demo.evolution.skillReviewMarkdown'),
     evidence: [],
     attestation: t('demo.evolution.acceptedRequestAttestation'),
-    base_hash: 'evo-hash-review-1',
+    expected_exists: true,
+    expected_markdown: t('demo.evolution.skillReviewMarkdownV1'),
     source: 'user_request',
     reason: t('demo.evolution.acceptedRequestReason'),
     status: 'accepted',
@@ -281,7 +277,8 @@ const MOCK_SKILL_REQUESTS: SkillRequest[] = [
     proposed_markdown: t('demo.evolution.skillReviewMarkdownV1'),
     evidence: [{ autodream_run_id: 'run-demo-2', tool: 'autodream', artifact: null }],
     attestation: null,
-    base_hash: 'evo-hash-review-0',
+    expected_exists: true,
+    expected_markdown: t('demo.evolution.skillReviewMarkdownV1'),
     source: 'autodream',
     reason: t('demo.evolution.staleRequestReason'),
     status: 'stale',
@@ -392,7 +389,6 @@ const MOCK_AUTODREAM: DemoAutoDreamStore = {
   },
 };
 
-const demoHash = () => `evo-hash-${generateId()}`;
 
 /** 播种时必须返回副本：治理操作会原地修改返回的记录，不能污染模块级种子 */
 function seedStore<T>(key: string, seed: T): T {
@@ -453,22 +449,19 @@ function readAutoDreamStore(): DemoAutoDreamStore {
   return seedStore(STORAGE_KEYS.AUTODREAM, MOCK_AUTODREAM);
 }
 
-/** 将提案写入 Skill 权威头并保留历史快照；返回新的 content_hash */
-function applyProposalToSkill(slug: string, markdown: string): string {
+/** Apply the accepted proposal and retain the exact previous document. */
+function applyProposalToSkill(slug: string, markdown: string): void {
   const skills = readSkillStore();
   const docs = readSkillDocStore();
   const skill = skills.find((s) => s.slug === slug);
   const record = docs[slug] ?? { markdown: '', history: [] };
-  const newHash = demoHash();
   if (skill) {
     record.history.push({
       slug,
       revision: record.history.length + 1,
-      content_hash: skill.content_hash,
       updated_at: now(),
       markdown: record.markdown,
     });
-    skill.content_hash = newHash;
     skill.updated_at = now();
     skill.evolution_managed = true;
     skill.enabled = true;
@@ -482,7 +475,6 @@ function applyProposalToSkill(slug: string, markdown: string): string {
       always: false,
       available: true,
       active: true,
-      content_hash: newHash,
       updated_at: now(),
       can_hard_delete: true,
       evolution_managed: true,
@@ -494,7 +486,6 @@ function applyProposalToSkill(slug: string, markdown: string): string {
   docs[slug] = record;
   writeSkillStore(skills);
   writeSkillDocStore(docs);
-  return newHash;
 }
 
 const MOCK_APPROVALS: ApprovalView[] = [
@@ -866,7 +857,6 @@ export async function getSkillDocument(slug: string): Promise<SkillDocument | nu
     enabled: skill.enabled,
     always: skill.always,
     available: skill.available,
-    content_hash: skill.content_hash,
     updated_at: skill.updated_at,
     can_hard_delete: skill.can_hard_delete,
     evolution_managed: skill.evolution_managed,
@@ -875,28 +865,26 @@ export async function getSkillDocument(slug: string): Promise<SkillDocument | nu
 }
 
 /**
- * 编辑保存 Skill 文档（base_hash 冲突时拒绝，保留旧内容为历史快照）
+ * Save only against the exact observed document and retain its history.
  */
-export async function updateSkillDocument(slug: string, markdown: string, baseHash: string): Promise<SkillWriteOutcome> {
+export async function updateSkillDocument(slug: string, markdown: string, expectedMarkdown: string): Promise<SkillWriteOutcome> {
   await delay(300);
   const skills = readSkillStore();
   const skill = skills.find((s) => s.slug === slug);
   if (!skill) throw new Error(t('demo.evolution.errors.skillNotFound'));
-  if (skill.content_hash !== baseHash) throw new Error(t('demo.evolution.errors.hashConflict'));
   const docs = readSkillDocStore();
   const record = docs[slug] ?? { markdown: '', history: [] };
+  if (record.markdown !== expectedMarkdown) throw new Error(t('demo.evolution.errors.contentConflict'));
   const changed = record.markdown !== markdown;
   if (changed) {
     record.history.push({
       slug,
       revision: record.history.length + 1,
-      content_hash: skill.content_hash,
       updated_at: now(),
       markdown: record.markdown,
     });
     record.markdown = markdown;
     docs[slug] = record;
-    skill.content_hash = demoHash();
     skill.updated_at = now();
     writeSkillStore(skills);
     writeSkillDocStore(docs);
@@ -942,7 +930,7 @@ export async function getSkillHistory(slug: string): Promise<SkillHistoryEntry[]
   await delay(150);
   const record = readSkillDocStore()[slug];
   if (!record) return [];
-  return record.history.map(({ revision, content_hash, updated_at }) => ({ revision, content_hash, updated_at }));
+  return record.history.map(({ revision, updated_at }) => ({ revision, updated_at }));
 }
 
 /**
@@ -967,7 +955,8 @@ export async function createSkillRequest(payload: CreateSkillRequestPayload): Pr
     proposed_markdown: payload.proposed_markdown,
     evidence: payload.evidence || [],
     attestation: payload.attestation,
-    base_hash: payload.base_hash,
+    expected_exists: payload.expected_exists,
+    expected_markdown: payload.expected_markdown,
     source: 'user_request',
     reason: payload.reason,
     status: 'pending',
@@ -988,7 +977,7 @@ export async function getSkillRequests(): Promise<SkillRequest[]> {
 }
 
 /**
- * 接受技能请求：base_hash 与当前权威头不一致时置为 stale 并拒绝
+ * Reject stale or unbound request input before applying any proposal.
  */
 export async function acceptSkillRequest(id: string): Promise<SkillRequest> {
   await delay(300);
@@ -997,7 +986,9 @@ export async function acceptSkillRequest(id: string): Promise<SkillRequest> {
   if (!request) throw new Error(t('demo.evolution.errors.requestNotFound'));
   if (request.status !== 'pending') throw new Error(t('demo.evolution.errors.requestNotPending'));
   const skill = readSkillStore().find((s) => s.slug === request.slug);
-  if (skill && skill.content_hash !== request.base_hash) {
+  const current = readSkillDocStore()[request.slug];
+  if (typeof request.expected_exists !== 'boolean' || typeof request.expected_markdown !== 'string' ||
+      Boolean(skill) !== request.expected_exists || (current?.markdown ?? '') !== request.expected_markdown) {
     request.status = 'stale';
     request.updated_at = now();
     writeSkillRequests(requests);

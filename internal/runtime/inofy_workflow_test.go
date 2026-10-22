@@ -40,7 +40,7 @@ func TestINOFYWorkflowAdmitRunInspect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if !started.Created || started.Run.Kind != domain.RunKindWorkflow || started.Revision.SchemaVersion != 2 {
+	if !started.Created || started.Run.Kind != domain.RunKindWorkflow || started.Revision.SchemaVersion != 3 {
 		t.Fatalf("start result = %+v", started)
 	}
 	waitForRunStatus(t, backend, started.Run.ID, domain.RunCompleted)
@@ -78,6 +78,33 @@ func TestINOFYWorkflowAdmitRunInspect(t *testing.T) {
 	}
 	if terminal != 1 {
 		t.Fatalf("terminal events = %d", terminal)
+	}
+}
+
+func TestINOFYCancelledBeforeFirstNativeLoadSettlesWithoutEffects(t *testing.T) {
+	ctx := context.Background()
+	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
+	parentID := domain.RunID("run-workflow-cancel-before-load")
+	sessionID := domain.SessionID("session-workflow-cancel-before-load")
+	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentID, []string{tools.EchoInfoName})
+	run, revision, ref := admitINOFYWorkflowFixture(t, svc, backend, sessionID, parentID, "cancel-before-load", json.RawMessage(inofyTwoNodeDefinition), []string{tools.EchoInfoName})
+	admitted, err := validateINOFYDefinition(ctx, revision.DescriptorJSON, []string{tools.EchoInfoName}, revision.ProgramID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	result, runErr := admitted.Program.Run(cancelled, inofy.RunRequest{Ref: ref, Input: revision.InputJSON, Limits: inofyWorkflowLimits()}, inofy.Bindings{Nodes: newINOFYNodeExecutor(svc), Runs: newINOFYRunStore(backend)})
+	if result.Status != inofy.RunCancelled {
+		t.Fatalf("cancelled before initial load: status=%s err=%v", result.Status, runErr)
+	}
+	current, err := backend.GetRun(ctx, run.ID)
+	if err != nil || current.Status != domain.RunCancelled {
+		t.Fatalf("known cancellation not durable: %s %v", current.Status, err)
+	}
+	children, err := backend.ListChildRuns(ctx, run.ID)
+	if err != nil || len(children) != 0 {
+		t.Fatalf("cancelled run executed a node: children=%d err=%v", len(children), err)
 	}
 }
 

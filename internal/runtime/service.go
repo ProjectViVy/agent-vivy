@@ -406,7 +406,7 @@ type pendingRun struct {
 type GoalRoundAdmission struct {
 	ExpectedVersion domain.WorkVersion
 	RequestID       string
-	RequestHash     string
+	RequestInput    string
 	Goal            domain.GoalRef
 	Round           int
 	RunID           domain.RunID
@@ -1246,7 +1246,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 			SessionID:       sessionID,
 			ExpectedVersion: goal.ExpectedVersion,
 			RequestID:       goal.RequestID,
-			RequestHash:     goal.RequestHash,
+			RequestInput:    goal.RequestInput,
 			Kind:            domain.WorkEventGoalRoundAdmitted,
 			Admission: domain.GoalRunAdmission{
 				SessionID: sessionID,
@@ -1376,7 +1376,10 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	// The durable admission is already committed. Register its process-local
 	// RunID before notifying subscribers that refresh WorkView on this event.
 	if goalAdmissionEvent != nil && s.deps.WorkSink != nil {
-		s.deps.WorkSink.Publish(*goalAdmissionEvent)
+		publicEvent := *goalAdmissionEvent
+		publicEvent.RequestInput = ""
+		publicEvent.Mutation.RequestInput = ""
+		s.deps.WorkSink.Publish(publicEvent)
 	}
 
 	s.wg.Add(1)

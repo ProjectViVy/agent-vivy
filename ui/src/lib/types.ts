@@ -260,7 +260,6 @@ export interface SkillDto {
   always: boolean;
   available: boolean;
   active: boolean;
-  content_hash: string;
   updated_at: string;
   can_hard_delete: boolean;
   evolution_managed?: boolean;
@@ -279,14 +278,12 @@ export interface SkillWriteOutcome {
 
 export interface SkillHistoryEntry {
   revision: number;
-  content_hash: string;
   updated_at: string;
 }
 
 export interface SkillHistoryDocument {
   slug: string;
   revision: number;
-  content_hash: string;
   markdown: string;
 }
 
@@ -308,7 +305,8 @@ export interface SkillRequest {
   proposed_markdown: string;
   evidence: SkillEvidence[];
   attestation?: string | null;
-  base_hash: string;
+  expected_exists: boolean;
+  expected_markdown: string;
   source: SkillRequestSource;
   reason: string;
   status: SkillRequestStatus;
@@ -322,7 +320,8 @@ export interface CreateSkillRequestPayload {
   proposed_markdown: string;
   evidence?: SkillEvidence[];
   attestation?: string | null;
-  base_hash: string;
+  expected_exists: boolean;
+  expected_markdown: string;
   reason: string;
 }
 
@@ -526,7 +525,6 @@ export interface PersonaChangeRequest {
 export interface PersonaHistoryEntry {
   revision: number;
   updated_at: string;
-  content_hash: string;
 }
 
 export interface PersonaHistoryRevision {

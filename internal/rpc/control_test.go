@@ -3384,7 +3384,7 @@ func TestControlHandlerSkillsCatalog(t *testing.T) {
 	if err := json.Unmarshal(listedJSON, &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Skills) != 2 || catalog.Skills[0].Name != "demo-skill" || !catalog.Skills[0].UserInvocable || catalog.Skills[0].Hash == "" {
+	if len(catalog.Skills) != 2 || catalog.Skills[0].Name != "demo-skill" || !catalog.Skills[0].UserInvocable {
 		t.Fatalf("skills = %+v", catalog.Skills)
 	}
 
@@ -3459,8 +3459,19 @@ func TestControlHandlerSkillsCatalog(t *testing.T) {
 	if _, rpcErr := callControl(t, wired, "skills/get", map[string]string{"name": "missing"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
 		t.Fatalf("missing skill error = %v", rpcErr)
 	}
-	if _, err := backend.SetSkillEnabled(context.Background(), "demo-skill", false, catalog.Skills[0].Hash); err != nil {
-		t.Fatalf("disable dynamic skill: %v", err)
+	if _, rpcErr := callControl(t, wired, "skills/set-enabled", map[string]any{"name": "demo-skill", "enabled": false, "expected_content": doc}); rpcErr == nil || rpcErr.Code != InvalidParams {
+		t.Fatalf("omitted existence accepted: %v", rpcErr)
+	}
+	before, readErr := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	params := map[string]any{"name": "demo-skill", "enabled": false, "expected_exists": true, "expected_content": string(before)}
+	if _, rpcErr := callControl(t, wired, "skills/set-enabled", params); rpcErr != nil {
+		t.Fatalf("disable dynamic skill: %v", rpcErr)
+	}
+	if _, rpcErr := callControl(t, wired, "skills/set-enabled", params); rpcErr == nil || rpcErr.Code != CodeConflict {
+		t.Fatalf("stale exact document accepted: %v", rpcErr)
 	}
 	if _, rpcErr := callControl(t, wired, "commands/expand", map[string]string{"id": "skill:demo-skill"}); rpcErr == nil || rpcErr.Code != CodeNotFound {
 		t.Fatalf("disabled dynamic command error = %v", rpcErr)

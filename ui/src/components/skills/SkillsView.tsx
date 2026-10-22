@@ -50,7 +50,7 @@ export function SkillsView() {
     try {
       setToggling(true);
       setError(null);
-      const updated = await api.setSkillEnabled(summary.name, !summary.enabled, summary.hash);
+      const updated = await api.setSkillEnabled(summary.name, !summary.enabled);
       setSkills((prev) => prev.map((skill) => (skill.name === updated.name ? updated : skill)));
       setSelected((prev) =>
         prev && prev.name === updated.name
@@ -183,7 +183,6 @@ export function SkillsView() {
                   </div>
 
                   <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-                    <p className="min-w-0 break-all"><span className="text-muted-foreground">{t('skills.contentHash')}</span>{selected.hash}</p>
                     <p><span className="text-muted-foreground">{t('skills.supportingFiles')}</span>{selected.supporting_files.length}</p>
                   </div>
 

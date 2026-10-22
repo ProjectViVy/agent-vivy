@@ -858,7 +858,6 @@ export interface SkillSummary {
   model?: string;
   origin?: 'user' | 'project';
   enabled: boolean;
-  hash: string;
   warnings: string[];
 }
 
@@ -876,14 +875,15 @@ export interface MarketplaceUpdateCheck {
   name: string;
   status: 'not_installed' | 'unmanaged' | 'up_to_date' | 'upgrade_available';
   marketplace_id?: string;
-  snapshot_hash?: string;
 }
 
 export const listSkills = () => request<{ skills: SkillSummary[] }>('skills/list');
 export const getSkill = (name: string, path?: string) =>
   request<SkillView>('skills/get', path ? { name, path } : { name });
-export const setSkillEnabled = (name: string, enabled: boolean, base_hash: string) =>
-  request<SkillSummary>('skills/set-enabled', { name, enabled, base_hash });
+export const setSkillEnabled = async (name: string, enabled: boolean) => {
+  const document = await getSkill(name, 'SKILL.md');
+  return request<SkillSummary>('skills/set-enabled', { name, enabled, expected_exists: true, expected_content: document.content });
+};
 export const searchMarketplaceSkills = (q: string, limit?: number) =>
   request<{ skills: MarketplaceSkill[] }>('skills/marketplace/search', limit ? { q, limit } : { q });
 export const featuredMarketplaceSkills = () => request<MarketplaceFeatured>('skills/marketplace/featured');

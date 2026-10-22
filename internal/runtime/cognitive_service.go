@@ -137,7 +137,7 @@ func (s *Service) UpdateCognitivePolicyCAS(ctx context.Context, policy laputaevo
 	if s.deps.Cognitive == nil || s.deps.Cognitive.Store == nil {
 		return ErrCognitiveUnavailable
 	}
-	st, _, err := s.loadCognitiveState(ctx)
+	st, version, err := s.loadCognitiveState(ctx)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,11 @@ func (s *Service) UpdateCognitivePolicyCAS(ctx context.Context, policy laputaevo
 	}
 	st.Policy = policy
 	st.PolicyRevision++
-	return s.saveCognitiveState(ctx, st)
+	err = s.saveCognitiveState(ctx, st, version)
+	if errors.Is(err, storage.ErrVersionConflict) {
+		return ErrPolicyConflict
+	}
+	return err
 }
 
 // ErrPolicyConflict rejects a policy write whose base revision is stale.
@@ -294,7 +298,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	if b.Store == nil {
 		return laputaevolution.Eligibility{}, ErrCognitiveUnavailable
 	}
-	st, _, err := s.loadCognitiveState(ctx)
+	st, version, err := s.loadCognitiveState(ctx)
 	if err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
@@ -355,7 +359,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 		// Durable fence: automatic wakes stop here. A manual trigger is a
 		// deliberate human retry and clears the recorded reason.
 		st.LastReason = "blocked:" + st.Blocked
-		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, s.saveCognitiveState(ctx, st)
+		return laputaevolution.Eligibility{Reason: laputaevolution.EligibilityReason("blocked:" + st.Blocked)}, s.saveCognitiveState(ctx, st, version)
 	}
 	elig := laputaevolution.Evaluate(laputaevolution.Wake{
 		NowUnixMS:      now,
@@ -368,7 +372,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 	})
 	st.LastReason = string(elig.Reason)
 	if !elig.Run {
-		return elig, s.saveCognitiveState(ctx, st)
+		return elig, s.saveCognitiveState(ctx, st, version)
 	}
 	if manual {
 		st.Blocked = ""
@@ -383,7 +387,8 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 			return laputaevolution.Eligibility{}, resolveErr
 		}
 		if resolved.SubjectID != b.Binding.SubjectID || resolved.WorkspaceID != b.Binding.WorkspaceID ||
-			resolved.DestinationID != b.Binding.DestinationID {
+			resolved.DestinationID != b.Binding.DestinationID || resolved.StrategyID != b.Binding.StrategyID ||
+			resolved.StrategyVersion != b.Binding.StrategyVersion {
 			return laputaevolution.Eligibility{}, errors.New("runtime: resolved binding drifted from the bound composition")
 		}
 		binding = resolved
@@ -432,7 +437,7 @@ func (s *Service) cognitiveAttempt(ctx context.Context, manual bool) (laputaevol
 			st.Blocked = cognitiveBlockExhausted
 		}
 	}
-	if err := s.saveCognitiveState(ctx, st); err != nil {
+	if err := s.saveCognitiveState(ctx, st, version); err != nil {
 		return laputaevolution.Eligibility{}, err
 	}
 	return elig, nil
@@ -551,12 +556,8 @@ func (s *Service) loadCognitiveState(ctx context.Context) (cognitiveState, int64
 	return st, version, nil
 }
 
-func (s *Service) saveCognitiveState(ctx context.Context, st cognitiveState) error {
+func (s *Service) saveCognitiveState(ctx context.Context, st cognitiveState, version int64) error {
 	raw, err := json.Marshal(st)
-	if err != nil {
-		return err
-	}
-	_, version, err := s.deps.Cognitive.Store.Get(ctx, cognitiveStateKey)
 	if err != nil {
 		return err
 	}
@@ -564,12 +565,12 @@ func (s *Service) saveCognitiveState(ctx context.Context, st cognitiveState) err
 }
 
 func (s *Service) updateCognitiveState(ctx context.Context, mutate func(*cognitiveState)) error {
-	st, _, err := s.loadCognitiveState(ctx)
+	st, version, err := s.loadCognitiveState(ctx)
 	if err != nil {
 		return err
 	}
 	mutate(&st)
-	return s.saveCognitiveState(ctx, st)
+	return s.saveCognitiveState(ctx, st, version)
 }
 
 // now is the bindable clock; tests inject a fake.

@@ -408,15 +408,15 @@ type workflowStartParams struct {
 }
 
 type workflowResult struct {
-	ID             string `json:"id"`
-	ParentRunID    string `json:"parent_run_id"`
-	RootRunID      string `json:"root_run_id"`
-	SessionID      string `json:"session_id"`
-	Status         string `json:"status"`
-	RevisionDigest string `json:"revision_digest"`
-	Depth          int    `json:"depth"`
-	CreatedAt      int64  `json:"created_at"`
-	Created        bool   `json:"created,omitempty"`
+	ID          string `json:"id"`
+	ParentRunID string `json:"parent_run_id"`
+	RootRunID   string `json:"root_run_id"`
+	SessionID   string `json:"session_id"`
+	Status      string `json:"status"`
+	ProgramID   string `json:"program_id"`
+	Depth       int    `json:"depth"`
+	CreatedAt   int64  `json:"created_at"`
+	Created     bool   `json:"created,omitempty"`
 	// Definition is the committed canonical INOFY definition; engine_status
 	// reports the committed graph projection (admitted/running/waiting/
 	// succeeded/failed/cancelled/recovery_required).
@@ -572,7 +572,6 @@ type skillSummaryResult struct {
 	UserInvocable bool     `json:"user_invocable,omitempty"`
 	Origin        string   `json:"origin,omitempty"`
 	Enabled       bool     `json:"enabled"`
-	Hash          string   `json:"hash"`
 	Warnings      []string `json:"warnings"`
 }
 
@@ -609,9 +608,10 @@ type skillViewResult struct {
 }
 
 type skillSetEnabledParams struct {
-	Name     string `json:"name"`
-	Enabled  bool   `json:"enabled"`
-	BaseHash string `json:"base_hash"`
+	Name            string `json:"name"`
+	Enabled         bool   `json:"enabled"`
+	ExpectedExists  *bool  `json:"expected_exists"`
+	ExpectedContent string `json:"expected_content"`
 }
 
 type marketplaceSearchParams struct {
@@ -1797,7 +1797,7 @@ func (h *controlHandler) cancelWorkflow(ctx context.Context, request Request) (a
 func toWorkflowResult(details runtime.WorkflowDetails, created bool) workflowResult {
 	return workflowResult{
 		ID: string(details.Run.ID), ParentRunID: string(details.Run.ParentID), RootRunID: string(details.Run.RootID),
-		SessionID: string(details.Run.SessionID), Status: string(details.Run.Status), RevisionDigest: details.RevisionDigest,
+		SessionID: string(details.Run.SessionID), Status: string(details.Run.Status), ProgramID: details.ProgramID,
 		Depth: details.Run.Depth, CreatedAt: details.Run.CreatedAt, Created: created,
 		Definition: details.Definition, EngineStatus: details.EngineStatus,
 		Nodes: details.Nodes, Outputs: details.Outputs,
@@ -1943,6 +1943,8 @@ func childControlError(err error) *Error {
 	switch {
 	case errors.Is(err, storage.ErrNotFound):
 		return &Error{Code: CodeNotFound, Message: "child resource not found"}
+	case errors.Is(err, storage.ErrChildBindingUnavailable):
+		return &Error{Code: CodeConflict, Message: "child exact input unavailable; review required"}
 	case errors.Is(err, storage.ErrChildAdmissionConflict), errors.Is(err, storage.ErrChildSessionClosed), errors.Is(err, storage.ErrChildMessageConflict), errors.Is(err, storage.ErrChildMailboxFull):
 		return &Error{Code: CodeConflict, Message: "child operation conflicts with current state or authority"}
 	default:
@@ -2912,7 +2914,7 @@ func toSkillSummaryResult(item tools.SkillSummary) skillSummaryResult {
 	return skillSummaryResult{
 		Name: item.Name, Description: item.Description, Context: item.Context,
 		Agent: item.Agent, Model: item.Model, UserInvocable: item.UserInvocable,
-		Origin: item.Origin, Enabled: item.Enabled, Hash: item.Hash, Warnings: warnings,
+		Origin: item.Origin, Enabled: item.Enabled, Warnings: warnings,
 	}
 }
 
@@ -2930,7 +2932,7 @@ func toSkillViewResult(view tools.SkillView) skillViewResult {
 }
 
 // setSkillEnabled flips the frontmatter enabled flag of one installed Skill
-// under compare-and-swap on the current content hash. A stale hash is a 409:
+// under compare-and-swap on the exact observed document. A stale input is a 409:
 // the document changed under the caller, so it must re-read and re-decide.
 func (h *controlHandler) setSkillEnabled(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.Skills == nil {
@@ -2943,10 +2945,12 @@ func (h *controlHandler) setSkillEnabled(ctx context.Context, request Request) (
 	if strings.TrimSpace(params.Name) == "" {
 		return nil, &Error{Code: InvalidParams, Message: "name is required"}
 	}
-	if strings.TrimSpace(params.BaseHash) == "" {
-		return nil, &Error{Code: InvalidParams, Message: "base_hash is required"}
+	if params.ExpectedExists == nil {
+		return nil, &Error{Code: InvalidParams, Message: "expected_exists is required"}
 	}
-	summary, err := h.deps.Skills.SetSkillEnabled(ctx, params.Name, params.Enabled, params.BaseHash)
+	summary, err := h.deps.Skills.SetSkillEnabled(ctx, tools.SkillEnableRequest{
+		Name: params.Name, Enabled: params.Enabled, ExpectedExists: *params.ExpectedExists, ExpectedContent: []byte(params.ExpectedContent),
+	})
 	if err != nil {
 		return nil, skillToggleError(err)
 	}

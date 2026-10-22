@@ -1581,7 +1581,6 @@ export interface FaceSkillSummary {
   readonly model?: string;
   readonly origin?: "user" | "project";
   readonly enabled: boolean;
-  readonly hash: string;
   readonly warnings: readonly string[];
 }
 
@@ -1616,7 +1615,6 @@ export interface FaceMarketplaceUpdateCheck {
   readonly name: string;
   readonly status: "not_installed" | "unmanaged" | "up_to_date" | "upgrade_available";
   readonly marketplace_id?: string;
-  readonly snapshot_hash?: string;
 }
 
 export type FaceScheduleKind = "at" | "every" | "cron";
@@ -2004,7 +2002,7 @@ export interface FaceClientAPI {
   getTokenUsage(params: FaceTokenUsageParams): Promise<FaceTokenUsageSnapshot>;
   listSkills(): Promise<FaceSkillList>;
   getSkill(name: string, path?: string): Promise<FaceSkillView>;
-  setSkillEnabled(name: string, enabled: boolean, base_hash: string): Promise<FaceSkillSummary>;
+  setSkillEnabled(name: string, enabled: boolean): Promise<FaceSkillSummary>;
   searchMarketplaceSkills(q: string, limit?: number): Promise<FaceMarketplaceSkillList>;
   featuredMarketplaceSkills(): Promise<FaceMarketplaceFeatured>;
   installMarketplaceSkill(id: string, mode?: "create" | "upgrade"): Promise<FaceMarketplaceInstallResult>;

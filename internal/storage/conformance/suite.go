@@ -4,8 +4,6 @@ package conformance
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,15 +149,13 @@ func cnWorkflowRevisionAdmission(t *testing.T, h Harness) {
 
 	const descriptor = `{"schema_version":1,"nodes":[{"key":"a","task":"inspect"}],"outputs":["a"]}`
 	makeAdmission := func(runID domain.RunID) storage.WorkflowAdmission {
-		descriptorHash := sha256.Sum256([]byte(descriptor))
 		authority := []byte(`{"policy_profile":"default","tool_names":[]}`)
-		authorityHash := sha256.Sum256(authority)
 		created := int64(3)
 		return storage.WorkflowAdmission{
 			Revision: domain.WorkflowRevision{
 				RunID: runID, ParentRunID: parentID, ParentSessionID: sessionID, RootRunID: parentID,
-				OperationKey: "operation-1", DescriptorDigest: hex.EncodeToString(descriptorHash[:]),
-				AuthorityDigest: hex.EncodeToString(authorityHash[:]), DescriptorJSON: []byte(descriptor), AuthorityJSON: authority, SchemaVersion: 1, CreatedAt: created,
+				OperationKey:   "operation-1",
+				DescriptorJSON: []byte(descriptor), AuthorityJSON: authority, SchemaVersion: 1, CreatedAt: created,
 			},
 			Run:     domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunAccepted, CreatedAt: created, Kind: domain.RunKindWorkflow, ParentID: parentID, RootID: parentID, Depth: 1},
 			Started: domain.RunEvent{RunID: runID, Type: domain.EventRunStarted, CreatedAt: created, PayloadVersion: 1, Payload: []byte(`{"mode":"workflow"}`)},
@@ -206,14 +202,12 @@ func cnWorkflowRevisionAdmission(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.RunID != wantRunID || stored.DescriptorDigest != results[0].Revision.DescriptorDigest {
+	if stored.RunID != wantRunID || !bytes.Equal(stored.DescriptorJSON, results[0].Revision.DescriptorJSON) {
 		t.Fatalf("stored revision mismatch: %+v", stored)
 	}
 
 	conflict := makeAdmission("run-cn-workflow-conflict")
 	conflict.Revision.DescriptorJSON = []byte(`{"schema_version":1,"nodes":[{"key":"a","task":"changed"}],"outputs":["a"]}`)
-	conflictHash := sha256.Sum256(conflict.Revision.DescriptorJSON)
-	conflict.Revision.DescriptorDigest = hex.EncodeToString(conflictHash[:])
 	if _, err := b.CommitWorkflowAdmission(ctx, conflict); !errors.Is(err, storage.ErrWorkflowRevisionConflict) {
 		t.Fatalf("changed retry = %v, want workflow conflict", err)
 	}

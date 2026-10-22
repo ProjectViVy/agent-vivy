@@ -228,7 +228,6 @@ export function RunInspector() {
                 } finally { setWorkflowBusy(false); }
               }}>{t('runInspector.workflowStart')}</Button>
             </div>
-            {workflowProposal ? <p className="break-all text-xs text-muted-foreground">{t('runInspector.workflowDigest', { digest: workflowProposal.digest.slice(0, 16) })}</p> : null}
             {workflowItems.length ? <div className="flex flex-wrap gap-2">
               {workflowItems.map((item) => <Button key={item.id} size="sm" variant={workflowState?.id === item.id ? 'secondary' : 'outline'} onClick={() => {
                 setWorkflowState(item); if (item.definition) setWorkflowText(JSON.stringify(item.definition, null, 2)); setWorkflowProposal(null); setProposalSource('');
@@ -236,7 +235,7 @@ export function RunInspector() {
             </div> : <p className="text-xs text-muted-foreground">{t('runInspector.noWorkflows')}</p>}
             {workflowState ? <div className="space-y-2 rounded bg-muted/40 p-2 text-xs">
               <div className="flex items-center justify-between gap-2"><code className="truncate">{workflowState.id}</code><Badge variant="outline">{workflowState.status}</Badge></div>
-              <p className="break-all text-muted-foreground">{t('runInspector.workflowDigest', { digest: workflowState.revision_digest.slice(0, 16) })}</p>
+              <p className="break-all text-muted-foreground">{t('runInspector.workflowProgram', { id: workflowState.program_id })}</p>
               {workflowState.engine_status ? <p className="text-muted-foreground">{t('runInspector.workflowEngineStatus', { status: workflowState.engine_status })}</p> : null}
               <h4 className="font-medium">{t('runInspector.workflowNodes')}</h4>
               {workflowState.nodes.map((node) => <div key={node.key} className="flex items-start justify-between gap-2 rounded border bg-background p-2">

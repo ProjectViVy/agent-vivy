@@ -100,12 +100,11 @@ type PrimaryContextInput struct {
 }
 
 // PreparedPrimaryContext is the durable session FrozenCore v2 authority plus
-// its digest and projected text. There is no new snapshot store: Garden
+// its projected text. There is no new snapshot store: Garden
 // remains the snapshot authority and reopened sessions read the same
 // snapshot.
 type PreparedPrimaryContext struct {
 	Frozen laputaevolution.FrozenCoreV2
-	Digest string
 	Text   string
 }
 
