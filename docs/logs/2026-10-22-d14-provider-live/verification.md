@@ -38,3 +38,11 @@ The focused source tests and vet results remain in
 as new executions. No source was changed by this operational follow-up. Full
 CI and Linux scoped gates were not rerun. Human tool continuation, follow-up,
 cancellation, and the D14 acceptance verdict remain pending.
+
+## Subsequent owner report
+
+The owner reported successful custom-provider use after local credential
+entry. Record that manual smoke as passed by owner report. No key was read
+back, and no extra live call was made for the subsequent baseline audit.
+The report alone does not certify every Tiny Face tool/continuation/cancel
+acceptance step; see the later baseline-audit verification record.

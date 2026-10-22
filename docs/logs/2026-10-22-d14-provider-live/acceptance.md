@@ -11,8 +11,12 @@
 4. Record the human result and redacted Run/call/result identities. Until
    then, D14 and issue 91 remain open.
 
-Current evidence ends at the explicit missing-key failure of
-`run_32691d05730312ad`. The previous SDK success did not save a key in Vivy.
+The initial instrumented smoke ended at the explicit missing-key failure of
+`run_32691d05730312ad`. The owner subsequently reported success after the
+credential handoff; the custom-provider manual smoke is therefore reported
+passed. The complete tool/follow-up/cancellation checklist above was not
+separately confirmed and remains pending. The previous SDK success did not
+save a key in Vivy.
 The current package supports the selected custom provider; an embedded-vendor
 environment workaround is no longer the required route.
 
