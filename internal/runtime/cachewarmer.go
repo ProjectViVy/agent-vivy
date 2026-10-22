@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,9 +21,8 @@ import (
 // spends one minimal request — the run's stable prefix (static
 // instruction + selected tool schemas) plus a throwaway user marker —
 // so the adapter's AutoCacheControl breakpoints refresh the cached
-// system/tools blocks. The response is discarded; the only trace is the
-// diagnostic cache.warmed event. Warm calls are explicitly unobserved:
-// they never enter context, messages, or the model.request lifecycle.
+// system/tools blocks. The response never enters the transcript; paid work
+// uses the existing model-call budget and mandatory maintenance lifecycle.
 //
 // runtime.cache_warming selects the trigger: "off" disables the
 // scheduler; "streaming" refreshes after each settled model call;
@@ -69,10 +69,69 @@ type runCacheWarmer struct {
 	minUSD    float64
 	info      domain.ModelInfo
 	tools     []*schema.ToolInfo
+	ledger    *BudgetLedger
+	cancel    context.CancelFunc
 
 	mu       sync.Mutex
 	timer    *time.Timer
 	inflight bool
+	closed   bool
+	failed   error
+	wg       sync.WaitGroup
+}
+
+type runCacheWarmerKey struct{}
+
+func withRunCacheWarmer(ctx context.Context, warmer *runCacheWarmer) context.Context {
+	if warmer == nil {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, runCacheWarmerKey{}, warmer)
+	warmer.cancel()
+	warmer.runCtx, warmer.cancel = context.WithCancel(ctx)
+	return ctx
+}
+
+func drainRunCacheWarmer(ctx context.Context) error {
+	warmer, _ := ctx.Value(runCacheWarmerKey{}).(*runCacheWarmer)
+	return warmer.stop()
+}
+
+// stop closes admission before waiting: a timer racing shutdown cannot add
+// another paid call, and the owning drive/resume stays alive until settlement.
+func (w *runCacheWarmer) stop() error {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	w.closed = true
+	if w.timer != nil {
+		w.timer.Stop()
+	}
+	w.cancel()
+	w.mu.Unlock()
+	w.wg.Wait()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.failed
+}
+
+func (w *runCacheWarmer) recordFailure(err error) {
+	if err == nil {
+		return
+	}
+	w.mu.Lock()
+	w.failed = errors.Join(w.failed, err)
+	w.mu.Unlock()
+	// Wake the existing Run owner even if its foreground provider is blocked.
+	// The owner drains this call and publishes the failure; maintenance never
+	// emits a terminal from its own goroutine.
+	w.svc.mu.Lock()
+	cancelRun := w.svc.active[w.m.runID]
+	w.svc.mu.Unlock()
+	if cancelRun != nil {
+		cancelRun()
+	}
 }
 
 // newRunCacheWarmer binds the scheduler; nil when warming cannot apply
@@ -95,8 +154,9 @@ func (s *Service) newRunCacheWarmer(runCtx context.Context, m *eventMapper, sess
 			infos = append(infos, ti)
 		}
 	}
+	warmCtx, cancel := context.WithCancel(runCtx)
 	return &runCacheWarmer{
-		svc: s, m: m, sessionID: sessionID, eng: eng, runCtx: runCtx,
+		svc: s, m: m, sessionID: sessionID, eng: eng, runCtx: warmCtx, cancel: cancel,
 		mode: mode, minUSD: s.deps.CacheWarmingMinSavingsUSD,
 		info: info, tools: infos,
 	}
@@ -105,13 +165,18 @@ func (s *Service) newRunCacheWarmer(runCtx context.Context, m *eventMapper, sess
 // settled observes one finished model call (main/child routes only, and
 // only on success). Streaming mode warms immediately; idle mode arms the
 // refresh timer for just before the cache lifetime expires.
-func (w *runCacheWarmer) settled(sample normalizedUsageSample) {
+func (w *runCacheWarmer) settled(sample normalizedUsageSample) error {
 	if w == nil {
-		return
+		return nil
+	}
+	w.mu.Lock()
+	closed := w.closed
+	w.mu.Unlock()
+	if closed {
+		return nil
 	}
 	if reason := w.gate(sample.PromptTokens); reason != "" {
-		w.journal(w.mode, "skipped", reason, 0, 0)
-		return
+		return w.journal(w.mode, "skipped", reason, 0, 0)
 	}
 	switch w.mode {
 	case cacheWarmModeIdle:
@@ -119,6 +184,7 @@ func (w *runCacheWarmer) settled(sample normalizedUsageSample) {
 	default: // streaming
 		w.schedule(cacheWarmModeStreaming)
 	}
+	return nil
 }
 
 // gate returns "" when a warm is worth its cost, else the skip reason.
@@ -144,6 +210,9 @@ func (w *runCacheWarmer) armIdle() {
 	delay := time.Duration(float64(w.info.CacheLifetimeSeconds)*cacheWarmIdleHeadroom) * time.Second
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
 	if w.timer != nil {
 		w.timer.Stop()
 	}
@@ -153,20 +222,18 @@ func (w *runCacheWarmer) armIdle() {
 // schedule fires one warm unless another is already in flight.
 func (w *runCacheWarmer) schedule(mode string) {
 	w.mu.Lock()
-	if w.inflight {
+	if w.inflight || w.closed || w.runCtx.Err() != nil {
 		w.mu.Unlock()
 		return
 	}
 	w.inflight = true
+	w.wg.Add(1)
 	w.mu.Unlock()
-	go w.warm(mode)
+	go func() { defer w.wg.Done(); w.warm(mode) }()
 }
 
-// warm issues the minimal refresh request and journals the outcome. The
-// call rides the run context (so it cancels with the run) minus the
-// model-call observer binding: a warm never enters context, messages,
-// or the request lifecycle — the diagnostic event below is its only
-// trace.
+// warm uses native Generate with the same run observer and budget owner.
+// Its maintenance observer has no warmer and cannot recursively schedule work.
 func (w *runCacheWarmer) warm(mode string) {
 	defer func() {
 		w.mu.Lock()
@@ -178,7 +245,7 @@ func (w *runCacheWarmer) warm(mode string) {
 	if w.runCtx.Err() != nil {
 		return
 	}
-	callCtx, cancel := context.WithTimeout(withoutModelCallObserver(w.runCtx), cacheWarmCallTimeout)
+	callCtx, cancel := context.WithTimeout(w.runCtx, cacheWarmCallTimeout)
 	defer cancel()
 	opts := []model.Option{model.WithMaxTokens(cacheWarmMaxTokens)}
 	if len(w.tools) > 0 {
@@ -188,14 +255,27 @@ func (w *runCacheWarmer) warm(mode string) {
 		agenticSystemMessage(w.eng.instruction),
 		agenticUserMessage(cacheWarmPrompt),
 	}
-	resp, err := w.eng.chatModel.Generate(callCtx, msgs, opts...)
+	core := observedModelCallCore{route: modelCallRoute{Source: modelCallSourceMaintenance}}
+	resp, err := observeGenerate(callCtx, &core, w.eng.chatModel, msgs, opts...)
 	if err != nil {
+		// Closing a leg can cancel an unadmitted queued request between the
+		// initial check and Begin. No paid work exists to settle in that case.
+		if errors.Is(err, errModelCallAdmission) && errors.Is(err, context.Canceled) && w.runCtx.Err() != nil {
+			return
+		}
+		if errors.Is(err, ErrBudgetExceeded) {
+			w.recordFailure(w.journal(mode, "skipped", "budget_exceeded", 0, 0))
+			return
+		}
+		if errors.Is(err, errModelCallObservation) {
+			w.recordFailure(err)
+		}
 		// A run-cancelled warm is a silent drop, not a failure record;
 		// every other error journals as the silent diagnostic.
 		if w.runCtx.Err() != nil {
 			return
 		}
-		w.journal(mode, "failed", fmt.Sprintf("%T", err), 0, 0)
+		w.recordFailure(w.journal(mode, "failed", fmt.Sprintf("%T", err), 0, 0))
 		return
 	}
 	prompt, cacheWrite := 0, 0
@@ -207,13 +287,21 @@ func (w *runCacheWarmer) warm(mode string) {
 			cacheWrite = v
 		}
 	}
-	w.journal(mode, "warmed", "", prompt, cacheWrite)
+	w.recordFailure(w.journal(mode, "warmed", "", prompt, cacheWrite))
 }
 
 // journal writes the diagnostic event on a detached, bounded context so
 // a cancelled run cannot strand the record — the same rule the call
 // settlement follows.
-func (w *runCacheWarmer) journal(mode, status, reason string, promptTokens, cacheWrite int) {
+func (w *runCacheWarmer) journal(mode, status, reason string, promptTokens, cacheWrite int) error {
+	if w.ledger != nil {
+		if err := w.ledger.ReserveEvent(); err != nil {
+			if errors.Is(err, ErrBudgetExceeded) {
+				return nil
+			}
+			return err
+		}
+	}
 	payload := payloadCacheWarmed{
 		Provider:         w.m.runProvider,
 		Model:            w.m.runModel,
@@ -225,5 +313,5 @@ func (w *runCacheWarmer) journal(mode, status, reason string, promptTokens, cach
 	}
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(w.runCtx), terminalPersistTimeout)
 	defer cancel()
-	_ = w.svc.persistAndPublish(persistCtx, w.sessionID, w.m.build(domain.EventCacheWarmed, payload))
+	return w.svc.persistAndPublishEvent(persistCtx, w.sessionID, w.m.build(domain.EventCacheWarmed, payload), false)
 }

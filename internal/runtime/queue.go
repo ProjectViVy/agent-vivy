@@ -590,7 +590,11 @@ func joinLines(parts []string) string {
 // Nil iterator = resume unavailable; the caller falls back to terminal settle
 // and the items re-enter the follow-up lane.
 func (s *Service) resumeSteeredRun(ctx context.Context, runID domain.RunID, items []domain.QueuedTurn, info *adk.InterruptInfo) *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]] {
-	if s.engine == nil || s.engine.cfg.Checkpoints == nil {
+	eng := engineFromContext(ctx)
+	if eng == nil {
+		eng = s.engine
+	}
+	if eng == nil || eng.cfg.Checkpoints == nil {
 		return nil
 	}
 	ctx = withSteerText(ctx, steerMessageText(items))
@@ -612,9 +616,13 @@ func (s *Service) resumeSteeredRun(ctx context.Context, runID domain.RunID, item
 		}
 	}
 	if len(targets) == 0 {
-		targets["agent:"+s.engine.agentName] = &adk.ChatModelAgentResumeData{}
+		targets["agent:"+eng.agentName] = &adk.ChatModelAgentResumeData{}
 	}
-	iter, err := s.engine.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{Targets: targets})
+	cancelOpt, steerCancel := adk.WithCancel()
+	s.mu.Lock()
+	s.steerCancels[runID] = steerCancel
+	s.mu.Unlock()
+	iter, err := eng.Resume(ctx, checkpointIDFor(runID), &adk.ResumeParams{Targets: targets}, cancelOpt)
 	if err != nil {
 		slog.Warn("steer resume failed", "run", string(runID), "err", err)
 		return nil
@@ -646,7 +654,18 @@ func (s *Service) flushQueue(sessionID domain.SessionID) {
 // no terminal is emitted for the boundary itself.
 func (s *Service) resumeSteeredAsync(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode, ledger *BudgetLedger, items []domain.QueuedTurn, beforeComplete func() error, execution runExecutionOptions) {
 	runID := m.runID
+	// Register before the old drive leg can leave WaitIdle's owner group.
+	// The admitted Go context and its active cancel owner stay live across
+	// Eino's native boundary cancellation; only its ADK cancel handle changes.
+	s.mu.Lock()
+	_, active := s.active[runID]
+	s.mu.Unlock()
+	if !active {
+		return
+	}
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		var info *adk.InterruptInfo
 		if m.interrupt != nil {
 			info = m.interrupt.Raw
@@ -655,7 +674,19 @@ func (s *Service) resumeSteeredAsync(ctx context.Context, m *eventMapper, sessio
 		// Preserve the Run-owned prompt, policy and tool bindings for Eino's
 		// checkpoint read; only the cancellation and nudge leg state are fresh.
 		steerState := newNudgeState()
-		steerCtx := withNudgeEmitter(withNudgeState(context.WithoutCancel(ctx), steerState), s.nudgeEmitter(m, sessionID))
+		steerCtx := withNudgeEmitter(withNudgeState(ctx, steerState), s.nudgeEmitter(m, sessionID))
+		eng := engineFromContext(steerCtx)
+		if eng == nil {
+			eng = s.engine
+		}
+		var onDelta func(string)
+		if execution.child != nil {
+			onDelta = execution.child.appendOutput
+		}
+		warmer := s.newRunCacheWarmer(steerCtx, m, sessionID, eng, selectedTools)
+		steerCtx = s.withLiveModelStreamObserver(steerCtx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
+		steerCtx = withRunCacheWarmer(steerCtx, warmer)
+		defer warmer.stop()
 		next := s.resumeSteeredRun(steerCtx, runID, items, info)
 		if next == nil {
 			s.demoteSteerItems(context.Background(), sessionID, items)

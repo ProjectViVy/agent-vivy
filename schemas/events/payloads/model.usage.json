@@ -25,7 +25,7 @@
     },
     "provider": { "type": "string", "maxLength": 128 },
     "model": { "type": "string", "maxLength": 256 },
-    "source": { "type": "string", "enum": ["main", "child", "summary"] },
+    "source": { "type": "string", "enum": ["main", "child", "summary", "maintenance"] },
     "usage_kind": {
       "type": "string",
       "enum": ["cumulative"],

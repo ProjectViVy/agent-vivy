@@ -37,6 +37,62 @@ func trajCommit(t *testing.T, ctx context.Context, journal storage.Journal, runI
 	}
 }
 
+func TestTrajectoryConcurrentMaintenancePreservesForeground(t *testing.T) {
+	ctx := context.Background()
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	sessionID, runID := domain.SessionID("traj-maintenance"), domain.RunID("traj-maintenance-run")
+	mustCreateSession(t, backend, sessionID)
+	if err := backend.CreateRun(ctx, domain.Run{ID: runID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	trajCommit(t, ctx, backend, runID,
+		trajEvent(domain.EventModelRequest, 10, payloadModelRequestV4{CallID: "foreground", Mode: "stream", Source: "main", Provider: "test", Model: "m"}),
+		trajEvent(domain.EventModelDelta, 11, payloadModelDelta{Delta: "before "}),
+		trajEvent(domain.EventModelRequest, 12, payloadModelRequestV4{CallID: "warm", Mode: "generate", Source: "maintenance", Provider: "test", Model: "m"}),
+		trajEvent(domain.EventModelDelta, 13, payloadModelDelta{Delta: "after"}),
+	)
+	live, err := svc.SessionTrajectory(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live.Requests) != 2 {
+		t.Fatalf("live requests = %+v", live.Requests)
+	}
+	for _, request := range live.Requests {
+		if request.CallStatus != TrajCallActive || request.FinishedAt != nil {
+			t.Fatalf("concurrent paid call falsely interrupted foreground: %+v", request)
+		}
+	}
+	trajCommit(t, ctx, backend, runID,
+		trajEvent(domain.EventModelCallFinished, 14, payloadModelCallFinished{CallID: "warm", Mode: "generate", Source: "maintenance", Status: "completed", ResponseComplete: true, Usage: &payloadModelCallUsage{PromptTokens: 111, CompletionTokens: 2, TotalTokens: 113}}),
+		trajEvent(domain.EventModelCallFinished, 15, payloadModelCallFinished{CallID: "foreground", Mode: "stream", Source: "main", Status: "completed", ResponseComplete: true, Usage: &payloadModelCallUsage{PromptTokens: 20, CompletionTokens: 4, TotalTokens: 24}}),
+		trajCompletedV2(16, "before after"),
+		trajEvent(domain.EventRunCompleted, 17, payloadRunCompleted{Outcome: "completed"}),
+	)
+	if err := backend.SetRunStatus(ctx, runID, domain.RunCompleted); err != nil {
+		t.Fatal(err)
+	}
+	final, err := svc.SessionTrajectory(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(final.Requests) != 2 {
+		t.Fatalf("settled requests = %+v", final.Requests)
+	}
+	for _, request := range final.Requests {
+		wantTotal, wantGroup := 24, "Step 1"
+		if request.CallID == "warm" {
+			wantTotal, wantGroup = 113, "Maintenance"
+		}
+		if request.CallStatus != TrajCallCompleted || request.UsageEvidence == nil || request.UsageEvidence.TotalTokens != wantTotal || request.Group != wantGroup {
+			t.Fatalf("call attribution changed: %+v", request)
+		}
+	}
+	if len(final.Records) != 1 || final.Records[0].Text != "before after" || final.Records[0].Group != "Step 1" {
+		t.Fatalf("foreground text was replaced by maintenance: %+v", final.Records)
+	}
+}
+
 // TestSessionTrajectoryProjection folds a hand-crafted two-run session over
 // the real sqlite stores and asserts the record/request structure.
 func TestSessionTrajectoryProjection(t *testing.T) {

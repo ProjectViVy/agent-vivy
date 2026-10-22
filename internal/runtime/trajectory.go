@@ -367,8 +367,11 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 		case domain.EventModelRequest:
 			var v3 payloadModelRequestV4
 			_ = json.Unmarshal(event.Payload, &v3)
-			interruptOpen(event.CreatedAt)
-			step++
+			maintenance := v3.Source == modelCallSourceMaintenance
+			if !maintenance {
+				interruptOpen(event.CreatedAt)
+				step++
+			}
 			req := &TrajectoryRequest{
 				RunID:      string(run.ID),
 				Turn:       &turn,
@@ -378,6 +381,9 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				StartedAt:  event.CreatedAt,
 				UsageState: TrajUsageActive,
 				Messages:   len(v3.Messages), PreambleBytes: v3.PreambleBytes,
+			}
+			if maintenance {
+				req.Group = "Maintenance"
 			}
 			var key string
 			if v3.CallID != "" {
@@ -396,7 +402,13 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				req.UsageState = TrajUsageLegacy
 				key = fmt.Sprintf("req/%d", event.Seq)
 			}
-			open = startCall(key, req)
+			call := startCall(key, req)
+			if maintenance {
+				// Paid maintenance has its own usage/finish, but never owns
+				// foreground deltas, message projection, or the active step.
+				continue
+			}
+			open = call
 			lastCall = open
 			open.legacy = v3.CallID == ""
 			deltas.Reset()
@@ -427,7 +439,11 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 						Model:      v2.Model,
 					}
 					call = startCall("call/"+v2.CallID, req)
-					lastCall = call
+					if v2.Source == modelCallSourceMaintenance {
+						req.Group = "Maintenance"
+					} else {
+						lastCall = call
+					}
 				}
 				call.evidence = &TrajectoryUsageEvidence{
 					PromptTokens: v2.PromptTokens, CompletionTokens: v2.CompletionTokens,
@@ -467,7 +483,11 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 					Model:     payload.Model,
 				}
 				call = startCall("call/"+payload.CallID, req)
-				lastCall = call
+				if payload.Source == modelCallSourceMaintenance {
+					req.Group = "Maintenance"
+				} else {
+					lastCall = call
+				}
 			}
 			status := payload.Status
 			switch status {

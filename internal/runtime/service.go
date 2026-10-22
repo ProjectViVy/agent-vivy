@@ -3023,6 +3023,8 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	// calls feed it; nil when the run's model or config opts out.
 	warmer := s.newRunCacheWarmer(runCtx, m, sessionID, eng, selection.Names())
 	runCtx = s.withLiveModelStreamObserver(runCtx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
+	runCtx = withRunCacheWarmer(runCtx, warmer)
+	defer warmer.stop()
 	// One fresh detector per drive leg (ND-2): the consume loop drives it
 	// from the durable journal stream; the same pointer travels on the
 	// context so in-context seams share exactly this instance.
@@ -3063,8 +3065,12 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 //
 // The factory binds the run's routes: the chat route resolves to
 // "main" or "child" from the execution context; the summary routes are
-// claimed by the wrapped summarizer models in compaction_middleware.go.
+// claimed by the wrapped summarizer models in compaction_middleware.go,
+// and paid cache refreshes explicitly select "maintenance".
 func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMapper, sessionID domain.SessionID, ledger *BudgetLedger, onDelta func(string), childRun bool, warmer *runCacheWarmer) context.Context {
+	if warmer != nil {
+		warmer.ledger = ledger
+	}
 	return withModelCallObserverFactory(ctx, func(route modelCallRoute) modelCallObserver {
 		source := "main"
 		if childRun {
@@ -3077,12 +3083,15 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 				model = m.summaryModel
 			}
 		}
+		if route.Source == modelCallSourceMaintenance {
+			source = modelCallSourceMaintenance
+		}
 		observer := &runModelCallObserver{
 			svc: s, m: m, sessionID: sessionID, ledger: ledger,
 			source: source, provider: provider, model: model,
 			onDelta: onDelta, calls: map[string]*observedModelCall{},
 		}
-		if source != modelCallSourceSummary {
+		if source != modelCallSourceSummary && source != modelCallSourceMaintenance {
 			observer.warmer = warmer
 		}
 		return observer
@@ -3106,8 +3115,8 @@ type runModelCallObserver struct {
 	model     string
 	onDelta   func(string)
 	// warmer is the run's cache-warming scheduler (VCP F2); nil when
-	// config or the model's declared capabilities opt out. Summary-route
-	// observers never carry one.
+	// config or the model's declared capabilities opt out. Summary and
+	// maintenance observers never carry one.
 	warmer *runCacheWarmer
 
 	mu    sync.Mutex
@@ -3126,7 +3135,7 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 		Model:    o.model,
 		Source:   o.source,
 	}
-	if o.source != modelCallSourceSummary {
+	if o.source != modelCallSourceSummary && o.source != modelCallSourceMaintenance {
 		meta.ContextViewID = o.m.contextViewID
 	}
 	request := describeModelRequest(in.Messages, toolInfoNames(in.Tools))
@@ -3153,10 +3162,12 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 			return meta, err
 		}
 	}
-	if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
-		return meta, errors.New("runtime: model request event could not be journaled")
+	if err := o.persist(ctx, event); err != nil {
+		return meta, fmt.Errorf("runtime: model request event could not be journaled: %w", err)
 	}
-	o.m.noteObservedCallStart()
+	if o.source != modelCallSourceMaintenance {
+		o.m.noteObservedCallStart()
+	}
 	o.mu.Lock()
 	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode}
 	o.mu.Unlock()
@@ -3164,7 +3175,13 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 }
 
 func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
-	o.m.noteObservedCallMaterialized(o.source)
+	if o.source != modelCallSourceMaintenance {
+		o.m.noteObservedCallMaterialized(o.source)
+	}
+}
+
+func (o *runModelCallObserver) persist(ctx context.Context, event domain.RunEvent) error {
+	return o.svc.persistAndPublishEvent(ctx, o.sessionID, event, o.source != modelCallSourceMaintenance)
 }
 
 func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, chunk *schema.AgenticMessage) error {
@@ -3172,6 +3189,14 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		return nil
 	}
 	state := o.call(meta.CallID)
+	if o.source == modelCallSourceMaintenance {
+		// Maintenance has no transcript projection. Its single paid sample is
+		// mandatory detached settlement, even when Generate returns after cancel.
+		if state != nil {
+			state.usage.record(agenticUsage(chunk))
+		}
+		return nil
+	}
 	var events []domain.RunEvent
 	if state != nil && state.mode == "stream" {
 		if o.onDelta != nil {
@@ -3199,8 +3224,8 @@ func (o *runModelCallObserver) Chunk(ctx context.Context, meta modelCallMeta, ch
 		return err
 	}
 	for _, event := range events {
-		if !o.svc.persistAndPublish(ctx, o.sessionID, event) {
-			return context.Canceled
+		if err := o.persist(ctx, event); err != nil {
+			return err
 		}
 	}
 	if pendingUsageKey != "" && state != nil {
@@ -3224,15 +3249,17 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 	if state != nil {
 		mode = state.mode
 		usage = &state.usage
+		usage.record(result.Usage)
 	}
+	var settlementErr error
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
 	if usage != nil {
 		if sample, ok := usage.sample(); ok && sample.key() != usage.lastEmit {
 			usage.lastEmit = sample.key()
 			event := o.m.build(domain.EventModelUsage, o.usagePayloadV2(meta, sample, true))
-			if !o.svc.persistAndPublish(persistCtx, o.sessionID, event) {
-				return errors.New("runtime: usage settlement event could not be journaled")
+			if err := o.persist(persistCtx, event); err != nil {
+				settlementErr = fmt.Errorf("runtime: usage settlement event could not be journaled: %w", err)
 			}
 		}
 	}
@@ -3265,12 +3292,15 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 			}
 		}
 	}
-	if !o.svc.persistAndPublish(persistCtx, o.sessionID, o.m.build(domain.EventModelCallFinished, finish)) {
-		return errors.New("runtime: model call finish event could not be journaled")
+	if err := o.persist(persistCtx, o.m.build(domain.EventModelCallFinished, finish)); err != nil {
+		settlementErr = errors.Join(settlementErr, fmt.Errorf("runtime: model call finish event could not be journaled: %w", err))
+	}
+	if settlementErr != nil {
+		return settlementErr
 	}
 	if o.warmer != nil && result.Err == nil && usage != nil {
 		if sample, ok := usage.sample(); ok {
-			o.warmer.settled(sample)
+			return o.warmer.settled(sample)
 		}
 	}
 	return nil
@@ -3588,6 +3618,10 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			return
 		}
 		if errors.Is(err, errRunInterrupted) {
+			if warmErr := drainRunCacheWarmer(ctx); warmErr != nil {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, warmErr))
+				return
+			}
 			// VCP-B1: a steer-armed boundary cancel surfaces as a checkpoint
 			// interrupt, not a CancelError. Consume it here: resume the
 			// checkpoint with the steered message injected via a
@@ -3607,6 +3641,10 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			return
 		}
 		if err != nil {
+			if warmErr := drainRunCacheWarmer(ctx); warmErr != nil {
+				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, warmErr))
+				return
+			}
 			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
 				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, false)
 			}
@@ -3631,6 +3669,10 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 		}
 	}
 
+	if warmErr := drainRunCacheWarmer(ctx); warmErr != nil {
+		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, warmErr))
+		return
+	}
 	turnEnd := m.onTurnEnd()
 	if err := m.reserveMappedBudget(ledger, turnEnd); err != nil {
 		if state != nil {
@@ -4690,6 +4732,8 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	// scheduler died with its context.
 	warmer := s.newRunCacheWarmer(ctx, m, sessionID, eng, selectedTools)
 	ctx = s.withLiveModelStreamObserver(ctx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
+	ctx = withRunCacheWarmer(ctx, warmer)
+	defer warmer.stop()
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
 	// Resume legs get a fresh detector (ND-2, §6): no pending reminder or
 	// window state carries over from the suspended leg.
@@ -5095,6 +5139,11 @@ func (s *Service) persistAndPublishEvent(ctx context.Context, sessionID domain.S
 // on a terminal publish, which sends RPC subscribers back to the journal
 // replay where the event is delivered exactly once (AS-7).
 func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal domain.RunEvent) {
+	if err := drainRunCacheWarmer(ctx); err != nil {
+		// Maintenance storage failures cancel the active provider to wake its
+		// owner, but remain failures rather than operator cancellation.
+		terminal = s.terminalEvent(context.WithoutCancel(ctx), m, err)
+	}
 	terminal.RunID = m.runID
 	s.projectionMu.Lock()
 	if s.runSessionDeleted(terminal.RunID) {
