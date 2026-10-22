@@ -21,14 +21,15 @@ import (
 // document named, or from config.providers.active. That is what lets a
 // third-party vendor work with no per-vendor configuration block.
 
-// providerSelection is one effective model selection resolved against the
-// embedded catalog.
+// providerSelection is one effective model selection resolved against either
+// the embedded catalog or a user-defined registry entry.
 type providerSelection struct {
-	Vendor   string
-	Adapter  string
-	BaseURL  string
-	Model    string
-	endpoint provider.Endpoint
+	Vendor      string
+	Adapter     string
+	BaseURL     string
+	Model       string
+	UserDefined bool
+	endpoint    provider.Endpoint
 }
 
 // resolveStoredSelection maps a stored `provider`/`base_url`/`default_model`
@@ -53,14 +54,22 @@ func resolveStoredSelection(catalog *provider.Catalog, cfg config.Config, stored
 		vendorName = selection.LegacyVendor
 	}
 	if vendorName == "" {
-		// A user-registered provider declares no embedded vendor: label the
-		// selection by its registry entry so run/usage events do not blame
-		// the configured vendor for someone else's endpoint.
 		if entry, ok := stored.FindProvider(selection.Adapter, strings.TrimSpace(stored.BaseURL)); ok {
-			vendorName = strings.TrimSpace(entry.DisplayName)
-			if vendorName == "" {
-				vendorName = entry.ID
+			label := strings.TrimSpace(entry.DisplayName)
+			if label == "" {
+				label = entry.ID
 			}
+			modelID := stored.DefaultModel
+			if modelID == "" {
+				modelID = entry.DefaultModel
+			}
+			return providerSelection{
+				Vendor:      label,
+				Adapter:     selection.Adapter,
+				BaseURL:     entry.BaseURL,
+				Model:       modelID,
+				UserDefined: true,
+			}, true
 		}
 	}
 	if vendorName == "" {

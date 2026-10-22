@@ -21,17 +21,18 @@ const (
 // true when a process environment variable named a vendor env_key, which
 // makes the selection read-only for this process.
 //
-// Provider is the vendor the selection resolves to (the credential owner and
-// the default address); Adapter is the sealed protocol it speaks, which is what
-// the compiled Generation and the availability surface key on.
+// Provider is the embedded vendor or user-defined provider label. Adapter is
+// the sealed protocol it speaks, which is what the compiled Generation and
+// the availability surface key on.
 type ResolvedModel struct {
-	Provider string
-	Adapter  string
-	Model    string
-	BaseURL  string
-	APIKey   string
-	Frozen   bool
-	Ready    bool
+	Provider    string
+	Adapter     string
+	Model       string
+	BaseURL     string
+	APIKey      string
+	Frozen      bool
+	Ready       bool
+	UserDefined bool
 }
 
 // ModelResolver chooses the active ModelSpec: a frozen ENV session wins,
@@ -194,13 +195,14 @@ func (r *ModelResolver) currentLocked() ResolvedModel {
 	selection, _ := resolveStoredSelection(r.catalog, r.cfg, s)
 	key := resolveSettingsAPIKey(s, selection)
 	return ResolvedModel{
-		Provider: selection.Vendor,
-		Adapter:  selection.Adapter,
-		Model:    selection.Model,
-		BaseURL:  s.BaseURL,
-		APIKey:   key,
-		Frozen:   false,
-		Ready:    key != "",
+		Provider:    selection.Vendor,
+		Adapter:     selection.Adapter,
+		Model:       selection.Model,
+		BaseURL:     s.BaseURL,
+		APIKey:      key,
+		Frozen:      false,
+		Ready:       key != "",
+		UserDefined: selection.UserDefined,
 	}
 }
 
@@ -223,11 +225,12 @@ func (r *ModelResolver) Invalidate() {}
 func (r *ModelResolver) Live() provider.LiveSpec {
 	cur := r.Current()
 	return provider.LiveSpec{
-		Provider: cur.Provider,
-		Adapter:  cur.Adapter,
-		Model:    cur.Model,
-		BaseURL:  cur.BaseURL,
-		APIKey:   cur.APIKey,
-		Ready:    cur.Ready,
+		Provider:    cur.Provider,
+		Adapter:     cur.Adapter,
+		Model:       cur.Model,
+		BaseURL:     cur.BaseURL,
+		APIKey:      cur.APIKey,
+		Ready:       cur.Ready,
+		UserDefined: cur.UserDefined,
 	}
 }

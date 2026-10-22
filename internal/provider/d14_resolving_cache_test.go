@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -10,6 +11,73 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 )
+
+func TestUserDefinedProviderRoutesThroughSealedAdapter(t *testing.T) {
+	var path, authorization, modelID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		authorization = r.Header.Get("Authorization")
+		var request struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode OpenAI-compatible request: %v", err)
+		}
+		modelID = request.Model
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, openAITestReply)
+	}))
+	defer server.Close()
+	baseURL := server.URL + "/v1"
+
+	model := NewResolvingChatModel(
+		testModelHost(t, testOpenAIVendor(server.URL)),
+		NewCatalog(),
+		staticSpecSource{live: LiveSpec{
+			Provider: "Gemini local gateway", Adapter: AdapterOpenAICompletions,
+			Model: "gemini-3.8-flash-tiered", BaseURL: baseURL,
+			APIKey: "registry-key", Ready: true, UserDefined: true,
+		}},
+	)
+	response, err := model.Generate(context.Background(), []*schema.AgenticMessage{testUser("Hello")})
+	if err != nil {
+		t.Fatalf("Generate custom provider: %v", err)
+	}
+	if got := agenticMessageText(response); got != "ok" {
+		t.Fatalf("response = %q, want %q", got, "ok")
+	}
+	if path != "/v1/chat/completions" || authorization != "Bearer registry-key" || modelID != "gemini-3.8-flash-tiered" {
+		t.Fatalf("request path=%q authorization=%q model=%q", path, authorization, modelID)
+	}
+}
+
+func TestUserDefinedProviderWithoutKeyFailsBeforeGateway(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, openAITestReply)
+	}))
+	defer server.Close()
+
+	model := NewResolvingChatModel(
+		testModelHost(t, testOpenAIVendor(server.URL)),
+		NewCatalog(),
+		staticSpecSource{live: LiveSpec{
+			Provider: "Gemini local gateway", Adapter: AdapterOpenAICompletions,
+			Model: "gemini-3.8-flash-tiered", BaseURL: server.URL,
+			Ready: false, UserDefined: true,
+		}},
+	)
+	_, err := model.Generate(context.Background(), []*schema.AgenticMessage{testUser("Hello")})
+	var missing *KeyMissingError
+	if !errors.As(err, &missing) || missing.Provider != "Gemini local gateway" || missing.EnvKey != "" {
+		t.Fatalf("Generate without custom key error = %v, want missing custom credential", err)
+	}
+	if calls != 0 {
+		t.Fatalf("gateway received %d requests without a configured key", calls)
+	}
+}
 
 func TestD14ResolvingCacheKeepsCredentialRotationAndReadiness(t *testing.T) {
 	var auth []string

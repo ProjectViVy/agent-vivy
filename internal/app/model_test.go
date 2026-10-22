@@ -273,6 +273,34 @@ func TestResolverReadsSettingsRegistry(t *testing.T) {
 	}
 }
 
+func TestResolverReadsUserDefinedProviderRegistry(t *testing.T) {
+	dir := t.TempDir()
+	path := settings.Path(dir)
+	baseURL := "https://gemini-gateway.example/v1"
+	if _, err := settings.Save(path, settings.Settings{
+		Provider:     provider.AdapterOpenAICompletions,
+		DefaultModel: "gemini-3.8-flash-tiered",
+		BaseURL:      baseURL,
+		Providers: []settings.ProviderEntry{{
+			ID: "custom-gemini", DisplayName: "Gemini local gateway",
+			Bundle: provider.AdapterOpenAICompletions, BaseURL: baseURL,
+			DefaultModel: "gemini-3.8-flash-tiered", Models: []string{"gemini-3.8-flash-tiered"},
+			ApiKey: "registry-key",
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	current := newModelResolver(config.Default(), path, testCatalog(t), testModelHost(t)).Current()
+	if !current.UserDefined || !current.Ready || current.Frozen {
+		t.Fatalf("custom provider selection = %+v, want ready, user-defined, non-frozen selection", current)
+	}
+	if current.Provider != "Gemini local gateway" || current.Adapter != provider.AdapterOpenAICompletions ||
+		current.Model != "gemini-3.8-flash-tiered" || current.BaseURL != baseURL || current.APIKey != "registry-key" {
+		t.Fatalf("resolved custom provider = %+v", current)
+	}
+}
+
 func TestResolverFrozenEnvOverridesSettings(t *testing.T) {
 	dir := t.TempDir()
 	path := settings.Path(dir)

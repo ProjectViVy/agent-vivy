@@ -20,12 +20,13 @@ func TestResolveStoredSelectionChain(t *testing.T) {
 	cfg := config.Default()
 
 	for _, test := range []struct {
-		name    string
-		stored  settings.Settings
-		vendor  string
-		adapter string
-		model   string
-		ok      bool
+		name        string
+		stored      settings.Settings
+		vendor      string
+		adapter     string
+		model       string
+		ok          bool
+		userDefined bool
 	}{
 		{
 			name: "declared address identifies its vendor",
@@ -66,15 +67,15 @@ func TestResolveStoredSelectionChain(t *testing.T) {
 			name: "a registered custom provider labels itself, not the configured vendor",
 			stored: settings.Settings{
 				Provider: provider.AdapterOpenAICompletions, BaseURL: "https://llm.acme.example/v1",
-				DefaultModel: "acme-1",
 				Providers: []settings.ProviderEntry{{
 					ID: "acme", DisplayName: "Acme LLM",
 					Bundle: provider.AdapterOpenAICompletions, BaseURL: "https://llm.acme.example/v1",
+					DefaultModel: "acme-1", Models: []string{"acme-1"},
 				}},
 			},
-			// The label is the registry alias; the vendor is not in the
-			// embedded catalog, so endpoint resolution reports not-ok.
-			vendor: "Acme LLM", adapter: provider.AdapterOpenAICompletions, model: "acme-1", ok: false,
+			// The label and endpoint come from the user's registry entry; the
+			// sealed OpenAI-compatible adapter can execute it without vendor data.
+			vendor: "Acme LLM", adapter: provider.AdapterOpenAICompletions, model: "acme-1", ok: true, userDefined: true,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -84,6 +85,9 @@ func TestResolveStoredSelectionChain(t *testing.T) {
 			}
 			if selection.Vendor != test.vendor || selection.Adapter != test.adapter {
 				t.Fatalf("selection = vendor %q adapter %q, want %q/%q", selection.Vendor, selection.Adapter, test.vendor, test.adapter)
+			}
+			if selection.UserDefined != test.userDefined {
+				t.Fatalf("selection.UserDefined = %v, want %v", selection.UserDefined, test.userDefined)
 			}
 			if test.model != "" && selection.Model != test.model {
 				t.Fatalf("model = %q, want %q", selection.Model, test.model)

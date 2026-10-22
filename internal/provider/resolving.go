@@ -23,19 +23,21 @@ var ErrModelNotConfigured = errors.New("model provider is not configured")
 
 // LiveSpec is the current provider selection without Eino types. App
 // implements this so the resolving AgenticModel can stay inside this package
-// (D-007).
+// (D-007). UserDefined marks a settings registry endpoint whose protocol is
+// sealed but whose address, model and credential are user-owned.
 //
 // Provider is the vendor whose credential and default address apply; Adapter
 // is the sealed protocol the stored selection names, which is what the
 // availability mark and the thinking rule key on. A selection with no stored
 // adapter (an empty Adapter) is resolved from the endpoint's data instead.
 type LiveSpec struct {
-	Provider string
-	Adapter  string
-	Model    string
-	BaseURL  string
-	APIKey   string
-	Ready    bool
+	Provider    string
+	Adapter     string
+	Model       string
+	BaseURL     string
+	APIKey      string
+	Ready       bool
+	UserDefined bool
 }
 
 // SpecSource supplies the live ModelSpec. Implementations must be
@@ -65,6 +67,7 @@ type resolvingChatModel struct {
 // exact equality here ensures rotation cannot reuse that old client.
 type resolvingModelKey struct {
 	provider, adapter, model, baseURL, credential string
+	userDefined                                   bool
 }
 
 func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
@@ -91,7 +94,18 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.AgenticModel, err
 	if live.Provider == "" {
 		return nil, fmt.Errorf("%w: configure a provider in Settings → Model", ErrModelNotConfigured)
 	}
-	endpoint, vendor, err := m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
+	var endpoint Endpoint
+	var vendor Vendor
+	var ref Ref
+	var err error
+	if live.UserDefined {
+		// User-defined entries own their model id, address and key in Settings;
+		// only the wire protocol comes from the sealed adapter set.
+		endpoint.Adapter = live.Adapter
+		ref, err = m.catalog.Adapter(live.Adapter)
+	} else {
+		endpoint, vendor, err = m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -105,16 +119,21 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.AgenticModel, err
 	if !live.Ready {
 		return nil, &KeyMissingError{Provider: live.Provider, EnvKey: vendor.EnvKey}
 	}
-	key := resolvingModelKey{provider: live.Provider, adapter: adapter, model: live.Model, baseURL: live.BaseURL, credential: live.APIKey}
+	key := resolvingModelKey{
+		provider: live.Provider, adapter: adapter, model: live.Model,
+		baseURL: live.BaseURL, credential: live.APIKey, userDefined: live.UserDefined,
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cached != nil && m.cacheKey == key {
 		return m.cached, nil
 	}
-	ref, err := m.catalog.RefForEndpoint(vendor.Name, endpoint)
-	if err != nil {
-		m.host.MarkUnavailable(adapter)
-		return nil, err
+	if ref == nil {
+		ref, err = m.catalog.RefForEndpoint(vendor.Name, endpoint)
+		if err != nil {
+			m.host.MarkUnavailable(adapter)
+			return nil, err
+		}
 	}
 	cm, err := ref.Model(ctx, ModelSpec{ID: live.Model, APIKey: live.APIKey, BaseURL: live.BaseURL})
 	if err != nil {
@@ -350,6 +369,11 @@ func (s thinkingShape) openAIOptions() []model.Option {
 // declared capabilities and the model's declared metadata.
 func (m *resolvingChatModel) thinkingOptions(ctx context.Context) []model.Option {
 	live := m.src.Live()
+	if live.UserDefined {
+		// Settings' custom registry carries no model capability metadata, so
+		// keep the adapter's request conservative rather than guessing.
+		return nil
+	}
 	endpoint, _, err := m.catalog.EndpointForVendor(live.Provider, live.Adapter, live.BaseURL)
 	if err != nil {
 		return nil
