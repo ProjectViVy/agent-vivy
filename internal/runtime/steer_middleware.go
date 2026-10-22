@@ -14,8 +14,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -67,17 +65,16 @@ func (m *steerMiddleware) BeforeModelRewriteState(ctx context.Context, state *ad
 	if text == "" {
 		return ctx, state, nil
 	}
-	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
 	for _, msg := range state.Messages {
 		if msg == nil || msg.Extra == nil {
 			continue
 		}
-		if existing, ok := msg.Extra[steerExtraKey].(string); ok && existing == digest {
+		if existing, ok := msg.Extra[steerExtraKey].(string); ok && existing == text {
 			return ctx, state, nil
 		}
 	}
 	injected := agenticUserMessage(text)
-	injected.Extra = map[string]any{steerExtraKey: digest}
+	injected.Extra = map[string]any{steerExtraKey: text}
 	next := *state
 	next.Messages = insertSteerBeforeTrailingToolCalls(state.Messages, injected)
 	return ctx, &next, nil

@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -57,8 +56,15 @@ type resolvingChatModel struct {
 	catalog  *Catalog
 	src      SpecSource
 	mu       sync.Mutex
-	cacheKey string
+	cacheKey resolvingModelKey
 	cached   model.AgenticModel
+}
+
+// resolvingModelKey is private construction input, never a diagnostic or
+// persisted identifier. The cached provider client already owns its credential;
+// exact equality here ensures rotation cannot reuse that old client.
+type resolvingModelKey struct {
+	provider, adapter, model, baseURL, credential string
 }
 
 func (m *resolvingChatModel) Generate(ctx context.Context, in []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
@@ -99,8 +105,7 @@ func (m *resolvingChatModel) inner(ctx context.Context) (model.AgenticModel, err
 	if !live.Ready {
 		return nil, &KeyMissingError{Provider: live.Provider, EnvKey: vendor.EnvKey}
 	}
-	secretHash := sha256.Sum256([]byte(live.APIKey))
-	key := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%x", live.Provider, adapter, live.Model, live.BaseURL, secretHash)
+	key := resolvingModelKey{provider: live.Provider, adapter: adapter, model: live.Model, baseURL: live.BaseURL, credential: live.APIKey}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cached != nil && m.cacheKey == key {

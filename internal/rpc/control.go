@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -43,7 +42,7 @@ import (
 	tuii18n "agent-vivy/sdk/tui/i18n"
 )
 
-var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+ sha256=[0-9a-f]{16}\]$`)
+var redactedShellPreviewPattern = regexp.MustCompile(`^bash script \[redacted bytes=[0-9]+\]$`)
 
 const (
 	CodeNotFound = -32004
@@ -2552,7 +2551,12 @@ func (h *controlHandler) listDynamicCommands(ctx context.Context) (any, *Error) 
 	metadataBytes := 0
 	appendCommand := func(item dynamicCommandResult) {
 		name := strings.ToLower(strings.TrimSpace(item.Name))
-		if len(out) >= maxDynamicCommands || !safeDynamicCommandName(name) || strings.TrimSpace(item.ID) == "" {
+		validName := safeDynamicCommandName(name)
+		if item.Kind == "mcp_prompt" {
+			server, prompt, ok := decodeMCPPromptCommandID(item.ID)
+			validName = ok && name == mcpPromptCommandName(server, prompt)
+		}
+		if len(out) >= maxDynamicCommands || !validName || strings.TrimSpace(item.ID) == "" {
 			return
 		}
 		if _, reserved := command.DefaultRegistry(tuii18n.New(i18n.English)).Lookup(name); reserved {
@@ -2860,29 +2864,9 @@ func decodeMCPPromptCommandID(id string) (string, string, bool) {
 }
 
 func mcpPromptCommandName(server, name string) string {
-	slug := func(value string) string {
-		var out strings.Builder
-		for _, char := range strings.ToLower(value) {
-			if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' {
-				out.WriteRune(char)
-			} else if out.Len() > 0 && !strings.HasSuffix(out.String(), "-") {
-				out.WriteByte('-')
-			}
-			if out.Len() >= 20 {
-				break
-			}
-		}
-		return strings.Trim(out.String(), "-")
-	}
-	digest := sha256.Sum256([]byte(server + "\x00" + name))
-	serverSlug, nameSlug := slug(server), slug(name)
-	if serverSlug == "" {
-		serverSlug = "server"
-	}
-	if nameSlug == "" {
-		nameSlug = "prompt"
-	}
-	return "mcp-" + serverSlug + "-" + nameSlug + "-" + hex.EncodeToString(digest[:4])
+	// Command lookup is case-insensitive, so use lowercase reversible bytes.
+	// Each component is bounded to 256 bytes by the existing prompt ID owner.
+	return "mcp-" + hex.EncodeToString([]byte(server)) + "-" + hex.EncodeToString([]byte(name))
 }
 
 func (h *controlHandler) getSkill(ctx context.Context, request Request) (any, *Error) {

@@ -1,6 +1,7 @@
 package view
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -66,14 +67,14 @@ func TestPausedViewportAnchorsToMessageWhileHistoryAboveGrows(t *testing.T) {
 	}
 }
 
-func TestChatStampFingerprintsEveryRenderedField(t *testing.T) {
+func TestChatSnapshotTracksEveryRenderedField(t *testing.T) {
 	base := []surface.Message{
 		{ID: "m1", Role: surface.RoleUser, Content: "hello"},
 		{ID: "m2", Role: surface.RoleAssistant, Content: "hi"},
 	}
-	baseline := chatStamp(base)
-	if chatStamp(append([]surface.Message(nil), base...)) != baseline {
-		t.Fatal("unchanged messages changed the stamp")
+	baseline := snapshotChatMessages(base)
+	if !reflect.DeepEqual(snapshotChatMessages(base), baseline) {
+		t.Fatal("unchanged messages changed the snapshot")
 	}
 	for _, tc := range []struct {
 		name  string
@@ -93,8 +94,8 @@ func TestChatStampFingerprintsEveryRenderedField(t *testing.T) {
 	} {
 		mutated := append([]surface.Message(nil), base...)
 		tc.mutef(mutated)
-		if chatStamp(mutated) == baseline {
-			t.Fatalf("%s did not change the stamp", tc.name)
+		if reflect.DeepEqual(mutated, baseline) {
+			t.Fatalf("%s did not change the snapshot", tc.name)
 		}
 	}
 }
