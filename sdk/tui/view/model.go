@@ -135,17 +135,17 @@ type Model struct {
 	// chatAnchor pins the paused viewport to a (segment, line) position of the
 	// assembled history so content growth above the anchor cannot drift the
 	// view. Negative segment means no anchor (following or numeric fallback).
-	// It only applies once the assembly stamp moved past chatAnchorStamp, so
+	// It only applies once the assembly version moved past chatAnchorVersion, so
 	// clamp passes leave an explicitly written offset alone.
-	chatAnchorSeg   int
-	chatAnchorOff   int
-	chatAnchorStamp uint64
-	chatAssembly    *chatAssembly
-	mdCache         *messageMarkdownCache
-	keys            *Keymap
-	imageState      *imageCache
-	shortcutsOpen   bool
-	spinFrame       int
+	chatAnchorSeg     int
+	chatAnchorOff     int
+	chatAnchorVersion uint64
+	chatAssembly      *chatAssembly
+	mdCache           *messageMarkdownCache
+	keys              *Keymap
+	imageState        *imageCache
+	shortcutsOpen     bool
+	spinFrame         int
 
 	// Transcript search (G3): a one-line query row; searchMatches indexes the
 	// active message list and searchCursor tracks the current jump target.
@@ -1255,7 +1255,7 @@ func (m *Model) clampChatScroll() {
 		m.chatScroll = maxScroll
 		return
 	}
-	if m.chatAnchorSeg >= 0 && m.chatAssembly != nil && m.chatAssembly.stamp != m.chatAnchorStamp {
+	if m.chatAnchorSeg >= 0 && m.chatAssembly != nil && m.chatAssembly.version != m.chatAnchorVersion {
 		if offset, ok := m.chatAnchorOffset(); ok {
 			m.chatScroll = offset
 		} else {
@@ -1273,13 +1273,13 @@ func (m *Model) clampChatScroll() {
 }
 
 // setChatAnchor records the pause position at (segment, line) with the
-// assembly stamp current at capture time.
+// assembly version current at capture time.
 func (m *Model) setChatAnchor(segment, offset int) {
 	m.chatAnchorSeg = segment
 	m.chatAnchorOff = offset
-	m.chatAnchorStamp = 0
+	m.chatAnchorVersion = 0
 	if m.chatAssembly != nil {
-		m.chatAnchorStamp = m.chatAssembly.stamp
+		m.chatAnchorVersion = m.chatAssembly.version
 	}
 }
 

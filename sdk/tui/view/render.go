@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"hash/maphash"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -668,7 +669,8 @@ type chatAssembly struct {
 	collapsed bool
 	debugTool bool
 	loading   bool
-	stamp     uint64
+	version   uint64
+	messages  []surface.Message
 	segments  [][]string
 	lineCount int
 }
@@ -708,7 +710,7 @@ func (m Model) renderChat(width, height int, p Palette) (string, chatScrollInfo)
 // chatSegments returns the assembled per-message line segments of the active
 // history, reusing chatAssembly across the several per-frame calls (clamp,
 // help overlay, render) so the full history is neither re-rendered nor
-// re-flattened. The stamp fingerprints every rendered field of every message;
+// re-flattened. The snapshot compares every rendered field of every message;
 // separators are baked into each segment so viewport windows slice cleanly.
 func (m Model) chatSegments(width int, p Palette) *chatAssembly {
 	messages := m.driver.ActiveMessages()
@@ -719,7 +721,7 @@ func (m Model) chatSegments(width int, p Palette) *chatAssembly {
 		assembly = &chatAssembly{}
 	}
 	if assembly.sessionID == m.driver.Active().ID && assembly.width == width && assembly.collapsed == m.reasoningCollapsed &&
-		assembly.debugTool == debugToolOutput && assembly.loading == loading && assembly.stamp == chatStamp(messages) {
+		assembly.debugTool == debugToolOutput && assembly.loading == loading && reflect.DeepEqual(assembly.messages, messages) {
 		return assembly
 	}
 	m.mdCache.ensure(m.driver.Active().ID, width, m.reasoningCollapsed)
@@ -754,7 +756,8 @@ func (m Model) chatSegments(width int, p Palette) *chatAssembly {
 	assembly.collapsed = m.reasoningCollapsed
 	assembly.debugTool = debugToolOutput
 	assembly.loading = loading
-	assembly.stamp = chatStamp(messages)
+	assembly.version++
+	assembly.messages = snapshotChatMessages(messages)
 	assembly.segments = segments
 	assembly.lineCount = 0
 	for _, segment := range segments {
@@ -772,49 +775,19 @@ func (m Model) chatLines(width int, p Palette) []string {
 	return lines
 }
 
-// chatStampSeed fingerprints message content; maphash hashes without
-// allocating and the per-frame cost matches the per-message mdCache lookups
-// the render already performs.
-var chatStampSeed = maphash.MakeSeed()
-
-func chatStamp(messages []surface.Message) uint64 {
-	stamp := uint64(len(messages))
-	for _, message := range messages {
-		stamp = stamp*31 + messageStamp(message)
+// The driver owns mutable tool cards and metadata slices. Copy those values so
+// an in-place update cannot silently mutate both sides of the cache comparison.
+func snapshotChatMessages(messages []surface.Message) []surface.Message {
+	out := slices.Clone(messages)
+	for i := range out {
+		if out[i].Tool != nil {
+			card := *out[i].Tool
+			out[i].Tool = &card
+		}
+		out[i].Attachments = slices.Clone(out[i].Attachments)
+		out[i].FileContexts = slices.Clone(out[i].FileContexts)
 	}
-	return stamp
-}
-
-func messageStamp(message surface.Message) uint64 {
-	h := maphash.String(chatStampSeed, message.ID)
-	h = h*31 + maphash.String(chatStampSeed, message.Role)
-	h = h*31 + maphash.String(chatStampSeed, message.Content)
-	if message.Tool != nil {
-		h = h*31 + maphash.String(chatStampSeed, message.Tool.ToolName)
-		h = h*31 + maphash.String(chatStampSeed, message.Tool.ToolCallID)
-		h = h*31 + maphash.String(chatStampSeed, message.Tool.Status)
-		h = h*31 + maphash.String(chatStampSeed, message.Tool.Preview)
-		h = h*31 + maphash.String(chatStampSeed, message.Tool.Result)
-		h = h*31 + maphash.String(chatStampSeed, message.Tool.ApprovalID)
-	}
-	if message.Streaming {
-		h = h*31 + 1
-	}
-	if message.Reasoning {
-		h = h*31 + 2
-	}
-	for _, attachment := range message.Attachments {
-		h = h*31 + maphash.String(chatStampSeed, attachment.Path)
-		h = h*31 + maphash.String(chatStampSeed, attachment.Name)
-		h = h*31 + maphash.String(chatStampSeed, attachment.MimeType)
-		h = h*31 + uint64(attachment.Size)
-	}
-	for _, file := range message.FileContexts {
-		h = h*31 + maphash.String(chatStampSeed, file.Path)
-		h = h*31 + maphash.String(chatStampSeed, file.Name)
-		h = h*31 + uint64(file.Size)
-	}
-	return h
+	return out
 }
 
 // renderHistoryLoading replaces the empty-conversation hero while the active

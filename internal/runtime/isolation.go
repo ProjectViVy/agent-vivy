@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -260,8 +259,10 @@ func (m *WorkspaceManager) selectedWorkspace(ctx context.Context, runID domain.R
 	if err != nil {
 		return Workspace{}, false, fmt.Errorf("runtime: canonicalize selected workspace: %w", err)
 	}
-	sum := sha256.Sum256([]byte(filepath.Clean(canonical)))
-	return Workspace{ID: fmt.Sprintf("selected_%x", sum[:8]), Path: filepath.Clean(canonical)}, true, nil
+	// The durable session owns this selection and its root is locked after
+	// the first Run. Keep the canonical filesystem authority private in Path;
+	// public workspace identity does not need to encode the user's host path.
+	return Workspace{ID: "selected:" + string(sessionID), Path: filepath.Clean(canonical)}, true, nil
 }
 
 // AdmissionWorkspaceAllocator is the workspace seam atomic task admission
