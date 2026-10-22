@@ -4126,7 +4126,7 @@ func (s *Service) decideApprovalWithReason(ctx context.Context, approvalID, deci
 	} else if !s.ApprovalRequiredDurable(ctx, approval.RunID, approval.ID) {
 		return errors.New("runtime: approval is not durable yet")
 	}
-	return s.settleApproval(ctx, approval, decision, actor, reason)
+	return s.settleApproval(ctx, approval, decision, actor, reason, false)
 }
 
 // waitPendingRegistration polls for the in-memory suspension a durable
@@ -4153,7 +4153,7 @@ func (s *Service) waitPendingRegistration(runID domain.RunID) bool {
 // and then routes it. The durable row is the no-replay boundary, so the
 // journal entry and the resume follow it; actor distinguishes a human
 // decision (local_user) from a timed auto-approval (system).
-func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string) error {
+func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, decision, actor, reason string, allowExpired bool) error {
 	it, identityErr := s.deps.Journal.Replay(ctx, approval.RunID, 0)
 	if identityErr != nil {
 		return identityErr
@@ -4180,24 +4180,34 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	}
 
 	s.mu.Lock()
-	_, nativeChildPending := s.pending[approval.RunID]
+	_, nativePending := s.pending[approval.RunID]
 	s.mu.Unlock()
-	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
+	requiresNativePending := approval.Kind == domain.ApprovalKindChild ||
+		(!isShellApproval(approval) && !isNativeOrchestrationResumeTarget(approval.ResumeTarget))
+	if requiresNativePending && !nativePending {
 		// The durable approval row precedes in-memory suspension registration
-		// on the suspend path, so a decider observing the row early must wait
-		// for the suspension to land rather than fail the resume.
-		nativeChildPending = s.waitPendingRegistration(approval.RunID)
+		// even after its request is published. Wait before consuming the durable
+		// first-writer slot, so an early response cannot lose its native resume.
+		nativePending = s.waitPendingRegistration(approval.RunID)
 	}
-	if approval.Kind == domain.ApprovalKindChild && !nativeChildPending {
+	if approval.Kind == domain.ApprovalKindChild && !nativePending {
 		return errors.New("runtime: child approval is not active for Service resume")
 	}
-	if (approval.Kind != domain.ApprovalKindChild || nativeChildPending) && !isShellApproval(approval) {
+	if requiresNativePending && !nativePending {
+		return errors.New("runtime: approval is not active for Service resume")
+	}
+	if (approval.Kind != domain.ApprovalKindChild || nativePending) && !isShellApproval(approval) {
 		if _, _, err := s.promptSnapshotContext(ctx, approval.RunID); err != nil {
 			// Validate before first-writer settlement. A corrupt or incompatible
 			// snapshot leaves the review pending, so recovery can surface the
 			// same fail-closed state without losing the user's decision slot.
 			return fmt.Errorf("runtime: approval resume rejected by prompt snapshot: %w", err)
 		}
+	}
+	// Readiness may have waited across the human deadline. Only the existing
+	// timed system settlement intentionally consumes an expired approval.
+	if !allowExpired && time.Now().UnixMilli() >= approval.ExpiresAt {
+		return ErrApprovalExpired
 	}
 	decided, err := s.decideApproval(ctx, approval.ID, decision, actor, reason)
 	if err != nil {
@@ -4322,7 +4332,7 @@ func (s *Service) settleApprovalAsSystem(ctx context.Context, approval domain.Ap
 		return nil
 	}
 	reason := approvalSettleReason(window)
-	if err := s.settleApproval(ctx, current, domain.ApprovalApproved, "system", reason); err != nil {
+	if err := s.settleApproval(ctx, current, domain.ApprovalApproved, "system", reason, true); err != nil {
 		if errors.Is(err, ErrApprovalAlreadyDecided) {
 			return nil
 		}
@@ -4517,6 +4527,15 @@ func (s *Service) AnswerQuestion(ctx context.Context, questionID, answer string)
 		// reconstructed. Answering it would otherwise consume the only resume
 		// opportunity while no model/tool call is allowed to proceed.
 		return fmt.Errorf("runtime: question resume rejected by prompt snapshot: %w", err)
+	}
+	if !s.waitPendingRegistration(question.RunID) {
+		// A published question can still be between its durable write and
+		// native suspension registration. Preserve its first-writer answer slot
+		// if the live/recovered continuation cannot be reached.
+		return errors.New("runtime: question is not active for Service resume")
+	}
+	if time.Now().UnixMilli() >= question.ExpiresAt {
+		return ErrQuestionExpired
 	}
 	answered, err := s.answerQuestion(ctx, questionID, answer)
 	if err != nil {
