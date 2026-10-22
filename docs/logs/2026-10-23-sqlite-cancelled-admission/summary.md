@@ -28,6 +28,7 @@ append/reopen. It proves error propagation, not the original watcher timing.
 
 An independent read-only source review accepts the two-file correction with
 no blocker. Native RED/GREEN and focused runtime checks pass. Final Linux
-integration gates are recorded separately as they complete; no stable push
+wiring/kernel, complete App and targeted race gates pass at8b00475b and are
+recorded in the stable integration log; no stable push
 or D14 closure is claimed by this repair record alone. Release notes are
 omitted because this is a source correction, not an artifact release.

@@ -38,3 +38,12 @@ cause after storage drops it. No SQL identity leaks into runtime code.
 All databases are temporary test files. Production Journals and credentials
 are untouched. Raw Linux outputs remain under
 `.workspace/verification/stable-push-2026-10-23/` in the Linux checkout.
+
+## Final integration verification
+
+At clean source8b00475b, independent Linux `just wiring-ci` passes16 Node
+and111 Go tests. `just kernel-ci` passes1970 owner tests and the actual
+minimal pack/Inspect/boot case, with one unchanged optional rg-dependent skip.
+Provider/App vet exits0. The complete App suite passes160 tests/subtests with
+two existing opt-in skips. Targeted SQLite/warming race passes22 with zero
+failures/skips. See the [stable integration record](../2026-10-23-stable-integration/verification.md).
