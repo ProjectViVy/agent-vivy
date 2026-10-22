@@ -1,6 +1,6 @@
 # Independent behavior and residue reviews
 
-Final executable candidate: `09aad07df0acd61c48c51d52f70a59ef44698bd4`.
+Final executable candidate: `5b0b572da80602f46d7496d004aa9d88fc6f5eeb`.
 Both reviewers are independent of the implementation owners. Their scoped
 source verdicts complement the platform and real-path gates in verification.md;
 they do not supply the owner's pending real-model verdict.
@@ -56,12 +56,14 @@ separately reproduced P1. No new runtime state or publication barrier is added.
 
 ## Final verdict and retained boundaries
 
-Both independent reviewers accept exact09aad07df0acd61c48c51d52f70a59ef44698bd4.
-Their final delta review is source-only:73->09 removes five obsolete assertions
-in the independent session-tree, evolution, memory, notebook and persona Module
-tests and adds three English records. Production Go, UI, schemas, manifests and
-pins are identical to73. Module/Port/Provider/Ref/catalog/lifecycle assertions
-remain intact. No new runtime test execution is attributed to this delta review.
+Both independent reviewers accept exact `5b0b572da80602f46d7496d004aa9d88fc6f5eeb`.
+Their final delta review is source-only. From `73ef094c` to `5b0b572d`, five obsolete assertions
+were removed from the independent session-tree, evolution, memory, notebook and
+persona Module tests, and two UI locale descriptions were corrected. Go/runtime
+behavior, schemas, manifests and pins are unchanged from `73ef094c`; the locale changes
+only clarify when saved credentials apply. Module/Port/Provider/Ref/catalog/
+lifecycle assertions remain intact. No new runtime test execution is attributed
+to this delta review.
 
 The native73 full gate exposed those five active Source.SHA256 consumers after
 all root Go/SDK and headless checks passed. The residue reviewer's earlier73
@@ -81,7 +83,7 @@ count1. The independent RED862 -> GREEN73 proves a waiting response preserves
 its durable slot, then native Eino resumes node A once, preserves completed
 sibling B and emits one terminal. Targeted cases also cover root approval,
 question, timeout/retry, cancellation, expiry, child, shell, restart recovery
-and system auto-approval. That behavior is unchanged at09. No extra full suite
+and system auto-approval. That Go/runtime behavior is unchanged at `5b0b572d`. No extra full suite
 or race execution is attributed to this reviewer.
 
 Earlier independent execution at1b8da8cc passed143 tests/subtests with zero

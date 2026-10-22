@@ -1,9 +1,9 @@
 # D14 verification
 
-Executable candidate: `09aad07df0acd61c48c51d52f70a59ef44698bd4`.
+Executable candidate: `5b0b572da80602f46d7496d004aa9d88fc6f5eeb`.
 Laputa `9acc999301d5d575da2cea902a1c6d213763f381`; INOFY
 `6f1397e417fc524ad266634247dd632e2ed93ec0`; Eino v0.9.21.
-The closing record-only commit does not change this executable tree. Relative to73ef094c, the final candidate deletes exactly five obsolete independent Module test assertions and adds records; all production Go, UI, YAML, schema and pin sources are identical. Executions below retain their actual source points.
+The closing record-only commit does not change this executable tree. Relative to `73ef094c`, the final candidate deletes exactly five obsolete independent Module test assertions and corrects two UI locale descriptions; Go/runtime behavior is unchanged, and the locale edits only clarify when saved credentials apply. Executions below retain their actual source points.
 
 ## Venues and final affected checks
 
@@ -25,8 +25,8 @@ or tenant workspace was accessed. Stable root source remains untouched.
 | Split3015 owner browser |73ef094c:6 pass/28.3s: original skill toggle, workflow draft/validate/publish, Work reload/leave, notes exact native tool continuation, cold Persona CAS/retry/save/reload, and live skill approve/stale refusal/deny. Raw browser-owner.log. |
 | Rebuilt minimal-chat |73ef094c: actual SDK verify/pack/Inspect, same-ID UI staging, and3 browser cases pass/7.6s: protected list/read exact result/call continuation and narrow viewport, cancellation, provider failure. Actual Generation6935ac5d518f2680630466016483e7a1. Raw final-minimal-* and final-browser-minimal.log. |
 | Native focused owner correction |73ef094c:34.475s pass; isolated own Linux focused race106.155s pass with no race reports. See d14-workflow-approval-registration/verification.md. |
-| Independent final behavioral checks |Executed73ef094c:30 pass, zero failures/skips: independent actual-workflow GREEN1/0.276s, runtime26/18.184s, App3/0.451s. Exact clean73ef checkout, GOMAXPROCS2/GOFLAGS=-p=1/count1; final source-only behavior/residue reviews accept09aad07d. See review.md. |
-| Native full-product CI |09aad07d: `just ci` exits 0. UI has 86 files/685 tests pass; typecheck, production build, locale and semantic checks pass; full App/RPC/runtime and SDK suites pass (SDK/internal623.658s; assembly12.877s); `go vet`/tests pass across plugin and Face modules, including all five former stale-field modules. Raw `.workspace/verification/final-ci.log` in the independent native checkout. |
+| Independent final behavioral checks |Executed73ef094c:30 pass, zero failures/skips: independent actual-workflow GREEN1/0.276s, runtime26/18.184s, App3/0.451s. Exact clean73ef checkout, GOMAXPROCS2/GOFLAGS=-p=1/count1; final source-only behavior/residue reviews accept5b0b572d. See review.md. |
+| Native full-product CI |5b0b572d: `just ci` completed successfully. UI has 86 files/685 tests pass; typecheck, production build, locale and semantic checks pass. Full root Go vet/tests, SDK/internal (573.161s), SDK/internal/assembly (10.099s), headless compile, and per-module plugin/Face vet/tests pass. Raw `.workspace/verification/final-ci.log` in the independent native checkout. |
 | Native backend/SDK checkpoint |73ef094c: UI typecheck/build/i18n and685 cases, full App83.874s, RPC66.621s, runtime266.664s, SDK/internal600.323s and headless compile pass. Its final independent Module stage failed only the five obsolete Source.SHA256 test references; fixed at09aad07d. |
 
 The root approval/question correction was driven by an independent deterministic
@@ -104,34 +104,35 @@ and headless stages passed, then failed exactly five obsolete Source.SHA256
 assertions. Focused vet and tests pass for all five after deletion; declaration
 identity, Port, source Ref, catalog and lifecycle checks are retained. Full
 tracked-source review finds no active consumers of that retired field class.
-The final candidate changes no production source, format or generation input.
+The final candidate changes no Go/runtime behavior, format or generation input;
+its only UI behavior-tree delta is the two corrected static locale descriptions.
 
 ## Separate finite upgrade artifact
 
-Final separate artifact commit `c9480dfa6c5497b29918aaa89f947fe785ece8b1`
-pins runtime `09aad07df0acd61c48c51d52f70a59ef44698bd4`, schema source
+Final separate artifact commit `d2345e4c357485120abc52ae07c7ddf708659350`
+pins runtime `5b0b572da80602f46d7496d004aa9d88fc6f5eeb`, schema source
 `aeb685d257da7f557ac3da0a949f5a9854c34468`, and head47. Release folder:
-`C:/Users/Administrator/.codex/worktrees/issue91-upgrade-final/agent-vivy/.workspace/artifacts/finite-upgrade-047-09aad07d`.
+`C:/Users/Administrator/.codex/worktrees/issue91-upgrade-final/agent-vivy/.workspace/artifacts/finite-upgrade-047-5b0b572d`.
 The source ZIP SHA256 is
-`8338671d59b576a9c46b2feac6eb21fc2ffe76e8438698d8564559817d96d795`; the
+`8ef73737852aa1d47917318dd68b4a69249bbefab4b58d7ff87ea899f8941c61`; the
 delivery manifest SHA256 is
-`260e0292178aede572e24a882254ae676816e6d54e8f5623ce326cd44c89456c`.
-Native and Linux core CLI hashes are `c8c4ce6d79aa561a2028655ec2caaa6b5d0f2dfdb57d51d1c8e102ef9568dd1b` and
-`8ca93b1840729eb6d3bc9717b597127103fe1cbc5888339def0e002a0ccafc92`.
-The manifest-listed delivery files and all three previous release manifests
+`2a368e6aa6ee559329c5aa6d67159b81b33ed3d4931d75936bc72ef87e41baa0`.
+Native and Linux core CLI hashes are `e7c2fba1c1f864f4a31b8839a3b30a374fdc6f33a6defe2a2d00c3951f5aadd8` and
+`161e48800f3a297d28435d4719c201a08b00bc5c4711c4237ce6df50a91be0d9`.
+The nine manifest-listed delivery files and all four previous release manifests
 were independently hash-checked after sealing. The source ZIP differs from the
-2364d8f6 archive only at `pin.json`, `summary.md` and `verification.md`;
+prior package only at `pin.json`, `storage/README.md` and `verification.md`;
 readers, SQL, byte mappings and BML/Studio files remain identical.
 
-Final focused gates pass: all94 direct Git SQL blobs match their exact catalog;
-native manifest tests pass in0.061s; native and independent Linux CLIs report
+Final focused gates pass: all 94 direct Git SQL blobs match their exact catalog;
+native manifest tests pass in0.095s; native and independent Linux CLIs report
 the exact runtime/schema/head pins, inspect and copy an admitted fixture without
 changing the source, and refuse existing targets without changing their bytes.
 The outputs match the accepted schema, counts, protected workflow bytes and
 identity evidence. The unchanged full converter, BML and PostgreSQL matrices
 were not repeated for this pin-only reseal; their actual prior results remain
 listed above. The actual schema047 runtime bridge evidence remains attributed
-to441c4266, with SQLite0.036s and PostgreSQL0.756s.
+to `441c4266`, with SQLite at 0.036s and PostgreSQL at 0.756s.
 
 The unchanged full converter matrix passed SQLite/CLI11.899s/0.192s, actual
 Postgres58.524s/0.191s, BML Linux0.179s/native20.499s, native CLI14.329s and vet.
@@ -158,12 +159,15 @@ later-baseline capabilities are not claimed.
 
 Temporary source overlays/browser specs/configs and Postgres containers are
 removed after checks. Disposable artifacts and raw logs remain for review.
-Human real-model acceptance is LAST and pending. The actual packed native
-minimal-chat artifact and its exact inspected Generation are running with the
-matching staged UI on3015 and a private disposable workspace. Backend
-`/healthz`, tiny UI and auxiliary model settings on3016 each return HTTP200;
-the existing RPC created and bound the current session. The setup issued no Run
-or provider request. The first pack attempt could not write Go overlays to the
+Human real-model acceptance is LAST and pending. Candidate5b0's actual packed
+native minimal-chat artifact and its exact inspected Generation
+`6b41cd840bde56a3e97312ed00674327` are running with the matching staged UI on
+3015 and a private disposable workspace at `.workspace/d14-manual-5b0b572d/`.
+Backend `/healthz`, tiny UI and fresh-origin auxiliary model settings at3017
+each return HTTP200; the existing RPC created Session `sess_c5533c0a93858efa`
+bound to that workspace. DeepSeek OpenAI-compatible settings are expanded and
+the API Key field is empty. The setup issued no Run or provider request. The
+first pack attempt could not write Go overlays to the
 app-owned visualization temp path; it passed after moving Go temp files under
 the independent native checkout's ignored `.workspace/temp`. No product source
 changed for this environment-only adjustment. No credential is requested in
