@@ -182,7 +182,6 @@ export type ApprovalReasonCode =
   | 'approval_expired'
   | 'approval_already_resolved'
   | 'approval_already_consumed'
-  | 'approval_digest_mismatch'
   | 'approval_invalid_grant'
   | 'approval_invalid_transition'
   | 'approval_payload_unavailable'
@@ -485,7 +484,6 @@ export interface SessionSearchHit {
   timestamp: string;
   snippet: string;
   source_uri: string;
-  hash: string;
   source: 'session';
   snippet_truncated: boolean;
   message_index: number;

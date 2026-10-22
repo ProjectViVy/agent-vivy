@@ -12,7 +12,6 @@ const IDENTITY = {
   valid: true,
   content: '# Real identity',
   revision: 3,
-  content_hash: 'sha256:identity',
   updated_at: '2026-10-06T10:00:00Z',
   pending_count: 1,
 };
@@ -21,7 +20,7 @@ const REVIEW = {
   id: 'review-1',
   kind: 'identity',
   base_revision: 3,
-  base_hash: 'sha256:identity',
+  expected_document: { exists: true, content: '# Real identity' },
   proposed_markdown: '# Proposed identity',
   actor: 'agent',
   reason: 'keep this current',

@@ -90,8 +90,8 @@
     },
     "plugin.vivy/workflow-ui.editor.published": {
       "description": "Publish success notice",
-      "placeholders": ["digest", "revision"],
-      "messages": {"en": "Published r{{revision}} (digest {{digest}}).", "zh": "已发布 r{{revision}}（摘要 {{digest}}）。"}
+      "placeholders": ["revision"],
+      "messages": {"en": "Published r{{revision}}.", "zh": "已发布 r{{revision}}。"}
     },
     "plugin.vivy/workflow-ui.editor.run": {
       "description": "Run button",

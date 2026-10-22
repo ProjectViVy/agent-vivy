@@ -69,11 +69,6 @@ function diagnosticItems(raw: ApiError['diagnostics']): Diagnostics['items'] {
   return raw.filter((x): x is { check?: string; path?: string; message?: string } => x != null && typeof x === 'object');
 }
 
-function shortDigest(digest: string | undefined): string {
-  if (!digest) return '';
-  return digest.length > 12 ? `${digest.slice(0, 12)}…` : digest;
-}
-
 export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }: EditorPaneProps) {
   const [idInput, setIdInput] = useState('');
   const [draft, setDraft] = useState<DraftState | null>(null);
@@ -284,7 +279,7 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       const saved = await client.saveDraft(draft.workflow, artifact, draft.etag);
       const res = await client.publish(draft.workflow, saved.etag);
       applyArtifact(draft.workflow, saved.etag, saved.artifact, false, true);
-      setNote(t('plugin.vivy/workflow-ui.editor.published', { revision: res.revision, digest: shortDigest(res.definition_digest) }));
+      setNote(t('plugin.vivy/workflow-ui.editor.published', { revision: res.revision }));
     } catch (e) {
       const err = e instanceof TransportError ? e : new TransportError(0, { code: 'rpc_error', message: String(e) });
       setError(err);

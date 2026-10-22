@@ -1,5 +1,5 @@
 // Published workflow list: each row is one revision with its definition
-// digest, openable as a fresh draft for the next revision or runnable as
+// revision, openable as a fresh draft for the next revision or runnable as
 // published. The footer surfaces host capabilities and provider connections
 // read-only — what the backend declares, nothing more.
 
