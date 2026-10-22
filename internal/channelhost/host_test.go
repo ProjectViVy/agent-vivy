@@ -2,6 +2,7 @@ package channelhost
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -340,13 +341,14 @@ func TestChannelSessionIDDeterministic(t *testing.T) {
 	if !strings.HasPrefix(string(a), "sess_ch_") {
 		t.Fatalf("session id %q lacks the sess_ch_ namespace", a)
 	}
-	suffix := strings.TrimPrefix(string(a), "sess_ch_")
-	if len(suffix) != 16 {
-		t.Fatalf("session id suffix len = %d, want 16", len(suffix))
+	parts := strings.Split(strings.TrimPrefix(string(a), "sess_ch_v2_"), ".")
+	if len(parts) != 3 {
+		t.Fatalf("session tuple components = %d", len(parts))
 	}
-	for _, r := range suffix {
-		if !strings.ContainsRune("0123456789abcdef", r) {
-			t.Fatalf("session id suffix %q is not lowercase hex", suffix)
+	for index, want := range []string{"fake", "chat-1", ""} {
+		got, err := base64.RawURLEncoding.DecodeString(parts[index])
+		if err != nil || string(got) != want {
+			t.Fatalf("component %d = %q, err=%v", index, got, err)
 		}
 	}
 	if ChannelSessionID("fake", "chat-1", "topic-9") == a {

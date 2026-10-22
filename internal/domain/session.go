@@ -34,6 +34,15 @@ type Session struct {
 	// WorkspacePath is an optional canonical host directory selected before
 	// the first run. Empty keeps Vivy's default private per-run workspace.
 	WorkspacePath string
+	// ChannelBinding is the original platform tuple owned by this session.
+	// It lets converted sessions keep their historical opaque IDs and links.
+	ChannelBinding *ChannelSessionBinding
+}
+
+type ChannelSessionBinding struct {
+	Channel string
+	ChatID  string
+	TopicID string
 }
 
 // EffectiveSandbox returns the session's sandbox knobs, substituting the

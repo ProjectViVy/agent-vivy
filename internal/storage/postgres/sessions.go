@@ -14,6 +14,13 @@ import (
 
 // CreateSession inserts one session row.
 func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
+	var channel, chatID, topicID any
+	if binding := s.ChannelBinding; binding != nil {
+		if binding.Channel == "" || binding.ChatID == "" {
+			return fmt.Errorf("storage: invalid channel session binding")
+		}
+		channel, chatID, topicID = binding.Channel, binding.ChatID, binding.TopicID
+	}
 	mode, policy := s.EffectiveSandbox()
 	if s.UpdatedAt <= 0 {
 		s.UpdatedAt = s.CreatedAt
@@ -22,18 +29,44 @@ func (b *Backend) CreateSession(ctx context.Context, s domain.Session) error {
 		s.UpdatedAt = time.Now().UnixMilli()
 	}
 	if _, err := b.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy), s.WorkspacePath); err != nil {
+		`INSERT INTO sessions (id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path, channel_name, channel_chat_id, channel_topic_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.CreatedAt, s.UpdatedAt, string(mode), string(policy), s.WorkspacePath, channel, chatID, topicID); err != nil {
 		return fmt.Errorf("storage: create session %s: %w", s.ID, err)
 	}
 	return nil
+}
+
+// FindChannelSession returns the unique session already bound to this exact
+// platform tuple, including sessions retaining pre-conversion opaque IDs.
+func (b *Backend) FindChannelSession(ctx context.Context, binding domain.ChannelSessionBinding) (domain.SessionID, error) {
+	var id domain.SessionID
+	err := b.db.QueryRowContext(ctx, `SELECT id FROM sessions
+		WHERE channel_name = ? AND channel_chat_id = ? AND channel_topic_id = ?`,
+		binding.Channel, binding.ChatID, binding.TopicID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		// An unbound channel session may belong to this tuple. Only the finite
+		// copy converter can prove that association; never fork its history.
+		var unbound bool
+		if err := b.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM sessions
+			WHERE substr(id, 1, 8) = 'sess_ch_' AND channel_name IS NULL)`).Scan(&unbound); err != nil {
+			return "", fmt.Errorf("storage: inspect channel binding availability: %w", err)
+		}
+		if unbound {
+			return "", fmt.Errorf("%w: channel session; convert a copy with proven platform tuples", storage.ErrSourceBindingUnavailable)
+		}
+		return "", storage.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("storage: find channel session: %w", err)
+	}
+	return id, nil
 }
 
 // ListSessions returns top-level conversations by durable activity, newest
 // first. Addressable child sessions are opened through the child inspector.
 func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	rows, err := b.db.QueryContext(ctx,
-		`SELECT s.id, s.title, s.created_at, s.updated_at, s.sandbox_mode, s.approval_policy, s.workspace_path
+		`SELECT s.id, s.title, s.created_at, s.updated_at, s.sandbox_mode, s.approval_policy, s.workspace_path, s.channel_name, s.channel_chat_id, s.channel_topic_id
 		 FROM sessions s
 		 WHERE NOT EXISTS (SELECT 1 FROM child_sessions c WHERE c.child_session_id = s.id)
 		 ORDER BY s.updated_at DESC, s.id`)
@@ -46,10 +79,14 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 	for rows.Next() {
 		var s domain.Session
 		var id string
-		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath); err != nil {
+		var channel, chatID, topicID sql.NullString
+		if err := rows.Scan(&id, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath, &channel, &chatID, &topicID); err != nil {
 			return nil, fmt.Errorf("storage: scan session: %w", err)
 		}
 		s.ID = domain.SessionID(id)
+		if channel.Valid {
+			s.ChannelBinding = &domain.ChannelSessionBinding{Channel: channel.String, ChatID: chatID.String, TopicID: topicID.String}
+		}
 		out = append(out, s)
 	}
 	return out, rows.Err()
@@ -58,14 +95,18 @@ func (b *Backend) ListSessions(ctx context.Context) ([]domain.Session, error) {
 // GetSession loads one session; absent ids yield storage.ErrNotFound.
 func (b *Backend) GetSession(ctx context.Context, id domain.SessionID) (domain.Session, error) {
 	var s domain.Session
+	var channel, chatID, topicID sql.NullString
 	err := b.db.QueryRowContext(ctx,
-		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path FROM sessions WHERE id = ?`, id).
-		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath)
+		`SELECT id, title, created_at, updated_at, sandbox_mode, approval_policy, workspace_path, channel_name, channel_chat_id, channel_topic_id FROM sessions WHERE id = ?`, id).
+		Scan((*string)(&s.ID), &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.SandboxMode, &s.ApprovalPolicy, &s.WorkspacePath, &channel, &chatID, &topicID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Session{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("storage: get session %s: %w", id, err)
+	}
+	if channel.Valid {
+		s.ChannelBinding = &domain.ChannelSessionBinding{Channel: channel.String, ChatID: chatID.String, TopicID: topicID.String}
 	}
 	return s, nil
 }

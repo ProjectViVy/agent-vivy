@@ -95,7 +95,45 @@ func preflight(ctx context.Context, db *sql.DB, dialect Dialect, manifest Manife
 	if err := validateTargetUniqueness(ctx, db, dialect, items[:head]); err != nil {
 		return err
 	}
+	if err := validateIdentityBindings(ctx, db, tables, head >= 47); err != nil {
+		return err
+	}
 	return validateOperationShape(ctx, db, dialect, true)
+}
+
+// Identity conversion is offline. Never open an old observer namespace as an
+// empty new cursor, or create another conversation beside unbound channel
+// history. These read-only checks intentionally do not interpret old keys.
+func validateIdentityBindings(ctx context.Context, db *sql.DB, tables map[string]bool, hasChannelBinding bool) error {
+	failure := ErrUpgradeRequired
+	if hasChannelBinding {
+		failure = ErrUnsupportedSourceFormat
+	}
+	if tables["snapshots"] {
+		var old bool
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM snapshots
+			WHERE substr(key, 1, 13) = 'observer/run/' AND substr(key, 1, 16) <> 'observer/run/v2/')`).Scan(&old); err != nil {
+			return fmt.Errorf("storage migrations: inspect observer identity namespace: %w", err)
+		}
+		if old {
+			return fmt.Errorf("%w: observer progress requires finite copy conversion", failure)
+		}
+	}
+	if tables["sessions"] {
+		query := `SELECT EXISTS (SELECT 1 FROM sessions WHERE substr(id, 1, 8) = 'sess_ch_'`
+		if hasChannelBinding {
+			query += ` AND channel_name IS NULL`
+		}
+		query += `)`
+		var unbound bool
+		if err := db.QueryRowContext(ctx, query).Scan(&unbound); err != nil {
+			return fmt.Errorf("storage migrations: inspect channel session binding: %w", err)
+		}
+		if unbound {
+			return fmt.Errorf("%w: channel history requires proven platform tuples in finite copy conversion", failure)
+		}
+	}
+	return nil
 }
 
 func validateOperationShape(ctx context.Context, db *sql.DB, dialect Dialect, bound bool) error {

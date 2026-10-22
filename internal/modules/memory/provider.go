@@ -2,8 +2,7 @@ package memory
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,10 +39,6 @@ const runCompletedEvent = "run.completed"
 // event's most structured fields lead, so truncation cuts into the summary
 // tail first.
 const maxHistoryContentBytes = 8 << 10
-
-// maxIDPartBytes bounds the run id embedded in deterministic record and
-// receipt ids.
-const maxIDPartBytes = 128
 
 // Provider is the single sync-plane provider: one identity serves both the
 // std/context-source@v1 recall contract and the std/observer/run@v1 ingest
@@ -208,7 +203,7 @@ func runEvidence(event observer.RunEvent) bml.EvidenceRef {
 // ingestRecordID is the deterministic record id for one EventID — the
 // idempotency key bml's insert-only put enforces.
 func ingestRecordID(id observer.EventID) string {
-	return "run-history-" + runIDPart(id.RunID) + "-" + strconv.FormatInt(id.Seq, 10)
+	return "run-history-" + runIDPart(id.RunID) + "." + strconv.FormatInt(id.Seq, 10)
 }
 
 // ingestReceiptID is the deterministic receipt id for one EventID, so a
@@ -217,30 +212,10 @@ func ingestReceiptID(id observer.EventID) string {
 	return ProviderID + "/" + runIDPart(id.RunID) + "/" + strconv.FormatInt(id.Seq, 10)
 }
 
-// runIDPart renders the RunID portion of deterministic ids: the sanitized
-// stem plus a short hash of the raw id, so RunIDs that sanitize identically
-// (a/b vs a\b) still dedupe independently.
+// runIDPart preserves the entire RunID in a reversible portable alphabet.
+// Truncating or sanitizing it would merge distinct event identities.
 func runIDPart(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	suffix := hex.EncodeToString(sum[:4])
-	stem := truncateUTF8(sanitizeIDPart(raw), maxIDPartBytes-len(suffix)-1)
-	return stem + "-" + suffix
-}
-
-// sanitizeIDPart keeps record/receipt ids to a portable alphabet; the RunID
-// is already non-empty when this is called on the ingest path.
-func sanitizeIDPart(id string) string {
-	var b strings.Builder
-	for _, r := range id {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '-', r == '_', r == '.':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
-	}
-	return b.String()
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
 // recallOffset parses the decimal offset cursor; absent is the first page.

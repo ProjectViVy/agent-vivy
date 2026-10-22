@@ -3,8 +3,7 @@ package observerhost
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -510,8 +509,8 @@ func deliverEvent(ctx context.Context, provider observer.RunProvider, event obse
 }
 
 func cursorKey(providerID string, runID domain.RunID) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(providerID) + "\x00" + string(runID)))
-	return "observer/run/" + hex.EncodeToString(sum[:])
+	return "observer/run/v2/" + base64.RawURLEncoding.EncodeToString([]byte(strings.TrimSpace(providerID))) + "/" +
+		base64.RawURLEncoding.EncodeToString([]byte(runID))
 }
 
 // EmitDiagnostic never blocks the caller. A full provider queue increments a
