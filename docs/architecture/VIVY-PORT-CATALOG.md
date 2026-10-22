@@ -56,11 +56,11 @@ execute another Tool directly or add itself to the model without ToolHost.
 ### `std/tool-world@v1`
 
 Provides a dynamic catalog whose entries may depend on a workspace or runtime
-instance. ToolHost owns discovery deadlines, cache invalidation, schema hashes,
+instance. ToolHost owns discovery deadlines, cache invalidation, actual schemas,
 visibility, and dispatch. MCP-discovered tools enter through this Port and then
 follow exactly the same ToolHost path as static and internal tools.
 
-Discovery is not execution approval. A schema hash change that cannot be
+Discovery is not execution approval. An actual schema change that cannot be
 reconciled marks the instance unavailable; it never silently changes a live
 call contract.
 
@@ -170,8 +170,11 @@ a Model, start a Run, or expose Eino types.
 
 ### `std/skill-source@v1`
 
-Provides Skill metadata and content by stable ID with version, source hash,
-dependency declaration, and availability. SkillHost owns validation, conflict
+Provides Skill metadata and actual content by stable ID with an explicit
+provider revision when available, dependency declaration, and availability.
+An empty version means unversioned current content, not a mutation precondition;
+Skill control-plane edits compare expected existence and exact current bytes.
+SkillHost owns validation, conflict
 resolution, Trust provenance, activation scope, budget, and Runtime projection.
 
 Skill text is governed instruction data. It receives no Tool, filesystem,

@@ -104,7 +104,8 @@ Rules:
 - Use `err` for errors, never `error`/`e`/`cause`.
 - Never log provider keys, bot tokens, raw Journal blobs, or full user
   payloads (D-010; the tool-result boundary redacts via
-  `RedactSensitive`, and the audit sink logs sizes/digests only).
+  `RedactSensitive`, and the action audit sink logs bounded identity, effect,
+  outcome, size, and duration metadata only).
 - Defense in depth: the slog handler layer applies the same vocabulary
   again (`logging.Redact` in `internal/logging/redact.go`). Every record
   is pattern-redacted in its message and string attributes, and an
@@ -120,8 +121,8 @@ Rules:
 
 ## 6. Level discipline
 
-- **debug** — diagnostics useful only while investigating (currently:
-  audit digest lines). Off by default.
+- **debug** — diagnostics useful only while investigating (for example,
+  bounded action audit persistence metadata). Off by default.
 - **info** — lifecycle milestones and notable normal outcomes
   ("vivy starting", "logging initialized", "approval sweep expired
   approvals").

@@ -228,15 +228,20 @@ The contract introduces one durable signal:
   in the session (the `rejectBusySession`/`ListActiveRuns` check,
   `rewind_service.go:236-247`). A completion attempted under an active run
   fails like `ErrSessionBusy`.
-- **Commit:** the Host journals a session-scoped completion marker — a
-  `session.completed` event type added to the closed vocabulary
-  (`domain/event.go:51-88`) and appended through the existing
-  synthetic-session-event seam (`recordSyntheticSessionEvent`,
-  `service.go:1376-1397`), under its own synthetic run id as the
-  `tr_` markers do. The marker payload carries
-  `{session_id, head_message_id, turn_count, transcript_digest}` (§2.3).
-  The journaled event's `EventID{RunID, Seq}` is the export's **stable
-  export id** — unique, ordered, and replayable.
+- **Commit (proposed session-export seam):** the Host journals a
+  session-scoped `session.completed` marker through the existing
+  synthetic-session-event seam, under its own synthetic run id as the
+  `tr_` markers do. The proposed marker carries the original tuple
+  `{session_id, head_message_id, turn_count}` (§2.3), and its journal
+  `EventID{RunID, Seq}` is the stable export id. This marker is not implemented
+  by the current run-scoped capture path. That path binds a session and
+  original `{RunID, EventSeq}` provenance to actual private captured content
+  (`internal/cognitivecontract/ports.go`,
+  `internal/modules/diva-cognitive/factory.go`); `cognitiveState` persists the
+  source watermark and pending window and advances only after successful
+  workflow completion (`internal/runtime/cognitive_service.go`). Keep those
+  durable owners authoritative; do not introduce a transcript-content token
+  as a second replay or completion authority.
 - **Idempotent completion:** the marker is written once; a repeated close on
   an already-completed session is a no-op returning the existing marker
   coordinates (first-writer-wins at the journal append; `Journal.Append`
@@ -265,10 +270,14 @@ Journal (REQ-MEM-10) and never read message storage directly.
   `{source, channel, chat_id}` from `Message.Source/Channel/ChatID`
   (`session.go:96-112`) — enough for backend-side identity mapping under the
   Host-resolved scope tuple, and nothing more.
-- Envelope metadata: `{export_id, schema_version, session_id, tenant_id,
-  workspace_id, title, created_at, completed_at, head_message_id,
-  turn_count, transcript_digest}`; `transcript_digest` is sha256 over the
-  canonical serialized turn list, giving adapters a self-verifying payload.
+- Proposed envelope metadata: `{export_id, schema_version, session_id,
+  tenant_id, workspace_id, title, created_at, completed_at, head_message_id,
+  turn_count}`, bound to the actual ordered turn list and original marker
+  coordinates. These fields describe the proposed session-export seam, not
+  an implemented export DTO. The current capture receipt's committed ledger
+  position and the Host's durable source/window watermark remain the
+  implemented delivery coordinates; replay uses original provenance and
+  actual private content rather than a self-verification digest (§2.2).
 - Tool turns: `tool` role rows and assistant `ToolCallID`/`ToolArgs`
   payloads are **not** part of the canonical turn list; see exclusions §2.6.
 
