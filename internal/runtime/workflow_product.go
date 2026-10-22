@@ -254,7 +254,7 @@ func (s *Service) INOFYStartRun(ctx context.Context, sessionID domain.SessionID,
 		return WorkflowStartResult{}, errors.New("runtime: workflow id plus revision or draft_etag is required")
 	}
 	var artifactJSON []byte
-	source := WorkflowDefinitionSource{DefinitionID: params.WorkflowID}
+	source := WorkflowDefinitionSource{DefinitionID: params.WorkflowID, DraftETag: params.DraftETag}
 	if params.Revision > 0 {
 		rec, err := s.deps.WorkflowDefinitions.GetWorkflowPublishedRevision(ctx, params.WorkflowID, params.Revision)
 		if err != nil {
@@ -395,14 +395,10 @@ func (s *Service) INOFYNodeOutput(ctx context.Context, sessionID domain.SessionI
 			result = &state.Results[i]
 		}
 	}
-	if result == nil || result.BlobID == "" {
+	if result == nil || len(result.Output) == 0 {
 		return nil, storage.ErrNotFound
 	}
-	blob, found, err := engine.Blobs().Get(ctx, result.BlobID)
-	if err != nil || !found {
-		return nil, storage.ErrNotFound
-	}
-	return json.RawMessage(blob), nil
+	return append(json.RawMessage(nil), result.Output...), nil
 }
 
 // INOFYCancelRun cancels the session's own workflow run through the governed

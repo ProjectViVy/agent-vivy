@@ -3,8 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -78,8 +77,8 @@ func (e *inofyNodeExecutor) Execute(ctx context.Context, call inofy.NodeCall) (i
 	if err != nil {
 		return inofy.NodeReply{}, mapINOFYStoreError(err)
 	}
-	if revision.SchemaVersion != 2 || revision.ProgramDigest != call.Ref.ProgramDigest ||
-		(call.Ref.HostBindingID != "" && revision.HostBindingID != call.Ref.HostBindingID) {
+	if revision.SchemaVersion != 3 || revision.ProgramID != call.Ref.ProgramID ||
+		revision.HostBindingID != call.Ref.HostBindingID {
 		return inofy.NodeReply{}, &inofy.Error{Code: inofy.ErrAuthorityDenied, Path: call.Path,
 			Message: "node call does not bind the admitted program"}
 	}
@@ -167,8 +166,7 @@ func classifyINOFYEffectError(err error) error {
 // committed operation key (RunID/logical path). The format matches
 // validWorkflowChildRunID so existing child reconciliation applies.
 func inofyChildRunID(operationKey string) domain.RunID {
-	sum := sha256.Sum256([]byte("vivy.child-task@1\x00" + operationKey))
-	return domain.RunID("workflow_child_" + hex.EncodeToString(sum[:]))
+	return domain.RunID("workflow_child_" + base64.RawURLEncoding.EncodeToString([]byte(operationKey)))
 }
 
 // inofyChildNodeTask builds the bounded child task: the declared task text

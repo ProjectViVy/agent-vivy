@@ -33,8 +33,8 @@ func TestINOFYWorkflowAdmitRunInspect(t *testing.T) {
 	prepareChildSessionAuthorizer(t, svc, backend, sessionID, parentRunID, []string{tools.EchoInfoName})
 
 	proposal, err := svc.ProposeINOFYWorkflow(ctx, parentRunID, json.RawMessage(inofyTwoNodeDefinition))
-	if err != nil || proposal.Digest == "" {
-		t.Fatalf("propose: %v digest=%q", err, proposal.Digest)
+	if err != nil || len(proposal.Definition) == 0 {
+		t.Fatalf("propose: %v", err)
 	}
 	started, err := svc.StartINOFYWorkflow(ctx, parentRunID, "wf-op-admit", json.RawMessage(inofyTwoNodeDefinition))
 	if err != nil {
@@ -59,7 +59,7 @@ func TestINOFYWorkflowAdmitRunInspect(t *testing.T) {
 		t.Fatalf("node projection = %+v", details.Nodes)
 	}
 	for _, node := range details.Nodes {
-		if node.Status != "completed" || !strings.HasPrefix(node.ChildRunID, "workflow_child_") || node.ResultDigest == "" {
+		if node.Status != "completed" || !strings.HasPrefix(node.ChildRunID, "workflow_child_") {
 			t.Fatalf("node = %+v", node)
 		}
 	}
@@ -191,7 +191,7 @@ func admitINOFYWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.Backe
 	parentRunID domain.RunID, operationKey string, raw json.RawMessage, toolsAllowed []string) (domain.Run, domain.WorkflowRevision, inofy.ExecutionRef) {
 	t.Helper()
 	ctx := context.Background()
-	admitted, err := validateINOFYDefinition(ctx, raw, toolsAllowed)
+	admitted, err := validateINOFYDefinition(ctx, raw, toolsAllowed, "test-program")
 	if err != nil {
 		t.Fatalf("validate: %v", err)
 	}
@@ -225,7 +225,7 @@ func admitINOFYWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.Backe
 		}
 	}
 	sandboxMode, approvalPolicy := session.EffectiveSandbox()
-	authorityJSON, authorityDigest, err := workflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, toolsAllowed)
+	authorityJSON, err := workflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, toolsAllowed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,19 +233,16 @@ func admitINOFYWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.Backe
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostBinding := inofyHostBinding(authorityDigest, admitted.Meta.ProgramDigest)
+	hostBinding := "binding-" + string(parentRunID)
 	wfID := domain.RunID("wf-" + string(parentRunID))
-	descriptorDigest := inofyTestDigest(string(admitted.CanonicalJSON))
 	revision := domain.WorkflowRevision{
 		RunID: wfID, ParentRunID: parentRunID, ParentSessionID: sessionID, RootRunID: rootID,
-		OperationKey:     operationKey,
-		DescriptorDigest: descriptorDigest, AuthorityDigest: authorityDigest,
+		OperationKey:   operationKey,
 		DescriptorJSON: admitted.CanonicalJSON, AuthorityJSON: authorityJSON,
-		SchemaVersion: 2, CreatedAt: 2,
-		ProgramDigest:   admitted.Meta.ProgramDigest,
-		CatalogDigest:   admitted.Meta.CatalogDigest,
+		SchemaVersion: 3, CreatedAt: 2,
+		ProgramID:       admitted.Meta.ProgramID,
 		CompilerVersion: admitted.Meta.CompilerVersion, EinoBuild: admitted.Meta.EinoBuild,
-		InputDigest: inofyTestInputDigest(), InputJSON: []byte(`{}`), EffectiveLimits: limitsJSON,
+		InputJSON: []byte(`{}`), EffectiveLimits: limitsJSON,
 		HostBindingID: hostBinding,
 	}
 	if _, err := backend.CommitWorkflowAdmission(ctx, storage.WorkflowAdmission{
@@ -263,7 +260,7 @@ func admitINOFYWorkflowFixture(t *testing.T, svc *Service, backend *sqlite.Backe
 	}
 	return run, revision, inofy.ExecutionRef{
 		RunID: string(wfID), Epoch: 1,
-		ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID,
+		ProgramID: revision.ProgramID, HostBindingID: revision.HostBindingID,
 	}
 }
 
@@ -282,12 +279,14 @@ func TestINOFYWorkflowRecoveryRequiredOnInterruptedRun(t *testing.T) {
 		json.RawMessage(inofyTwoNodeDefinition), []string{tools.EchoInfoName})
 	store := newINOFYRunStore(backend)
 	admitData, _ := json.Marshal(map[string]any{
-		"input_digest": revision.InputDigest,
-		"limits":       json.RawMessage(revision.EffectiveLimits),
+		"program_id": revision.ProgramID,
+		"limits":     json.RawMessage(revision.EffectiveLimits),
 	})
 	if _, err := store.Commit(ctx, ref, inofy.RunCommit{
-		CommitID:   "admit",
-		Events:     []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: admitData}},
+		AdmittedInput: json.RawMessage(`{}`),
+		CommitID:      "admit",
+		Events:        []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: admitData}},
+
 		Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
 	}); err != nil {
 		t.Fatalf("commit admitted: %v", err)
@@ -404,8 +403,7 @@ func TestINOFYWorkflowLegacyRowsStayHistorical(t *testing.T) {
 	wfID := domain.RunID("wf-legacy-row")
 	revision := domain.WorkflowRevision{
 		RunID: wfID, ParentRunID: parentRunID, ParentSessionID: sessionID, RootRunID: rootID,
-		OperationKey:     "wf-op-legacy-row",
-		DescriptorDigest: inofyTestDigest(string(descriptorJSON)), AuthorityDigest: inofyTestDigest(string(authorityJSON)),
+		OperationKey:   "wf-op-legacy-row",
 		DescriptorJSON: descriptorJSON, AuthorityJSON: authorityJSON,
 		SchemaVersion: 1, CreatedAt: 2,
 	}

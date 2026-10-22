@@ -3,8 +3,6 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +11,7 @@ import (
 	"time"
 
 	inofy "github.com/ProjectViVy/inofy"
+	"github.com/ProjectViVy/inofy/definitions"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/orchestration"
@@ -38,14 +37,13 @@ type WorkflowNodeProjection struct {
 	Key           string `json:"key"`
 	Status        string `json:"status"`
 	ChildRunID    string `json:"child_run_id,omitempty"`
-	ResultDigest  string `json:"result_digest,omitempty"`
 	ErrorCategory string `json:"error_category,omitempty"`
 	Message       string `json:"message,omitempty"`
 }
 
 type WorkflowDetails struct {
-	Run            domain.Run
-	RevisionDigest string
+	Run       domain.Run
+	ProgramID string
 	// Definition is the committed canonical INOFY definition.
 	Definition   json.RawMessage
 	EngineStatus string
@@ -70,13 +68,6 @@ func inofyWorkflowLimits() inofy.Limits {
 		MaxPredicateDepth:   8,
 		MaxConcurrentRuns:   4, MaxPendingAdmissions: 32,
 	}
-}
-
-// inofyHostBinding binds the compiled program identity to the authority record
-// admitted under it; the executor refuses an envelope with any other binding.
-func inofyHostBinding(authorityDigest, programDigest string) string {
-	sum := sha256.Sum256([]byte(authorityDigest + "\x00" + programDigest))
-	return hex.EncodeToString(sum[:])
 }
 
 // inofyEngine resolves the durable step/commit surface the INOFY RunStore
@@ -106,33 +97,38 @@ func (s *Service) validateWorkflowDepth(parent domain.Run) error {
 type WorkflowDefinitionSource struct {
 	DefinitionID       string
 	DefinitionRevision uint64
+	DraftETag          string
 }
 
 // inofyMaxRunInputBytes bounds the admitted run input payload.
 const inofyMaxRunInputBytes = 64 << 10
 
 // normalizeINOFYInput canonicalizes the run input: empty becomes {}, the value
-// must be a JSON object, and the digest covers its canonical (key-sorted) form.
-func normalizeINOFYInput(raw json.RawMessage) (json.RawMessage, string, error) {
+// must be a JSON object and is stored in canonical key order.
+func normalizeINOFYInput(raw json.RawMessage) (json.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
+	if !json.Valid(raw) {
+		return nil, errors.New("runtime: workflow input must be valid JSON")
+	}
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, "", fmt.Errorf("runtime: workflow input must be valid JSON: %w", err)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&v); err != nil {
+		return nil, fmt.Errorf("runtime: workflow input must be valid JSON: %w", err)
 	}
 	if _, ok := v.(map[string]any); !ok {
-		return nil, "", errors.New("runtime: workflow input must be a JSON object")
+		return nil, errors.New("runtime: workflow input must be a JSON object")
 	}
 	canonical, err := json.Marshal(v)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if len(canonical) > inofyMaxRunInputBytes {
-		return nil, "", errors.New("runtime: workflow input exceeds the admitted byte bound")
+		return nil, errors.New("runtime: workflow input exceeds the admitted byte bound")
 	}
-	sum := sha256.Sum256(canonical)
-	return canonical, "inofy-normal-v1:sha256:" + hex.EncodeToString(sum[:]), nil
+	return canonical, nil
 }
 
 // StartINOFYWorkflow atomically admits an immutable schema-2 revision and its
@@ -177,22 +173,48 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, storage.ErrNotFound
 	}
+	programID := newPrefixedID("program_")
+	if source != nil {
+		if source.DefinitionRevision > 0 {
+			programID = definitions.ProgramID(source.DefinitionID, source.DefinitionRevision)
+		} else {
+			programID = definitions.DraftProgramID(source.DefinitionID, source.DraftETag)
+		}
+	}
+	if existing, lookupErr := s.deps.WorkflowRevisions.GetWorkflowRevisionByOperation(ctx, parent.ID, operationKey); lookupErr == nil {
+		if existing.SchemaVersion != 3 || existing.ProgramID == "" {
+			s.projectionMu.Unlock()
+			return WorkflowStartResult{}, ErrWorkflowRecoveryRequired
+		}
+		if source != nil && programID != existing.ProgramID {
+			s.projectionMu.Unlock()
+			return WorkflowStartResult{}, storage.ErrWorkflowRevisionConflict
+		}
+		programID = existing.ProgramID
+	} else if !errors.Is(lookupErr, storage.ErrNotFound) {
+		s.projectionMu.Unlock()
+		return WorkflowStartResult{}, lookupErr
+	}
 	allowedTools := s.workflowChildTools(parentTools)
 	var admitted inofyAdmission
 	if trusted != nil {
 		// Trusted strategy admission is code-owned: it skips the authored
 		// definition decoder and carries no tool ceiling.
-		admitted = trusted.admitted
+		admitted, err = trustedStrategyAdmission(ctx, trusted.strategyID, programID)
+		if err != nil {
+			s.projectionMu.Unlock()
+			return WorkflowStartResult{}, err
+		}
 		allowedTools = nil
 	} else {
 		var admitErr error
-		admitted, admitErr = validateINOFYDefinition(ctx, raw, allowedTools)
+		admitted, admitErr = validateINOFYDefinition(ctx, raw, allowedTools, programID)
 		if admitErr != nil {
 			s.projectionMu.Unlock()
 			return WorkflowStartResult{}, fmt.Errorf("%w: %w", ErrINOFYInvalidDefinition, admitErr)
 		}
 	}
-	canonicalInput, inputDigest, err := normalizeINOFYInput(input)
+	canonicalInput, err := normalizeINOFYInput(input)
 	if err != nil {
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, err
@@ -210,11 +232,10 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	}
 	sandboxMode, approvalPolicy := session.EffectiveSandbox()
 	var authorityJSON []byte
-	var authorityDigest string
 	if trusted != nil {
-		authorityJSON, authorityDigest, err = trustedWorkflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, trusted.strategyID)
+		authorityJSON, err = trustedWorkflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, trusted.strategyID)
 	} else {
-		authorityJSON, authorityDigest, err = workflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, allowedTools)
+		authorityJSON, err = workflowAuthorityRecord(snapshot, sandboxMode, approvalPolicy, allowedTools)
 	}
 	if err != nil {
 		s.projectionMu.Unlock()
@@ -225,16 +246,14 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, err
 	}
-	descriptorDigest := sha256Hex(admitted.CanonicalJSON)
-	hostBinding := inofyHostBinding(authorityDigest, admitted.Meta.ProgramDigest)
+	hostBinding := newPrefixedID("workflow_binding_")
 
 	if existing, lookupErr := s.deps.WorkflowRevisions.GetWorkflowRevisionByOperation(ctx, parent.ID, operationKey); lookupErr == nil {
-		if existing.SchemaVersion != 2 || existing.DescriptorDigest != descriptorDigest ||
-			existing.AuthorityDigest != authorityDigest || existing.ParentSessionID != parent.SessionID ||
-			existing.ProgramDigest != admitted.Meta.ProgramDigest || existing.HostBindingID != hostBinding ||
-			existing.InputDigest != inputDigest || existing.DefinitionID != definitionID ||
-			existing.DefinitionRevision != definitionRevision ||
-			!bytes.Equal(existing.DescriptorJSON, admitted.CanonicalJSON) {
+		if existing.SchemaVersion != 3 || existing.ParentSessionID != parent.SessionID ||
+			existing.DefinitionID != definitionID || existing.DefinitionRevision != definitionRevision ||
+			!bytes.Equal(existing.AuthorityJSON, authorityJSON) || !bytes.Equal(existing.InputJSON, canonicalInput) ||
+			!bytes.Equal(existing.DescriptorJSON, admitted.CanonicalJSON) || existing.ProgramID != admitted.Meta.ProgramID ||
+			existing.CompilerVersion != admitted.Meta.CompilerVersion || existing.EinoBuild != admitted.Meta.EinoBuild {
 			s.projectionMu.Unlock()
 			return WorkflowStartResult{}, storage.ErrWorkflowRevisionConflict
 		}
@@ -279,7 +298,7 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		}
 		launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 			RunID: string(existing.RunID), Epoch: epoch,
-			ProgramDigest: existing.ProgramDigest, HostBindingID: existing.HostBindingID,
+			ProgramID: existing.ProgramID, HostBindingID: existing.HostBindingID,
 		}, nodes)
 		activationCancel()
 		return result, launchErr
@@ -319,12 +338,12 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	started.CreatedAt = now
 	revision := domain.WorkflowRevision{
 		RunID: run.ID, ParentRunID: parent.ID, ParentSessionID: parent.SessionID, RootRunID: rootID,
-		OperationKey: operationKey, DescriptorDigest: descriptorDigest, AuthorityDigest: authorityDigest,
+		OperationKey:   operationKey,
 		DescriptorJSON: append([]byte(nil), admitted.CanonicalJSON...), AuthorityJSON: authorityJSON,
-		SchemaVersion: 2, CreatedAt: now,
-		ProgramDigest: admitted.Meta.ProgramDigest, CatalogDigest: admitted.Meta.CatalogDigest,
+		SchemaVersion: 3, CreatedAt: now,
+		ProgramID:       admitted.Meta.ProgramID,
 		CompilerVersion: admitted.Meta.CompilerVersion, EinoBuild: admitted.Meta.EinoBuild,
-		InputDigest: inputDigest, InputJSON: append([]byte(nil), canonicalInput...),
+		InputJSON:       append([]byte(nil), canonicalInput...),
 		EffectiveLimits: limitsJSON, HostBindingID: hostBinding,
 		DefinitionID: definitionID, DefinitionRevision: definitionRevision,
 	}
@@ -338,10 +357,7 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, err
 	}
-	if committed.Revision.DescriptorDigest != descriptorDigest || committed.Revision.AuthorityDigest != authorityDigest ||
-		committed.Revision.SchemaVersion != 2 || committed.Revision.ProgramDigest != admitted.Meta.ProgramDigest ||
-		committed.Revision.InputDigest != inputDigest || committed.Revision.DefinitionID != definitionID ||
-		committed.Revision.DefinitionRevision != definitionRevision {
+	if !storage.EqualWorkflowAdmissionInput(committed.Revision, revision) {
 		s.projectionMu.Unlock()
 		return WorkflowStartResult{}, storage.ErrWorkflowRevisionConflict
 	}
@@ -376,7 +392,7 @@ func (s *Service) startINOFYWorkflow(ctx context.Context, parentRunID domain.Run
 	}
 	launchErr := s.launchINOFYWorkflow(activationCtx, result, admitted.Program, canonicalInput, inofy.ExecutionRef{
 		RunID: string(committed.Run.ID), Epoch: 1,
-		ProgramDigest: committed.Revision.ProgramDigest, HostBindingID: committed.Revision.HostBindingID,
+		ProgramID: committed.Revision.ProgramID, HostBindingID: committed.Revision.HostBindingID,
 	}, nodes)
 	activationCancel()
 	return result, launchErr
@@ -512,7 +528,7 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	if err != nil {
 		return fmt.Errorf("runtime: load workflow revision for recovery: %w", err)
 	}
-	if revision.SchemaVersion != 2 {
+	if revision.SchemaVersion != 3 {
 		// Discriminator-1 rows stay historical and excluded from auto-recovery.
 		return nil
 	}
@@ -548,27 +564,29 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	if sandboxMode != authority.SandboxMode || approvalPolicy != authority.ApprovalPolicy {
 		return errors.New("runtime: workflow Session authority changed before recovery")
 	}
+	if revision.ProgramID == "" || len(revision.InputJSON) == 0 || !json.Valid(revision.InputJSON) {
+		return ErrWorkflowRecoveryRequired
+	}
 	var allowedTools []string
 	var admitted inofyAdmission
 	if authority.TrustedStrategy != "" {
 		// Trusted revisions rebind to the same code-owned strategy catalog
 		// and require the bound Domain to be wired; a saved descriptor or
-		// catalog drift fails the digest compare below.
+		// program metadata or exact definition drift fails the comparison below.
 		if s.deps.Cognitive == nil || s.deps.Cognitive.Domain == nil {
 			return ErrCognitiveUnavailable
 		}
-		admitted, err = trustedStrategyAdmission(ctx, authority.TrustedStrategy)
+		admitted, err = trustedStrategyAdmission(ctx, authority.TrustedStrategy, revision.ProgramID)
 	} else {
 		allowedTools = s.workflowChildTools(canonicalTools)
 		if !sameStrings(allowedTools, canonicalTools) {
 			return errors.New("runtime: workflow tools no longer match the read-only authority ceiling")
 		}
-		admitted, err = validateINOFYDefinition(ctx, revision.DescriptorJSON, allowedTools)
+		admitted, err = validateINOFYDefinition(ctx, revision.DescriptorJSON, allowedTools, revision.ProgramID)
 	}
-	if err != nil || admitted.Meta.ProgramDigest != revision.ProgramDigest ||
-		admitted.Meta.CatalogDigest != revision.CatalogDigest ||
-		!bytes.Equal(admitted.CanonicalJSON, revision.DescriptorJSON) ||
-		inofyHostBinding(revision.AuthorityDigest, revision.ProgramDigest) != revision.HostBindingID {
+	if err != nil || admitted.Meta.ProgramID != revision.ProgramID || revision.HostBindingID == "" ||
+		admitted.Meta.CompilerVersion != revision.CompilerVersion || admitted.Meta.EinoBuild != revision.EinoBuild ||
+		!bytes.Equal(admitted.CanonicalJSON, revision.DescriptorJSON) {
 		return storage.ErrWorkflowRevisionConflict
 	}
 	state, err := engine.LoadWorkflowStep(ctx, run.ID)
@@ -622,24 +640,23 @@ func (s *Service) recoverWorkflowRun(ctx context.Context, run domain.Run, _ stri
 	}
 	return s.launchINOFYWorkflow(ctx, WorkflowStartResult{Run: current, Revision: revision}, admitted.Program, revision.InputJSON, inofy.ExecutionRef{
 		RunID: string(run.ID), Epoch: epoch,
-		ProgramDigest: revision.ProgramDigest, HostBindingID: revision.HostBindingID,
+		ProgramID: revision.ProgramID, HostBindingID: revision.HostBindingID,
 	}, nodes)
 }
 
-func workflowAuthorityRecord(snapshot domain.PolicySnapshot, sandbox domain.SandboxMode, approval domain.ApprovalPolicy, tools []string) ([]byte, string, error) {
+func workflowAuthorityRecord(snapshot domain.PolicySnapshot, sandbox domain.SandboxMode, approval domain.ApprovalPolicy, tools []string) ([]byte, error) {
 	canonical, err := domain.CanonicalToolNames(tools)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	encoded, err := json.Marshal(persistedWorkflowAuthority{
 		PolicyProfile: snapshot.Profile, PolicyDefinition: snapshot.Definition, SandboxMode: sandbox,
 		ApprovalPolicy: approval, ToolNames: canonical,
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	sum := sha256.Sum256(encoded)
-	return encoded, hex.EncodeToString(sum[:]), nil
+	return encoded, nil
 }
 
 func decodeWorkflowAuthority(revision domain.WorkflowRevision) (persistedWorkflowAuthority, error) {
@@ -657,20 +674,19 @@ func decodeWorkflowAuthority(revision domain.WorkflowRevision) (persistedWorkflo
 		return authority, errors.New("runtime: stored workflow authority is incomplete")
 	}
 	var canonicalAuthority []byte
-	var authorityDigest string
 	if authority.TrustedStrategy != "" {
-		canonicalAuthority, authorityDigest, err = trustedWorkflowAuthorityRecord(
+		canonicalAuthority, err = trustedWorkflowAuthorityRecord(
 			domain.PolicySnapshot{Profile: authority.PolicyProfile, Definition: authority.PolicyDefinition},
 			authority.SandboxMode, authority.ApprovalPolicy, authority.TrustedStrategy,
 		)
 	} else {
-		canonicalAuthority, authorityDigest, err = workflowAuthorityRecord(
+		canonicalAuthority, err = workflowAuthorityRecord(
 			domain.PolicySnapshot{Profile: authority.PolicyProfile, Definition: authority.PolicyDefinition},
 			authority.SandboxMode, authority.ApprovalPolicy, canonicalTools,
 		)
 	}
-	if err != nil || authorityDigest != revision.AuthorityDigest || !bytes.Equal(canonicalAuthority, revision.AuthorityJSON) {
-		return authority, errors.New("runtime: stored workflow authority digest does not match")
+	if err != nil || !bytes.Equal(canonicalAuthority, revision.AuthorityJSON) {
+		return authority, errors.New("runtime: stored workflow authority does not match")
 	}
 	return authority, nil
 }
@@ -682,7 +698,6 @@ type inofyNodeEvent struct {
 	completed     bool
 	failed        bool
 	waiting       bool
-	resultDigest  string
 	errorCategory string
 	message       string
 }
@@ -699,7 +714,6 @@ func inofyNodeStates(events []domain.RunEvent, runID domain.RunID, nodePaths map
 	for _, event := range events {
 		var payload struct {
 			NodeKey       string `json:"node_key"`
-			ResultDigest  string `json:"result_digest"`
 			CauseCategory string `json:"cause_category"`
 			ErrorCategory string `json:"error_category"`
 			Message       string `json:"message"`
@@ -717,10 +731,8 @@ func inofyNodeStates(events []domain.RunEvent, runID domain.RunID, nodePaths map
 			state.started = true
 		case domain.EventWorkflowNodeCompleted:
 			state.started, state.completed = true, true
-			state.resultDigest = payload.ResultDigest
 		case domain.EventWorkflowNodeDegraded:
 			state.started, state.completed = true, true
-			state.resultDigest = payload.ResultDigest
 		case domain.EventWorkflowNodeFailed:
 			state.started, state.failed = true, true
 			if payload.ErrorCategory != "" {
@@ -794,7 +806,7 @@ func (s *Service) GetWorkflow(ctx context.Context, runID domain.RunID) (Workflow
 	if err != nil {
 		return WorkflowDetails{}, err
 	}
-	if revision.SchemaVersion != 2 {
+	if revision.SchemaVersion != 3 {
 		return WorkflowDetails{}, ErrWorkflowLegacyFormat
 	}
 	run, err := s.deps.Runs.GetRun(ctx, runID)
@@ -814,7 +826,7 @@ func (s *Service) GetWorkflow(ctx context.Context, runID domain.RunID) (Workflow
 		return WorkflowDetails{}, fmt.Errorf("runtime: load workflow projection: %w", err)
 	}
 	details := WorkflowDetails{
-		Run: run, RevisionDigest: revision.DescriptorDigest,
+		Run: run, ProgramID: revision.ProgramID,
 		Definition: append(json.RawMessage(nil), revision.DescriptorJSON...),
 	}
 	if state.Projection != nil {
@@ -892,7 +904,7 @@ func (s *Service) GetWorkflow(ctx context.Context, runID domain.RunID) (Workflow
 			childRunID = string(inofyChildRunID(string(runID) + "/" + path))
 		}
 		details.Nodes = append(details.Nodes, WorkflowNodeProjection{
-			Key: key, Status: status, ChildRunID: childRunID, ResultDigest: nodeState.resultDigest,
+			Key: key, Status: status, ChildRunID: childRunID,
 			ErrorCategory: nodeState.errorCategory, Message: nodeState.message,
 		})
 	}
@@ -921,17 +933,10 @@ func (s *Service) GetWorkflow(ctx context.Context, runID domain.RunID) (Workflow
 			continue
 		}
 		result, ok := latestResult["/graph/nodes/"+binding.Source]
-		if !ok || result.BlobID == "" {
+		if !ok || len(result.Output) == 0 {
 			return WorkflowDetails{}, ErrWorkflowNodeUnknownOutcome
 		}
-		blob, found, err := engine.Blobs().Get(ctx, result.BlobID)
-		if err != nil || !found {
-			return WorkflowDetails{}, fmt.Errorf("runtime: load workflow result blob: %w", err)
-		}
-		sum := sha256.Sum256(blob)
-		if hex.EncodeToString(sum[:]) != result.Digest {
-			return WorkflowDetails{}, storage.ErrWorkflowRevisionConflict
-		}
+		blob := result.Output
 		value, err := inofyPointerValue(json.RawMessage(blob), binding.Pointer)
 		if err != nil {
 			return WorkflowDetails{}, err
@@ -961,7 +966,7 @@ func (s *Service) ListWorkflows(ctx context.Context, parentRunID domain.RunID) (
 	}
 	result := make([]WorkflowDetails, 0, len(revisions))
 	for _, revision := range revisions {
-		if revision.SchemaVersion != 2 {
+		if revision.SchemaVersion != 3 {
 			continue
 		}
 		details, err := s.GetWorkflow(ctx, revision.RunID)

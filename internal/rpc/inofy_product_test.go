@@ -132,11 +132,11 @@ func TestINOFYProductRPCSurface(t *testing.T) {
 	}
 	publishedJSON, _ := json.Marshal(published)
 	var revision struct {
-		Workflow         string `json:"workflow"`
-		Revision         uint64 `json:"revision"`
-		DefinitionDigest string `json:"definition_digest"`
+		Workflow  string `json:"workflow"`
+		Revision  uint64 `json:"revision"`
+		ProgramID string `json:"program_id"`
 	}
-	if err := json.Unmarshal(publishedJSON, &revision); err != nil || revision.Revision != 1 || revision.DefinitionDigest == "" {
+	if err := json.Unmarshal(publishedJSON, &revision); err != nil || revision.Revision != 1 || revision.ProgramID == "" {
 		t.Fatalf("publish = %s", publishedJSON)
 	}
 
@@ -146,10 +146,10 @@ func TestINOFYProductRPCSurface(t *testing.T) {
 	}
 	fetchedJSON, _ := json.Marshal(fetched)
 	var revisionView struct {
-		Artifact          json.RawMessage `json:"artifact"`
-		UsedCatalogDigest string          `json:"used_catalog_digest"`
+		Artifact  json.RawMessage `json:"artifact"`
+		ProgramID string          `json:"program_id"`
 	}
-	if err := json.Unmarshal(fetchedJSON, &revisionView); err != nil || len(revisionView.Artifact) == 0 || revisionView.UsedCatalogDigest == "" {
+	if err := json.Unmarshal(fetchedJSON, &revisionView); err != nil || len(revisionView.Artifact) == 0 || revisionView.ProgramID == "" {
 		t.Fatalf("getRevision = %s", fetchedJSON)
 	}
 

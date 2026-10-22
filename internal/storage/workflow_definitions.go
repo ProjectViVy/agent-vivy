@@ -1,9 +1,8 @@
 package storage
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 )
@@ -24,15 +23,13 @@ var (
 // definition. ArtifactJSON is the verbatim inofy.Artifact encoding; storage
 // stays engine-free and treats it as an opaque validated document.
 type WorkflowDraft struct {
-	WorkflowID       string
-	ETag             string
-	ArtifactJSON     []byte
-	DefinitionDigest string
-	ArtifactDigest   string
-	Archived         bool
-	AuthorSessionID  string
-	CreatedAt        int64
-	UpdatedAt        int64
+	WorkflowID      string
+	ETag            string
+	ArtifactJSON    []byte
+	Archived        bool
+	AuthorSessionID string
+	CreatedAt       int64
+	UpdatedAt       int64
 }
 
 // WorkflowPublishedRevision is one immutable publication row. The exact
@@ -41,9 +38,6 @@ type WorkflowPublishedRevision struct {
 	WorkflowID              string
 	Revision                uint64
 	ArtifactJSON            []byte
-	DefinitionDigest        string
-	ArtifactDigest          string
-	UsedCatalogDigest       string
 	UsedImplementationsJSON []byte
 	AuthorSessionID         string
 	PublishedAt             int64
@@ -94,7 +88,7 @@ type WorkflowDefinitionStore interface {
 	// update and ErrWorkflowDefinitionNotFound on read paths.
 	UpdateWorkflowDraftCAS(ctx context.Context, sessionID string, in WorkflowDraftUpdate) (WorkflowDraft, error)
 	// PublishWorkflowRevisionCAS validates the draft ETag inside the same
-	// transaction, then deduplicates by (workflow, artifact+catalog digest):
+	// transaction, then deduplicates by (workflow, actual artifact+used implementations):
 	// republishing the identical artifact returns the stored revision
 	// without allocating. Otherwise the next monotone revision is inserted.
 	PublishWorkflowRevisionCAS(ctx context.Context, sessionID, workflowID, expectedETag string, in WorkflowPublishedRevision) (WorkflowPublishedRevision, error)
@@ -116,16 +110,14 @@ const WorkflowDefinitionETagAbsent = "\x00absent"
 // WorkflowDraftUpdate carries the validated draft write. The backend
 // assigns the new ETag.
 type WorkflowDraftUpdate struct {
-	WorkflowID       string
-	ExpectedETag     string
-	ArtifactJSON     []byte
-	DefinitionDigest string
-	ArtifactDigest   string
-	Now              int64
+	WorkflowID   string
+	ExpectedETag string
+	ArtifactJSON []byte
+	Now          int64
 }
 
 // ValidateWorkflowDraftUpdate enforces the storage invariants of one draft
-// write: bounded ids, valid JSON artifact, matching digests.
+// write: bounded ids, valid JSON artifact, actual normalized artifact.
 func ValidateWorkflowDraftUpdate(in WorkflowDraftUpdate) error {
 	if in.WorkflowID == "" || len(in.WorkflowID) > 256 || len(in.ExpectedETag) > 256 {
 		return errors.New("storage: workflow definition identity is incomplete")
@@ -133,9 +125,7 @@ func ValidateWorkflowDraftUpdate(in WorkflowDraftUpdate) error {
 	if len(in.ArtifactJSON) == 0 || len(in.ArtifactJSON) > 1<<20 || !json.Valid(in.ArtifactJSON) {
 		return errors.New("storage: workflow definition artifact is invalid or oversized")
 	}
-	if !validINOFYNamedDigest(in.DefinitionDigest) || !validINOFYNamedDigest(in.ArtifactDigest) {
-		return errors.New("storage: workflow definition digests must be inofy-normal-v1:sha256 form")
-	}
+
 	if in.Now <= 0 {
 		return errors.New("storage: workflow definition write requires a timestamp")
 	}
@@ -143,8 +133,8 @@ func ValidateWorkflowDraftUpdate(in WorkflowDraftUpdate) error {
 }
 
 // ValidateWorkflowPublishedRevision enforces the identity of one
-// publication insert. Dedup is by (workflow, artifact+catalog digest), so
-// the used-catalog digest and implementation map are mandatory.
+// publication insert. Dedup is by (workflow, actual artifact+used implementations), so
+// the used implementation map are mandatory.
 func ValidateWorkflowPublishedRevision(in WorkflowPublishedRevision) error {
 	if in.WorkflowID == "" || len(in.WorkflowID) > 256 || in.AuthorSessionID == "" {
 		return errors.New("storage: workflow publication identity is incomplete")
@@ -152,10 +142,7 @@ func ValidateWorkflowPublishedRevision(in WorkflowPublishedRevision) error {
 	if len(in.ArtifactJSON) == 0 || len(in.ArtifactJSON) > 1<<20 || !json.Valid(in.ArtifactJSON) {
 		return errors.New("storage: workflow publication artifact is invalid or oversized")
 	}
-	if !validINOFYNamedDigest(in.DefinitionDigest) || !validINOFYNamedDigest(in.ArtifactDigest) ||
-		!validNamedDigest(in.UsedCatalogDigest) {
-		return errors.New("storage: workflow publication digests are invalid")
-	}
+
 	if len(in.UsedImplementationsJSON) == 0 || !json.Valid(in.UsedImplementationsJSON) {
 		return errors.New("storage: workflow publication used-implementations are invalid")
 	}
@@ -165,32 +152,11 @@ func ValidateWorkflowPublishedRevision(in WorkflowPublishedRevision) error {
 	return nil
 }
 
-// validNamedDigest accepts "sha256:<hex>" or bare lowercase SHA-256 hex
-// (the used-catalog digest is computed as "sha256:"+hex by INOFY publish).
-func validNamedDigest(value string) bool {
-	if validSHA256Hex(value) {
-		return true
-	}
-	const prefix = "sha256:"
-	return len(value) > len(prefix) && value[:len(prefix)] == prefix && validSHA256Hex(value[len(prefix):])
-}
-
-// validINOFYNamedDigest accepts the engine's canonical digest form
-// "inofy-normal-v1:sha256:<hex>" (and bare lowercase hex for test fixtures).
-func validINOFYNamedDigest(value string) bool {
-	if validSHA256Hex(value) {
-		return true
-	}
-	const prefix = "inofy-normal-v1:sha256:"
-	return len(value) > len(prefix) && value[:len(prefix)] == prefix && validSHA256Hex(value[len(prefix):])
-}
-
 // WorkflowDefinitionETag derives a deterministic next draft ETag. Host
 // adapters keep one monotone counter per row in updated_at space; callers
 // never hand-pick ETags.
 func WorkflowDefinitionETag(workflowID string, seq int64) string {
-	sum := sha256.Sum256([]byte("wfdef-etag:" + workflowID))
-	return workflowID + ":" + hex.EncodeToString(sum[:8]) + ":" + itoaBase10(seq)
+	return itoaBase10(seq)
 }
 
 func itoaBase10(n int64) string {
@@ -205,4 +171,16 @@ func itoaBase10(n int64) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+// NormalizeWorkflowDocument preserves exact JSON numbers and canonical object
+// ordering for artifact/publication comparisons in the storage owner.
+func NormalizeWorkflowDocument(raw []byte) ([]byte, error) {
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return json.Marshal(value)
 }

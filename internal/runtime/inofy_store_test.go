@@ -37,15 +37,15 @@ func TestINOFYStoreCommitLoadRoundTrip(t *testing.T) {
 	ref := inofy.ExecutionRef{
 		RunID:         string(wf),
 		Epoch:         1,
-		ProgramDigest: conformance.StepDigest("program-rt"),
-		HostBindingID: conformance.StepDigest("binding-rt"),
+		ProgramID:     conformance.StepID("program-rt"),
+		HostBindingID: conformance.StepID("binding-rt"),
 	}
 	st, err := store.Load(ctx, string(wf))
 	if err != nil {
 		t.Fatalf("load fresh: %v", err)
 	}
-	if st.Status != inofy.RunAdmitted || st.Ref.ProgramDigest != ref.ProgramDigest ||
-		st.InputDigest != conformance.StepDigest("input-rt") {
+	if st.Status != inofy.RunAdmitted || st.Ref.ProgramID != ref.ProgramID ||
+		string(st.AdmittedInput) != `{}` {
 		t.Fatalf("fresh recovery state = %+v", st)
 	}
 	if st.Limits.MaxNodes != 12 {
@@ -56,8 +56,9 @@ func TestINOFYStoreCommitLoadRoundTrip(t *testing.T) {
 	receipt, err := store.Commit(ctx, ref, inofy.RunCommit{
 		CommitID: "r1",
 		Events: []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: json.RawMessage(
-			`{"input_digest":"` + conformance.StepDigest("input-rt") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
-		Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
+			`{"program_id":"` + conformance.StepID("program-rt") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
+		AdmittedInput: json.RawMessage(`{}`),
+		Transition:    inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
 	})
 	if err != nil {
 		t.Fatalf("commit admitted: %v", err)
@@ -147,14 +148,15 @@ func TestINOFYStoreCommitLoadRoundTrip(t *testing.T) {
 		}
 	}
 	var decoded map[string]any
-	if err := json.Unmarshal(completedPayload, &decoded); err != nil || decoded["result_digest"] == "" {
-		t.Fatalf("node completed payload lacks result ref: %s err=%v", completedPayload, err)
+	if err := json.Unmarshal(completedPayload, &decoded); err != nil {
+		t.Fatal(err)
 	}
-	if got := decoded["result_blob_id"]; got == "" || got == nil {
-		t.Fatalf("node completed payload lacks blob ref: %s", completedPayload)
+	if _, ok := decoded["output"]; ok {
+		t.Fatal("private output leaked into public event")
 	}
-	if _, found, err := engine.Blobs().Get(ctx, decoded["result_blob_id"].(string)); err != nil || !found {
-		t.Fatalf("result blob missing: %v found=%v", err, found)
+	state, err := engine.LoadWorkflowStep(ctx, wf)
+	if err != nil || len(state.Results) != 1 || len(state.Results[0].Output) == 0 {
+		t.Fatalf("durable private result missing: %+v %v", state, err)
 	}
 }
 
@@ -176,14 +178,15 @@ func TestINOFYStoreCommitPublishesCommittedEvents(t *testing.T) {
 	ref := inofy.ExecutionRef{
 		RunID:         string(wf),
 		Epoch:         1,
-		ProgramDigest: conformance.StepDigest("program-pub"),
-		HostBindingID: conformance.StepDigest("binding-pub"),
+		ProgramID:     conformance.StepID("program-pub"),
+		HostBindingID: conformance.StepID("binding-pub"),
 	}
 	if _, err := store.Commit(ctx, ref, inofy.RunCommit{
 		CommitID: "p1",
 		Events: []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: json.RawMessage(
-			`{"input_digest":"` + conformance.StepDigest("input-pub") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
-		Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
+			`{"program_id":"` + conformance.StepID("program-pub") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
+		AdmittedInput: json.RawMessage(`{}`),
+		Transition:    inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
 	}); err != nil {
 		t.Fatalf("commit admitted: %v", err)
 	}
@@ -220,14 +223,15 @@ func TestINOFYStoreErrorMapping(t *testing.T) {
 	ctx := context.Background()
 	ref := inofy.ExecutionRef{
 		RunID: string(wf), Epoch: 1,
-		ProgramDigest: conformance.StepDigest("program-errmap"),
-		HostBindingID: conformance.StepDigest("binding-errmap"),
+		ProgramID:     conformance.StepID("program-errmap"),
+		HostBindingID: conformance.StepID("binding-errmap"),
 	}
 	admit := inofy.RunCommit{
 		CommitID: "m1",
 		Events: []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: json.RawMessage(
-			`{"input_digest":"` + conformance.StepDigest("input-errmap") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
-		Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
+			`{"program_id":"` + conformance.StepID("program-errmap") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
+		AdmittedInput: json.RawMessage(`{}`),
+		Transition:    inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
 	}
 	if _, err := store.Commit(ctx, ref, admit); err != nil {
 		t.Fatalf("admit: %v", err)
@@ -276,7 +280,7 @@ func TestINOFYStoreErrorMapping(t *testing.T) {
 	}
 	// program identity mismatch -> checkpoint incompatible
 	wrong := claimed
-	wrong.ProgramDigest = conformance.StepDigest("other")
+	wrong.ProgramID = conformance.StepID("other")
 	_, err = store.Commit(ctx, wrong, inofy.RunCommit{
 		CommitID:   "m5",
 		Transition: inofy.StateTransition{Expected: inofy.RunRunning, Target: inofy.RunRunning},
@@ -291,14 +295,15 @@ func TestINOFYStoreCheckpointBlobRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	ref := inofy.ExecutionRef{
 		RunID: string(wf), Epoch: 1,
-		ProgramDigest: conformance.StepDigest("program-cp"),
-		HostBindingID: conformance.StepDigest("binding-cp"),
+		ProgramID:     conformance.StepID("program-cp"),
+		HostBindingID: conformance.StepID("binding-cp"),
 	}
 	admit := inofy.RunCommit{
 		CommitID: "c1",
 		Events: []inofy.Event{{Kind: inofy.EventRunAdmitted, Data: json.RawMessage(
-			`{"input_digest":"` + conformance.StepDigest("input-cp") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
-		Transition: inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
+			`{"program_id":"` + conformance.StepID("program-cp") + `","limits":{"max_nodes":12,"max_attempts":1}}`)}},
+		AdmittedInput: json.RawMessage(`{}`),
+		Transition:    inofy.StateTransition{Expected: "", Target: inofy.RunAdmitted},
 	}
 	if _, err := store.Commit(ctx, ref, admit); err != nil {
 		t.Fatalf("admit: %v", err)
@@ -313,11 +318,9 @@ func TestINOFYStoreCheckpointBlobRoundTrip(t *testing.T) {
 	payload := []byte("eino-checkpoint-bytes")
 	envelope := &inofy.CheckpointEnvelope{
 		ContinuationGeneration: 1,
-		DefinitionDigest:       conformance.StepDigest("descriptor-cp"),
-		ProgramDigest:          ref.ProgramDigest,
+		ProgramID:              ref.ProgramID,
 		EinoBuild:              "v0.9.13",
 		SerializerVersion:      "1",
-		InputDigest:            conformance.StepDigest("input-cp"),
 		Payload:                payload,
 	}
 	if _, err := store.Commit(ctx, ref, inofy.RunCommit{
@@ -348,25 +351,14 @@ func TestINOFYStoreCheckpointBlobRoundTrip(t *testing.T) {
 	if len(st.UnresolvedOperations) != 1 || st.UnresolvedOperations[0].Path != "n1" {
 		t.Fatalf("unresolved = %+v", st.UnresolvedOperations)
 	}
-	// Corrupt the checkpoint payload blob: Load must fail, not return a
-	// half-valid state.
-	stated, err := store.Load(ctx, string(wf))
-	if err != nil {
-		t.Fatalf("load: %v", err)
+	// The full native payload is committed once with its projection.
+	state, err := engine.LoadWorkflowStep(ctx, wf)
+	if err != nil || state.Projection == nil {
+		t.Fatalf("storage checkpoint: %v", err)
 	}
-	_ = stated
-	// find blob id via storage-level load
-	ss := engine.(storage.WorkflowStepStore)
-	sst, err := ss.LoadWorkflowStep(ctx, wf)
-	if err != nil || sst.Projection == nil {
-		t.Fatalf("storage load: %v", err)
-	}
-	blobID := sst.Projection.CheckpointBlobID
-	if err := engine.Blobs().Delete(ctx, blobID); err != nil {
-		t.Fatalf("delete checkpoint blob: %v", err)
-	}
-	if _, err := store.Load(ctx, string(wf)); err == nil {
-		t.Fatal("load returned state with a missing checkpoint blob")
+	var stored inofy.CheckpointEnvelope
+	if err := json.Unmarshal(state.Projection.CheckpointJSON, &stored); err != nil || string(stored.Payload) != string(payload) {
+		t.Fatalf("native checkpoint missing from atomic owner: %v", err)
 	}
 }
 

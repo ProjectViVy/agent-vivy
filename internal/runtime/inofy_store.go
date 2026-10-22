@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,12 +15,10 @@ import (
 
 // inofyRunStore adapts the Core Storage WorkflowStepStore to INOFY's
 // host-controlled RunStore boundary. Every Commit is one SQL transaction;
-// result outputs and checkpoint payloads live in content-addressed blobs
-// staged before the transaction so a rolled-back commit can only leave
-// unreachable blobs, never a visible missing reference.
+// protected outputs, native checkpoints and exact private claims are stored
+// with the receipt and projection inside that transaction.
 type inofyRunStore struct {
-	engine storage.Engine
-	steps  storage.WorkflowStepStore
+	steps storage.WorkflowStepStore
 	// publish fans each committed event out to live subscribers after the
 	// journal accepts the step; the journal stays the authority and the
 	// bus-only events are re-fetched from it after any drop.
@@ -30,56 +26,38 @@ type inofyRunStore struct {
 }
 
 func newINOFYRunStore(engine storage.Engine) *inofyRunStore {
-	return &inofyRunStore{engine: engine, steps: engine}
+	return &inofyRunStore{steps: engine}
 }
 
 func (s *inofyRunStore) Commit(ctx context.Context, ref inofy.ExecutionRef, change inofy.RunCommit) (inofy.Receipt, error) {
 	runID := domain.RunID(ref.RunID)
 
 	results := make([]storage.WorkflowStepResult, 0, len(change.Results))
-	blobIDs := map[string]string{}
 	for _, r := range change.Results {
-		digest := inofyDigest(r.Output)
-		blobID := "wf/" + digest
-		if _, staged := blobIDs[blobID]; !staged {
-			if err := s.engine.Blobs().Put(ctx, blobID, r.Output); err != nil {
-				return inofy.Receipt{}, inofyStoreError(err, "stage result blob")
-			}
-		}
-		blobIDs[unresolvedKeyOf(r.Path, r.Attempt)] = blobID
-		results = append(results, storage.WorkflowStepResult{
-			Path:    r.Path,
-			Attempt: r.Attempt,
-			Digest:  digest,
-			BlobID:  blobID,
-			Bytes:   int64(len(r.Output)),
-		})
+		results = append(results, storage.WorkflowStepResult{Path: r.Path, Attempt: r.Attempt, Output: append([]byte(nil), r.Output...), Bytes: int64(len(r.Output))})
 	}
-
 	var checkpoint *storage.WorkflowStepCheckpoint
 	if change.Checkpoint != nil {
-		payload := change.Checkpoint.Payload
-		blobID := "wf-ck/" + inofyDigest(payload)
-		if err := s.engine.Blobs().Put(ctx, blobID, payload); err != nil {
-			return inofy.Receipt{}, inofyStoreError(err, "stage checkpoint blob")
-		}
-		stripped := *change.Checkpoint
-		stripped.Payload = nil
-		envelopeJSON, err := json.Marshal(stripped)
+		raw, err := json.Marshal(change.Checkpoint)
 		if err != nil {
-			return inofy.Receipt{}, inofyStoreError(err, "encode checkpoint envelope")
+			return inofy.Receipt{}, inofyStoreError(err, "encode checkpoint")
 		}
-		checkpoint = &storage.WorkflowStepCheckpoint{
-			Envelope: envelopeJSON,
-			BlobID:   blobID,
-			Digest:   inofyDigest(payload),
-		}
+		checkpoint = &storage.WorkflowStepCheckpoint{Envelope: raw}
 	}
-
 	events := make([]storage.WorkflowStepEvent, 0, len(change.Events))
 	now := time.Now().UnixMilli()
 	for _, e := range change.Events {
-		payload, err := inofyEventPayload(e, blobIDs)
+		payload, err := inofyEventPayload(e)
+		if e.Kind == inofy.EventRunStarted || e.Kind == inofy.EventRunAdmitted {
+			var projection map[string]any
+			if err == nil {
+				err = json.Unmarshal(payload, &projection)
+			}
+			if err == nil {
+				projection["program_id"] = ref.ProgramID
+				payload, err = json.Marshal(projection)
+			}
+		}
 		if err != nil {
 			return inofy.Receipt{}, err
 		}
@@ -91,16 +69,21 @@ func (s *inofyRunStore) Commit(ctx context.Context, ref inofy.ExecutionRef, chan
 		})
 	}
 
-	digest, err := inofyCommitDigest(change)
-	if err != nil {
-		return inofy.Receipt{}, err
+	var resumeAnswers []byte
+	if change.ResumeKey != "" || change.ResumeAnswers != nil {
+		var err error
+		resumeAnswers, err = json.Marshal(change.ResumeAnswers)
+		if err != nil {
+			return inofy.Receipt{}, inofyStoreError(err, "encode private resume answers")
+		}
 	}
 	receipt, err := s.steps.CommitWorkflowStep(ctx, storage.WorkflowStepCommit{
 		RunID:         runID,
 		CommitID:      change.CommitID,
-		Digest:        digest,
+		AdmittedInput: append(json.RawMessage(nil), change.AdmittedInput...),
+		ResumeKey:     change.ResumeKey, ResumeAnswersJSON: resumeAnswers,
 		Epoch:         ref.Epoch,
-		ProgramDigest: ref.ProgramDigest,
+		ProgramID:     ref.ProgramID,
 		HostBindingID: ref.HostBindingID,
 		Expected:      storage.WorkflowStepStatus(change.Transition.Expected),
 		Target:        storage.WorkflowStepStatus(change.Transition.Target),
@@ -140,11 +123,11 @@ func (s *inofyRunStore) Load(ctx context.Context, runID string) (inofy.RecoveryS
 	st := inofy.RecoveryState{
 		Ref: inofy.ExecutionRef{
 			RunID:         runID,
-			ProgramDigest: state.Revision.ProgramDigest,
+			ProgramID:     state.Revision.ProgramID,
 			HostBindingID: state.Revision.HostBindingID,
 		},
-		Status:      inofy.RunAdmitted,
-		InputDigest: state.Revision.InputDigest,
+		Status:        inofy.RunAdmitted,
+		AdmittedInput: append(json.RawMessage(nil), state.Revision.InputJSON...),
 	}
 	if len(state.Revision.EffectiveLimits) > 0 {
 		if err := json.Unmarshal(state.Revision.EffectiveLimits, &st.Limits); err != nil {
@@ -167,17 +150,6 @@ func (s *inofyRunStore) Load(ctx context.Context, runID string) (inofy.RecoveryS
 		if err := json.Unmarshal(p.CheckpointJSON, &envelope); err != nil {
 			return inofy.RecoveryState{}, inofyStoreError(err, "decode checkpoint envelope")
 		}
-		payload, found, err := s.engine.Blobs().Get(ctx, p.CheckpointBlobID)
-		if err != nil {
-			return inofy.RecoveryState{}, inofyStoreError(err, "read checkpoint blob")
-		}
-		if !found || inofyDigest(payload) != p.CheckpointDigest {
-			return inofy.RecoveryState{}, &inofy.Error{
-				Code:    inofy.ErrCheckpointIncompatible,
-				Message: "workflow checkpoint blob missing or corrupt",
-			}
-		}
-		envelope.Payload = payload
 		st.LatestCheckpoint = &envelope
 	}
 	if len(p.WaitsJSON) > 0 {
@@ -209,7 +181,11 @@ func (s *inofyRunStore) Load(ctx context.Context, runID string) (inofy.RecoveryS
 		}
 	}
 	st.ResumeKey = p.ResumeKey
-	st.ResumeAnswersDigest = p.ResumeAnswersDigest
+	if len(p.ResumeAnswersJSON) > 0 {
+		if err := json.Unmarshal(p.ResumeAnswersJSON, &st.ResumeAnswers); err != nil {
+			return inofy.RecoveryState{}, inofyStoreError(err, "decode private resume answers")
+		}
+	}
 	return st, nil
 }
 
@@ -260,7 +236,7 @@ func inofyEventType(kind inofy.EventKind) domain.EventType {
 
 // inofyEventPayload builds the VIVY journal payload for one engine event,
 // honoring schemas/events/payloads/*.json (node_key is the engine path).
-func inofyEventPayload(e inofy.Event, blobIDs map[string]string) ([]byte, error) {
+func inofyEventPayload(e inofy.Event) ([]byte, error) {
 	nodeFields := func(extra map[string]any) []byte {
 		m := map[string]any{"node_key": e.Path}
 		if e.Attempt > 0 {
@@ -277,10 +253,7 @@ func inofyEventPayload(e inofy.Event, blobIDs map[string]string) ([]byte, error)
 	case inofy.EventNodeStarted, inofy.EventNodeAttempt, inofy.EventNodeDegraded:
 		// Contract fields only.
 	case inofy.EventNodeCompleted:
-		if blobID, ok := blobIDs[unresolvedKeyOf(e.Path, e.Attempt)]; ok {
-			extra["result_blob_id"] = blobID
-			extra["result_digest"] = blobID[len("wf/"):]
-		}
+
 	case inofy.EventNodeWait:
 		var wait struct {
 			RequestID       string `json:"request_id"`
@@ -330,27 +303,6 @@ func inofyEventPayload(e inofy.Event, blobIDs map[string]string) ([]byte, error)
 	return nodeFields(extra), nil
 }
 
-// inofyCommitDigest is the commit-body identity used for idempotent replay.
-// It is byte-strict over the wire fields (stricter than canonical digests):
-// a commit is replayable only when every committed byte is identical.
-func inofyCommitDigest(change inofy.RunCommit) (string, error) {
-	raw, err := json.Marshal(struct {
-		Events     []inofy.Event             `json:"events,omitempty"`
-		Results    []inofy.ProtectedResult   `json:"results,omitempty"`
-		Checkpoint *inofy.CheckpointEnvelope `json:"checkpoint,omitempty"`
-		Transition inofy.StateTransition     `json:"transition"`
-	}{change.Events, change.Results, change.Checkpoint, change.Transition})
-	if err != nil {
-		return "", inofyStoreError(err, "digest workflow commit")
-	}
-	return inofyDigest(raw), nil
-}
-
-func inofyDigest(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
 func unresolvedKeyOf(path string, attempt int) string {
 	return fmt.Sprintf("%s/%d", path, attempt)
 }
@@ -358,19 +310,19 @@ func unresolvedKeyOf(path string, attempt int) string {
 func mapINOFYStoreError(err error) error {
 	switch {
 	case errors.Is(err, storage.ErrWorkflowStepIdempotency):
-		return &inofy.Error{Code: inofy.ErrIdempotencyConflict, Message: err.Error()}
+		return &inofy.Error{Code: inofy.ErrIdempotencyConflict, Message: err.Error(), Err: err}
 	case errors.Is(err, storage.ErrStaleWriter):
-		return &inofy.Error{Code: inofy.ErrStaleWriter, Message: err.Error()}
+		return &inofy.Error{Code: inofy.ErrStaleWriter, Message: err.Error(), Err: err}
 	case errors.Is(err, storage.ErrWorkflowStepIdentity):
-		return &inofy.Error{Code: inofy.ErrCheckpointIncompatible, Message: err.Error()}
+		return &inofy.Error{Code: inofy.ErrCheckpointIncompatible, Message: err.Error(), Err: err}
 	case errors.Is(err, storage.ErrWorkflowStepState), errors.Is(err, storage.ErrWorkflowStepTerminal),
 		errors.Is(err, storage.ErrNotFound):
-		return &inofy.Error{Code: inofy.ErrRevisionConflict, Message: err.Error()}
+		return &inofy.Error{Code: inofy.ErrRevisionConflict, Message: err.Error(), Err: err}
 	default:
-		return &inofy.Error{Code: inofy.ErrStorageFailed, Message: err.Error()}
+		return &inofy.Error{Code: inofy.ErrStorageFailed, Message: err.Error(), Err: err}
 	}
 }
 
 func inofyStoreError(err error, op string) error {
-	return &inofy.Error{Code: inofy.ErrStorageFailed, Message: fmt.Sprintf("%s: %v", op, err)}
+	return &inofy.Error{Code: inofy.ErrStorageFailed, Message: fmt.Sprintf("%s: %v", op, err), Err: err}
 }

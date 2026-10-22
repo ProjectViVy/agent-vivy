@@ -38,7 +38,7 @@ func prepareProductSession(t *testing.T, svc *Service, backend *sqlite.Backend, 
 }
 
 // TestWorkflowProductDraftLifecycle covers draft CAS, author isolation,
-// publish immutability and digest dedup through the host product surface.
+// publish immutability and actual-input dedup through the host product surface.
 func TestWorkflowProductDraftLifecycle(t *testing.T) {
 	ctx := context.Background()
 	svc, backend := inofyExecService(t, testsupport.NewEchoModel())
@@ -88,7 +88,7 @@ func TestWorkflowProductDraftLifecycle(t *testing.T) {
 		t.Fatalf("publish: %v rev=%d", err, rev1.Revision)
 	}
 	got, err := svc.INOFYGetRevision(ctx, author, "wf-product", 1)
-	if err != nil || got.Revision != 1 || got.ArtifactDigest != rev1.ArtifactDigest {
+	if err != nil || got.Revision != 1 || got.ProgramID != rev1.ProgramID {
 		t.Fatalf("get revision: %v %+v", err, got)
 	}
 	// Re-publishing the unchanged artifact dedups onto revision 1.
@@ -108,7 +108,7 @@ func TestWorkflowProductDraftLifecycle(t *testing.T) {
 		t.Fatalf("publish rev2: %v rev=%d", err, rev2.Revision)
 	}
 	reread, err := svc.INOFYGetRevision(ctx, author, "wf-product", 1)
-	if err != nil || reread.ArtifactDigest != rev1.ArtifactDigest {
+	if err != nil || reread.ProgramID != rev1.ProgramID {
 		t.Fatalf("revision 1 mutated: %+v", reread)
 	}
 	page, err := svc.INOFYListWorkflows(ctx, author, "", 10)

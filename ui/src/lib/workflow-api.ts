@@ -8,7 +8,6 @@ export interface WorkflowNodeProjection {
   key: string;
   status: 'waiting' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
   child_run_id?: string;
-  result_digest?: string;
   error_category?: string;
   message?: string;
 }
@@ -19,7 +18,7 @@ export interface WorkflowResult {
   root_run_id: string;
   session_id: string;
   status: string;
-  revision_digest: string;
+  program_id: string;
   depth: number;
   created_at: number;
   created?: boolean;
@@ -32,7 +31,6 @@ export interface WorkflowResult {
 
 export interface WorkflowProposal {
   definition: WorkflowDefinition;
-  digest: string;
 }
 
 export const proposeWorkflow = (params: { parent_run_id: string; definition: WorkflowDefinition }) =>

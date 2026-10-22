@@ -5,14 +5,24 @@
   "description": "INOFY graph admission: the immutable program identity bound to this workflow run.",
   "type": "object",
   "properties": {
-    "definition_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "catalog_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "program_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "compiler_version": { "type": "string", "minLength": 1 },
-    "eino_build": { "type": "string" },
-    "input_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-    "limits": { "type": "object" }
+    "compiler_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eino_build": {
+      "type": "string"
+    },
+    "limits": {
+      "type": "object"
+    },
+    "program_id": {
+      "type": "string",
+      "minLength": 1
+    }
   },
-  "required": ["definition_digest", "program_digest", "input_digest", "limits"],
+  "required": [
+    "limits",
+    "program_id"
+  ],
   "additionalProperties": false
 }
