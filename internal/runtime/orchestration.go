@@ -293,11 +293,7 @@ func (s *Service) persistNativeOrchestrationApproval(ctx context.Context, coordi
 			IntendedArguments: intendedArguments,
 			Message:           message,
 		}
-		s.handleInterrupt(ctx, mapper, coordinator.sessionID, nil, runMode(ctx))
-		s.mu.Lock()
-		_, pending := s.pending[coordinator.runID]
-		s.mu.Unlock()
-		if !pending {
+		if !s.handleInterrupt(ctx, mapper, coordinator.sessionID, nil, runMode(ctx)) {
 			return false, errors.New("runtime: Service could not persist the workflow approval suspension")
 		}
 		return true, nil

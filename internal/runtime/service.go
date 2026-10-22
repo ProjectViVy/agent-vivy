@@ -3805,14 +3805,17 @@ func eventHasSettlementFlag(re domain.RunEvent) bool {
 // handleInterrupt routes one exact Eino checkpoint target to its durable
 // human-interaction lifecycle. Suspended runs remain active without a
 // terminal event until a response resumes them or Cancel closes them.
-func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode) {
+// approvalRegistered reports only a successful approval handoff. Question and
+// Plan routes have separate owners and return false; the ordinary drive ignores
+// this outcome. A registered approval may already be consumed by its responder.
+func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID domain.SessionID, selectedTools []string, mode domain.RunMode) (approvalRegistered bool) {
 	if m.interrupt != nil && m.interrupt.ToolName == tools.AskUserName {
 		s.handleQuestionInterrupt(ctx, m, sessionID, selectedTools, mode)
-		return
+		return false
 	}
 	if m.interrupt != nil && m.interrupt.PlanSubmissionID != "" {
 		s.handlePlanReviewInterrupt(ctx, m, sessionID, selectedTools, mode)
-		return
+		return false
 	}
 	runID := m.runID
 	fail := func(err error) {
@@ -3831,13 +3834,13 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	switch {
 	case details == nil || details.ResumeTarget == "":
 		fail(errors.New("interrupt without a root-cause resume target"))
-		return
+		return false
 	case s.engine.cfg.Checkpoints == nil:
 		fail(errors.New("checkpoint bridge not wired"))
-		return
+		return false
 	case s.deps.Approvals == nil:
 		fail(errors.New("approval store not wired"))
-		return
+		return false
 	}
 	// The suspend commit is detached from the run context: a concurrent
 	// Cancel must not strand the run half-suspended; the ctx check after
@@ -3846,43 +3849,43 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	defer cancel()
 	if _, ok, err := s.engine.cfg.Checkpoints.Get(persistCtx, checkpointIDFor(runID)); err != nil || !ok {
 		fail(fmt.Errorf("checkpoint not readable: ok=%v: %w", ok, err))
-		return
+		return false
 	}
 
 	expiresAt := s.approvalDeadline(time.Now(), s.deps.ApprovalExpiration).UnixMilli()
 	proposalData, proposalErr := json.Marshal(details.Args)
 	if proposalErr != nil {
 		fail(proposalErr)
-		return
+		return false
 	}
 	intended, bindErr := canonicalToolArguments(details.IntendedArguments)
 	if bindErr != nil || len(details.IntendedArguments) == 0 {
 		fail(errors.New("tool approval interrupt lacks private intended arguments"))
-		return
+		return false
 	}
 	displayed, displayErr := canonicalToolArguments(proposalData)
 	if displayErr != nil || !bytes.Equal(intended, displayed) {
 		fail(errors.New("tool approval interrupt arguments mismatch"))
-		return
+		return false
 	}
 	proposalData = intended
 	proposal, proposalErr := s.engine.PrepareProposal(ctx, details.ToolName, proposalData)
 	if proposalErr != nil {
 		fail(proposalErr)
-		return
+		return false
 	}
 	proposal = boundToolProposalReview(proposal, m.maxPayload)
 	boundProposalData, bindErr := bindToolApprovalProposal(proposal.Data, intended)
 	if bindErr != nil {
 		fail(bindErr)
-		return
+		return false
 	}
 	approvalKind := domain.ApprovalKindRun
 	if s.deps.Runs != nil {
 		run, runErr := s.deps.Runs.GetRun(persistCtx, runID)
 		if runErr != nil {
 			fail(fmt.Errorf("load run for approval ownership: %w", runErr))
-			return
+			return false
 		}
 		if run.Kind == domain.RunKindChild {
 			approvalKind = domain.ApprovalKindChild
@@ -3908,7 +3911,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	}
 	if err := s.deps.Approvals.CreateApproval(persistCtx, approval); err != nil {
 		fail(err)
-		return
+		return false
 	}
 
 	ev := m.build(domain.EventToolApprovalRequired, payloadToolApprovalRequired{
@@ -3931,7 +3934,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 	_, err := s.appendRunEvent(persistCtx, ev, false)
 	if err != nil {
 		fail(err)
-		return
+		return false
 	}
 	if isChildTerminal(ctx) {
 		lifecycle := m.build(domain.EventChildSuspended, map[string]string{
@@ -3939,7 +3942,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		})
 		if _, err := s.appendRunEvent(persistCtx, lifecycle, false); err != nil {
 			fail(err)
-			return
+			return false
 		}
 	}
 
@@ -3951,7 +3954,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 			slog.Warn("cancel approval while suspending failed", "approval", approval.ID, "err", err)
 		}
 		s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, context.Canceled))
-		return
+		return false
 	}
 
 	ledger := s.ledgerForRun(runID)
@@ -3964,6 +3967,7 @@ func (s *Service) handleInterrupt(ctx context.Context, m *eventMapper, sessionID
 		engine: engineFromContext(ctx), execution: executionFromContext(ctx),
 	}
 	s.mu.Unlock()
+	return true
 }
 
 // handleQuestionInterrupt persists the ask_user suspension and publishes a
@@ -4182,8 +4186,7 @@ func (s *Service) settleApproval(ctx context.Context, approval domain.Approval, 
 	s.mu.Lock()
 	_, nativePending := s.pending[approval.RunID]
 	s.mu.Unlock()
-	requiresNativePending := approval.Kind == domain.ApprovalKindChild ||
-		(!isShellApproval(approval) && !isNativeOrchestrationResumeTarget(approval.ResumeTarget))
+	requiresNativePending := approval.Kind == domain.ApprovalKindChild || !isShellApproval(approval)
 	if requiresNativePending && !nativePending {
 		// The durable approval row precedes in-memory suspension registration
 		// even after its request is published. Wait before consuming the durable
