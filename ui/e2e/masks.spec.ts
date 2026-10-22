@@ -88,7 +88,17 @@ async function openMasksPage(page: Page): Promise<void> {
 
 /** Creates a session through the UI so the app peer owns it. */
 async function newSession(page: Page): Promise<void> {
+  const selection = () => page.evaluate(async () => {
+    const source = '/src/lib/store.ts';
+    const state = (await import(/* @vite-ignore */ source)).useVivyStore.getState();
+    return { id: state.activeSessionId, phase: state.messagesPhase };
+  });
+  await expect.poll(selection).toMatchObject({ id: expect.any(String), phase: expect.stringMatching(/^(ready|empty)$/) });
+  const previous = (await selection()).id;
   await page.getByRole('button', { name: 'New session' }).first().click();
+  await expect.poll(selection).toMatchObject({ id: expect.any(String), phase: expect.stringMatching(/^(ready|empty)$/) });
+  await expect.poll(async () => (await selection()).id).not.toBe(previous);
+  await expect.poll(selection).toMatchObject({ phase: expect.stringMatching(/^(ready|empty)$/) });
   await expect(page.getByRole('combobox', { name: 'Message' })).toBeVisible();
 }
 
