@@ -60,6 +60,76 @@ describe('PersonaMemoryView', () => {
     expect(host.rpc.call).not.toHaveBeenCalled();
   });
 
+  it('waits for the selected session message binding before loading and saving Persona', async () => {
+    const binding = deferred<void>();
+    let bound = false;
+    const wire: string[] = [];
+    const host = makeHost(async (_method, params) => {
+      const actionId = (params as { action_id: string }).action_id;
+      wire.push(actionId);
+      if (!bound) throw new Error('module action is not authorized');
+      if (actionId === 'diva.cognitive.status') return { status: 'ok', value: { persona: { state: 'ready', current_revisions: { identity: 3 } } } };
+      if (actionId === 'diva.cognitive.persona.read') return { status: 'ok', value: IDENTITY };
+      if (actionId === 'diva.cognitive.persona.reviews.list') return { status: 'ok', value: { items: [] } };
+      if (actionId === 'diva.cognitive.persona.save') return { status: 'ok', value: { changed: true, document: { ...IDENTITY, revision: 4, content: '# Saved after binding' } } };
+      throw new Error(`unexpected action ${actionId}`);
+    }, 'session-1', { messagesPhase: 'loading' });
+    const messageResponse = binding.promise.then(() => {
+      bound = true;
+      wire.push('session/messages:success');
+      host.store.setState({ messagesPhase: 'empty' });
+    });
+    await act(async () => root.render(<PluginHostProvider host={host}><PersonaMemoryView /></PluginHostProvider>));
+    expect(host.rpc.call).not.toHaveBeenCalled();
+    expect(container.querySelector('textarea[name="document"]')).toBeNull();
+    await act(async () => { binding.resolve(); await messageResponse; });
+    expect(wire[0]).toBe('session/messages:success');
+    const editor = container.querySelector('textarea[name="document"]') as HTMLTextAreaElement;
+    expect(editor.value).toBe(IDENTITY.content);
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(editor, '# Saved after binding');
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const save = [...container.querySelectorAll('button')].find((button) => button.textContent === 'common.save');
+    expect(save).not.toBeUndefined();
+    await act(async () => save!.click());
+    expect(host.rpc.call).toHaveBeenCalledWith('module.action.invoke', {
+      module_id: 'vivy/diva-cognitive', action_id: 'diva.cognitive.persona.save',
+      input: { session_id: 'session-1', kind: 'identity', base_revision: 3, content: '# Saved after binding', reason: 'user edit' },
+    });
+    expect(editor.value).toBe('# Saved after binding');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('shows session loading failure and retries through the host session loader', async () => {
+    const retryBinding = deferred<void>();
+    let host: FullUIHost;
+    const selectSession = vi.fn(async () => {
+      host.store.setState({ messagesPhase: 'loading', messagesError: null });
+      await retryBinding.promise;
+      host.store.setState({ messagesPhase: 'ready' });
+    });
+    host = makeHost(async (_method, params) => {
+      const actionId = (params as { action_id: string }).action_id;
+      if (actionId === 'diva.cognitive.status') return { status: 'ok', value: { persona: { state: 'ready', current_revisions: { identity: 3 } } } };
+      if (actionId === 'diva.cognitive.persona.read') return { status: 'ok', value: IDENTITY };
+      if (actionId === 'diva.cognitive.persona.reviews.list') return { status: 'ok', value: { items: [] } };
+      throw new Error(`unexpected action ${actionId}`);
+    }, 'session-1', { messagesPhase: 'error', messagesError: 'session messages unavailable', selectSession });
+    await act(async () => root.render(<PluginHostProvider host={host}><PersonaMemoryView /></PluginHostProvider>));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('session messages unavailable');
+    expect(host.rpc.call).not.toHaveBeenCalled();
+    const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'common.retry');
+    expect(retry).not.toBeUndefined();
+    await act(async () => retry!.click());
+    expect(selectSession).toHaveBeenCalledWith('session-1');
+    expect(host.rpc.call).not.toHaveBeenCalled();
+    await act(async () => { retryBinding.resolve(); await retryBinding.promise; });
+    expect((container.querySelector('textarea[name="document"]') as HTMLTextAreaElement).value).toBe(IDENTITY.content);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('shows an explicit five-field initialization form for an uninitialized session', async () => {
     const host = makeHost(async (_method, params) => {
       expect(params).toEqual({
@@ -290,7 +360,7 @@ function makeHost(
   activeSessionId: string | null,
   stateOverrides: Partial<FaceStoreState> = {},
 ): FullUIHost {
-  let state = { activeSessionId, connection: 'connected', currentRun: null, ...stateOverrides } as unknown as FaceStoreState;
+  let state = { activeSessionId, messagesPhase: 'ready', messagesError: null, connection: 'connected', currentRun: null, ...stateOverrides } as unknown as FaceStoreState;
   const listeners = new Set<() => void>();
   const rpc = {
     capabilities: { protocol_version: 'vivy.rpc.v1', capabilities: ['module.action.invoke'] },
@@ -302,7 +372,10 @@ function makeHost(
   const store = {
     getState: () => state,
     getInitialState: () => state,
-    setState: vi.fn(),
+    setState: vi.fn((update: Partial<FaceStoreState>) => {
+      state = { ...state, ...update };
+      for (const listener of listeners) listener();
+    }),
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
   } as unknown as FaceClientStore<FaceStoreState>;
   return {

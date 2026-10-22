@@ -58,6 +58,7 @@ export function PersonaMemoryView() {
   const faceState = useFaceState(host);
   const client = useMemo(() => (host ? PersonaClient.fromRPC(host.rpc) : null), [host]);
   const sessionId = faceState.activeSessionId;
+  const sessionReady = faceState.messagesPhase === 'ready' || faceState.messagesPhase === 'empty';
   const [selectedKind, setSelectedKind] = useState<PersonaKind>('identity');
   const [tab, setTab] = useState<'current' | 'pending'>('current');
   const [mode, setMode] = useState<'source' | 'preview'>('source');
@@ -145,12 +146,13 @@ export function PersonaMemoryView() {
     setReviewsNextCursor(null);
     setError(null);
     setNotice(null);
-    setLoading(Boolean(sessionId && client));
+    setLoading(Boolean(sessionId && client && sessionReady));
     setSaving(false);
     setDecidingId(null);
     setInitialization(EMPTY_INITIALIZATION);
-    if (sessionId && client) void load(sessionId, selectedKind);
-  }, [client, load, selectedKind, sessionId]);
+    // The host publishes the selected ID before session/messages binds its RPC peer.
+    if (sessionId && client && sessionReady) void load(sessionId, selectedKind);
+  }, [client, load, selectedKind, sessionId, sessionReady]);
 
   const dirty = personaDocument !== null && draft !== personaDocument.content;
 
@@ -285,7 +287,17 @@ export function PersonaMemoryView() {
       />
     );
   }
-  if (loading && !status) {
+  if (faceState.messagesPhase === 'error') {
+    return (
+      <Unavailable
+        message={t('plugin.vivy/persona.errors.loadFailed')}
+        error={faceState.messagesError}
+        actionLabel={t('common.retry')}
+        onAction={() => void host.store.getState().selectSession(sessionId)}
+      />
+    );
+  }
+  if (!sessionReady || (loading && !status)) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   }
   if (status?.persona.state === 'uninitialized') {
