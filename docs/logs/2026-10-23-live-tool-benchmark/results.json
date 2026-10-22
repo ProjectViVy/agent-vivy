@@ -1,0 +1,553 @@
+{
+  "endpoint": "http://127.0.0.1:8787",
+  "rounds": 2,
+  "timeout_ms": 180000,
+  "results": [
+    {
+      "round": 1,
+      "task": "read_nonce",
+      "session_id": "sess_b7edbda9f7a3d140",
+      "run_id": "run_ffc61253f54be629",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 7819,
+      "first_text_delta_ms": 7471,
+      "model_requests": 2,
+      "model_closures": 2,
+      "model_statuses": [
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 1,
+      "tools_finished": 1,
+      "tool_names": [
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 4487,
+        "completion_tokens": 37,
+        "total_tokens": 4524
+      },
+      "usage_reported_calls": 2,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n{\"code\":\"24dde4e7344a65ab25\"}",
+      "expected": {
+        "code": "24dde4e7344a65ab25"
+      }
+    },
+    {
+      "round": 1,
+      "task": "follow_manifest",
+      "session_id": "sess_7cb05e6748b241b9",
+      "run_id": "run_037836f91b412449",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 17337,
+      "first_text_delta_ms": 16864,
+      "model_requests": 4,
+      "model_closures": 4,
+      "model_statuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 3,
+      "tools_finished": 3,
+      "tool_names": [
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 9893,
+        "completion_tokens": 110,
+        "total_tokens": 10003
+      },
+      "usage_reported_calls": 4,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n\n\n{\n  \"shipment\": \"Orion\",\n  \"receipt\": \"ec06353b353b222546\"\n}",
+      "expected": {
+        "shipment": "Orion",
+        "receipt": "ec06353b353b222546"
+      }
+    },
+    {
+      "round": 1,
+      "task": "aggregate_csv",
+      "session_id": "sess_5deadb69120eeb65",
+      "run_id": "run_19c7fb57cbdc4997",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 10418,
+      "first_text_delta_ms": 10271,
+      "model_requests": 2,
+      "model_closures": 2,
+      "model_statuses": [
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 1,
+      "tools_finished": 1,
+      "tool_names": [
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 4609,
+        "completion_tokens": 31,
+        "total_tokens": 4640
+      },
+      "usage_reported_calls": 2,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n{\"paid_rows\":3,\"total\":188}",
+      "expected": {
+        "paid_rows": 3,
+        "total": 188
+      }
+    },
+    {
+      "round": 1,
+      "task": "inspect_bug",
+      "session_id": "sess_7c5faa549ebf2b65",
+      "run_id": "run_ed114a38a0e77087",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 27889,
+      "first_text_delta_ms": 27264,
+      "model_requests": 6,
+      "model_closures": 6,
+      "model_statuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 7,
+      "tools_finished": 7,
+      "tool_names": [
+        "read_file",
+        "read_file",
+        "list_dir",
+        "list_dir",
+        "list_dir",
+        "read_file",
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 18955,
+        "completion_tokens": 142,
+        "total_tokens": 19097
+      },
+      "usage_reported_calls": 6,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n\n\n\n\n\n\n{\"line\":2,\"expression\":\"items[items.length - 1]\"}",
+      "expected": {
+        "line": 2,
+        "expression": "items[items.length - 1]"
+      }
+    },
+    {
+      "round": 1,
+      "task": "missing_read_recovery",
+      "session_id": "sess_e521a1432d7b30d0",
+      "run_id": "run_67bc702367dbff0b",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 11496,
+      "first_text_delta_ms": 11119,
+      "model_requests": 3,
+      "model_closures": 3,
+      "model_statuses": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 2,
+      "tools_finished": 2,
+      "tool_names": [
+        "read_file",
+        "read_file"
+      ],
+      "tool_errors": 1,
+      "usage": {
+        "prompt_tokens": 7251,
+        "completion_tokens": 61,
+        "total_tokens": 7312
+      },
+      "usage_reported_calls": 3,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n\n{\"release\":\"R-527aedd98e21687aba\"}",
+      "expected": {
+        "release": "R-527aedd98e21687aba"
+      }
+    },
+    {
+      "round": 1,
+      "task": "context_followup",
+      "session_id": "sess_b7edbda9f7a3d140",
+      "run_id": "run_17e23cd75c94465b",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 8324,
+      "first_text_delta_ms": 7543,
+      "model_requests": 2,
+      "model_closures": 2,
+      "model_statuses": [
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 1,
+      "tools_finished": 1,
+      "tool_names": [
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 5345,
+        "completion_tokens": 57,
+        "total_tokens": 5402
+      },
+      "usage_reported_calls": 2,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n{\"previous\":\"24dde4e7344a65ab25\",\"next\":\"ba6b3978845c174396\"}",
+      "expected": {
+        "previous": "24dde4e7344a65ab25",
+        "next": "ba6b3978845c174396"
+      }
+    },
+    {
+      "round": 2,
+      "task": "read_nonce",
+      "session_id": "sess_0ec0d19c184e68b8",
+      "run_id": "run_eb2baed317e9d6ab",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 6540,
+      "first_text_delta_ms": 6169,
+      "model_requests": 2,
+      "model_closures": 2,
+      "model_statuses": [
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 1,
+      "tools_finished": 1,
+      "tool_names": [
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 4479,
+        "completion_tokens": 36,
+        "total_tokens": 4515
+      },
+      "usage_reported_calls": 2,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n{\"code\":\"187ee7eeab38dfa0d8\"}",
+      "expected": {
+        "code": "187ee7eeab38dfa0d8"
+      }
+    },
+    {
+      "round": 2,
+      "task": "follow_manifest",
+      "session_id": "sess_dafb19c285234dc1",
+      "run_id": "run_c668ee175ef8e8da",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 17151,
+      "first_text_delta_ms": 15992,
+      "model_requests": 4,
+      "model_closures": 4,
+      "model_statuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 3,
+      "tools_finished": 3,
+      "tool_names": [
+        "read_file",
+        "read_file",
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 9780,
+        "completion_tokens": 111,
+        "total_tokens": 9891
+      },
+      "usage_reported_calls": 4,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n\n\n{\n  \"shipment\": \"Orion\",\n  \"receipt\": \"5f00e897c9f502f06f\"\n}",
+      "expected": {
+        "shipment": "Orion",
+        "receipt": "5f00e897c9f502f06f"
+      }
+    },
+    {
+      "round": 2,
+      "task": "aggregate_csv",
+      "session_id": "sess_4dda75ae367d1916",
+      "run_id": "run_f531706692916267",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 10070,
+      "first_text_delta_ms": 9982,
+      "model_requests": 2,
+      "model_closures": 2,
+      "model_statuses": [
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 1,
+      "tools_finished": 1,
+      "tool_names": [
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 4600,
+        "completion_tokens": 31,
+        "total_tokens": 4631
+      },
+      "usage_reported_calls": 2,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n{\"paid_rows\":3,\"total\":188}",
+      "expected": {
+        "paid_rows": 3,
+        "total": 188
+      }
+    },
+    {
+      "round": 2,
+      "task": "inspect_bug",
+      "session_id": "sess_0100a13f16e09874",
+      "run_id": "run_67670bcba3d319c4",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 29782,
+      "first_text_delta_ms": 29629,
+      "model_requests": 7,
+      "model_closures": 7,
+      "model_statuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 6,
+      "tools_finished": 6,
+      "tool_names": [
+        "read_file",
+        "read_file",
+        "list_dir",
+        "read_file",
+        "list_dir",
+        "list_dir"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 21410,
+        "completion_tokens": 124,
+        "total_tokens": 21534
+      },
+      "usage_reported_calls": 7,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n\n\n\n\n\n{\"line\":2,\"expression\":\"items[items.length - 1]\"}",
+      "expected": {
+        "line": 2,
+        "expression": "items[items.length - 1]"
+      }
+    },
+    {
+      "round": 2,
+      "task": "missing_read_recovery",
+      "session_id": "sess_a5a38b7debd31a3c",
+      "run_id": "run_9f3188c9218dab8b",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 11773,
+      "first_text_delta_ms": 11391,
+      "model_requests": 3,
+      "model_closures": 3,
+      "model_statuses": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 2,
+      "tools_finished": 2,
+      "tool_names": [
+        "read_file",
+        "read_file"
+      ],
+      "tool_errors": 1,
+      "usage": {
+        "prompt_tokens": 7272,
+        "completion_tokens": 64,
+        "total_tokens": 7336
+      },
+      "usage_reported_calls": 3,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n\n{\"release\":\"R-4536fc1261f037a25f\"}",
+      "expected": {
+        "release": "R-4536fc1261f037a25f"
+      }
+    },
+    {
+      "round": 2,
+      "task": "context_followup",
+      "session_id": "sess_0ec0d19c184e68b8",
+      "run_id": "run_cf323b256a1eb2f0",
+      "status": "completed",
+      "timed_out": false,
+      "passed": true,
+      "answer_correct": true,
+      "tool_evidence_correct": true,
+      "elapsed_ms": 8199,
+      "first_text_delta_ms": 8049,
+      "model_requests": 2,
+      "model_closures": 2,
+      "model_statuses": [
+        "completed",
+        "completed"
+      ],
+      "routes": [
+        "Gemini 3.8 local gateway/gemini-3.8-flash-tiered"
+      ],
+      "tools_requested": 1,
+      "tools_finished": 1,
+      "tool_names": [
+        "read_file"
+      ],
+      "tool_errors": 0,
+      "usage": {
+        "prompt_tokens": 5228,
+        "completion_tokens": 57,
+        "total_tokens": 5285
+      },
+      "usage_reported_calls": 2,
+      "terminal_events": 1,
+      "provider_retries": 0,
+      "approval_requests": 0,
+      "failure_types": [],
+      "answer": "\n{\"previous\":\"187ee7eeab38dfa0d8\",\"next\":\"6b2a547320c2464d52\"}",
+      "expected": {
+        "previous": "187ee7eeab38dfa0d8",
+        "next": "6b2a547320c2464d52"
+      }
+    }
+  ],
+  "captured_at": "2026-10-22T16:19:51.837Z",
+  "measurement_note": "Initial client timestamp represented the last result capture. No wall-clock start time is asserted. Per-run elapsed values are monotonic measurements."
+}
