@@ -8,8 +8,6 @@ package actionhost
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -278,14 +276,12 @@ type AuditRecord struct {
 	Error        string
 	InputBytes   int
 	OutputBytes  int
-	InputSHA256  string
-	OutputSHA256 string
 	DurationMS   int64
 }
 
-// AuditSink receives best-effort, structured action metadata after each
-// decision. Sink failure cannot turn a completed Provider side effect into a
-// successful retry or expose the raw payload.
+// AuditSink receives mandatory, bounded metadata before a Provider effect and
+// after each decision. Sink failure fails the invocation closed; it cannot
+// undo a completed Provider side effect or expose the raw payload.
 type AuditSink interface {
 	Record(context.Context, AuditRecord) error
 }
@@ -294,7 +290,7 @@ type AuditSink interface {
 type AuditRecorder = AuditSink
 
 // SlogAuditSink is the default process audit projection. It deliberately
-// emits only bounded identity, effect, outcome, and digest metadata; action
+// emits only bounded identity, effect, outcome, and size metadata; action
 // input/output and provider error text never enter the log record.
 type SlogAuditSink struct {
 	Logger *slog.Logger
@@ -318,8 +314,6 @@ func (sink SlogAuditSink) Record(_ context.Context, record AuditRecord) error {
 		"error", record.Error,
 		"input_bytes", record.InputBytes,
 		"output_bytes", record.OutputBytes,
-		"input_sha256", record.InputSHA256,
-		"output_sha256", record.OutputSHA256,
 		"duration_ms", record.DurationMS,
 	)
 	return nil
@@ -1059,7 +1053,7 @@ func (host *Host) Invoke(ctx context.Context, caller Caller, moduleID, actionID 
 		}
 		return nil, host.denyAudit(ctx, &registered, &identity, actionID, len(input), action.ErrConcurrencyLimit, started)
 	}
-	if err := host.recordAudit(ctx, &registered, &identity, actionID, input, nil, AuditOutcomeStarted, "pre", nil, started); err != nil {
+	if err := host.recordAudit(ctx, &registered, &identity, actionID, len(input), 0, AuditOutcomeStarted, "pre", nil, started); err != nil {
 		host.release()
 		return nil, err
 	}
@@ -1775,39 +1769,30 @@ func (host *Host) denyAudit(ctx context.Context, registered *registeredAction, i
 	if registered == nil {
 		return err
 	}
-	if auditErr := host.recordAudit(ctx, registered, identity, actionID, nil, nil, AuditOutcomeDenied, "decision", err, started, inputBytes, 0); auditErr != nil {
+	if auditErr := host.recordAudit(ctx, registered, identity, actionID, inputBytes, 0, AuditOutcomeDenied, "decision", err, started); auditErr != nil {
 		return auditErr
 	}
 	return err
 }
 
 func (host *Host) completionAudit(ctx context.Context, registered *registeredAction, identity *Identity, actionID string, input, output []byte, outcome AuditOutcome, err error, started time.Time) error {
-	if auditErr := host.recordAudit(ctx, registered, identity, actionID, input, output, outcome, "completion", err, started, len(input), len(output)); auditErr != nil {
+	if auditErr := host.recordAudit(ctx, registered, identity, actionID, len(input), len(output), outcome, "completion", err, started); auditErr != nil {
 		return auditErr
 	}
 	return err
 }
 
 // recordAudit is mandatory and durable from the Host's perspective: a sink
-// failure or panic is itself a fail-closed error. It hashes payload bytes only
-// and emits bounded trusted metadata, never provider error causes or raw
+// failure or panic is itself a fail-closed error. It receives sizes only and
+// emits bounded trusted metadata, never payloads, provider error causes or raw
 // identity claims.
-func (host *Host) recordAudit(ctx context.Context, registered *registeredAction, identity *Identity, actionID string, input, output []byte, outcome AuditOutcome, phase string, err error, started time.Time, sizes ...int) (auditErr error) {
+func (host *Host) recordAudit(ctx context.Context, registered *registeredAction, identity *Identity, actionID string, inputBytes, outputBytes int, outcome AuditOutcome, phase string, err error, started time.Time) (auditErr error) {
 	sink := host.deps.Audit
 	if sink == nil {
 		sink = host.deps.AuditSink
 	}
 	if sink == nil {
 		return action.ErrAuditUnavailable
-	}
-	inputBytes, outputBytes := len(input), len(output)
-	if len(sizes) == 2 {
-		if input == nil {
-			inputBytes = sizes[0]
-		}
-		if output == nil {
-			outputBytes = sizes[1]
-		}
 	}
 	identityID := ""
 	if identity != nil {
@@ -1832,18 +1817,6 @@ func (host *Host) recordAudit(ctx context.Context, registered *registeredAction,
 	}
 	if err != nil {
 		record.Error = auditError(err)
-	}
-	if len(input) > 0 {
-		digest := sha256.Sum256(input)
-		record.InputSHA256 = hex.EncodeToString(digest[:])
-	} else if inputBytes > 0 {
-		record.InputSHA256 = digestPlaceholder(inputBytes, actionID)
-	}
-	if len(output) > 0 {
-		digest := sha256.Sum256(output)
-		record.OutputSHA256 = hex.EncodeToString(digest[:])
-	} else if outputBytes > 0 {
-		record.OutputSHA256 = digestPlaceholder(outputBytes, actionID)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -1940,15 +1913,6 @@ func auditIdentifier(value string) string {
 		return value[:maxIdentifierBytes] + "…"
 	}
 	return value
-}
-
-// digestPlaceholder produces a stable non-secret correlation token when the
-// audit API is given only bounded sizes at an early failure. Successful calls
-// use actual payload digests below; the placeholder intentionally cannot be
-// confused with an input/output content hash.
-func digestPlaceholder(size int, actionID string) string {
-	digest := sha256.Sum256([]byte(fmt.Sprintf("size:%d action:%s", size, actionID)))
-	return "size:" + hex.EncodeToString(digest[:8])
 }
 
 func compileSchema(raw json.RawMessage, id, kind string) (*jsonschema.Schema, error) {

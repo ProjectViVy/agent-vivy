@@ -155,7 +155,7 @@ Rules:
 - Built-in names: `web`, `tui`, `headless`. A user plugin uses its directory name, is named through `plugins:` with `seam: face`, and **replaces** the built-in face rather than stacking a second one.
 - A built-in face not written into the recipe does not exist in this generation. Do not scan `faces/`.
 - Remove a built-in face = change `face:` and pack again. Remove a user face = delete its line from `plugins:` and change back to a built-in name. Both require eval / promote.
-- `inspect` lists: `face` name, kind (web / tui / headless), whether it listens, whether it embeds UI, source_ref, and tree_hash.
+- `inspect` identifies the selected Face Module by its ID, version, explicit source reference and provided Port in the Generation manifest. The pack-owned opaque Generation ID identifies that artifact; it does not assert source-content equality or authenticity (`sdk/internal/assembly/{source,manifest}.go`).
 
 Two valid generations (illustrative; not an immediate default switch):
 

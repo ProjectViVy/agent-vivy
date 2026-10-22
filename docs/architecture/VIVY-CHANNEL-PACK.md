@@ -408,7 +408,7 @@ func Register() []plugin.Plugin {
 }
 ```
 
-- `inspect` / `generation.json` list name, version, seam, grants, transport, source_ref, and tree_hash by seam. telegram is printed as a channel, not a tool.
+- `inspect` identifies selected Channel Modules by ID, version, explicit source reference, provided Ports and effective Grants in the Generation manifest. The pack-owned opaque Generation ID identifies the artifact; it does not assert source-content equality or authenticity (`sdk/internal/assembly/{source,manifest}.go`). A channel is identified by its Channel Port contribution.
 - The species body committed on the main line is the complete body: `internal/generated/plugins/zz_register.go`
   registers all first-party channel plugins, so `just run`, the embedded-UI binary, and Docker have
   all ears out of the box. At build time, `pack` uses `-overlay` to replace the same file with the narrower
