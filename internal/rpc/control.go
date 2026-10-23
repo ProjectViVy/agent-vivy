@@ -3644,6 +3644,9 @@ func (h *controlHandler) prepareTurnOptions(ctx context.Context, params turnPara
 	var zero runtime.RunOptions
 	root := h.deps.ProjectRoot
 	if len(params.AttachmentPaths)+len(params.ContextPaths) > 0 {
+		if err := ctx.Err(); err != nil {
+			return zero, &Error{Code: InvalidParams, Message: err.Error()}
+		}
 		session, err := h.deps.Sessions.GetSession(ctx, domain.SessionID(params.SessionID))
 		if err != nil {
 			return zero, runtimeError(err)
