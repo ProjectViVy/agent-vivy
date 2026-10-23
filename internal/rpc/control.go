@@ -1458,8 +1458,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 	case "review/respond":
 		return h.respondReview(ctx, request)
 	case "background/recover":
-		if err := h.deps.Service.Recover(ctx); err != nil {
-			return nil, internalError(err)
+		if err := h.deps.Service.RecoverBackground(ctx); err != nil {
+			return nil, runtimeError(err)
 		}
 		return map[string]any{"recovered": true}, nil
 	case "background/list":
@@ -2198,6 +2198,9 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 	// directly from session/get — the pi get_state surface.
 	if h.deps.Service != nil {
 		state := h.deps.Service.QueueState(ctx, session.ID, "")
+		if state.Err != nil {
+			return nil, runtimeError(state.Err)
+		}
 		result["queue"] = map[string]any{
 			"steering":             state.Steering,
 			"follow_up":            state.FollowUps,
@@ -3624,25 +3627,50 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	if params.Text == "" {
 		return nil, &Error{Code: InvalidParams, Message: "text must not be empty"}
 	}
-	attachments, rpcErr := attachmentsFromParams(params.Attachments)
+	options, rpcErr := h.prepareTurnOptions(ctx, params)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
+	if err != nil {
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
+}
+
+// prepareTurnOptions captures input once in the target Session's workspace.
+// Start, queued admission, and idle queue fallback share the same validation.
+func (h *controlHandler) prepareTurnOptions(ctx context.Context, params turnParams) (runtime.RunOptions, *Error) {
+	var zero runtime.RunOptions
+	root := h.deps.ProjectRoot
+	if len(params.AttachmentPaths)+len(params.ContextPaths) > 0 {
+		session, err := h.deps.Sessions.GetSession(ctx, domain.SessionID(params.SessionID))
+		if err != nil {
+			return zero, runtimeError(err)
+		}
+		if strings.TrimSpace(session.WorkspacePath) != "" {
+			root = session.WorkspacePath
+		}
+	}
+	attachments, rpcErr := attachmentsFromParams(params.Attachments)
+	if rpcErr != nil {
+		return zero, rpcErr
+	}
 	if len(params.AttachmentPaths) > 0 {
 		if len(attachments)+len(params.AttachmentPaths) > attachment.MaxCount {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
+			return zero, &Error{Code: InvalidParams, Message: fmt.Sprintf("at most %d attachments are allowed per message", attachment.MaxCount)}
 		}
-		resolved, err := resolveProjectAttachments(h.deps.ProjectRoot, params.AttachmentPaths)
+		resolved, err := resolveProjectAttachments(root, params.AttachmentPaths)
 		if err != nil {
-			return nil, &Error{Code: InvalidParams, Message: err.Error()}
+			return zero, &Error{Code: InvalidParams, Message: err.Error()}
 		}
 		attachments = append(attachments, projectAttachmentDomainValues(resolved)...)
 	}
 	var fileContexts []domain.FileContext
 	if len(params.ContextPaths) > 0 {
-		resolved, err := resolveProjectContextsWithContext(ctx, h.deps.ProjectRoot, params.ContextPaths)
+		resolved, err := resolveProjectContextsWithContext(ctx, root, params.ContextPaths)
 		if err != nil {
-			return nil, &Error{Code: InvalidParams, Message: err.Error()}
+			return zero, &Error{Code: InvalidParams, Message: err.Error()}
 		}
 		fileContexts = projectContextDomainValues(resolved)
 	}
@@ -3652,19 +3680,15 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 	// gating on the zero-value default would break every custom gateway.
 	if len(attachments) > 0 {
 		if info := h.deps.Service.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
-			return nil, &Error{Code: InvalidParams, Message: fmt.Sprintf("model %q does not support image attachments", info.ID)}
+			return zero, &Error{Code: InvalidParams, Message: fmt.Sprintf("model %q does not support image attachments", info.ID)}
 		}
 	}
-	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
+	return runtime.RunOptions{
 		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face), Profile: domain.PolicyProfile(params.PolicyProfile),
 		CollaborationMode: domain.CollaborationMode(params.CollaborationMode), CollaborationVersion: params.CollaborationVersion,
 		Thinking: h.thinkingFor(params.Thinking), Attachments: attachments, FileContexts: fileContexts,
 		HumanAdmission: true, Continuity: params.continuity,
-	})
-	if err != nil {
-		return nil, runtimeError(err)
-	}
-	return map[string]any{"run_id": runID, "status": domain.RunAccepted}, nil
+	}, nil
 }
 
 // Queue handlers (VCP-B1, pi parity): steer injects at the next turn
@@ -3672,26 +3696,24 @@ func (h *controlHandler) startTurn(ctx context.Context, request Request) (any, *
 // fall back to a fresh turn/start when the session is idle — matching pi's
 // "prompt while idle" semantics (busy rules in the B1 plan).
 
-type queueTurnParams struct {
-	SessionID string `json:"session_id"`
-	Text      string `json:"text"`
-	Mode      string `json:"mode,omitempty"`
-	Face      string `json:"face,omitempty"`
-	Thinking  string `json:"thinking,omitempty"`
-}
+type queueTurnParams = turnParams
 
 func (h *controlHandler) steerTurn(ctx context.Context, request Request) (any, *Error) {
-	var params queueTurnParams
-	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+	params, rpcErr := parseTurnParams(request)
+	if rpcErr != nil {
 		return nil, rpcErr
 	}
 	if params.SessionID == "" || params.Text == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
 	}
-	item, err := h.deps.Service.Steer(ctx, domain.SessionID(params.SessionID), params.Text)
+	options, rpcErr := h.prepareTurnOptions(ctx, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	item, err := h.deps.Service.SteerWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
 	if err != nil {
 		if errors.Is(err, runtime.ErrQueueUnavailable) {
-			return h.queueStartFallback(ctx, params)
+			return h.queueStartFallback(ctx, params, options)
 		}
 		return nil, runtimeError(err)
 	}
@@ -3699,17 +3721,21 @@ func (h *controlHandler) steerTurn(ctx context.Context, request Request) (any, *
 }
 
 func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any, *Error) {
-	var params queueTurnParams
-	if rpcErr := decodeParams(request, &params); rpcErr != nil {
+	params, rpcErr := parseTurnParams(request)
+	if rpcErr != nil {
 		return nil, rpcErr
 	}
 	if params.SessionID == "" || params.Text == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
 	}
-	item, err := h.deps.Service.FollowUp(ctx, domain.SessionID(params.SessionID), params.Text)
+	options, rpcErr := h.prepareTurnOptions(ctx, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	item, err := h.deps.Service.FollowUpWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
 	if err != nil {
 		if errors.Is(err, runtime.ErrQueueUnavailable) {
-			return h.queueStartFallback(ctx, params)
+			return h.queueStartFallback(ctx, params, options)
 		}
 		return nil, runtimeError(err)
 	}
@@ -3718,11 +3744,8 @@ func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any
 
 // queueStartFallback runs a queued turn as a fresh prompt when the session
 // is idle — pi: steering/follow-up on an idle session equals prompt.
-func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams) (any, *Error) {
-	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, runtime.RunOptions{
-		Mode: domain.RunMode(params.Mode), Face: domain.Face(params.Face),
-		Thinking: h.thinkingFor(params.Thinking), HumanAdmission: true,
-	})
+func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams, options runtime.RunOptions) (any, *Error) {
+	runID, err := h.deps.Service.RunWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
 	if err != nil {
 		return nil, runtimeError(err)
 	}
@@ -3741,6 +3764,9 @@ func (h *controlHandler) queueState(ctx context.Context, request Request) (any, 
 		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
 	state := h.deps.Service.QueueState(ctx, domain.SessionID(params.SessionID), domain.RunID(params.AfterRunID))
+	if state.Err != nil {
+		return nil, runtimeError(state.Err)
+	}
 	return map[string]any{
 		"steering":             state.Steering,
 		"follow_up":            state.FollowUps,
@@ -3762,7 +3788,10 @@ func (h *controlHandler) clearQueue(ctx context.Context, request Request) (any, 
 	if params.SessionID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
-	state := h.deps.Service.ClearQueue(ctx, domain.SessionID(params.SessionID))
+	state, err := h.deps.Service.ClearQueue(ctx, domain.SessionID(params.SessionID))
+	if err != nil {
+		return nil, runtimeError(err)
+	}
 	texts := make([]string, 0, len(state.Steering)+len(state.FollowUps))
 	for _, item := range state.Steering {
 		texts = append(texts, item.Text)
@@ -3785,7 +3814,10 @@ func (h *controlHandler) dequeueQueue(ctx context.Context, request Request) (any
 	if params.SessionID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id is required"}
 	}
-	item, ok := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID))
+	item, ok, err := h.deps.Service.Dequeue(ctx, domain.SessionID(params.SessionID))
+	if err != nil {
+		return nil, runtimeError(err)
+	}
 	if !ok {
 		return map[string]any{"dequeued": false}, nil
 	}
@@ -3806,7 +3838,10 @@ func (h *controlHandler) removeQueueItem(ctx context.Context, request Request) (
 	if params.SessionID == "" || params.QueueID == "" {
 		return nil, &Error{Code: InvalidParams, Message: "session_id and queue_id are required"}
 	}
-	item, ok := h.deps.Service.QueueRemove(ctx, domain.SessionID(params.SessionID), params.QueueID)
+	item, ok, err := h.deps.Service.QueueRemove(ctx, domain.SessionID(params.SessionID), params.QueueID)
+	if err != nil {
+		return nil, runtimeError(err)
+	}
 	if !ok {
 		return map[string]any{"removed": false}, nil
 	}

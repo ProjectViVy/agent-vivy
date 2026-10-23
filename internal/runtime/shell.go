@@ -198,6 +198,18 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 	if _, err := s.deps.Sessions.GetSession(ctx, sessionID); err != nil {
 		return "", fmt.Errorf("runtime: shell session: %w", err)
 	}
+	if err := s.queueError(s.queueFor(ctx, sessionID)); err != nil {
+		return "", err
+	}
+	runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("runtime: inspect shell session runs: %w", err)
+	}
+	for _, existing := range runs {
+		if (existing.Kind == "" || existing.Kind == domain.RunKindPrimary) && !existing.Status.Terminal() {
+			return "", storage.ErrWorkRunConflict
+		}
+	}
 	tool, ok := s.shellTool()
 	if !ok || tool == nil {
 		return "", ErrShellUnavailable
@@ -285,6 +297,7 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 		Mode: string(domain.RunModeNormal), Face: string(domain.FaceTui),
 		PolicyProfile: string(profile), SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 		NoContext: noContext,
+		Queue:     s.queueAdmissionSnapshot(ctx, sessionID, ""),
 	})
 	if err := s.deps.Runs.CreateRun(ctx, run); err != nil {
 		return "", fmt.Errorf("runtime: create shell run: %w", err)
@@ -294,6 +307,7 @@ func (s *Service) RunShell(ctx context.Context, sessionID domain.SessionID, scri
 		return "", fmt.Errorf("runtime: persist shell run.started: %w", err)
 	}
 	started.Seq = seq
+	s.commitQueueAdmission(sessionID, runID, "")
 	if err := s.deps.Runs.SetRunStatus(ctx, runID, domain.RunActive); err != nil {
 		return "", fmt.Errorf("runtime: activate shell run: %w", err)
 	}

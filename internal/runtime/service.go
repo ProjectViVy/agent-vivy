@@ -163,6 +163,8 @@ type ServiceDeps struct {
 	// metadata; when this store is wired, restart recovery can reload the
 	// pending input without replaying an already-started process.
 	ShellState storage.BlobStore
+	// QueueRequests stores immutable private queued inputs beside checkpoints.
+	QueueRequests storage.BlobStore
 	// Truncations persists the session rewind/edit/fork cutoff markers
 	// (JOURNAL-REWIND-AND-FORK). Nil keeps sessions un-truncatable: the
 	// full history stays in every view and session/rewind is refused.
@@ -414,8 +416,10 @@ type GoalRoundAdmission struct {
 
 // RunOptions controls the physical policy applied to one run.
 type RunOptions struct {
-	Mode    domain.RunMode
-	Profile domain.PolicyProfile
+	// queuedID is set only by the Session queue's admission path.
+	queuedID string
+	Mode     domain.RunMode
+	Profile  domain.PolicyProfile
 	// CollaborationMode is orthogonal soft guidance. It never changes
 	// execution policy; legacy RunModePlan remains hard policy.
 	CollaborationMode    domain.CollaborationMode
@@ -463,6 +467,11 @@ type RunOptions struct {
 // NewService wires the run service over an engine and its dependencies.
 // provider and modelID label the run.started payload.
 func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Service {
+	if deps.QueueRequests == nil {
+		if owner, ok := deps.Journal.(interface{ Blobs() storage.BlobStore }); ok {
+			deps.QueueRequests = owner.Blobs()
+		}
+	}
 	if deps.ToolOperations == nil {
 		deps.ToolOperations, _ = deps.Journal.(storage.ToolOperationStore)
 	}
@@ -797,6 +806,9 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	if s.deps.Deliverables != nil {
 		s.deps.Deliverables.CloseSessionTransfers(id)
 	}
+	for _, sessionID := range sessionIDs {
+		s.dropSessionQueue(sessionID)
+	}
 	s.dropSessionToolActivation(id)
 	return nil
 }
@@ -906,6 +918,23 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 	defer s.projectionMu.Unlock()
 	if s.sessionDeleted(sessionID) {
 		return "", storage.ErrNotFound
+	}
+	queue := s.queueFor(ctx, sessionID)
+	if err := s.queueError(queue); err != nil {
+		return "", err
+	}
+	if options.queuedID != "" {
+		s.mu.Lock()
+		var head string
+		if len(queue.steer) > 0 {
+			head = queue.steer[0].ID
+		} else if len(queue.followUp) > 0 {
+			head = queue.followUp[0].ID
+		}
+		s.mu.Unlock()
+		if head != options.queuedID {
+			return "", storage.ErrWorkRunConflict
+		}
 	}
 	// Preserve an omitted caller profile as a default declaration across retries;
 	// resolving the current server default belongs only to a fresh admission.
@@ -1154,6 +1183,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		PolicyProfile: string(profile), SandboxMode: string(sandboxMode), ApprovalPolicy: string(approvalPolicy),
 		HistoryScope: admittedScope,
 		PromptSchema: promptSchema,
+		Queue:        s.queueAdmissionSnapshot(ctx, sessionID, options.queuedID),
 	})
 	admission := storage.RunAdmission{Message: message, Run: run, Started: started, Prompt: prompt, ExpectedMask: expectedMask}
 	var goalAdmissionEvent *domain.WorkEvent
@@ -1345,6 +1375,7 @@ func (s *Service) runWithAdmissionGate(ctx context.Context, sessionID domain.Ses
 		}
 	}
 	startupEvents[0] = started
+	s.commitQueueAdmission(sessionID, runID, options.queuedID)
 	for _, committed := range startupEvents {
 		s.publish(ctx, committed)
 	}
@@ -1955,6 +1986,20 @@ func (s *Service) recover(ctx context.Context) error {
 		if err := s.recoverWorkflowRun(ctx, run, workspaceID); err != nil {
 			slog.Warn("restart recovery: workflow could not be resumed", "run", string(run.ID), "err", err)
 			s.failUnrecoverable(ctx, run.ID, "workflow authority or checkpoint could not be recovered")
+		}
+	}
+	if s.deps.Sessions != nil {
+		sessions, err := s.deps.Sessions.ListSessions(ctx)
+		if err != nil {
+			return fmt.Errorf("runtime: list queued sessions: %w", err)
+		}
+		for _, session := range sessions {
+			if s.activeRunForSession(session.ID) != "" {
+				continue
+			}
+			if err := s.drainFollowUps(session.ID, ""); err != nil {
+				return fmt.Errorf("runtime: recover Session queue: %w", err)
+			}
 		}
 	}
 	return nil
@@ -5226,7 +5271,25 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.workBlockedCalls, terminal.RunID)
 	delete(s.workGates, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
+	var removedQueued []domain.QueuedTurn
+	if q := s.queues[runSession]; q != nil {
+		switch terminal.Type {
+		case domain.EventRunFailed:
+			for i := range q.inFlight {
+				q.inFlight[i].Track = domain.QueueTrackFollowUp
+			}
+			q.followUp = append(q.inFlight, q.followUp...)
+			q.inFlight = nil
+		case domain.EventRunCompleted:
+			removedQueued = append(removedQueued, q.inFlight...)
+			q.inFlight = nil
+		case domain.EventRunCancelled:
+			removedQueued = append(append(append(removedQueued, q.steer...), q.followUp...), q.inFlight...)
+			q.steer, q.followUp, q.inFlight = nil, nil, nil
+		}
+	}
 	s.mu.Unlock()
+	s.deleteQueuedRequests(persistCtx, removedQueued)
 	s.deleteShellState(shellStateRefToDelete)
 	s.projectionMu.Unlock()
 	if runSession != "" {
@@ -5249,8 +5312,6 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 		switch terminal.Type {
 		case domain.EventRunCompleted, domain.EventRunFailed:
 			s.drainFollowUps(runSession, terminal.RunID)
-		case domain.EventRunCancelled:
-			s.flushQueue(runSession)
 		}
 	}
 }

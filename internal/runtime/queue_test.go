@@ -370,15 +370,18 @@ func TestFollowUpAdmitsAfterSettle(t *testing.T) {
 	waitFor(t, "second run terminal", func() bool {
 		return runTerminal(t, backend, runs[1].ID) == domain.RunCompleted
 	})
-	// Admission is journaled on the NEW run (turn.dequeued reason=started).
+	// Admission atomically transfers an empty tail to the new Run.
 	dequeued := false
 	for _, ev := range journalEvents(t, backend, runs[1].ID) {
-		if ev.Type == domain.EventTurnDequeued {
-			dequeued = true
+		if ev.Type == domain.EventRunStarted {
+			var p payloadRunStarted
+			if json.Unmarshal(ev.Payload, &p) == nil && p.Queue != nil && len(p.Queue.Pending) == 0 {
+				dequeued = true
+			}
 		}
 	}
 	if !dequeued {
-		t.Fatal("turn.dequeued marker missing on admitted run journal")
+		t.Fatal("atomic empty queue snapshot missing on admitted run journal")
 	}
 	if got := svc.QueueState(ctx, "sess-follow", ""); len(got.FollowUps)+len(got.Steering) != 0 {
 		t.Fatalf("queue not drained: %+v", got)
@@ -419,17 +422,22 @@ func TestFollowUpOneAtATimeKeepsTail(t *testing.T) {
 		return runTerminal(t, backend, runs[1].ID) == domain.RunCompleted &&
 			runTerminal(t, backend, runs[2].ID) == domain.RunCompleted
 	})
-	// Each settle admitted exactly one item: run 2 carries fu-1's dequeue,
-	// run 3 carries fu-2's — never both on one run (that would be `all`).
+	// Each Run atomically carries the remaining FIFO tail.
 	deq := map[string]bool{}
 	for _, ev := range journalEvents(t, backend, runs[1].ID) {
-		if ev.Type == domain.EventTurnDequeued {
-			deq["r2"] = true
+		if ev.Type == domain.EventRunStarted {
+			var p payloadRunStarted
+			if json.Unmarshal(ev.Payload, &p) == nil && p.Queue != nil && len(p.Queue.Pending) == 1 && p.Queue.Pending[0].Text == "fu-2" {
+				deq["r2"] = true
+			}
 		}
 	}
 	for _, ev := range journalEvents(t, backend, runs[2].ID) {
-		if ev.Type == domain.EventTurnDequeued {
-			deq["r3"] = true
+		if ev.Type == domain.EventRunStarted {
+			var p payloadRunStarted
+			if json.Unmarshal(ev.Payload, &p) == nil && p.Queue != nil && len(p.Queue.Pending) == 0 {
+				deq["r3"] = true
+			}
 		}
 	}
 	if !deq["r2"] || !deq["r3"] {
@@ -486,7 +494,10 @@ func TestClearQueueReturnsTexts(t *testing.T) {
 	if _, err := svc.FollowUp(ctx, "sess-clear", "b"); err != nil {
 		t.Fatal(err)
 	}
-	state := svc.ClearQueue(ctx, "sess-clear")
+	state, err := svc.ClearQueue(ctx, "sess-clear")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(state.FollowUps) != 2 {
 		t.Fatalf("cleared = %+v", state)
 	}
@@ -505,6 +516,9 @@ func TestSteerDuringSuspendedRunDemotesToFollowUp(t *testing.T) {
 	mustCreateSession(t, backend, "sess-susp")
 	// A suspended (approval/question) run cannot take a steer — steering
 	// mid-tool would violate the boundary rule, so the item demotes.
+	if err := backend.CreateRun(ctx, domain.Run{ID: "run-susp", SessionID: "sess-susp", Status: domain.RunActive}); err != nil {
+		t.Fatal(err)
+	}
 	svc.mu.Lock()
 	svc.runSessions["run-susp"] = "sess-susp"
 	svc.active["run-susp"] = func() {}
@@ -541,7 +555,7 @@ func TestDequeuePopsNewestFollowUp(t *testing.T) {
 	if _, err := svc.FollowUp(ctx, "sess-deq", "newest"); err != nil {
 		t.Fatal(err)
 	}
-	item, ok := svc.Dequeue(ctx, "sess-deq")
+	item, ok, _ := svc.Dequeue(ctx, "sess-deq")
 	if !ok || item.Text != "newest" {
 		t.Fatalf("dequeue = %+v ok=%v, want newest", item, ok)
 	}
@@ -550,10 +564,10 @@ func TestDequeuePopsNewestFollowUp(t *testing.T) {
 		t.Fatalf("tail after dequeue = %+v", state.FollowUps)
 	}
 	// Second dequeue drains the lane; an empty lane reports not-found.
-	if item, ok := svc.Dequeue(ctx, "sess-deq"); !ok || item.Text != "older" {
+	if item, ok, _ := svc.Dequeue(ctx, "sess-deq"); !ok || item.Text != "older" {
 		t.Fatalf("second dequeue = %+v ok=%v", item, ok)
 	}
-	if _, ok := svc.Dequeue(ctx, "sess-deq"); ok {
+	if _, ok, _ := svc.Dequeue(ctx, "sess-deq"); ok {
 		t.Fatal("empty lane must report not-found")
 	}
 	// Journal carries turn.dequeued{reason:"dequeued", text} per item.

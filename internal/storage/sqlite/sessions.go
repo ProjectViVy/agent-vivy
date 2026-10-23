@@ -202,6 +202,9 @@ func (b *Backend) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	}
 	for i := len(subtree) - 1; i >= 0; i-- {
 		sessionID := subtree[i]
+		if _, err := tx.ExecContext(ctx, `DELETE FROM run_events WHERE run_id = ?`, domain.QueueControlJournalID(sessionID)); err != nil {
+			return fmt.Errorf("storage: delete queue controls: %w", err)
+		}
 		for _, stmt := range []struct{ sql string }{
 			{`DELETE FROM session_work_events WHERE session_id = ?`},
 			{`DELETE FROM continuity_receipts WHERE session_id = ?`},

@@ -11,13 +11,15 @@ import (
 // v1; model.completed v3 marks its preceding bounded delta sequence.
 
 type payloadRunStarted struct {
-	Provider       string `json:"provider"`
-	Model          string `json:"model"`
-	Mode           string `json:"mode"`
-	Face           string `json:"face"`
-	PolicyProfile  string `json:"policy_profile,omitempty"`
-	SandboxMode    string `json:"sandbox_mode,omitempty"`
-	ApprovalPolicy string `json:"approval_policy,omitempty"`
+	// Queue atomically transfers all pending requests before inference starts.
+	Queue          *queueSnapshot `json:"queue,omitempty"`
+	Provider       string         `json:"provider"`
+	Model          string         `json:"model"`
+	Mode           string         `json:"mode"`
+	Face           string         `json:"face"`
+	PolicyProfile  string         `json:"policy_profile,omitempty"`
+	SandboxMode    string         `json:"sandbox_mode,omitempty"`
+	ApprovalPolicy string         `json:"approval_policy,omitempty"`
 	// HistoryScope is accepted, host-resolved metadata. Its absence preserves
 	// legacy run.started encoding and means no continuity scope was admitted.
 	HistoryScope *domain.AcceptedHistoryScope `json:"history_scope,omitempty"`
@@ -449,9 +451,10 @@ type payloadChildCancelled struct {
 
 // turn.* queue markers (VCP-B1): the durable queue lives on the run journal.
 type payloadTurnQueued struct {
-	QueueID string `json:"queue_id"`
-	Track   string `json:"track"`
-	Text    string `json:"text"`
+	QueueID    string `json:"queue_id"`
+	Track      string `json:"track"`
+	Text       string `json:"text"`
+	RequestRef string `json:"request_ref,omitempty"`
 }
 
 type payloadTurnDequeued struct {

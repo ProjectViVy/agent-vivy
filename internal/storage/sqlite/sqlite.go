@@ -9,7 +9,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,7 +31,18 @@ const (
 // Open opens (or creates) the database at path and applies all pending
 // migrations. The returned Backend implements the four storage contracts.
 func Open(ctx context.Context, path string) (*Backend, error) {
-	db, err := sql.Open("sqlite", "file:"+path)
+	// Open accepts a filesystem path, never a caller-supplied SQLite URI.
+	// URL escaping preserves '#', '?', and literal percent sequences.
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("storage: resolve sqlite path: %w", err)
+	}
+	uriPath := filepath.ToSlash(abs)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath // Windows drive paths must not become URL hosts.
+	}
+	dsn := (&url.URL{Scheme: "file", Path: uriPath}).String()
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open sqlite %s: %w", path, err)
 	}
