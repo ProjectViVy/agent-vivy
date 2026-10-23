@@ -7,7 +7,7 @@
 - Stable run `39887928685` still failed with the same mismatch after setting `VIVY_GOPROXY=direct`.
 - Stable run `39889505999` confirmed the mismatch in a preflight with job-wide `GOPROXY=direct`: it downloaded `Dwe8...` instead of the recorded `AWMLO...` hash.
 - With the exact workflow setting `GOPROXY=https://proxy.golang.org,direct`, a fresh isolated Go cache downloaded `github.com/charmbracelet/glamour@v1.0.0` and verified hash `h1:AWMLOVFHTsysl4WV8T8QgkQ0s/ZNZo7CiE4WKhk8l08=` against `go.sum`; Go reported upstream tag commit `69661fd5423129850dbd3b3a6995cd32976f867b`. No checksum was changed.
-- The follow-up workflow uses `https://proxy.golang.org,direct` and runs `go mod download -json github.com/charmbracelet/glamour@v1.0.0` before the gates. Its hosted run is still required.
+- Stable run [39889890105](https://github.com/ProjectViVy/agent-vivy/actions/runs/39889890105) on `f64138807ecd5112bb3c78e85f1b4cd815b3b8df` passed. The checksum-pinned module preflight, portable bootstrap and generated wiring, kernel owners and real minimal artifact, and affected D02 protocol/Faces steps all succeeded; cleanup steps also completed successfully.
 
 ## Linux checkout
 
@@ -19,4 +19,4 @@ Ran from the independent WSL filesystem checkout at source commit `8b00475b1ea84
 - `git diff --check` — passed.
 - An optional targeted run with a brand-new module cache was interrupted after 12 minutes while Go cloned the outer `sdk/internal` test package's dependency graph. It produced no test result and is not counted as a pass; the repository kernel gate above completed the required pack/inspect/boot case.
 
-The latest hosted workflow failure is not treated as fixed. The next `stable` run must pass the proxy-backed checksum preflight and wiring, kernel, and D02 steps.
+The proxy-backed workflow now passes its checksum preflight and all required wiring, kernel, and D02 steps on `stable`. The direct-VCS checksum mismatch remains handled by using the official Go module proxy; `go.sum` was not modified.
