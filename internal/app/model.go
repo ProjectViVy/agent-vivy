@@ -1,7 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -39,14 +41,15 @@ type ResolvedModel struct {
 // otherwise ~/.vivy/settings.yaml. Empty means the process has no model
 // yet (wizard required). It never writes environment variables.
 type ModelResolver struct {
-	mu          sync.Mutex
-	cfg         config.Config
-	path        string
-	projectRoot string
-	catalog     *provider.Catalog
-	host        *modelhost.Host
-	credentials *credentialmodule.Resolver
-	frozen      *ResolvedModel
+	mu           sync.Mutex
+	cfg          config.Config
+	path         string
+	projectRoot  string
+	catalog      *provider.Catalog
+	host         *modelhost.Host
+	credentials  *credentialmodule.Resolver
+	frozen       *ResolvedModel
+	envAmbiguity string
 }
 
 func newModelResolver(cfg config.Config, path string, catalog *provider.Catalog, host *modelhost.Host, supplied ...*credentialmodule.Resolver) *ModelResolver {
@@ -64,8 +67,10 @@ func newModelResolverForProject(cfg config.Config, path, projectRoot string, cat
 		credentials, _ = credentialmodule.Compose(map[string][]string{"vivy/model": modelCredentialAllowlist(catalog)})
 	}
 	r := &ModelResolver{cfg: cfg, path: path, projectRoot: projectRoot, catalog: catalog, host: host, credentials: credentials}
-	if frozen, ok := freezeFromEnv(cfg, catalog, credentials); ok {
+	if frozen, ambiguity := freezeFromEnv(cfg, catalog, credentials); frozen.Provider != "" {
 		r.frozen = &frozen
+	} else {
+		r.envAmbiguity = ambiguity
 	}
 	return r
 }
@@ -80,12 +85,19 @@ func modelCredentialAllowlist(catalog *provider.Catalog) []string {
 }
 
 // freezeFromEnv builds the read-only ENV session. Every embedded vendor is a
-// candidate now, so a third-party vendor freezes the session exactly like the
+// candidate, so a third-party vendor freezes the session exactly like the
 // first-party ones; the configured vendor (config.providers.active) wins when
 // several are set, and VIVY_PROVIDER overrides it by vendor name or by adapter.
-func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *credentialmodule.Resolver) (ResolvedModel, bool) {
+//
+// The environment must identify exactly one candidate. One credential name can
+// be the credential of more than one embedded vendor (openai and aihubmix both
+// read OPENAI_API_KEY), so several candidates with no explicit selection are
+// ambiguous: the empty session is returned and the caller keeps the settings
+// document. The second result explains that refusal, and is empty whenever the
+// environment simply named no credentials.
+func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *credentialmodule.Resolver) (ResolvedModel, string) {
 	if catalog == nil || credentials == nil {
-		return ResolvedModel{}, false
+		return ResolvedModel{}, ""
 	}
 	var hits []provider.Vendor
 	for _, vendor := range catalog.Vendors() {
@@ -94,25 +106,15 @@ func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *cr
 		}
 	}
 	if len(hits) == 0 {
-		return ResolvedModel{}, false
+		return ResolvedModel{}, ""
 	}
-	chosen := hits[0]
-	if active := cfg.Providers.Active; active != "" {
-		for _, vendor := range hits {
-			if vendor.Name == active {
-				chosen = vendor
-				break
-			}
-		}
-	}
-	if override := strings.TrimSpace(os.Getenv(envProviderOverride)); override != "" {
-		if vendor, ok := matchFrozenVendor(hits, override); ok {
-			chosen = vendor
-		}
+	chosen, decided := selectFrozenVendor(hits, cfg.Providers.Active, strings.TrimSpace(os.Getenv(envProviderOverride)))
+	if !decided {
+		return ResolvedModel{}, ambiguousEnvReason(hits)
 	}
 	key, err := credentials.Resolve("vivy/model", chosen.EnvKey)
 	if err != nil {
-		return ResolvedModel{}, false
+		return ResolvedModel{}, ""
 	}
 	key = strings.TrimSpace(key)
 	base := strings.TrimSpace(os.Getenv(provider.APIBaseEnvVar))
@@ -126,11 +128,51 @@ func freezeFromEnv(cfg config.Config, catalog *provider.Catalog, credentials *cr
 		APIKey:   key,
 		Frozen:   true,
 		Ready:    key != "",
-	}, true
+	}, ""
+}
+
+// selectFrozenVendor decides which candidate an environment session belongs to,
+// and never guesses. An explicit selection wins — VIVY_PROVIDER by vendor name
+// or by a sealed adapter exactly one candidate speaks, then the configured
+// vendor by name — and otherwise the environment must name exactly one
+// candidate from the embedded data.
+func selectFrozenVendor(hits []provider.Vendor, active, override string) (provider.Vendor, bool) {
+	if override != "" {
+		if vendor, ok := matchFrozenVendor(hits, override); ok {
+			return vendor, true
+		}
+	}
+	if active != "" {
+		for _, vendor := range hits {
+			if vendor.Name == active {
+				return vendor, true
+			}
+		}
+	}
+	if len(hits) == 1 {
+		return hits[0], true
+	}
+	return provider.Vendor{}, false
+}
+
+// ambiguousEnvReason names the variables and vendors the environment offered,
+// never a value. It is a diagnostic for the composition root's log.
+func ambiguousEnvReason(hits []provider.Vendor) string {
+	keys := make([]string, 0, len(hits))
+	names := make([]string, 0, len(hits))
+	for _, vendor := range hits {
+		keys = append(keys, vendor.EnvKey)
+		names = append(names, vendor.Name)
+	}
+	keys = slices.Compact(slices.Sorted(slices.Values(keys)))
+	return fmt.Sprintf("environment credentials %s are set for several providers (%s); set config.providers.active or VIVY_PROVIDER to choose one, so the settings document stays in effect",
+		strings.Join(keys, ", "), strings.Join(names, ", "))
 }
 
 // matchFrozenVendor resolves a VIVY_PROVIDER override: a vendor name names
-// that vendor, and a sealed adapter names the first candidate that speaks it.
+// that vendor, and a sealed adapter names the candidate that speaks it, which
+// must be exactly one — several candidates sharing an adapter is the same
+// ambiguity as several sharing a credential.
 func matchFrozenVendor(hits []provider.Vendor, override string) (provider.Vendor, bool) {
 	for _, vendor := range hits {
 		if vendor.Name == override {
@@ -141,12 +183,18 @@ func matchFrozenVendor(hits []provider.Vendor, override string) (provider.Vendor
 	if adapter == "" {
 		return provider.Vendor{}, false
 	}
+	var matched provider.Vendor
+	found := false
 	for _, vendor := range hits {
-		if _, ok := vendor.EndpointForAdapter(adapter); ok {
-			return vendor, true
+		if _, ok := vendor.EndpointForAdapter(adapter); !ok {
+			continue
 		}
+		if found {
+			return provider.Vendor{}, false
+		}
+		matched, found = vendor, true
 	}
-	return provider.Vendor{}, false
+	return matched, found
 }
 
 // Current returns the live selection. Frozen ENV sessions ignore the
@@ -214,6 +262,18 @@ func (r *ModelResolver) Frozen() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.frozen != nil
+}
+
+// FrozenAmbiguity reports why set environment credentials did not freeze this
+// process, or "" when there was nothing to attribute. It names variables and
+// vendors only, so it is safe to log.
+func (r *ModelResolver) FrozenAmbiguity() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.envAmbiguity
 }
 
 // Invalidate is retained for callers that previously cached a model. The

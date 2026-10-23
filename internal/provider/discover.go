@@ -21,6 +21,16 @@ const ModelListTimeout = 15 * time.Second
 // misbehaving gateway cannot exhaust memory while decoding.
 const maxModelListResponseBytes = 4 << 20
 
+// MaxModelListEntries bounds how many model ids one refresh may accept. The
+// discovery result is persisted into the provider registry and rendered as a
+// Settings list, so an upstream that advertises an unbounded catalogue must
+// fail loudly instead of writing a document nobody can use.
+const MaxModelListEntries = 2000
+
+// maxModelIDBytes bounds each accepted selector in bytes after trimming.
+// Oversized upstream IDs are skipped instead of persisted into the registry.
+const maxModelIDBytes = 256
+
 // defaultModelListHTTP is the package default transport for upstream model
 // discovery. Tests inject their own HTTP client (httptest) through
 // ModelListClient.HTTP so no unit test touches the live network.
@@ -44,7 +54,8 @@ type ModelListClient struct {
 // when non-empty, is sent as a Bearer token; it is never included in the
 // returned errors (the URL and any user-supplied query params are stripped
 // from the cause chain too). The result keeps the gateway's order and
-// de-duplicates by trimmed id; blank ids are dropped.
+// de-duplicates by trimmed id; blank ids and ids above maxModelIDBytes are
+// dropped, and more than MaxModelListEntries accepted ids is an error.
 func (c *ModelListClient) List(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 	httpClient := defaultModelListHTTP
 	if c != nil && c.HTTP != nil {
@@ -88,11 +99,14 @@ func (c *ModelListClient) List(ctx context.Context, baseURL, apiKey string) ([]s
 	models := make([]string, 0, len(payload.Data))
 	for _, item := range payload.Data {
 		id := strings.TrimSpace(item.ID)
-		if id == "" || seen[id] {
+		if id == "" || len(id) > maxModelIDBytes || seen[id] {
 			continue
 		}
 		seen[id] = true
 		models = append(models, id)
+		if len(models) > MaxModelListEntries {
+			return nil, fmt.Errorf("list models: upstream advertised more than the %d model id limit", MaxModelListEntries)
+		}
 	}
 	return models, nil
 }

@@ -344,6 +344,9 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 	}
 	modelHost := modelProvider.Host()
 	resolver := newModelResolverForProject(cfg, liveSettingsPath, ao.projectRoot, catalog, modelHost, credentialResolver)
+	if reason := resolver.FrozenAmbiguity(); reason != "" {
+		logger.Warn("environment provider selection skipped", "reason", reason)
+	}
 	cur := resolver.Current()
 	providerName := cur.Provider
 	if providerName == "" {
@@ -1587,6 +1590,8 @@ func runtimeGenerationID(runtimeAssembly genassembly.RuntimeAssembly) string {
 // The credential variable is the *vendor's*, read from the embedded data: a
 // selection that resolves to a third-party endpoint writes that vendor's
 // environment variable instead of one of the three former config blocks.
+// User-defined selections keep their credentials in settings, even when their
+// display label equals an embedded vendor name.
 func applySettingsEnv(logger *slog.Logger, catalog *provider.Catalog, cfg config.Config, s settings.Settings) {
 	if s.BaseURL != "" {
 		if err := os.Setenv(provider.APIBaseEnvVar, s.BaseURL); err != nil {
@@ -1594,7 +1599,7 @@ func applySettingsEnv(logger *slog.Logger, catalog *provider.Catalog, cfg config
 		}
 	}
 	selection, ok := resolveStoredSelection(catalog, cfg, s)
-	if !ok || selection.Vendor == "" {
+	if !ok || selection.Vendor == "" || selection.UserDefined {
 		return
 	}
 	vendor, ok := catalog.Vendor(selection.Vendor)

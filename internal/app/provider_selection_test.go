@@ -109,7 +109,8 @@ func TestResolveStoredSelectionEmptyDocument(t *testing.T) {
 // that vendor's key into OPENAI_API_KEY.
 func TestApplySettingsEnvWritesTheVendorsOwnVariable(t *testing.T) {
 	t.Setenv(provider.APIBaseEnvVar, "")
-	os.Unsetenv("MINIMAX_API_KEY")
+	t.Setenv("MINIMAX_API_KEY", "")
+	t.Setenv("SENSENOVA_API_KEY", "")
 	openAIKeyBefore := os.Getenv("OPENAI_API_KEY")
 
 	cfg := config.Default()
