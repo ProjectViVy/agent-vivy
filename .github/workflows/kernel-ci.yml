@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
+      GOPROXY: direct
       VIVY_GOPROXY: direct
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -29,6 +30,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+      - name: Verify checksum-pinned TUI module source
+        run: go mod download -json github.com/charmbracelet/glamour@v1.0.0
       - name: Verify portable bootstrap and generated wiring
         run: just wiring-ci
       - name: Verify kernel owners and the real minimal artifact
