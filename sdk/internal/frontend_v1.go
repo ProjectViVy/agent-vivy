@@ -1150,11 +1150,9 @@ func prepareBuildModfile(repoRoot, temporaryRoot string, sources []string) (stri
 }
 
 func resolveBuildDependencies(repoRoot, modfile string) error {
-	download := exec.Command("go", "mod", "download", "-modfile="+modfile)
-	download.Dir = repoRoot
-	if output, err := download.CombinedOutput(); err != nil {
-		return fmt.Errorf("sdk: resolve dependency sums: %w: %s", err, strings.TrimSpace(string(output)))
-	}
+	// Resolve the graph here, but let the selected build fetch source archives.
+	// Downloading every module also fetches dependencies excluded from the
+	// selected artifact, such as UI packages in the minimal profile.
 	list := exec.Command("go", "list", "-mod=mod", "-modfile="+modfile, "-m", "-f", "{{.Path}} {{.Version}}", "all")
 	list.Dir = repoRoot
 	if output, err := list.CombinedOutput(); err != nil {
