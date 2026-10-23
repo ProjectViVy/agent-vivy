@@ -366,6 +366,26 @@ type ProviderEntry struct {
 	ApiKey string `yaml:"api_key"`
 }
 
+// reconcileDefaultModel keeps an entry's declared default inside its model
+// list: a default the entry does not offer is a selection the runtime would
+// adopt and the Settings UI could not show, because the list renders Models.
+// The comparison ignores surrounding whitespace, which the runtime also
+// trims. Order is preserved and an already-listed default stays untouched, so
+// reconciliation is idempotent.
+func (e ProviderEntry) reconcileDefaultModel() ProviderEntry {
+	model := strings.TrimSpace(e.DefaultModel)
+	if model == "" {
+		return e
+	}
+	for _, id := range e.Models {
+		if strings.TrimSpace(id) == model {
+			return e
+		}
+	}
+	e.Models = append(append([]string(nil), e.Models...), model)
+	return e
+}
+
 // NetworkSearchSettings is the UI-managed network_search preference.
 // Provider credentials stay environment-only (D-010).
 type NetworkSearchSettings struct {
@@ -497,6 +517,10 @@ func load(path string) (Settings, error) {
 	// The migrated value is returned in memory; the next successful settings
 	// write rewrites the document without the retired records.
 	migrateLegacyMock(&s)
+	// Repair older documents in memory; the next settings write persists it.
+	for i, entry := range s.Providers {
+		s.Providers[i] = entry.reconcileDefaultModel()
+	}
 	// Normalize a decoded empty registry to nil so a document round-trip is
 	// stable (yaml marshals nil and empty slices identically).
 	if len(s.Providers) == 0 {
@@ -973,6 +997,7 @@ func ActiveKey(s Settings, provider, baseURL string) string {
 // The returned Settings is the candidate with the entry applied; validation
 // happens in Save.
 func (s Settings) UpsertProvider(entry ProviderEntry) Settings {
+	entry = entry.reconcileDefaultModel()
 	for i, e := range s.Providers {
 		if e.ID == entry.ID {
 			next := append([]ProviderEntry(nil), s.Providers...)
