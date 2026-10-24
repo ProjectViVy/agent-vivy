@@ -274,6 +274,26 @@ func (t *skillManageTool) PrepareProposal(ctx context.Context, args json.RawMess
 	return t.ops.PrepareSkillProposal(ctx, RunIDFromContext(ctx), req)
 }
 
+// PreflightProposal checks the mutation without staging its revision. A
+// backend without the check skips pre-suspension validation; the service still
+// prepares and stages the proposal when the interrupt is handled.
+func (t *skillManageTool) PreflightProposal(ctx context.Context, args json.RawMessage) error {
+	req, err := decodeSkillManageRequest(args)
+	if err != nil {
+		return err
+	}
+	if t.ops == nil {
+		return fmt.Errorf("tools: skills backend not wired")
+	}
+	checker, ok := t.ops.(interface {
+		PreflightSkillProposal(context.Context, domain.RunID, SkillManageRequest) error
+	})
+	if !ok {
+		return nil
+	}
+	return checker.PreflightSkillProposal(ctx, RunIDFromContext(ctx), req)
+}
+
 func decodeSkillManageRequest(args json.RawMessage) (SkillManageRequest, error) {
 	var input struct {
 		Action     string `json:"action"`

@@ -31,6 +31,16 @@ type ProposalProvider interface {
 	PrepareProposal(context.Context, json.RawMessage) (domain.ToolProposal, error)
 }
 
+// ProposalPreflight checks that a proposal can be prepared without producing
+// it. The runtime runs the check before suspending, so a call the provider
+// would reject becomes a model-visible refusal instead of an interrupted run
+// that cannot be paused. A provider whose PrepareProposal persists state (a
+// staged revision) must implement it; every other provider is checked by
+// calling PrepareProposal, which is expected to be side-effect free.
+type ProposalPreflight interface {
+	PreflightProposal(context.Context, json.RawMessage) error
+}
+
 // InvocationClassifier optionally narrows one call's risk below the
 // tool-level Readonly flag. The runtime approval gate consults it on the
 // final arguments, after policy and hooks: a denied call never runs on any

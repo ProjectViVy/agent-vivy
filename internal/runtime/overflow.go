@@ -247,8 +247,9 @@ func (s *Service) compactForOverflow(ctx context.Context, sessionID domain.Sessi
 	// Retry input tail: the kept pre-run rows re-checked for pairs split at
 	// the fold seam, plus the pending turn projected verbatim — pending tool
 	// calls whose results have not journaled yet must keep their tool_calls
-	// rows or the ToolNode's later results would orphan.
-	tail := projectFeed(feedableMessages(feed[foldIdx:]))
-	tail = append(tail, projectFeed(pending)...)
+	// rows or the ToolNode's later results would orphan. Both sides are
+	// stabilized so a steer persisted mid-group stays after its results.
+	tail := projectFeed(stabilizeToolTurns(feedableMessages(feed[foldIdx:])))
+	tail = append(tail, projectFeed(stabilizeToolTurns(pending))...)
 	return &outcome.rec, tail, nil
 }

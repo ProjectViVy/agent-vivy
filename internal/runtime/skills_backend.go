@@ -212,39 +212,62 @@ func (b *EinoSkillBackend) ManageSkill(ctx context.Context, runID domain.RunID, 
 }
 
 func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.ToolProposal, error) {
+	revision, proposal, err := b.buildSkillProposal(ctx, runID, req)
+	if err != nil {
+		return domain.ToolProposal{}, err
+	}
+	if err := b.revisions.CreateSkillRevision(ctx, revision); err != nil {
+		return domain.ToolProposal{}, err
+	}
+	return proposal, nil
+}
+
+// PreflightSkillProposal runs every check of PrepareSkillProposal without
+// staging the revision. The runtime checks before suspending, so a rejected
+// call never creates a pending revision that no approval can reference.
+func (b *EinoSkillBackend) PreflightSkillProposal(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) error {
+	_, _, err := b.buildSkillProposal(ctx, runID, req)
+	return err
+}
+
+// buildSkillProposal is pure: it validates the mutation and builds the pending
+// revision plus its review record, but never persists either.
+func (b *EinoSkillBackend) buildSkillProposal(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.SkillRevision, domain.ToolProposal, error) {
 	if b.revisions == nil {
-		return domain.ToolProposal{}, errors.New("skills: revision store not wired")
+		return domain.SkillRevision{}, domain.ToolProposal{}, errors.New("skills: revision store not wired")
 	}
 	req.Action = strings.ToLower(strings.TrimSpace(req.Action))
 	req.SkillName = strings.TrimSpace(req.SkillName)
 	if err := validSkillName(req.SkillName); err != nil {
-		return domain.ToolProposal{}, err
+		return domain.SkillRevision{}, domain.ToolProposal{}, err
 	}
 	if req.Action != "create" {
 		if root, _, locErr := b.skillDirOf(ctx, req.SkillName); locErr == nil && !root.writable {
-			return domain.ToolProposal{}, errSkillReadOnly
+			// A read-only root is a policy boundary, not a wiring failure: the
+			// preflight refusal path must let the model choose another skill.
+			return domain.SkillRevision{}, domain.ToolProposal{}, fmt.Errorf("%w: %w", ErrPolicyDenied, errSkillReadOnly)
 		}
 	}
 	if req.Action == "rollback" {
-		return b.prepareRollbackProposal(ctx, runID, req)
+		return b.buildRollbackProposal(ctx, runID, req)
 	}
 	if len(req.Path) > maxSkillPathBytes {
-		return domain.ToolProposal{}, errors.New("skills: path is too long")
+		return domain.SkillRevision{}, domain.ToolProposal{}, errors.New("skills: path is too long")
 	}
 	current, target, targetRel, exists, err := b.skillMutationState(ctx, req)
 	if err != nil {
-		return domain.ToolProposal{}, err
+		return domain.SkillRevision{}, domain.ToolProposal{}, err
 	}
 	after, warnings, err := skillMutationContent(req, current, target != "")
 	if err != nil {
-		return domain.ToolProposal{}, err
+		return domain.SkillRevision{}, domain.ToolProposal{}, err
 	}
 	if len(after) > maxSkillBytes {
-		return domain.ToolProposal{}, fmt.Errorf("skills: content exceeds %d bytes", maxSkillBytes)
+		return domain.SkillRevision{}, domain.ToolProposal{}, fmt.Errorf("skills: content exceeds %d bytes", maxSkillBytes)
 	}
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return domain.ToolProposal{}, fmt.Errorf("skills: encode mutation: %w", err)
+		return domain.SkillRevision{}, domain.ToolProposal{}, fmt.Errorf("skills: encode mutation: %w", err)
 	}
 	revisionID := newSkillRevisionID()
 	preview := boundedSkillPreview(targetRel, string(current), string(after), req.Action)
@@ -258,13 +281,10 @@ func (b *EinoSkillBackend) PrepareSkillProposal(ctx context.Context, runID domai
 		Payload: payload, BeforePayload: current, BeforeExists: &exists, Preview: preview,
 		WarningsJSON: warningsJSON, Status: domain.SkillRevisionPending, CreatedAt: time.Now().UnixMilli(),
 	}
-	if err := b.revisions.CreateSkillRevision(ctx, revision); err != nil {
-		return domain.ToolProposal{}, err
-	}
 	data, _ := json.Marshal(struct {
 		RevisionID string `json:"revision_id"`
 	}{RevisionID: revisionID})
-	return domain.ToolProposal{Action: "skill_" + req.Action, Target: targetRel,
+	return revision, domain.ToolProposal{Action: "skill_" + req.Action, Target: targetRel,
 		Preview: preview, RiskFindings: warnings, Data: data}, nil
 }
 
@@ -331,14 +351,14 @@ func (b *EinoSkillBackend) ApplySkillRevision(ctx context.Context, runID domain.
 		Action: req.Action, TargetPath: targetRel, Warnings: warnings}, nil
 }
 
-func (b *EinoSkillBackend) prepareRollbackProposal(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.ToolProposal, error) {
+func (b *EinoSkillBackend) buildRollbackProposal(ctx context.Context, runID domain.RunID, req tools.SkillManageRequest) (domain.SkillRevision, domain.ToolProposal, error) {
 	source, current, _, targetRel, exists, after, err := b.rollbackMutationState(ctx, runID, req)
 	if err != nil {
-		return domain.ToolProposal{}, err
+		return domain.SkillRevision{}, domain.ToolProposal{}, err
 	}
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return domain.ToolProposal{}, err
+		return domain.SkillRevision{}, domain.ToolProposal{}, err
 	}
 	preview := boundedSkillPreview(targetRel, string(current), string(after), "rollback")
 	revisionID := newSkillRevisionID()
@@ -346,11 +366,8 @@ func (b *EinoSkillBackend) prepareRollbackProposal(ctx context.Context, runID do
 	warnings = append(warnings, scanSkillText(string(after))...)
 	warningsJSON, _ := json.Marshal(warnings)
 	revision := domain.SkillRevision{ID: revisionID, RunID: runID, SkillName: req.SkillName, Action: "rollback", TargetPath: targetRel, Payload: payload, BeforePayload: current, BeforeExists: &exists, Preview: preview, WarningsJSON: warningsJSON, Status: domain.SkillRevisionPending, CreatedAt: time.Now().UnixMilli()}
-	if err := b.revisions.CreateSkillRevision(ctx, revision); err != nil {
-		return domain.ToolProposal{}, err
-	}
 	data, _ := json.Marshal(map[string]string{"revision_id": revisionID})
-	return domain.ToolProposal{Action: "skill_rollback", Target: targetRel, Preview: preview, RiskFindings: warnings, Data: data}, nil
+	return revision, domain.ToolProposal{Action: "skill_rollback", Target: targetRel, Preview: preview, RiskFindings: warnings, Data: data}, nil
 }
 
 type loadedSkill struct {

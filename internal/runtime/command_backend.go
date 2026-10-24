@@ -370,26 +370,26 @@ func (b *CommandBackend) resolveCommandContext(ctx context.Context, runID domain
 		cwd = "."
 	}
 	if filepath.IsAbs(cwd) {
-		return commandScope{}, errors.New("command: cwd must be workspace-relative")
+		return commandScope{}, &tools.ArgError{Field: "cwd", Reason: "must be workspace-relative"}
 	}
 	cwdPath := filepath.Join(workspace.Path, filepath.Clean(cwd))
 	relativeCwd, err := filepath.Rel(workspace.Path, cwdPath)
 	if err != nil || relativeCwd == ".." || strings.HasPrefix(relativeCwd, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeCwd) {
-		return commandScope{}, errors.New("command: cwd escapes workspace")
+		return commandScope{}, &tools.ArgError{Field: "cwd", Reason: "must stay inside the run workspace"}
 	}
 	realCwd, err := filepath.EvalSymlinks(cwdPath)
 	if err != nil {
-		return commandScope{}, fmt.Errorf("command: resolve cwd: %w", err)
+		return commandScope{}, &tools.ArgError{Field: "cwd", Reason: "is not an existing directory"}
 	}
 	realWorkspace, _ := filepath.EvalSymlinks(workspace.Path)
 	if !strings.EqualFold(filepath.Clean(realCwd), filepath.Clean(realWorkspace)) {
 		if err := b.manager.ValidateRunPath(ctx, runID, realCwd); err != nil {
-			return commandScope{}, errors.New("command: cwd symlink escapes workspace")
+			return commandScope{}, fmt.Errorf("%w: cwd symlink escapes the run workspace", ErrSandboxDenied)
 		}
 	}
 	info, err := os.Stat(realCwd)
 	if err != nil || !info.IsDir() {
-		return commandScope{}, errors.New("command: cwd is not a directory")
+		return commandScope{}, &tools.ArgError{Field: "cwd", Reason: "is not a directory"}
 	}
 	env, err := safeCommandEnv(envOverrides)
 	if err != nil {

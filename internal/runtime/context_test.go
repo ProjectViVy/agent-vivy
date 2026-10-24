@@ -643,3 +643,100 @@ func TestBuildRunContextRejectsFileProjectionBeyondFinalBudget(t *testing.T) {
 		t.Fatalf("file projection error = %v, want final context budget rejection", err)
 	}
 }
+
+// A mid-run steer is persisted as it arrives, which can put it between a
+// model's tool calls and their results. Providers reject that order, so the
+// projection defers the steer until the open call group closes.
+func TestPairToolTurnsDefersSteerPersistedInsideToolGroup(t *testing.T) {
+	in := []domain.Message{
+		{Role: domain.RoleUser, Content: "start"},
+		{Role: domain.RoleAssistant, ToolCallID: "t1", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleAssistant, ToolCallID: "t2", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleUser, Content: "steer"},
+		{Role: domain.RoleTool, ToolCallID: "t1", ToolName: "echo_info", Content: "one"},
+		{Role: domain.RoleTool, ToolCallID: "t2", ToolName: "echo_info", Content: "two"},
+	}
+	got := pairToolTurns(in)
+	wantRoles := []domain.Role{domain.RoleUser, domain.RoleAssistant, domain.RoleAssistant, domain.RoleTool, domain.RoleTool, domain.RoleUser}
+	if len(got) != len(wantRoles) {
+		t.Fatalf("stabilized rows = %d, want %d: %+v", len(got), len(wantRoles), got)
+	}
+	for i, role := range wantRoles {
+		if got[i].Role != role {
+			t.Fatalf("row %d role = %q, want %q: %+v", i, got[i].Role, role, got)
+		}
+	}
+	if got[5].Content != "steer" {
+		t.Fatalf("deferred row = %q, want the steer", got[5].Content)
+	}
+}
+
+func TestPairToolTurnsKeepsSteerOrderOutsideGroups(t *testing.T) {
+	in := []domain.Message{
+		{Role: domain.RoleUser, Content: "a"},
+		{Role: domain.RoleAssistant, ToolCallID: "t1", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleUser, Content: "s1"},
+		{Role: domain.RoleUser, Content: "s2"},
+		{Role: domain.RoleTool, ToolCallID: "t1", ToolName: "echo_info", Content: "one"},
+		{Role: domain.RoleUser, Content: "b"},
+	}
+	got := pairToolTurns(in)
+	if len(got) != 6 {
+		t.Fatalf("stabilized rows = %d, want 6: %+v", len(got), got)
+	}
+	if got[1].Role != domain.RoleAssistant || got[2].Role != domain.RoleTool {
+		t.Fatalf("call/result not adjacent: %+v", got)
+	}
+	if got[3].Content != "s1" || got[4].Content != "s2" || got[5].Content != "b" {
+		t.Fatalf("steer order = %q/%q/%q, want s1/s2/b", got[3].Content, got[4].Content, got[5].Content)
+	}
+}
+
+// Dropping an unpaired call must not swallow a user row that arrived after it.
+func TestPairToolTurnsDropsOrphanCallWithoutLosingUserRow(t *testing.T) {
+	in := []domain.Message{
+		{Role: domain.RoleAssistant, ToolCallID: "t1", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleUser, Content: "steer"},
+		{Role: domain.RoleAssistant, ToolCallID: "orphan", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleTool, ToolCallID: "t1", ToolName: "echo_info", Content: "one"},
+	}
+	got := pairToolTurns(in)
+	if len(got) != 3 {
+		t.Fatalf("stabilized rows = %d, want 3: %+v", len(got), got)
+	}
+	if got[0].ToolCallID != "t1" || got[1].ToolCallID != "t1" || got[2].Content != "steer" {
+		t.Fatalf("stabilized rows = %+v, want t1 call, t1 result, steer", got)
+	}
+}
+
+func TestBuildRunContextProjectsSteerAfterToolResults(t *testing.T) {
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "start"},
+		{Role: domain.RoleAssistant, ToolCallID: "t1", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleAssistant, ToolCallID: "t2", ToolName: "echo_info", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleUser, Content: "steer"},
+		{Role: domain.RoleTool, ToolCallID: "t1", ToolName: "echo_info", Content: "one"},
+		{Role: domain.RoleTool, ToolCallID: "t2", ToolName: "echo_info", Content: "two"},
+	}
+	msgs, _, err := buildRunContext(ContextPolicy{}, "preamble", stored, "next")
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	// preamble, start, merged tool calls, result one, result two, steer, next
+	if len(msgs) != 7 {
+		t.Fatalf("message count = %d, want 7: %+v", len(msgs), msgs)
+	}
+	calls := agenticToolCalls(msgs[2])
+	if len(calls) != 2 || calls[0].CallID != "t1" || calls[1].CallID != "t2" {
+		t.Fatalf("assistant tool calls = %+v, want both calls in one message", msgs[2])
+	}
+	for i, want := range []string{"t1", "t2"} {
+		results := agenticToolResults(msgs[3+i])
+		if len(results) != 1 || results[0].CallID != want {
+			t.Fatalf("message %d results = %+v, want %q", 3+i, msgs[3+i], want)
+		}
+	}
+	if agenticMessageText(msgs[5]) != "steer" || agenticMessageText(msgs[6]) != "next" {
+		t.Fatalf("tail messages = %q/%q, want steer/next", agenticMessageText(msgs[5]), agenticMessageText(msgs[6]))
+	}
+}
