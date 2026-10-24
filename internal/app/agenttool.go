@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,11 @@ func (r *agentToolRef) StartAgentTask(ctx context.Context, task string) (string,
 	}
 	switch final.Status {
 	case "completed":
+		if strings.TrimSpace(final.Result) == "" {
+			// A completion without text still needs a model-visible answer;
+			// an empty tool result tells the parent nothing.
+			return "the sub-agent finished without a written answer", nil
+		}
 		return final.Result, nil
 	case "cancelled":
 		return "", tools.NewChildTaskError("the sub-agent was cancelled before it finished")
