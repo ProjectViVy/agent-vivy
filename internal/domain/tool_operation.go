@@ -65,6 +65,7 @@ const (
 	ToolReasonUserDenied       = "user_denied"
 	ToolReasonCommandFailed    = "command_failed"
 	ToolReasonRemoteTool       = "remote_tool_error"
+	ToolReasonChildFailed      = "child_failed"
 	ToolEffectsNotExecuted     = "not_executed"
 	ToolEffectsNone            = "none"
 	ToolEffectsUnknown         = "unknown"

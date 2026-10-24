@@ -30,11 +30,17 @@ func TestToolActivationSetAndContext(t *testing.T) {
 }
 
 func TestResolveToolExposureDefaults(t *testing.T) {
-	if len(fixedVisibleToolNames) != 11 {
-		t.Fatalf("fixed-visible core size = %d, want 11", len(fixedVisibleToolNames))
+	if len(fixedVisibleToolNames) != 12 {
+		t.Fatalf("fixed-visible core size = %d, want 12", len(fixedVisibleToolNames))
 	}
 	if got := ResolveToolExposure(domain.ToolSpec{Name: ReadFileName}); got != domain.ToolExposureDirect {
 		t.Fatalf("core tool exposure = %s, want direct", got)
+	}
+	if got := ResolveToolExposure(domain.ToolSpec{Name: AgentName}); got != domain.ToolExposureDirect {
+		t.Fatalf("agent exposure = %s, want direct", got)
+	}
+	if got := ResolveToolExposure(domain.ToolSpec{Name: AgentName, Exposure: domain.ToolExposureDeferred}); got != domain.ToolExposureDeferred {
+		t.Fatalf("explicit agent exposure = %s, want the operator override to win", got)
 	}
 	if got := ResolveToolExposure(domain.ToolSpec{Name: "sequential_thinking"}); got != domain.ToolExposureDeferred {
 		t.Fatalf("non-core tool exposure = %s, want deferred", got)

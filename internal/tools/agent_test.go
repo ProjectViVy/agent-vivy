@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,10 @@ func TestAgentToolValidatesArguments(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("err = %v, want contains %q", err, tc.wantErr)
 			}
+			var argErr *ArgError
+			if !errors.As(err, &argErr) {
+				t.Fatalf("error %T is not a structured *ArgError", err)
+			}
 		})
 	}
 }
@@ -63,6 +68,11 @@ func TestAgentToolBoundsTaskAndIgnoresLegacyMask(t *testing.T) {
 	bigTask := strings.Repeat("a", maxAgentTaskBytes+1)
 	if _, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"task":"`+bigTask+`"}`)); err == nil || !strings.Contains(err.Error(), "64") {
 		t.Fatalf("oversize task err = %v, want 64 KiB bound", err)
+	} else {
+		var argErr *ArgError
+		if !errors.As(err, &argErr) {
+			t.Fatalf("oversize task error %T is not a structured *ArgError", err)
+		}
 	}
 	args, err := json.Marshal(map[string]string{"task": "ok", "mask": strings.Repeat("m", 4096)})
 	if err != nil {

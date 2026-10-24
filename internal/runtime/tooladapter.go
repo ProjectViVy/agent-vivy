@@ -961,6 +961,19 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	outcome, err := a.invokeOutcome(ctx, argumentsInJSON)
 	return outcome.Result, err
 }
+
+// toolInvocationError marks an error raised by a tool's own invocation outside
+// the §5 allowlist. The run still fails, but the cause is the tool, not the
+// model provider: its diagnostic must never be relabelled as a provider
+// outage, even when it quotes an HTTP status or provider wording.
+type toolInvocationError struct {
+	tool string
+	err  error
+}
+
+func (e *toolInvocationError) Error() string { return e.err.Error() }
+
+func (e *toolInvocationError) Unwrap() error { return e.err }
 func (a *toolAdapter) invokeOutcome(ctx context.Context, argumentsInJSON string) (domain.ToolOperationOutcome, error) {
 	// The runtime run identity is copied into the tools package context at the
 	// Eino boundary so workspace-backed tools cannot fall back to a host path.
@@ -1001,7 +1014,7 @@ func (a *toolAdapter) invokeOutcome(ctx context.Context, argumentsInJSON string)
 		if strings.Contains(strings.ToLower(err.Error()), "proposal stale") || strings.Contains(strings.ToLower(err.Error()), "target changed after human review") {
 			tools.ReportProposalStale(ctx, err.Error())
 		}
-		return domain.ToolOperationOutcome{}, err
+		return domain.ToolOperationOutcome{}, &toolInvocationError{tool: a.t.Spec().Name, err: err}
 	}
 	emitToolMounts(ctx, a.t.Spec().Name, mountsBefore)
 	return successToolOutcome(result), nil
