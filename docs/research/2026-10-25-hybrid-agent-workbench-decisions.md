@@ -2,7 +2,7 @@
 
 Date: 2026-10-25
 
-Status: Research checkpoint, including the later robotics, MCP, and event-recording discussion; no implementation authorized by this report.
+Status: Research checkpoint with an accepted Prime-anchored automatic evolution direction and Vivy persona extension; no implementation authorized by this report.
 
 Scope: Preserve this conversation's findings and latest direction in both repositories.
 
@@ -29,6 +29,10 @@ every capability into Python:
   contracts, and requirements have not yet been explained. Do not invent them.
 - The owner explicitly asked to save today's research before continuing.
   Do not start implementation from this report while that next idea is pending.
+- Latest evolution decision: use Prime's concrete continual-harness formats and
+  refinement lifecycle as the anchor, with automatic evolution and a focused
+  Vivy persona-evolution addition. Section 15 supersedes earlier suggestions of
+  a bespoke evolution format or mandatory manual review for every change.
 
 Earlier accepted experiment constraints remain:
 
@@ -446,9 +450,11 @@ Proposed automatic collection boundaries:
 | Workbench lifecycle | Start, exit, reset, new kernel-instance identity |
 | Evaluation | Test or human feedback, source, associated task/run |
 
-A candidate event envelope is `version`, `event_id`, `session_id`, `run_id`,
+A previously suggested candidate execution-event envelope is `version`, `event_id`, `session_id`, `run_id`,
 `parent_id`, `operation_id`, `seq`, `timestamp`, `kind`, and `payload`. This is
-illustrative, not a required SDK. Reuse existing identifiers where possible.
+illustrative, not a required SDK or an accepted replacement for Prime's harness
+and refinement formats. Section 15 governs the evolution-format decision.
+Reuse existing identifiers where possible.
 The host sequence records receipt order; parent/operation links express causality
 and pair start/end events. Timestamps alone do not order concurrent causes.
 
@@ -500,3 +506,145 @@ the precise subset of data exposed to the model. These checks have not been run.
 
 This update records research only. The original Vivy repair, PEN requirements,
 MCP integration, event APIs and implementation scheduling remain separate work.
+
+## 14. Correction: original Vivy already has a DIVA evolution path
+
+The subsequent inspection corrected an incomplete comparison with old Agent
+Diva: original Vivy's remote main `9cd2801f8090723a652d3e835f72d83715b82121`
+already contains a real local Skill proposal bridge. Its locked Laputa source
+is `0e0027c5f60ad67614d3613c2d5e21d567c4b412`. The legacy Evolution page using
+demo data does not mean that all backend evolution is a demo.
+
+The inspected path is:
+
+```text
+Committed primary-run terminal activity
+  -> ObserverHost capture with stable IDs and receipts
+  -> input watermark / trigger policy / busy-state checks
+  -> compiled diva/v1 strategy
+  -> collect -> prepare -> reconcile -> reflect -> effects -> finish
+  -> typed memory/persona/Skill/etc. effects, each with its own authority
+  -> local Skill revision + Review Center
+  -> human approval -> apply -> later reads use the changed Skill
+```
+
+Capture excludes workflow/inference output and the cognitive supervisor's own
+bookkeeping runs, avoiding their reuse as fresh conversation evidence. DIVA
+selects an enabled user-owned Skill before proposing an update to the same
+identity. The host retains source evidence, rationale, operation and approval
+identity; rejection, expiry, cancellation, stale revisions and application
+failures have durable outcomes. Restart reconciliation handles pending reviews
+and approved-but-unapplied revisions. Approval timeout never grants consent.
+
+These are source findings, not a new end-to-end acceptance result. The remake
+R18 skill-evolution lane remains blocked for re-intake against the repaired core.
+Its plan calls for semantic revision checks under the no-hash contract, local
+Skill evolution by default, and EvoMap experimental/default-off. Generic strategy
+composition is separate. Historical implementation does not prove current repair
+acceptance, and a reviewed modification does not prove improved task performance.
+
+Sources:
+
+- [Vivy cognitive capture](https://github.com/ProjectViVy/agent-vivy/blob/9cd2801f8090723a652d3e835f72d83715b82121/internal/runtime/cognitive_service.go)
+- [Vivy strategy binding](https://github.com/ProjectViVy/agent-vivy/blob/9cd2801f8090723a652d3e835f72d83715b82121/internal/runtime/cognitive_binding.go)
+- [Vivy Skill proposal bridge](https://github.com/ProjectViVy/agent-vivy/blob/9cd2801f8090723a652d3e835f72d83715b82121/internal/runtime/cognitive_skill_proposal.go)
+- [Pinned DIVA strategy](https://github.com/ProjectViVy/laputa/blob/0e0027c5f60ad67614d3613c2d5e21d567c4b412/laputa/evolution/diva/strategy.go)
+- [Remake R18](https://github.com/ProjectViVy/agent-vivy/blob/979a10c1/docs/superpowers/plans/remake-20261019/lanes/R18-skill-evolution.md)
+
+## 15. Accepted direction: Prime formats first, automatic evolution, Vivy persona
+
+The owner explicitly clarified the anchor: use Prime's format, then add Vivy's
+distinctive persona evolution. This is more specific than merely borrowing a
+Prime-like philosophy. Do not design a new evolution format and label it similar
+to Prime, or port DIVA's full workflow and approval platform into the experiment.
+
+### 15.1 Concrete upstream baseline
+
+Start from Prime `5c898d1b27b109bd2d383c68d60a30536e39cc22`:
+
+- `harness/harness_state.json`: `schema`, `entries` keyed by kind then ID, and
+  `refinements`. Existing kinds are `prompt`, `memory`, `skill`, `subagent`, and
+  `factory`. Their presence in the format does not require implementing every
+  runtime capability in the first experiment.
+- `HarnessEntry`: preserve the upstream vocabulary, including `id`, `kind`,
+  `title`, `content`, `path`, `scope`, `reference`, `arguments`, `metadata`,
+  `source`, `created_at`, `updated_at`, and `version`.
+- Refinement proposals: `summary`, `rationale`, `expectedOutcome`, and `edits`;
+  edits use `create`, `update`, or `delete` over the selected entry kinds.
+- Refinement history: `refinement_history.jsonl`, applied before/after records,
+  scope and rollback linkage. Keep expected benefit distinct from measured
+  evaluation; Prime's event `outcome` can contain the proposed expected outcome.
+- Upstream scopes are `local` and `global`. Earlier suggestions of additional
+  project/persona scopes are not a frozen replacement enum. Resolve ownership
+  and directory mapping without casually changing the baseline format.
+
+Inspect actual readers/writers before copying a schema. Preserve supported
+semantics and explicitly document any extension or unsupported behavior. This
+decision does not promise untested import/export compatibility with upstream,
+nor require replacing Rig's entire session store with Prime's implementation.
+It anchors evolution state/proposals/history; execution events must link to that
+state without creating a competing source of truth.
+
+### 15.2 Automatic lifecycle and proportionate checks
+
+Use one small automatic lifecycle:
+
+```text
+New task evidence -> decide whether refinement is useful -> small typed edits
+  -> checks appropriate to the changed content -> apply at a task boundary
+  -> retain history -> observe later outcomes and support rollback
+```
+
+Automatic evolution is the desired normal behavior, not a mandatory approval
+queue. Budget/cooldown and a legitimate no-change result keep it bounded. The
+exact trigger thresholds remain implementation choices. Do not promote transient
+task state into global memory, and keep scope assignment under host ownership.
+
+Checks match the modification:
+
+- A sourced preference or declarative lesson needs evidence, scope and conflict
+  checks, not a full benchmark.
+- An executable Python helper needs relevant isolated functional checks before
+  automatic adoption. Reusing Prime's skill-reference format does not itself
+  install or validate Python code; artifact creation is a separate operation.
+- A claimed performance improvement needs actual evaluation evidence. Do not
+  claim measured gains merely because a change applied successfully.
+
+The earlier suggestion to begin with manual-only refinement and require full
+baseline/candidate evaluation for every edit is superseded by this direction.
+This is not authorization to bypass existing original-Vivy approval contracts;
+the new policy belongs to the independent experiment.
+
+### 15.3 Focused persona addition
+
+Add persona growth to the same refinement lifecycle rather than building another
+evolution engine. Evolving observations about the user, expression preferences,
+relationship experience and self-understanding should remain evidence-linked,
+correctable and versioned. Explicit owner-defined identity constraints and
+mission remain fixed inputs unless the owner changes them.
+
+Prime has no native `persona` kind at the inspected revision. The representation
+is not yet frozen: inspect whether existing entry metadata/reference fields are
+sufficient; if a distinct kind is needed, make it an explicit versioned Vivy
+extension and update validation/readers accordingly. Do not assume upstream
+readers preserve unknown kinds. Keep the new surface limited to persona needs.
+
+Rust plugin and recipe changes still require rebuilding and testing the selected
+artifact. Automatic behavioral evolution does not silently replace build-time
+species composition. Model-weight training remains outside the initial scope.
+
+### 15.4 Delivery boundary and references
+
+Implement later in vivy-test, preserving the working coding core and Python
+workbench. Do not alter original Vivy's repair lane, introduce a standalone SDK,
+general evolution platform, new approval center, or species hash enforcement.
+The owner requested a durable decision record, not implementation in this turn.
+
+- [Prime harness formats and storage](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/crates/pa-core/src/refinement/mod.rs)
+- [Prime proposal schema and application](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/crates/pa-core/src/refinement/planner.rs)
+- [Prime refinement execution](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/crates/pa-core/src/session_engine/refine.rs)
+- [Existing DIVA persona-effect boundary](https://github.com/ProjectViVy/laputa/blob/0e0027c5f60ad67614d3613c2d5e21d567c4b412/laputa/evolution/effects.go)
+
+Verification for this documentation update: inspect the source-backed claims,
+review the diff, compare both saved copies, and run Git whitespace checks. No
+runtime behavior or new automatic-evolution capability is delivered here.
