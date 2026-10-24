@@ -29,10 +29,14 @@ ownership and gate evidence. This is design direction, not a shipped capability.
 
 - Go 1.26+ (installed at `C:\Program Files\Go\bin` on this machine; if `go`
   is not on PATH, use the full path or add it).
-- `GOPROXY` must be `https://goproxy.cn,direct` (proxy.golang.org is
-  unreachable from this network). Already persisted via `go env -w`.
+- Go module downloads default to `https://proxy.golang.org,direct`.
+  `scripts/dev.sh` routes them through `HTTPS_PROXY`, or through the local
+  `127.0.0.1:7897` mixed port when it is listening; override with
+  `VIVY_GOPROXY` / `VIVY_HTTPS_PROXY`. Windows `just setup` still persists
+  the `goproxy.cn` mirror.
 - Node.js 22+ and pnpm for the embedded React UI.
-- Git and PowerShell for the pinned source bootstrap and Windows development scripts.
+- Git and Node.js for the pinned source bootstrap. Windows dev scripts use
+  PowerShell; macOS/Linux use `scripts/dev.sh`.
 - Optional: [just](https://github.com/casey/just) for the task recipes in
   `justfile`. Without it, run the underlying `go` commands directly.
 
@@ -98,6 +102,12 @@ dev`. Open `http://127.0.0.1:3015`. The Vite server proxies `/rpc` to
 the backend, so UI and Go changes can be iterated independently. The
 embedded UI is the default release/CI path; use `just build-split` when
 you need the packaged headless backend and standalone static UI.
+
+On macOS and Linux, `just dev` and `just dev-vivy` supervise the pair in
+the current terminal (no extra windows). They use the Go toolchain pinned
+by `go.mod` and keep dev state under `.workspace/dev/home`, so the daily
+`~/.vivy` journal is not opened; export `VIVY_USER_HOME` to point the dev
+loop at a different home.
 
 ## Interface language
 

@@ -60,11 +60,15 @@ function git(args, options = {}) {
 }
 
 function normalizeRemote(url) {
-  return url
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/^git@github\.com:/, 'https://github.com/')
-    .replace(/\.git$/, '');
+  const value = url.trim().replace(/\/+$/, '');
+  // Canonicalize to owner/repo so SSH forms and mirror/proxy prefixes that
+  // wrap a GitHub URL (for example gh-proxy) identify the same checkout.
+  // Fetched objects are still verified against the pinned commit.
+  const github = value.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (github) {
+    return `${github[1]}/${github[2]}`.toLowerCase();
+  }
+  return value.replace(/\.git$/, '');
 }
 
 function readLock(root) {

@@ -105,6 +105,19 @@ test('an unrelated repository in the sibling path is rejected without changing i
   assert.equal(git(f.checkout, 'rev-parse', 'HEAD'), f.commit);
 });
 
+test('a proxy-wrapped origin of the pinned repository is accepted', t => {
+  const f = fixture(t);
+  assert.equal(ensure(f).status, 0);
+  writeFileSync(
+    join(f.root, 'laputa-source.lock.json'),
+    JSON.stringify({ repository: 'https://github.com/ProjectViVy/laputa.git', commit: f.commit }),
+  );
+  git(f.checkout, 'remote', 'set-url', 'origin', 'https://gh-proxy.com/https://github.com/ProjectViVy/laputa.git');
+  const result = ensure(f);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(git(f.checkout, 'rev-parse', 'HEAD'), f.commit);
+});
+
 test('an invalid module identity at the pinned commit fails before Go starts', t => {
   const f = fixture(t);
   writeFileSync(join(f.source, 'garden', 'go.mod'), 'module github.com/elsewhere/garden\n\ngo 1.26.4\n');

@@ -8,6 +8,16 @@ set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 go := "go"
 gofmt := "gofmt"
 vivy_code := if os() == "windows" { "vivy-code.exe" } else { "vivy-code" }
+dev_cmd := if os() == "windows" {
+    "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1"
+} else {
+    "bash ./scripts/dev.sh"
+}
+dev_split_cmd := if os() == "windows" {
+    "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1 -Split"
+} else {
+    "bash ./scripts/dev.sh"
+}
 
 # Prepare the pinned Laputa source closure shared by local development and CI.
 ensure-laputa:
@@ -116,11 +126,11 @@ tui: vivy-code
 
 # One-click split loop: backend :8787 + Vite :3015. Ctrl+C stops both.
 dev *args:
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1 {{args}}
+    {{dev_cmd}} {{args}}
 
-# Same prep as dev, but backend and Vite run in two separate windows.
-dev-vivy:
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev.ps1 -Split
+# Same prep as dev. Windows opens two windows; macOS/Linux supervise one pair.
+dev-vivy *args:
+    {{dev_split_cmd}} {{args}}
 
 # Container packaging of the default embedded-UI binary. Not part of just ci.
 docker-build:
