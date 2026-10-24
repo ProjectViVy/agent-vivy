@@ -31,9 +31,9 @@ type BudgetPolicy struct {
 // for services whose composition root supplies no budget, and a service must
 // not get a different ceiling than the configured one.
 const (
-	defaultMaxRunEvents    = 2048
-	defaultMaxModelCalls   = 128
-	defaultMaxRunToolCalls = 256
+	defaultMaxRunEvents    = 100000
+	defaultMaxModelCalls   = 10000
+	defaultMaxRunToolCalls = 20000
 	defaultMaxRunRetries   = 3
 )
 

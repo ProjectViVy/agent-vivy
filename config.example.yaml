@@ -57,14 +57,15 @@ runtime:
   max_history_messages: 64
   max_tool_result_bytes: 32768
   # Tool-call turns per agent (the parent and each delegated child). The
-  # repeated-signature loop detector is the runaway guard; this ceiling only
-  # stops an agent that never stops calling tools.
-  max_tool_turns: 32
+  # repeated-signature loop detector is the runaway guard; this ceiling sits
+  # far above a healthy task so it does not cut off long delegated work.
+  max_tool_turns: 10000
   # Shared run-tree circuit breakers. Resumed work and delegated children
-  # spend the same budget, so these bound parent plus children together.
-  max_run_events: 2048
-  max_model_calls: 128
-  max_run_tool_calls: 256
+  # spend the same budget, so these bound parent plus children together. They
+  # are last-resort limits and must stay above max_tool_turns.
+  max_run_events: 100000
+  max_model_calls: 10000
+  max_run_tool_calls: 20000
   max_run_retries: 3
   # Optional cheaper model (same active provider, same key) for utility
   # generations such as session auto-titles; failures fall back to the main

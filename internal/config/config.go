@@ -98,10 +98,10 @@ func mcpCredentialLikeQueryKey(key string) bool {
 }
 
 // defaultMaxToolTurns bounds tool-call turns per agent when config omits
-// runtime.max_tool_turns (MA-4). Delegated children inherit it. It stays
-// well above a healthy task's turn count; repeated-signature loop detection
-// is the runaway guard, not this ceiling.
-const defaultMaxToolTurns = 32
+// runtime.max_tool_turns (MA-4). Delegated children inherit it. The owner
+// raised it to 10000: repeated-signature loop detection is the runaway guard,
+// and this ceiling must not cut off a long but healthy task.
+const defaultMaxToolTurns = 10000
 
 // maxExecuteTimeoutSeconds mirrors the runtime hard cap
 // (runtime.hardMaxCommandTimeout = 10m): a configured execute ceiling above
@@ -148,10 +148,12 @@ func userDataRoot() string {
 const (
 	defaultMaxContextBytes    = 256 << 10
 	defaultMaxHistoryMessages = 64
-	defaultMaxRunEvents       = 2048
-	defaultMaxModelCalls      = 128
-	defaultMaxRunToolCalls    = 256
-	defaultMaxRunRetries      = 3
+	// Shared run-tree breakers are last-resort circuit breakers, not everyday
+	// limits: they must not preempt the per-agent turn ceiling above.
+	defaultMaxRunEvents    = 100000
+	defaultMaxModelCalls   = 10000
+	defaultMaxRunToolCalls = 20000
+	defaultMaxRunRetries   = 3
 	// defaultCompactionMaxTokens = 0 means "derive from the model's context
 	// window"; the runtime falls back to 128000 when the window is unknown.
 	defaultCompactionMaxTokens  = 0

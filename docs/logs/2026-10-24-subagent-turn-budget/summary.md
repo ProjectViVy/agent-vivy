@@ -39,17 +39,16 @@ task.
 - Children now inherit the parent's per-agent cap; `maxChildToolTurns` and its
   clamp are removed. The shared run-tree budget still bounds parent and
   children together, so no agent can widen the root account.
-- `defaultMaxToolTurns` is `32` (was `8`). Repeated-signature loop detection
-  (VC-2) remains the runaway guard; the turn cap only stops an agent that
-  never stops calling tools.
-- The shared run-tree breakers scale with the new per-agent ceiling, keeping
-  the previous proportions so the new cap is reachable inside one run tree:
-  `max_run_events` 512 → 2048, `max_model_calls` 32 → 128,
-  `max_run_tool_calls` 64 → 256. `runtime.DefaultBudgetPolicy` (the fallback
-  for services whose composition root supplies no budget) mirrors the same
-  values.
-- `config.example.yaml` now documents `max_tool_turns` and the scaled
-  breakers.
+- `defaultMaxToolTurns` is `10000` (was `8`), owner-directed. Repeated-signature
+  loop detection (VC-2) remains the runaway guard; this ceiling must not cut
+  off a long but healthy task.
+- The shared run-tree breakers are last-resort circuit breakers and now stay
+  above the per-agent ceiling instead of preempting it: `max_run_events`
+  512 → 100000, `max_model_calls` 32 → 10000, `max_run_tool_calls` 64 → 20000.
+  `runtime.DefaultBudgetPolicy` (the fallback for services whose composition
+  root supplies no budget) mirrors the same values.
+- `config.example.yaml` now documents `max_tool_turns` and the breakers,
+  including the rule that they must stay above it.
 
 ## Explicitly not done
 
