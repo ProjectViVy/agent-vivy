@@ -101,8 +101,8 @@ func TestChildViewConstrainsToolsAndRemovesParentContextMiddleware(t *testing.T)
 	if len(child.toolByName) != 1 || child.cfg.HiddenTools != nil || child.cfg.AgentsMDBackend != nil || child.cfg.ContextHost != nil || child.cfg.SkillBackend != nil {
 		t.Fatalf("child engine retained parent context or hidden tools: config=%+v tools=%v", child.cfg, child.toolByName)
 	}
-	if child.cfg.MaxToolTurns != maxChildToolTurns || child.cfg.StaticInstructionOverride == nil || *child.cfg.StaticInstructionOverride != childStaticInstruction {
-		t.Fatalf("child guardrails = turns:%d instruction:%v, want max %d and neutral instruction", child.cfg.MaxToolTurns, child.cfg.StaticInstructionOverride, maxChildToolTurns)
+	if child.cfg.MaxToolTurns != 24 || child.cfg.StaticInstructionOverride == nil || *child.cfg.StaticInstructionOverride != childStaticInstruction {
+		t.Fatalf("child guardrails = turns:%d instruction:%v, want inherited 24 and neutral instruction", child.cfg.MaxToolTurns, child.cfg.StaticInstructionOverride)
 	}
 	if _, err := parent.ChildView(context.Background(), []string{"list_dir"}); err == nil {
 		t.Fatal("ChildView accepted a hidden tool outside the admitted active surface")

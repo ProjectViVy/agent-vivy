@@ -27,10 +27,13 @@ type BudgetPolicy struct {
 	MaxRetries    int
 }
 
+// Keep these equal to config's runtime defaults: this policy is the fallback
+// for services whose composition root supplies no budget, and a service must
+// not get a different ceiling than the configured one.
 const (
-	defaultMaxRunEvents    = 512
-	defaultMaxModelCalls   = 32
-	defaultMaxRunToolCalls = 64
+	defaultMaxRunEvents    = 2048
+	defaultMaxModelCalls   = 128
+	defaultMaxRunToolCalls = 256
 	defaultMaxRunRetries   = 3
 )
 

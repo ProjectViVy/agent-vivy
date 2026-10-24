@@ -88,8 +88,9 @@ func TestLoadValid(t *testing.T) {
 	}
 	if cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
 		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
-		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 512 ||
-		cfg.Runtime.MaxModelCalls != 32 || cfg.Runtime.MaxRunToolCalls != 64 ||
+		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 2048 ||
+		cfg.Runtime.MaxModelCalls != 128 || cfg.Runtime.MaxRunToolCalls != 256 ||
+		cfg.Runtime.MaxToolTurns != 32 ||
 		cfg.Runtime.MaxRunRetries != 3 || cfg.Runtime.WorkspaceRoot != filepath.Join(userDataRoot(), "workspace") ||
 		cfg.Runtime.ExecuteMaxTimeoutSeconds != 210 ||
 		!reflect.DeepEqual(cfg.Runtime.Compaction, CompactionConfig{Enabled: true, MaxTokens: 0, TriggerPercent: 80, KeepRecent: 12}) {

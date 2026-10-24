@@ -97,10 +97,11 @@ func mcpCredentialLikeQueryKey(key string) bool {
 	return normalized == "access_token" || normalized == "api_key"
 }
 
-// defaultMaxToolTurns bounds tool-call turns per run when config omits
-// runtime.max_tool_turns (MA-4): well above a healthy turn count, well
-// below eino's 20 default, so a runaway loop fails fast and classified.
-const defaultMaxToolTurns = 8
+// defaultMaxToolTurns bounds tool-call turns per agent when config omits
+// runtime.max_tool_turns (MA-4). Delegated children inherit it. It stays
+// well above a healthy task's turn count; repeated-signature loop detection
+// is the runaway guard, not this ceiling.
+const defaultMaxToolTurns = 32
 
 // maxExecuteTimeoutSeconds mirrors the runtime hard cap
 // (runtime.hardMaxCommandTimeout = 10m): a configured execute ceiling above
@@ -147,9 +148,9 @@ func userDataRoot() string {
 const (
 	defaultMaxContextBytes    = 256 << 10
 	defaultMaxHistoryMessages = 64
-	defaultMaxRunEvents       = 512
-	defaultMaxModelCalls      = 32
-	defaultMaxRunToolCalls    = 64
+	defaultMaxRunEvents       = 2048
+	defaultMaxModelCalls      = 128
+	defaultMaxRunToolCalls    = 256
 	defaultMaxRunRetries      = 3
 	// defaultCompactionMaxTokens = 0 means "derive from the model's context
 	// window"; the runtime falls back to 128000 when the window is unknown.

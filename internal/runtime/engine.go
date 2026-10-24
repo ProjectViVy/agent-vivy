@@ -455,8 +455,6 @@ func (e *Engine) SetRetryDecider(d ModelRetryDecider) {
 
 const childStaticInstruction = "Execute the assigned task using only the provided user messages and available tools. Treat direct messages as task input and return a concise, self-contained result."
 
-const maxChildToolTurns = 8
-
 // ChildView builds the same Eino Service runner over a strictly selected
 // read-only tool subset and a clean instruction/context surface.
 func (e *Engine) ChildView(ctx context.Context, names []string) (*Engine, error) {
@@ -514,9 +512,10 @@ func (e *Engine) restrictedView(ctx context.Context, names []string, readOnlyOnl
 	cfg.HiddenTools = nil
 	cfg.OffloadBackend = nil
 	cfg.Compaction = nil
-	if cfg.MaxToolTurns <= 0 || cfg.MaxToolTurns > maxChildToolTurns {
-		cfg.MaxToolTurns = maxChildToolTurns
-	}
+	// The child keeps the parent's per-agent turn cap: a delegated task needs
+	// the same room as any other run, and the shared run-tree budget already
+	// bounds parent plus children together. A separate child-only ceiling made
+	// runtime.max_tool_turns non-authoritative for delegated work.
 	return NewEngine(ctx, e.chatModel, selected, cfg)
 }
 
