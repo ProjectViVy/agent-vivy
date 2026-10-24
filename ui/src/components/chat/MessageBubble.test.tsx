@@ -58,4 +58,17 @@ describe('MessageBubble', () => {
     expect(html).toContain('aria-label="1 added, 1 removed"');
     expect(html).toContain('a.ts');
   });
+
+  it('keeps an interrupted bubble readable and marks it', () => {
+    const html = renderToStaticMarkup(<MessageBubble message={assistant({ content: '写到一半' })} interrupted />);
+    expect(html).toContain('data-interrupted="true"');
+    expect(html).toContain('Interrupted');
+    expect(html).toContain('写到一半');
+  });
+
+  it('does not mark a settled assistant bubble as interrupted', () => {
+    const html = renderToStaticMarkup(<MessageBubble message={assistant({ content: '完整答案' })} />);
+    expect(html).not.toContain('data-interrupted');
+    expect(html).not.toContain('Interrupted');
+  });
 });

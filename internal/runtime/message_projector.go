@@ -13,6 +13,16 @@ import (
 	"agent-vivy/internal/storage"
 )
 
+// runProjectionState is one run's Journal→Message cursor. pending carries
+// model deltas that no projection-flushing event has consumed yet, so a fold
+// can resume between two tool calls without replaying the run from seq 0.
+type runProjectionState struct {
+	sessionID domain.SessionID
+	seq       domain.EventSeq
+	pending   string
+	noContext bool
+}
+
 // projectRunMessages rebuilds the model-visible assistant/tool transcript
 // from the Journal. Deterministic ids plus AppendMessageIfAbsent make retries
 // harmless; semantic matching adopts legacy random-id projections without
@@ -27,19 +37,65 @@ func (s *Service) projectRunMessagesLocked(ctx context.Context, sessionID domain
 	if s.sessionDeleted(sessionID) {
 		return nil
 	}
-	desired, err := s.projectedMessages(ctx, sessionID, runID)
+	prev, tracked := s.projectionStateLocked(runID)
+	if tracked && prev.sessionID != sessionID {
+		prev, tracked = runProjectionState{}, false
+	}
+	if !tracked {
+		prev = runProjectionState{sessionID: sessionID}
+	}
+	desired, next, err := s.foldRunProjection(ctx, sessionID, runID, prev)
 	if err != nil {
 		return err
 	}
-	if len(desired) == 0 {
-		return nil
+	if len(desired) > 0 {
+		if tracked {
+			// The cursor proves every earlier derived row was already handed
+			// to the store, so only new messages need writing.
+			for _, want := range desired {
+				if _, err := s.deps.Messages.AppendMessageIfAbsent(ctx, want); err != nil {
+					return fmt.Errorf("append Journal message projection: %w", err)
+				}
+			}
+		} else {
+			// First projection in this process: the store may already hold
+			// rows (restart, or legacy random ids), so reconcile semantically
+			// once.
+			existing, err := s.deps.Messages.ListMessages(ctx, sessionID)
+			if err != nil {
+				return fmt.Errorf("list existing message projection: %w", err)
+			}
+			if _, err := s.appendProjectedMessages(ctx, runID, desired, existing); err != nil {
+				return err
+			}
+		}
 	}
-	existing, err := s.deps.Messages.ListMessages(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("list existing message projection: %w", err)
+	s.storeProjectionLocked(runID, next)
+	return nil
+}
+
+func (s *Service) projectionStateLocked(runID domain.RunID) (runProjectionState, bool) {
+	state, ok := s.projections[runID]
+	return state, ok
+}
+
+func (s *Service) storeProjectionLocked(runID domain.RunID, state runProjectionState) {
+	if s.projections == nil {
+		s.projections = make(map[domain.RunID]runProjectionState)
 	}
-	_, err = s.appendProjectedMessages(ctx, runID, desired, existing)
-	return err
+	s.projections[runID] = state
+}
+
+func (s *Service) dropRunProjectionLocked(runID domain.RunID) {
+	delete(s.projections, runID)
+}
+
+func (s *Service) dropSessionProjectionsLocked(sessionID domain.SessionID) {
+	for runID, state := range s.projections {
+		if state.sessionID == sessionID {
+			delete(s.projections, runID)
+		}
+	}
 }
 
 func (s *Service) appendProjectedMessages(ctx context.Context, runID domain.RunID, desired, existing []domain.Message) ([]domain.Message, error) {
@@ -79,14 +135,24 @@ func (s *Service) appendProjectedMessages(ctx context.Context, runID domain.RunI
 	return existing, nil
 }
 
-func (s *Service) projectedMessages(ctx context.Context, sessionID domain.SessionID, runID domain.RunID) ([]domain.Message, error) {
-	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+// foldRunProjection derives the messages carried by the run's events after
+// prev.seq. On any error it returns prev unchanged: the caller retries from
+// the same cursor, and deterministic ids make the re-derived rows harmless.
+func (s *Service) foldRunProjection(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, prev runProjectionState) ([]domain.Message, runProjectionState, error) {
+	if prev.noContext {
+		return nil, prev, nil
+	}
+	it, err := s.deps.Journal.Replay(ctx, runID, prev.seq)
 	if err != nil {
-		return nil, fmt.Errorf("replay Journal for message projection: %w", err)
+		return nil, prev, fmt.Errorf("replay Journal for message projection: %w", err)
 	}
 	defer it.Close()
 	var out []domain.Message
+	next := prev
+	// Builder writes are local; only the final String crosses into the state,
+	// so a failed fold never mutates the committed prefix.
 	var pending strings.Builder
+	pending.WriteString(prev.pending)
 	for it.Next() {
 		re := it.Value().Event
 		switch re.Type {
@@ -95,17 +161,20 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			// their tool rows must never enter the model feed.
 			var p payloadRunStarted
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
-				return nil, fmt.Errorf("decode run.started seq %d: %w", re.Seq, err)
+				return nil, prev, fmt.Errorf("decode run.started seq %d: %w", re.Seq, err)
 			}
 			if p.NoContext {
-				return nil, nil
+				next.noContext = true
+				next.pending = ""
+				next.seq = re.Seq
+				return nil, next, nil
 			}
 		case domain.EventModelRequest:
 			pending.Reset()
 		case domain.EventModelDelta:
 			var p payloadModelDelta
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
-				return nil, fmt.Errorf("decode model.delta seq %d: %w", re.Seq, err)
+				return nil, prev, fmt.Errorf("decode model.delta seq %d: %w", re.Seq, err)
 			}
 			pending.WriteString(p.Delta)
 		case domain.EventToolRequested:
@@ -115,11 +184,11 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 			}
 			var p payloadToolRequested
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
-				return nil, fmt.Errorf("decode tool.requested seq %d: %w", re.Seq, err)
+				return nil, prev, fmt.Errorf("decode tool.requested seq %d: %w", re.Seq, err)
 			}
 			args, err := json.Marshal(p.Args)
 			if err != nil {
-				return nil, fmt.Errorf("encode tool.requested seq %d: %w", re.Seq, err)
+				return nil, prev, fmt.Errorf("encode tool.requested seq %d: %w", re.Seq, err)
 			}
 			out = append(out, domain.Message{
 				ID: projectedMessageID(runID, re.Seq, "1"), SessionID: sessionID, RunID: runID,
@@ -129,7 +198,7 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 		case domain.EventToolFinished:
 			var p payloadToolFinished
 			if err := json.Unmarshal(re.Payload, &p); err != nil {
-				return nil, fmt.Errorf("decode tool.finished seq %d: %w", re.Seq, err)
+				return nil, prev, fmt.Errorf("decode tool.finished seq %d: %w", re.Seq, err)
 			}
 			content := p.Result
 			if p.Error != "" {
@@ -143,16 +212,18 @@ func (s *Service) projectedMessages(ctx context.Context, sessionID domain.Sessio
 		case domain.EventModelCompleted:
 			content, err := completedProjectionContent(re, pending.String())
 			if err != nil {
-				return nil, err
+				return nil, prev, err
 			}
 			out = append(out, projectedTextMessage(sessionID, runID, re, "0", content))
 			pending.Reset()
 		}
+		next.seq = re.Seq
 	}
 	if err := it.Err(); err != nil {
-		return nil, fmt.Errorf("iterate Journal message projection: %w", err)
+		return nil, prev, fmt.Errorf("iterate Journal message projection: %w", err)
 	}
-	return out, nil
+	next.pending = pending.String()
+	return out, next, nil
 }
 
 // errUnsupportedCompletedVersion marks model.completed events that predate
@@ -211,8 +282,23 @@ func (s *Service) reconcileSessionMessageProjection(ctx context.Context, session
 		return fmt.Errorf("list existing message projection: %w", err)
 	}
 	for _, run := range runs {
-		desired, err := s.projectedMessages(ctx, sessionID, run.ID)
+		// One-shot children share their parent's session id but their
+		// transcript is internal execution detail: the live path suppresses it
+		// and the agent tool result carries the answer. Only continuable
+		// children own an addressable session transcript.
+		if run.Kind == domain.RunKindChild && run.EffectiveChildMode() == domain.ChildModeOneShot {
+			continue
+		}
+		prev, tracked := s.projectionStateLocked(run.ID)
+		if tracked && prev.sessionID != sessionID {
+			prev, tracked = runProjectionState{}, false
+		}
+		if !tracked {
+			prev = runProjectionState{sessionID: sessionID}
+		}
+		desired, next, err := s.foldRunProjection(ctx, sessionID, run.ID, prev)
 		if errors.Is(err, errUnsupportedCompletedVersion) {
+			s.dropRunProjectionLocked(run.ID)
 			continue
 		}
 		if err != nil {
@@ -222,6 +308,14 @@ func (s *Service) reconcileSessionMessageProjection(ctx context.Context, session
 		if err != nil {
 			return err
 		}
+		// A read repair keeps a live run's cursor warm for the next tool
+		// exchange; finished runs are evicted so the map tracks only work in
+		// flight.
+		if run.Status.Terminal() {
+			s.dropRunProjectionLocked(run.ID)
+			continue
+		}
+		s.storeProjectionLocked(run.ID, next)
 	}
 	return nil
 }

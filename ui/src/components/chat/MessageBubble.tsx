@@ -90,6 +90,7 @@ function ToolResultBubble({ message }: { message: Message }) {
 export function MessageBubble({
   message,
   streaming,
+  interrupted = false,
   canRegenerate = false,
   actionsDisabled = false,
   onRegenerate,
@@ -99,6 +100,8 @@ export function MessageBubble({
 }: {
   message: Message;
   streaming?: boolean;
+  /** 运行被取消/失败时收尾的残留正文：正文保留，但标记为“已中断”。 */
+  interrupted?: boolean;
   /** 助手消息之前存在用户消息（有可重发的输入） */
   canRegenerate?: boolean;
   /** 运行期间禁用重试，对应 Agent-DIVA 的 isTyping */
@@ -181,12 +184,15 @@ export function MessageBubble({
       )}
     </div></article>;
   }
-  return <article data-message-id={message.id} className="group my-4 flex min-w-0 justify-start"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-start">
+  return <article data-message-id={message.id} data-interrupted={interrupted ? 'true' : undefined} className="group my-4 flex min-w-0 justify-start"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-start">
     <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-relaxed shadow-sm">
       <MarkdownBody content={message.content || (streaming ? '…' : '')} />
     </div>
     {streaming ? null : (
       <div className="mt-1.5 flex items-center gap-0.5 px-1 opacity-60 transition-opacity group-hover:opacity-100 justify-start">
+        {interrupted ? (
+          <span className="mr-1 rounded-full border border-border px-1.5 text-[10px] leading-4 text-muted-foreground">{t('chat.interrupted')}</span>
+        ) : null}
         <span className="mr-0.5 text-[10px] text-muted-foreground">{formatTime(message.created_at)}</span>
         <button type="button" className={ACTION_BUTTON} onClick={() => void copy()} title={copied ? t('chat.copied') : t('chat.copy')} aria-label={copied ? t('chat.copied') : t('chat.copy')}>
           {copied ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}

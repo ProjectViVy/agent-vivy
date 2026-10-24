@@ -304,6 +304,7 @@ export const zh = {
     toolRunning: '运行中',
     toolFailed: '失败',
     toolStopped: '已停止',
+    interrupted: '已中断',
     toolAwaitingApproval: '等待批准',
     toolInput: '输入',
     toolOutput: '输出',
