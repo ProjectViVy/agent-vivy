@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -659,5 +660,72 @@ func TestSkillManageToolPreflightReachesBackendWithoutStaging(t *testing.T) {
 	invalid := json.RawMessage(`{"action":"patch","name":"demo-skill","old_string":"absent","new_string":"new body"}`)
 	if err := tool.PreflightProposal(ctx, invalid); err == nil {
 		t.Fatal("preflight accepted a patch whose source is absent")
+	}
+}
+
+// skill_view failures caused by the model's own arguments must enter the §5
+// allowlist so Eino's ToolsNode does not fail the whole child run. An absent
+// supporting file is a readonly not_found; every other bad argument is an
+// ArgError. Backend and environment faults stay fatal.
+func TestEinoSkillBackendViewSkillErrorsAreModelCorrectable(t *testing.T) {
+	backend, root, _ := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "body")
+	if err := os.WriteFile(filepath.Join(root, "demo-skill", "references", "binary.md"), []byte{0x00, 0x01, 0xff}, 0o600); err != nil {
+		t.Fatalf("write binary reference: %v", err)
+	}
+	ctx := context.Background()
+	spec := domain.ToolSpec{Name: tools.SkillViewName, Readonly: true}
+	cases := []struct {
+		name         string
+		skill        string
+		path         string
+		wantField    string
+		wantNotExist bool
+	}{
+		{name: "traversal", skill: "demo-skill", path: "../SKILL.md", wantField: "path"},
+		{name: "unsupported top dir", skill: "demo-skill", path: "docs/guide.md", wantField: "path"},
+		{name: "absolute", skill: "demo-skill", path: "/etc/hosts", wantField: "path"},
+		{name: "nul", skill: "demo-skill", path: "references/\x00.md", wantField: "path"},
+		{name: "binary file", skill: "demo-skill", path: "references/binary.md", wantField: "path"},
+		{name: "invalid skill name", skill: "../demo-skill", wantField: "name"},
+		{name: "missing skill", skill: "missing-skill", wantNotExist: true},
+		{name: "missing reference", skill: "demo-skill", path: "references/missing.md", wantNotExist: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := backend.ViewSkill(ctx, "run_skill_view", tc.skill, tc.path)
+			if err == nil {
+				t.Fatalf("ViewSkill(%q, %q) succeeded, want a typed failure", tc.skill, tc.path)
+			}
+			if tc.wantNotExist {
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("ViewSkill(%q, %q) err = %v, want fs.ErrNotExist chain", tc.skill, tc.path, err)
+				}
+				failure, ok := classifyToolFailure(ctx, spec, err)
+				if !ok || failure.Status != toolFailureStatusRecoverable || failure.Reason != toolFailureReasonNotFound || failure.Effects != toolEffectsNone {
+					t.Fatalf("ViewSkill(%q, %q) classification = %+v/%v, want recoverable/not_found/none", tc.skill, tc.path, failure, ok)
+				}
+				return
+			}
+			var argErr *tools.ArgError
+			if !errors.As(err, &argErr) {
+				t.Fatalf("ViewSkill(%q, %q) err = %v, want *tools.ArgError", tc.skill, tc.path, err)
+			}
+			if argErr.Field != tc.wantField {
+				t.Fatalf("ViewSkill(%q, %q) field = %q, want %q", tc.skill, tc.path, argErr.Field, tc.wantField)
+			}
+			failure, ok := classifyToolFailure(ctx, spec, err)
+			if !ok || failure.Status != toolFailureStatusRecoverable || failure.Reason != toolFailureReasonInvalidArguments {
+				t.Fatalf("ViewSkill(%q, %q) classification = %+v/%v, want recoverable/invalid_arguments", tc.skill, tc.path, failure, ok)
+			}
+		})
+	}
+}
+
+// Positive control: an untyped backend fault is still run-fatal.
+func TestEinoSkillBackendUnclassifiedFaultStaysFatal(t *testing.T) {
+	spec := domain.ToolSpec{Name: tools.SkillViewName, Readonly: true}
+	if _, ok := classifyToolFailure(context.Background(), spec, errors.New("skills: backend not wired")); ok {
+		t.Fatal("untyped skills fault was classified as model-correctable")
 	}
 }

@@ -97,11 +97,11 @@ func (b *HTTPBackend) Request(ctx context.Context, _ domain.RunID, input tools.H
 		method = http.MethodGet
 	}
 	if method != http.MethodGet && method != http.MethodHead {
-		return tools.HTTPResponse{}, errors.New("http request: only GET and HEAD are permitted; external writes are denied")
+		return tools.HTTPResponse{}, &tools.ArgError{Field: "method", Reason: "only GET and HEAD are permitted; external writes are denied"}
 	}
 	u, err := url.Parse(strings.TrimSpace(input.URL))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil {
-		return tools.HTTPResponse{}, errors.New("http request: URL must be an absolute HTTP(S) URL without credentials")
+		return tools.HTTPResponse{}, &tools.ArgError{Field: "url", Reason: "must be an absolute HTTP(S) URL without credentials"}
 	}
 
 	// Sandbox network policy check (D-021)
@@ -115,7 +115,7 @@ func (b *HTTPBackend) Request(ctx context.Context, _ domain.RunID, input tools.H
 		return tools.HTTPResponse{}, fmt.Errorf("http request: host %q is not allowlisted", u.Hostname())
 	}
 	if queryHasCredential(u.Query()) {
-		return tools.HTTPResponse{}, errors.New("http request: credential-like query parameters are denied")
+		return tools.HTTPResponse{}, &tools.ArgError{Field: "url", Reason: "must not carry credential-like query parameters"}
 	}
 	if err := validateRequestHeaders(input.Headers); err != nil {
 		return tools.HTTPResponse{}, err
@@ -204,7 +204,7 @@ func validateRequestHeaders(headers map[string]string) error {
 	for key := range headers {
 		switch strings.ToLower(strings.TrimSpace(key)) {
 		case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token":
-			return fmt.Errorf("http request: credential-bearing header %q is denied", key)
+			return &tools.ArgError{Field: "headers", Reason: fmt.Sprintf("credential-bearing header %q is denied", key)}
 		}
 	}
 	return nil
