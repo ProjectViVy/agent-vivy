@@ -73,6 +73,7 @@ func (t *agentTool) Spec() domain.ToolSpec {
 		Name: AgentName,
 		Description: "Delegate a focused sub-task to a fresh-context sub-agent and return its final answer. " +
 			"The sub-agent receives only the task and read-only tools (no parent history, persona, file writes, shell, or MCP), " +
+			"works in this workspace so it can read files you name by path, " +
 			"sees nothing from this conversation, and cannot spawn further sub-agents. " +
 			"Give it a complete, self-contained brief. Use it for research or exploration whose intermediate " +
 			"steps would otherwise flood this conversation.",
