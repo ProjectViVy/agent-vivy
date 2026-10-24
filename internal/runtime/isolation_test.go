@@ -309,3 +309,187 @@ func TestAdmissionAllocatorNeverRemovesUserDirectories(t *testing.T) {
 		t.Fatalf("selected workspace was removed: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------
+// Child runs resolve to their root run's private directory, so a
+// delegated task can read and write what the run that delegated it
+// produced. RootID rather than ParentID keeps a whole bounded descendant
+// tree in one directory instead of chaining a fresh one per level.
+
+// newChildWorkspaceManager builds a sandbox-world manager whose session has no
+// explicit selection, so requests reach the private per-run branch.
+func newChildWorkspaceManager(t *testing.T, runs workspaceRunLookup) (*WorkspaceManager, string) {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "sandboxes")
+	sessions := workspaceSessionLookup{"sess-parent": {ID: "sess-parent"}}
+	manager, err := NewSessionWorkspaceManager(root, sessions, runs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manager, root
+}
+
+func TestChildRunSharesRootWorkspace(t *testing.T) {
+	manager, root := newChildWorkspaceManager(t, workspaceRunLookup{
+		"run_root":  {ID: "run_root", SessionID: "sess-parent"},
+		"child_one": {ID: "child_one", SessionID: "sess-parent", Kind: domain.RunKindChild, ParentID: "run_root", RootID: "run_root", Depth: 1},
+		"child_two": {ID: "child_two", SessionID: "sess-parent", Kind: domain.RunKindChild, ParentID: "child_one", RootID: "run_root", Depth: 2},
+	})
+	ctx := withSessionID(context.Background(), "sess-parent")
+
+	rootWorkspace, err := manager.Ensure(ctx, "run_root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootWorkspace.redirected {
+		t.Fatalf("a root run must own its workspace: %+v", rootWorkspace)
+	}
+	if rootWorkspace.Path != filepath.Join(root, "run_root") || rootWorkspace.ID != "run_root" {
+		t.Fatalf("root workspace = %+v", rootWorkspace)
+	}
+	proof := filepath.Join(rootWorkspace.Path, "proof.txt")
+	if err := os.WriteFile(proof, []byte("written by the parent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, childID := range []domain.RunID{"child_one", "child_two"} {
+		child, err := manager.Ensure(ctx, childID)
+		if err != nil {
+			t.Fatalf("ensure %s: %v", childID, err)
+		}
+		if child.Path != rootWorkspace.Path || child.ID != rootWorkspace.ID {
+			t.Fatalf("%s workspace = %+v, want the root's %+v", childID, child, rootWorkspace)
+		}
+		if !child.redirected {
+			t.Fatalf("%s must be marked redirected so its lifecycle cannot reclaim the shared directory", childID)
+		}
+		got, err := os.ReadFile(filepath.Join(child.Path, "proof.txt"))
+		if err != nil || string(got) != "written by the parent" {
+			t.Fatalf("%s cannot see the parent's file: %q/%v", childID, got, err)
+		}
+		// Existing and ValidateRunPath resolve the same directory.
+		existing, ok, err := manager.Existing(ctx, childID)
+		if err != nil || !ok || existing.Path != rootWorkspace.Path {
+			t.Fatalf("existing %s = %+v/%v/%v", childID, existing, ok, err)
+		}
+		if err := manager.ValidateRunPath(ctx, childID, proof); err != nil {
+			t.Fatalf("validate %s path: %v", childID, err)
+		}
+	}
+
+	// One directory for the whole descendant tree: no per-child directories.
+	if names := workspaceDirNames(t, root); len(names) != 1 || names[0] != "run_root" {
+		t.Fatalf("root holds %v, want only run_root", names)
+	}
+}
+
+// workspaceDirNames lists a workspace root so tests can assert which private
+// directories actually exist.
+func workspaceDirNames(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
+func TestRedirectedChildWorkspaceIsNeverReleased(t *testing.T) {
+	manager, root := newChildWorkspaceManager(t, workspaceRunLookup{
+		"run_root":  {ID: "run_root", SessionID: "sess-parent"},
+		"child_one": {ID: "child_one", SessionID: "sess-parent", Kind: domain.RunKindChild, ParentID: "run_root", RootID: "run_root", Depth: 1},
+	})
+	ctx := withSessionID(context.Background(), "sess-parent")
+	rootWorkspace, err := manager.Ensure(ctx, "run_root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootWorkspace.Path, "proof.txt"), []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	child, err := manager.Ensure(ctx, "child_one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The child's admission rollback must not remove the shared directory:
+	// its path has the private root/<ID> shape, so the shape check alone
+	// would let the removal through.
+	if err := manager.Release(context.WithoutCancel(ctx), child); err != nil {
+		t.Fatalf("release redirected workspace: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "run_root", "proof.txt")); err != nil {
+		t.Fatalf("the root run's workspace was destroyed by a child release: %v", err)
+	}
+	// The owner's own release still reclaims it.
+	if err := manager.Release(ctx, rootWorkspace); err != nil {
+		t.Fatalf("release root workspace: %v", err)
+	}
+	if _, err := os.Stat(rootWorkspace.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("root workspace survived its own release: %v", err)
+	}
+}
+
+func TestChildAdmissionNeverReclaimsTheSharedWorkspace(t *testing.T) {
+	manager, root := newChildWorkspaceManager(t, workspaceRunLookup{
+		"child_one": {ID: "child_one", SessionID: "sess-parent", Kind: domain.RunKindChild, ParentID: "run_root", RootID: "run_root", Depth: 1},
+	})
+	ctx := withSessionID(context.Background(), "sess-parent")
+
+	// The crash window: the root's directory does not exist yet, so this call
+	// really does create it. It must still not be reported as reclaimable.
+	workspace, newly, err := manager.EnsureForAdmission(ctx, "child_one")
+	if err != nil {
+		t.Fatalf("EnsureForAdmission: %v", err)
+	}
+	if newly {
+		t.Fatal("a redirected child admission must never report newly=true")
+	}
+	if workspace.Path != filepath.Join(root, "run_root") || !workspace.redirected {
+		t.Fatalf("child admission workspace = %+v", workspace)
+	}
+	if err := manager.DiscardNewPrivateAdmission(ctx, "child_one"); err != nil {
+		t.Fatalf("child discard must be a no-op: %v", err)
+	}
+	if _, err := os.Stat(workspace.Path); err != nil {
+		t.Fatalf("the shared workspace was discarded by a child admission: %v", err)
+	}
+}
+
+func TestWorkspaceOwnerRunContextBridgeBeforePersist(t *testing.T) {
+	// Child admission allocates the workspace before CreateRun persists the
+	// child row, so the durable lookup cannot answer yet and the caller carries
+	// the already-computed root id in context.
+	manager, root := newChildWorkspaceManager(t, workspaceRunLookup{
+		"run_root": {ID: "run_root", SessionID: "sess-parent"},
+	})
+	bridged := withWorkspaceOwnerRun(withSessionID(context.Background(), "sess-parent"), "run_root")
+	workspace, err := manager.Ensure(bridged, "child_new")
+	if err != nil {
+		t.Fatalf("ensure pre-persist child: %v", err)
+	}
+	if workspace.Path != filepath.Join(root, "run_root") || !workspace.redirected {
+		t.Fatalf("pre-persist child workspace = %+v, want the root's directory", workspace)
+	}
+
+	// Without the bridge an unpersisted run keeps its own directory, and a
+	// durable row wins over a stale context value.
+	plain, err := manager.Ensure(withSessionID(context.Background(), "sess-parent"), "child_plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Path != filepath.Join(root, "child_plain") || plain.redirected {
+		t.Fatalf("unbridged pre-persist workspace = %+v", plain)
+	}
+	durable := withWorkspaceOwnerRun(withSessionID(context.Background(), "sess-parent"), "child_plain")
+	resolved, err := manager.Ensure(durable, "run_root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Path != filepath.Join(root, "run_root") || resolved.redirected {
+		t.Fatalf("durable run lost to a stale owner context = %+v", resolved)
+	}
+}

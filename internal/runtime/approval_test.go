@@ -447,6 +447,84 @@ func TestNativeOneShotChildUsesServiceApprovalResume(t *testing.T) {
 	}
 }
 
+// TestEffectfulOneShotChildSharesRootWorkspaceUnderApproval pins the D11
+// contract now that a child run resolves to its root run's directory: a host
+// requested one-shot child carrying a writable tool is admitted into the
+// parent's workspace rather than a directory of its own, the Journal records
+// that shared workspace, and the sandbox mode inherited from the parent session
+// still stops the effect at an approval.
+func TestEffectfulOneShotChildSharesRootWorkspaceUnderApproval(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-shared-root-workspace")
+	parentRunID := domain.RunID("run-shared-root-parent")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "parent", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	// An empty RootID is the production shape for a primary run, so the child's
+	// root — and therefore its workspace — is the parent itself.
+	if err := backend.CreateRun(ctx, domain.Run{ID: parentRunID, SessionID: sessionID, Status: domain.RunActive, CreatedAt: time.Now().UnixMilli(), Kind: domain.RunKindPrimary}); err != nil {
+		t.Fatal(err)
+	}
+	workspaceRoot := t.TempDir()
+	workspaces, err := NewSessionWorkspaceManager(workspaceRoot, backend, backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.deps.Workspaces = workspaces
+	svc.deps.Sessions = backend
+	snapshot, err := svc.engine.cfg.Policy.Snapshot(domain.PolicyProfileDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := NewBudgetLedger(svc.deps.Budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	svc.snapshots[parentRunID] = snapshot
+	svc.ledgers[parentRunID] = ledger
+	svc.runTools[parentRunID] = childToolSet([]string{tools.EchoInfoName, tools.WriteNoteName})
+	svc.runSessions[parentRunID] = sessionID
+	svc.mu.Unlock()
+
+	started, err := svc.StartOneShotChild(ctx, OneShotChildRequest{
+		ParentRunID: parentRunID, Task: "save the approved child note", ToolNames: []string{tools.WriteNoteName},
+	})
+	if err != nil {
+		t.Fatalf("start one-shot child: %v", err)
+	}
+	if started.WorkspaceID != string(parentRunID) {
+		t.Fatalf("child workspace = %q, want the root run's %q", started.WorkspaceID, parentRunID)
+	}
+	if names := workspaceDirNames(t, workspaceRoot); len(names) != 1 || names[0] != string(parentRunID) {
+		t.Fatalf("workspace root holds %v, want only %q", names, parentRunID)
+	}
+
+	approval := waitForPendingApproval(t, backend, started.Run.ID)
+	if approval.Kind != domain.ApprovalKindChild || approval.RunID != started.Run.ID {
+		t.Fatalf("child approval = %+v", approval)
+	}
+	if notes, err := backend.ListNotes(ctx); err != nil || len(notes) != 0 {
+		t.Fatalf("notes before the decision = %+v err=%v, want none", notes, err)
+	}
+	if err := svc.DecideApproval(ctx, approval.ID, domain.ApprovalApproved); err != nil {
+		t.Fatalf("approve child tool through Service: %v", err)
+	}
+	waitForRunStatus(t, backend, started.Run.ID, domain.RunCompleted)
+	if notes, err := backend.ListNotes(ctx); err != nil || len(notes) != 1 {
+		t.Fatalf("notes after the decision = %+v err=%v, want the approved effect", notes, err)
+	}
+	if _, _, journalWorkspaceID, err := svc.ChildRunDetails(ctx, started.Run.ID); err != nil {
+		t.Fatalf("child details: %v", err)
+	} else if journalWorkspaceID != string(parentRunID) {
+		t.Fatalf("journal workspace_id = %q, want %q", journalWorkspaceID, parentRunID)
+	}
+	if names := workspaceDirNames(t, workspaceRoot); len(names) != 1 || names[0] != string(parentRunID) {
+		t.Fatalf("workspace root after the child completed holds %v, want only %q", names, parentRunID)
+	}
+}
+
 func TestInactiveNativeChildApprovalDoesNotPersistDecision(t *testing.T) {
 	svc, backend, _ := newApprovalService(t, 5*time.Minute)
 	ctx := context.Background()

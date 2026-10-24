@@ -12,6 +12,7 @@ import (
 type runIDContextKey struct{}
 type sessionIDContextKey struct{}
 type workspaceIDContextKey struct{}
+type workspaceOwnerRunContextKey struct{}
 type policyProfileContextKey struct{}
 type policySnapshotContextKey struct{}
 type sandboxModeContextKey struct{}
@@ -53,6 +54,20 @@ func withWorkspaceID(ctx context.Context, workspaceID string) context.Context {
 func contextWorkspaceID(ctx context.Context) string {
 	workspaceID, _ := ctx.Value(workspaceIDContextKey{}).(string)
 	return workspaceID
+}
+
+// withWorkspaceOwnerRun carries the root run whose private directory a child
+// workspace request must resolve to. Child admission allocates the workspace
+// before CreateRun persists the child row, so the durable lookup cannot answer
+// yet; this bridges exactly that gap, the way withSessionID does. Once the row
+// exists it is authoritative and this value is ignored.
+func withWorkspaceOwnerRun(ctx context.Context, owner domain.RunID) context.Context {
+	return context.WithValue(ctx, workspaceOwnerRunContextKey{}, owner)
+}
+
+func contextWorkspaceOwnerRun(ctx context.Context) domain.RunID {
+	owner, _ := ctx.Value(workspaceOwnerRunContextKey{}).(domain.RunID)
+	return owner
 }
 
 func withPolicyProfile(ctx context.Context, profile domain.PolicyProfile) context.Context {

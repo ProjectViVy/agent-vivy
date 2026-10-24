@@ -521,7 +521,7 @@ func (s *Service) commitNewChildActivation(
 		Kind: domain.RunKindChild, ChildMode: domain.ChildModeContinuable,
 		ParentID: parent.ID, RootID: rootID, Depth: parent.Depth + 1,
 	}
-	workspace, err := s.deps.Workspaces.Ensure(withSessionID(ctx, workspaceOwnerSessionID), childRunID)
+	workspace, err := s.deps.Workspaces.Ensure(withWorkspaceOwnerRun(withSessionID(ctx, workspaceOwnerSessionID), rootID), childRunID)
 	if err != nil {
 		return ChildSessionResult{}, fmt.Errorf("runtime: allocate child workspace: %w", err)
 	}

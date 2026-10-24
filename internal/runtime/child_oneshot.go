@@ -193,7 +193,7 @@ func (s *Service) StartOneShotChild(ctx context.Context, request OneShotChildReq
 	var childLedger *BudgetLedger
 	workspaceID := ""
 	if s.deps.Admission != nil {
-		workspace, workspaceErr := s.deps.Workspaces.Ensure(withSessionID(ctx, parent.SessionID), child.ID)
+		workspace, workspaceErr := s.deps.Workspaces.Ensure(withWorkspaceOwnerRun(withSessionID(ctx, parent.SessionID), rootID), child.ID)
 		if workspaceErr != nil {
 			return OneShotChildResult{}, workspaceErr
 		}
