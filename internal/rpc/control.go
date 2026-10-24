@@ -5555,15 +5555,29 @@ type catalogEntryResult struct {
 	Endpoints   []catalogEndpointResult `json:"endpoints"`
 }
 
-// providerCatalogResult projects the embedded vendor data onto the wire. It is
-// the frontend's only provider source: the UI holds no vendor, endpoint, or
-// model data of its own (PROV-P4).
-func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
+// providerCatalogResult projects the embedded vendor data onto the wire,
+// unioning in the registry overlay for each endpoint. Refresh-discovered and
+// manually added model ids live on that overlay, so a catalog row must show the
+// endpoint's effective model set rather than only the embedded list. It is the
+// frontend's only provider source: the UI holds no vendor, endpoint, or model
+// data of its own (PROV-P4).
+func providerCatalogResult(vendors []provider.Vendor, entries []settings.ProviderEntry) []catalogEntryResult {
+	overlays := make(map[string]settings.ProviderEntry, len(entries))
+	for _, entry := range entries {
+		// Validation keeps one registry entry per endpoint, so no entry's models
+		// can hide another entry's models for the same row.
+		overlays[endpointKey(entry.Bundle, entry.BaseURL)] = entry
+	}
 	catalog := make([]catalogEntryResult, 0, len(vendors))
 	for _, vendor := range vendors {
 		endpoints := make([]catalogEndpointResult, 0, len(vendor.Endpoints))
 		for _, endpoint := range vendor.Endpoints {
 			models := endpoint.ModelIDs()
+			if overlay, ok := overlays[endpointKey(endpoint.Adapter, endpoint.BaseURL)]; ok {
+				// Overlay ids first (upstream discovery order, then local
+				// additions), then the embedded ids upstream omitted.
+				models = unionModels(overlay.Models, models)
+			}
 			if models == nil {
 				models = []string{}
 			}
@@ -5589,6 +5603,12 @@ func providerCatalogResult(vendors []provider.Vendor) []catalogEntryResult {
 		})
 	}
 	return catalog
+}
+
+// endpointKey is the endpoint identity in the normalized vocabulary, matching
+// settings.FindProvider and the UI's providerEntryByEndpoint.
+func endpointKey(bundle, baseURL string) string {
+	return settings.NormalizeAdapter(bundle) + "\x00" + baseURL
 }
 
 // scopedModelResult is one selection identity in the operator's cycle set
@@ -5623,7 +5643,7 @@ func (h *controlHandler) providersView(s settings.Settings) providersResult {
 	for _, e := range s.Providers {
 		entries = append(entries, toProviderEntryResult(e))
 	}
-	catalog := providerCatalogResult(h.deps.ProviderVendors)
+	catalog := providerCatalogResult(h.deps.ProviderVendors, s.Providers)
 	activeProvider, activeModel, activeBaseURL := s.Provider, s.DefaultModel, s.BaseURL
 	if h.deps.Service != nil {
 		activeProvider, activeModel = h.deps.Service.CurrentModel()
@@ -6198,12 +6218,13 @@ func (h *controlHandler) deleteProvider(ctx context.Context, request Request) (a
 
 // refreshProviderModels fetches the upstream OpenAI-compatible model list
 // for one provider and persists it into the provider registry (models only;
-// any configured api_key is kept untouched). A catalog vendor with no
-// registry row is cloned into a new custom entry so there is a persist
-// target; the clone's display name comes from the request (the frontend
-// knows the catalog label). Anthropic-native providers are rejected: their
-// API does not implement GET /models. The response is the redacted saved
-// entry — the key never crosses the wire.
+// any configured api_key is kept untouched). A catalog endpoint with no
+// registry row gets the same stable catalog overlay the UI writes for its API
+// key, so the first refresh updates that endpoint row instead of adding a
+// visible duplicate; any other address is a user gateway cloned into a new
+// custom entry. Anthropic-native providers are rejected: their API does not
+// implement GET /models. The response is the redacted saved entry — the key
+// never crosses the wire.
 func (h *controlHandler) refreshProviderModels(ctx context.Context, request Request) (any, *Error) {
 	if h.deps.SettingsPath == "" {
 		return nil, &Error{Code: CodeConflict, Message: "settings are read-only in this deployment"}
@@ -6253,20 +6274,32 @@ func (h *controlHandler) refreshProviderModels(ctx context.Context, request Requ
 		if ok {
 			entry = existing
 		} else {
-			displayName := strings.TrimSpace(params.DisplayName)
-			if displayName == "" {
-				if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
-					displayName = u.Host
-				} else {
-					displayName = baseURL
-				}
-			}
 			entry = settings.ProviderEntry{
-				ID:           "custom-" + providerIDNonce(),
-				DisplayName:  displayName,
+				DisplayName:  strings.TrimSpace(params.DisplayName),
 				Bundle:       params.Bundle,
 				BaseURL:      baseURL,
 				DefaultModel: strings.TrimSpace(params.DefaultModel),
+			}
+			if vendor, endpoint, inCatalog := provider.NewCatalog(h.deps.ProviderVendors...).VendorForEndpoint(
+				settings.NormalizeAdapter(params.Bundle), baseURL,
+			); inCatalog {
+				// Keep in sync with catalogOverlayId in
+				// ui/src/components/settings/custom-providers.ts: the API-key
+				// panel and refresh must persist one overlay, not two rows.
+				entry.ID = "catalog-" + vendor.Name + "-" + endpoint.Adapter
+				entry.Bundle = endpoint.Adapter
+				if vendor.DisplayName != "" {
+					entry.DisplayName = vendor.DisplayName
+				}
+			} else {
+				entry.ID = "custom-" + providerIDNonce()
+			}
+			if entry.DisplayName == "" {
+				if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
+					entry.DisplayName = u.Host
+				} else {
+					entry.DisplayName = baseURL
+				}
 			}
 		}
 	}

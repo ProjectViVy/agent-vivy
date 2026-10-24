@@ -2684,6 +2684,151 @@ func TestProviderRefreshRPC(t *testing.T) {
 	}
 }
 
+// Refreshing a catalog endpoint that has no registry row yet writes the same
+// stable catalog overlay the API-key panel uses, so the visible catalog row
+// updates in place instead of gaining a duplicate custom row. Manual ids and
+// the overlay id survive a second refresh.
+func TestProviderRefreshUsesCatalogOverlay(t *testing.T) {
+	upstream, _ := refreshUpstreamServer(t, http.StatusOK, map[string]any{
+		"data": []map[string]any{{"id": "upstream-a"}, {"id": "upstream-b"}},
+	})
+	env, settingsPath := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ModelLists = &provider.ModelListClient{HTTP: upstream.Client()}
+		deps.ProviderVendors = []provider.Vendor{{
+			Name: "gateway", DisplayName: "Gateway Vendor",
+			Endpoints: []provider.Endpoint{{
+				Adapter: provider.AdapterOpenAICompletions, BaseURL: upstream.URL,
+				DefaultModel: "embedded-a", Models: []provider.Model{{ID: "embedded-a"}},
+			}},
+		}}
+	})
+
+	result, rpcErr := callControl(t, env.handler, "settings/providers/refresh", map[string]any{
+		"bundle": "openai", "base_url": upstream.URL, "display_name": "Request Name",
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	entry := result.(providerEntryResult)
+	if entry.ID != "catalog-gateway-openai-completions" {
+		t.Fatalf("catalog refresh must persist the stable overlay id, got %q", entry.ID)
+	}
+	if entry.DisplayName != "Gateway Vendor" {
+		t.Fatalf("catalog refresh display name = %q, want the vendor name", entry.DisplayName)
+	}
+	if len(entry.Models) != 2 || entry.Models[0] != "upstream-a" || entry.Models[1] != "upstream-b" {
+		t.Fatalf("refreshed models = %v", entry.Models)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Providers) != 1 || loaded.Providers[0].ID != "catalog-gateway-openai-completions" {
+		t.Fatalf("refresh must not create a second entry: %+v", loaded.Providers)
+	}
+
+	// The catalog row now shows the overlay ids ahead of the embedded ones.
+	listResult, rpcErr := callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := listResult.(providersResult)
+	if len(view.Catalog) != 1 || len(view.Catalog[0].Endpoints) != 1 {
+		t.Fatalf("catalog = %+v", view.Catalog)
+	}
+	wantModels := []string{"upstream-a", "upstream-b", "embedded-a"}
+	models := view.Catalog[0].Endpoints[0].Models
+	if len(models) != len(wantModels) {
+		t.Fatalf("catalog models = %v, want %v", models, wantModels)
+	}
+	for i, model := range wantModels {
+		if models[i] != model {
+			t.Fatalf("catalog models = %v, want %v", models, wantModels)
+		}
+	}
+
+	// A manual id on the overlay survives the next refresh, and the refresh
+	// still targets the same row.
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "catalog-gateway-openai-completions", "models": []string{"upstream-a", "upstream-b", "manual-x"},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, env.handler, "settings/providers/refresh", map[string]any{
+		"bundle": "openai-completions", "base_url": upstream.URL,
+	})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	entry = result.(providerEntryResult)
+	if entry.ID != "catalog-gateway-openai-completions" {
+		t.Fatalf("second refresh changed the overlay id: %q", entry.ID)
+	}
+	if len(entry.Models) != 3 || entry.Models[2] != "manual-x" {
+		t.Fatalf("second refresh models = %v, want the manual id preserved", entry.Models)
+	}
+	loaded, err = settings.Load(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Providers) != 1 {
+		t.Fatalf("second refresh duplicated the entry: %+v", loaded.Providers)
+	}
+}
+
+// A catalog endpoint row shows the endpoint's effective model set: the
+// registry overlay (refresh results and manually added ids) unioned with the
+// embedded catalog ids. The overlay itself stays visible under entries so the
+// UI can resolve its key state, and thinking metadata still comes from the
+// embedded declarations only.
+func TestProvidersCatalogMergesRegistryModelsForCatalogEndpoints(t *testing.T) {
+	env, _ := newSettingsHandlerEnvWith(t, nil, func(deps *ControlDeps) {
+		deps.ProviderVendors = []provider.Vendor{{
+			Name: "deepseek", DisplayName: "DeepSeek",
+			Endpoints: []provider.Endpoint{{
+				Adapter: provider.AdapterOpenAICompletions, BaseURL: "https://api.deepseek.com",
+				DefaultModel: "deepseek-flash",
+				Models: []provider.Model{
+					{ID: "deepseek-flash"},
+					{ID: "deepseek-pro", SupportsThinking: true},
+				},
+			}},
+		}}
+	})
+	if _, rpcErr := callControl(t, env.handler, "settings/providers/upsert", map[string]any{
+		"id": "catalog-deepseek-openai-completions", "display_name": "DeepSeek",
+		"bundle": "openai-completions", "base_url": "https://api.deepseek.com",
+		"default_model": "deepseek-flash", "models": []string{"upstream-x", "deepseek-flash"},
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+
+	result, rpcErr := callControl(t, env.handler, "settings/providers", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	view := result.(providersResult)
+	if len(view.Catalog) != 1 || len(view.Catalog[0].Endpoints) != 1 {
+		t.Fatalf("catalog = %+v", view.Catalog)
+	}
+	endpoint := view.Catalog[0].Endpoints[0]
+	wantModels := []string{"upstream-x", "deepseek-flash", "deepseek-pro"}
+	if len(endpoint.Models) != len(wantModels) {
+		t.Fatalf("catalog models = %v, want %v", endpoint.Models, wantModels)
+	}
+	for i, model := range wantModels {
+		if endpoint.Models[i] != model {
+			t.Fatalf("catalog models = %v, want %v", endpoint.Models, wantModels)
+		}
+	}
+	if len(endpoint.ThinkingModels) != 1 || endpoint.ThinkingModels[0] != "deepseek-pro" {
+		t.Fatalf("thinking models must stay embedded-only: %v", endpoint.ThinkingModels)
+	}
+	if len(view.Entries) != 1 || view.Entries[0].ID != "catalog-deepseek-openai-completions" {
+		t.Fatalf("overlay entry missing from the registry view: %+v", view.Entries)
+	}
+}
+
 func TestSettingsUpdatePreservesRegistry(t *testing.T) {
 	probe := &settingsApplierProbe{}
 	env, settingsPath := newSettingsHandlerEnv(t, probe)

@@ -87,6 +87,9 @@ describe('ModelSettingsCard 目录渲染（PROV-P4）', () => {
     view.providersPhase = 'ready';
     view.providersError = null;
     view.saveSettings.mockClear();
+    view.saveProvider.mockClear();
+    view.saveProvider.mockResolvedValue(undefined);
+    view.refreshProvider.mockClear();
     view.loadProviders.mockClear();
     container = document.createElement('div');
     document.body.append(container);
@@ -106,6 +109,21 @@ describe('ModelSettingsCard 目录渲染（PROV-P4）', () => {
 
   function testId(id: string): HTMLElement | null {
     return container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  async function typeInto(input: HTMLInputElement, value: string) {
+    await act(async () => {
+      // React 跟踪节点 value，需通过原生 setter 触发受控更新。
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
   }
 
   it('目录未到达（idle/loading）时不渲染厂商行，只渲染 loading 占位', async () => {
@@ -178,5 +196,97 @@ describe('ModelSettingsCard 目录渲染（PROV-P4）', () => {
       base_url: 'https://api.deepseek.com/anthropic',
       default_model: 'deepseek-flash',
     });
+  });
+
+  async function openAddModel() {
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Add model"]')!.click());
+    return container.querySelector<HTMLInputElement>('input[aria-label="Add model"]')!;
+  }
+
+  async function confirmAddModel() {
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Add and apply"]')!.click());
+    await settle();
+  }
+
+  it('目录行手加模型：id 写入稳定的 catalog 落地条并立即选用', async () => {
+    await render();
+    await typeInto(await openAddModel(), 'deepseek-manual');
+    await confirmAddModel();
+
+    // 目录端点无注册表条目：写稳定 id（与 API Key 面板同一条目），
+    // models 以内嵌目录为基线追加新 id，且不带 api_key。
+    expect(view.saveProvider).toHaveBeenCalledWith({
+      id: 'catalog-deepseek-openai-completions',
+      display_name: 'DeepSeek',
+      bundle: 'openai-completions',
+      base_url: 'https://api.deepseek.com',
+      default_model: 'deepseek-flash',
+      models: ['deepseek-flash', 'deepseek-v4-pro', 'deepseek-manual'],
+    });
+    expect(view.saveSettings).toHaveBeenCalledWith({
+      provider: 'openai-completions',
+      base_url: 'https://api.deepseek.com',
+      default_model: 'deepseek-manual',
+    });
+  });
+
+  it('目录行手加已存在的模型：不写注册表，只切换当前选择', async () => {
+    await render();
+    await typeInto(await openAddModel(), 'deepseek-v4-pro');
+    await confirmAddModel();
+
+    expect(view.saveProvider).not.toHaveBeenCalled();
+    expect(view.saveSettings).toHaveBeenCalledWith({
+      provider: 'openai-completions',
+      base_url: 'https://api.deepseek.com',
+      default_model: 'deepseek-v4-pro',
+    });
+  });
+
+  it('落地条已存在时按其 models 追加，且手加失败保留输入框不切换模型', async () => {
+    view.providers = [{
+      id: 'catalog-deepseek-openai-completions', display_name: 'DeepSeek', bundle: 'openai-completions',
+      base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash',
+      models: ['upstream-a'], api_key_set: true,
+    }];
+    await render();
+    await typeInto(await openAddModel(), 'manual-b');
+    await confirmAddModel();
+    expect(view.saveProvider).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'catalog-deepseek-openai-completions',
+      models: ['upstream-a', 'manual-b'],
+    }));
+
+    // 失败路径：保留输入框与草稿，不切换当前模型。
+    view.saveProvider.mockClear();
+    view.saveSettings.mockClear();
+    view.saveProvider.mockRejectedValueOnce(new Error('settings write failed'));
+    const input = await openAddModel();
+    await typeInto(input, 'manual-c');
+    await confirmAddModel();
+    expect(view.saveProvider).toHaveBeenCalledTimes(1);
+    expect(view.saveSettings).not.toHaveBeenCalled();
+    const stillOpen = container.querySelector<HTMLInputElement>('input[aria-label="Add model"]');
+    expect(stillOpen).not.toBeNull();
+    expect(stillOpen?.value).toBe('manual-c');
+  });
+
+  it('刷新反馈在注册表重新载入后仍显示', async () => {
+    view.refreshProvider.mockResolvedValueOnce({
+      id: 'catalog-deepseek-openai-completions', display_name: 'DeepSeek', bundle: 'openai-completions',
+      base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash', models: ['a', 'b'], api_key_set: true,
+    });
+    await render();
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Refresh model list"]')!.click());
+    await settle();
+    expect(container.textContent).toContain('Synced 2 models from upstream');
+
+    // 刷新成功后 store 会重载 providers：反馈不得被这次变化清掉。
+    view.providers = [{
+      id: 'catalog-deepseek-openai-completions', display_name: 'DeepSeek', bundle: 'openai-completions',
+      base_url: 'https://api.deepseek.com', default_model: 'deepseek-flash', models: ['a', 'b'], api_key_set: true,
+    }];
+    await render();
+    expect(container.textContent).toContain('Synced 2 models from upstream');
   });
 });

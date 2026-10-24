@@ -177,6 +177,9 @@ export function providerEntryById(providers: readonly ProviderEntry[], id: strin
  * 目录厂商密钥落地条 id 前缀。面板为目录端点失焦写回密钥时按 (vendor, adapter)
  * 生成稳定 id（`catalog-<vendor>-<adapter>`），使重复失焦更新同一条目，且同一
  * 厂商的两个端点各落一条；该前缀条目不显示为自定义行（避免与目录行重复展示）。
+ * 后端 `settings/providers/refresh` 对无注册表行的目录端点生成同一个 id
+ * （control.go refreshProviderModels 引用本函数名），所以密钥、手加模型与刷新
+ * 共享一条覆盖层，目录行原地更新。
  */
 export const CATALOG_OVERLAY_PREFIX = 'catalog-';
 

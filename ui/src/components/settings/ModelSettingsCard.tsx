@@ -320,8 +320,11 @@ function CustomProviderDialog({
  * 模型列表（兜底为空时提示，列表顶部「新增」按钮
  * 手加模型）。
  * 点击模型/新增模型 = 立即选用并保存；无底部表单（显式提交边界已并入模型点击）。
+ * 新增模型同时把 id 写入该端点的注册表条目（目录端点用稳定 `catalog-<vendor>-
+ * <adapter>` 落地条），刷新与密钥共用同一条目，因此列表与刷新反馈都原地更新。
  * 目录数据只来自 store 的 `settings/providers` 快照（PROV-P4）：应答前渲染
- * loading，卡片自身不持有任何厂商/端点/模型数据。
+ * loading，卡片自身不持有任何厂商/端点/模型数据；端点模型已由后端把注册表
+ * 覆盖层并入目录投影（显示 = 覆盖层 ∪ 内嵌目录）。
  */
 export function ModelSettingsCard() {
   const settings = useVivyStore((state) => state.settings);
@@ -375,6 +378,7 @@ export function ModelSettingsCard() {
     ? matchMergedProviderEntry(catalog, providers, settings.provider, settings.base_url, settings.provider_profiles)
     : undefined;
   const selectedEntry = (selectedKey ? allMerged.find((entry) => providerRowKey(entry) === selectedKey) : undefined) ?? savedEntry;
+  const selectedRowKey = selectedEntry ? providerRowKey(selectedEntry) : null;
   const selectedRegistry = selectedEntry?.custom && selectedEntry.registryId
     ? providerEntryById(providers, selectedEntry.registryId) ?? null
     : null;
@@ -389,12 +393,13 @@ export function ModelSettingsCard() {
 
   // 面板 API Key 的编辑态回显：注册表只在线程内回显 apiKeySet，不携带值；
   // 这里仅保留「已配置」提示，输入框内容在失焦时作为写-only 值提交。
+  // 只跟随所选行：注册表刷新（密钥/模型写入后的 loadProviders）不应清掉
+  // 刷新反馈或用户正在输入的草稿。
   useEffect(() => {
     setPanelKey('');
     setPanelKeyDirty(false);
     setRefreshNote(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 跟随所选条目与注册表变化
-  }, [selectedEntry ? providerRowKey(selectedEntry) : null, providers]);
+  }, [selectedRowKey]);
 
   const locked = !!settings?.read_only || phase === 'processing';
 
@@ -510,6 +515,7 @@ export function ModelSettingsCard() {
           models: selectedRegistry.models,
           api_key: key,
         });
+        setPanelKey('');
         setPanelKeyDirty(false);
         return;
       }
@@ -540,6 +546,7 @@ export function ModelSettingsCard() {
           api_key: key,
         });
       }
+      setPanelKey('');
       setPanelKeyDirty(false);
     } catch {
       // saveProvider 已将可读错误写入 providersError；保留 dirty 和输入值，
@@ -548,31 +555,40 @@ export function ModelSettingsCard() {
   };
 
   /**
-   * 「新增」手加模型：自定义供应商先落注册表再应用（两写并发会竞争同一
-   * settings 文档）；应用语义与点击模型一致。
+   * 「新增」手加模型：先把模型 id 落到该端点的注册表条目（目录端点落
+   * `catalog-<vendor>-<adapter>` 落地条；与 panel key 共用同一条目），再按
+   * 点击模型的语义选用并保存。已有同端点条目（含旧刷新产生的自定义克隆）
+   * 则并入其 models；列表已含该 id 时只做选用。注册表写失败时保留输入框
+   * 以便重试，且不切换当前模型。
    */
   const confirmAddModel = async () => {
     const id = newModelId.trim();
     if (!id || !selectedEntry || locked) return;
-    if (selectedEntry.custom && selectedEntry.registryId) {
-      const registry = providerEntryById(providers, selectedEntry.registryId);
-      if (registry) {
-        try {
-          await saveProvider({
-            id: registry.id,
-            display_name: registry.display_name,
-            bundle: registry.bundle,
-            base_url: registry.base_url,
-            default_model: registry.default_model,
-            models: [...registry.models, id],
-            api_key: panelKey.trim(),
-          });
-        } catch {
-          // providersError 已由 store 记录并渲染；仍应用本地选择。
-        }
+    if (!selectedEntry.models.includes(id)) {
+      const registry = selectedEntry.custom && selectedEntry.registryId
+        ? providerEntryById(providers, selectedEntry.registryId)
+        : providerEntryByEndpoint(providers, selectedEntry.adapter, selectedEntry.baseUrl);
+      const targetId = registry?.id
+        ?? (selectedEntry.custom ? selectedEntry.registryId : catalogOverlayId(selectedEntry.vendor, selectedEntry.adapter));
+      if (!targetId) return;
+      const models = registry ? [...registry.models] : [...selectedEntry.models];
+      if (!models.includes(id)) models.push(id);
+      try {
+        // 不带 api_key：后端按 id 打补丁，保留已配置密钥；面板草稿不得在此外溢。
+        await saveProvider({
+          id: targetId,
+          display_name: registry?.display_name ?? selectedEntry.displayName,
+          bundle: registry?.bundle ?? asRegistryBundle(selectedEntry.adapter),
+          base_url: registry?.base_url ?? selectedEntry.baseUrl,
+          default_model: registry?.default_model ?? selectedEntry.defaultModel,
+          models,
+        });
+      } catch {
+        // providersError 已由 store 记录并渲染；输入框与草稿保留。
+        return;
       }
     }
-    void applyModelNow(selectedEntry, id);
+    await applyModelNow(selectedEntry, id);
     setNewModelId('');
     setAddingModel(false);
   };
