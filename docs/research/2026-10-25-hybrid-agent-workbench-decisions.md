@@ -2,7 +2,7 @@
 
 Date: 2026-10-25
 
-Status: Research checkpoint; implementation paused pending the owner's next idea.
+Status: Research checkpoint, including the later robotics, MCP, and event-recording discussion; no implementation authorized by this report.
 
 Scope: Preserve this conversation's findings and latest direction in both repositories.
 
@@ -308,3 +308,195 @@ explains the next idea.
 This delivery changes research documentation only. Validation is content review,
 identical-copy comparison and Git whitespace checks. It does not establish new
 runtime behavior or supersede either repository's implementation evidence.
+
+## 11. Later discussion: embodied-agent workflows
+
+The owner clarified that the Gemini example concerned a model operating a
+physical robot, constructing a simulation environment, and learning execution.
+The following are vendor-reported demonstrations, not independently reproduced
+results. Keep the two experiments separate:
+
+- Google's October 13, 2026 Argon announcement describes a human cornhole video
+  being turned into environment coordinates, whole-body joint motions, and
+  simulation code, then transferred to Apptronik's Apollo. Google reports seven
+  consecutive successful shots. The announcement alone does not establish that
+  this example trained a new neural controller, nor expose complete trial counts
+  or controller implementation. Generating a simulation scene/program does not
+  mean implementing a new physics engine.
+- Google's robotics article describes a separate tabletop experiment: an RGB
+  photo becomes a MuJoCo twin, tasks and a closed-loop trajectory generator;
+  4,500+ randomized simulation episodes are exported for VLA fine-tuning. Google
+  reports real-robot success increasing from 56% to 75%, and completion time
+  decreasing from 35 to 24 seconds. The article does not fully specify the model,
+  fine-tuning time, or who launched every training/deployment step.
+
+Neither account establishes that Argon updated its own weights during the task.
+Do not combine the VLA metrics with the Apollo demonstration, or claim a fully
+unattended, reproducible training system from these announcements.
+
+Architectural inference: a workbench can produce reusable executable capabilities
+(scripts, optimized parameters, datasets, or model artifacts) through experiment
+and feedback. This supports exploring the hybrid workbench; it does not establish
+that every tool must move to Python, that RLM is required, or that a new plugin
+platform is necessary. Rust/Rig can retain runtime ownership while Python runs
+the relevant data-processing, simulation, optimization, or training programs.
+
+Sources inspected on 2026-10-25:
+
+- [Google announcement: Speeding up robotics development](https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-argon/)
+- [Google robotics article: Action improvement via simulation](https://developers.googleblog.com/gemini-4-argon-for-robotics/)
+
+## 12. MCP SDK selection
+
+The official SDK list inspected today places both Python and Rust in Tier 1.
+This reflects protocol support and maintenance commitments, not a measured
+comparison of production failure rates. Do not justify Python by claiming the
+official Rust SDK is inherently immature or unreliable.
+
+Python's current stable line is v2, with a breaking migration from v1; v1 is in
+maintenance. Rust's rmcp provides client support, child-process stdio and
+Streamable HTTP. Pin the chosen dependency and verify the actual target servers;
+old tutorials and examples are not sufficient compatibility evidence.
+
+Recommendation for this experiment: put MCP client connection ownership in the
+Python workbench and avoid a duplicate Rust MCP connection manager. This fits
+the deferred-tool boundary and lets large results remain in Python for local
+processing. A Python client can call servers implemented in other languages.
+This recommendation is not an implemented MCP bridge or a finalized public API.
+
+Acceptance should exercise connection, tool discovery/calls, timeout,
+cancellation and child-process cleanup, and reconnection after worker restart.
+No comparative SDK reliability benchmark or new MCP integration test was run.
+
+- [Official SDK tiers](https://modelcontextprotocol.io/docs/sdk)
+- [Python v2 changes](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/whats-new.md)
+- [Rust SDK](https://github.com/modelcontextprotocol/rust-sdk)
+
+## 13. Data collection and event-recording direction
+
+The owner identified poor Journal modeling in original Vivy as a concern and
+stated that future Vivy requires excellent event records. This discussion did
+not audit the original Journal, approve its replacement, or change its canonical
+contracts. The owner accepted preserving this discussion; the design below is
+a proposed experiment direction, not a shipped feature or frozen schema.
+
+### 13.1 What Prime actually records
+
+At the inspected Prime revision:
+
+- The session is append-only JSONL with typed entries, IDs, parent IDs and
+  timestamps. It includes conversation messages, tool-start/progress entries,
+  model changes, compaction and other session facts.
+- Python results carry status, duration, stdout/stderr, exceptions, kernel
+  restart information and selected shell/agent-message details. These are richer
+  than a single combined output string, but are not an audit of every operation
+  performed by arbitrary Python code.
+- Worker recovery and orphan-process journals serve lifecycle recovery separately
+  from the conversation record.
+- Session telemetry explicitly emits counts, durations and categories, excluding
+  prompt text, model output, tool arguments and results. It is not a training
+  trajectory store.
+- The inspected Python MCP call paths return results to Python without an
+  explicit per-call persistent event write at those boundaries. This is a scoped
+  source finding, not proof that no other instrumentation exists anywhere.
+
+Primary code references at `5c898d1b27b109bd2d383c68d60a30536e39cc22`:
+
+- [Session entries](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/crates/pa-types/src/session.rs)
+- [Python tool results](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/crates/pa-core/src/tools/ipython.rs)
+- [Recovery journals](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/crates/pa-daemon/src/journal.rs)
+- [Telemetry contract](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/crates/pa-core/src/session_engine/telemetry.rs)
+- [MCP dispatch](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/prime-agent-runtime/src/rlm/mcp.py)
+- [MCP base client](https://github.com/PrimeIntellect-ai/prime-agent/blob/5c898d1b27b109bd2d383c68d60a30536e39cc22/prime-agent-runtime/src/rlm/mcp_base.py)
+
+### 13.2 Minimum useful recording model
+
+Keep the model-visible tool set small without making execution records coarse.
+Preserve the chain of observation, action, environment response and evaluation:
+
+```text
+User goal
+  -> model request (actual visible context and configuration)
+  -> model response / native tool or Python cell
+       -> nested MCP call(s), results, errors
+       -> cell output and produced artifacts
+  -> subsequent model observations
+  -> test result or human feedback, with its source
+```
+
+Distinguish data available inside Python from data actually shown to the model.
+A large MCP response reduced to a short summary must not later be treated as if
+the model saw the full response. Record effective prompts, tool definitions and
+settings through durable references or snapshots sufficient to reconstruct the
+model-visible request, subject to declared retention and redaction.
+
+Reuse Rig's existing session persistence for conversations. Supplement it with
+internal workbench events linked to existing message/tool-call IDs; do not make
+a second authority for conversation state. Let Python emit structured events
+over the existing bridge and let the Rust host own correlation and persistence.
+Choose the concrete storage hook only after inspecting the pinned implementation.
+
+Proposed automatic collection boundaries:
+
+| Boundary | Minimum facts |
+| --- | --- |
+| Model request/response | Actual input references, model/settings, output, usage, error |
+| Native tool / Python cell | Call identity, arguments/code, start/end, status, duration |
+| MCP call inside Python | Parent cell, server/tool identity, arguments, result, error |
+| Workbench lifecycle | Start, exit, reset, new kernel-instance identity |
+| Evaluation | Test or human feedback, source, associated task/run |
+
+A candidate event envelope is `version`, `event_id`, `session_id`, `run_id`,
+`parent_id`, `operation_id`, `seq`, `timestamp`, `kind`, and `payload`. This is
+illustrative, not a required SDK. Reuse existing identifiers where possible.
+The host sequence records receipt order; parent/operation links express causality
+and pair start/end events. Timestamps alone do not order concurrent causes.
+
+Collection belongs in runtime/adapters, not in model-authored voluntary logging.
+Do not instrument every Python function or variable assignment. Arbitrary direct
+HTTP/filesystem calls that bypass managed wrappers are outside detailed tracing;
+cell code and captured output do not prove a complete side-effect audit.
+
+Keep events small. Store large results, images, patches, datasets and model files
+as referenced artifacts. Separate model-context truncation from storage retention;
+mark truncation, omitted/redacted content and missing artifacts explicitly. Do not
+claim full reproducibility when relevant data was not retained. Redact credentials
+at collection boundaries and keep collected data local by default.
+
+### 13.3 Failure semantics and training-data boundaries
+
+- Persist an operation's start before a managed side effect. A start without a
+  terminal record means its outcome is unknown, not necessarily failed. Surface
+  persistence failures; do not claim durable recording when a write failed.
+- Never automatically repeat a potentially effectful operation just because its
+  completion record is absent. Local logging cannot guarantee exactly-once remote
+  execution across a crash.
+- Restoring a transcript does not restore Python memory. Record kernel resets,
+  preserve necessary data as explicit artifacts, and do not add arbitrary object
+  snapshots for this first experiment.
+- Keep model declarations, process exit status, test outcomes and human acceptance
+  distinct. They are different evidence, not one undifferentiated success flag.
+- Derive training/evaluation datasets later from retained trajectories and sourced
+  labels. Do not make a training-data schema the runtime's primary record format.
+- No event bus, standalone collection service, general event-sourcing framework,
+  or new Journal platform is required by this proposal.
+
+### 13.4 Current implementation and next evidence
+
+In vivy-test, `plugins/vivy-python/src/worker.py` already emits separate stdout,
+stderr, result, error and done frames. The Rust receiver in
+`plugins/vivy-python/src/lib.rs` largely combines text into tool output. The
+existing `/export` JSONL in `plugins/vivy-basics/src/session.rs` exports conversation
+entries; it does not establish detailed internal workbench tracing.
+
+The inspected Rig harness has session persistence (`rig-ecs/src/session_log.rs`
+and `rig-harness/src/host/session.rs`). Before implementing, verify the exact pin,
+extension seam, durability and failure behavior instead of duplicating that path.
+
+Future acceptance should show one run containing a native call, a Python cell,
+nested MCP success/failure, a large artifact and a worker reset, all correctly
+correlated; it should also show an interrupted operation remaining unknown and
+the precise subset of data exposed to the model. These checks have not been run.
+
+This update records research only. The original Vivy repair, PEN requirements,
+MCP integration, event APIs and implementation scheduling remain separate work.
