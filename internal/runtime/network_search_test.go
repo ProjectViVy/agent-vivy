@@ -251,11 +251,45 @@ func TestNetworkSearchServiceRejectsInvalidAndOversizedResponses(t *testing.T) {
 	if _, err := service.Search(context.Background(), "", tools.SearchRequest{Query: "x", Provider: "not-allowlisted"}); err == nil || !strings.Contains(err.Error(), "allowlisted") {
 		t.Fatalf("invalid provider error = %v", err)
 	}
-	if _, err := service.Search(context.Background(), "", tools.SearchRequest{Query: "x", Provider: "duckduckgo"}); err == nil || !strings.Contains(err.Error(), "rate limited") {
+	if _, err := service.Search(context.Background(), "", tools.SearchRequest{Query: "x", Provider: "duckduckgo"}); err == nil ||
+		!strings.Contains(err.Error(), "provider duckduckgo failed") || !strings.Contains(err.Error(), "rate limited") {
 		t.Fatalf("rate limit error = %v", err)
 	}
 	large := NewNetworkSearchService(server.Client(), map[string]string{"duckduckgo": server.URL + "/large"})
-	if _, err := large.Search(context.Background(), "", tools.SearchRequest{Query: "x", Provider: "duckduckgo"}); err == nil || !strings.Contains(err.Error(), "size limit") {
+	if _, err := large.Search(context.Background(), "", tools.SearchRequest{Query: "x", Provider: "duckduckgo"}); err == nil ||
+		!strings.Contains(err.Error(), "provider duckduckgo failed") || !strings.Contains(err.Error(), "size limit") {
 		t.Fatalf("size limit error = %v", err)
+	}
+}
+
+// A model-visible failure for an explicitly named but unconfigured provider
+// must name both the provider and the environment variable to set, because
+// the diagnostic text is the only information the model receives.
+func TestNetworkSearchServiceNamesProviderAndEnvKnobInFailure(t *testing.T) {
+	t.Setenv("BING_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_API_KEY", "")
+	t.Setenv("GOOGLE_SEARCH_CX", "")
+	service := NewNetworkSearchService(nil, nil)
+	for _, tc := range []struct {
+		provider string
+		envKnobs []string
+	}{
+		{"bing", []string{"BING_SEARCH_API_KEY"}},
+		{"google", []string{"GOOGLE_SEARCH_API_KEY", "GOOGLE_SEARCH_CX"}},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			_, err := service.Search(context.Background(), "", tools.SearchRequest{Query: "x", Provider: tc.provider})
+			if err == nil {
+				t.Fatalf("%s with no key must fail", tc.provider)
+			}
+			if !strings.Contains(err.Error(), tc.provider) {
+				t.Fatalf("error %q must name provider %s", err, tc.provider)
+			}
+			for _, knob := range tc.envKnobs {
+				if !strings.Contains(err.Error(), knob) {
+					t.Fatalf("error %q must name env knob %s", err, knob)
+				}
+			}
+		})
 	}
 }
