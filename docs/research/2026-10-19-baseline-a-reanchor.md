@@ -18,7 +18,7 @@ real-path behavior was executed or verified by this document. This file adds no 
 ### 1.1 Purpose
 
 The issue #91 deletion package (`docs/plans/2026-10-19-complete-deletion-plan.md` §10–§11 and the
-fifteen Story plans `docs/superpowers/plans/issue-91/D00.md`–`D14.md`) was authored against the
+fifteen Story plans `docs/plans/issue-91/D00.md`–`D14.md`) was authored against the
 10-18 tree and was replayed here as docs-only commits onto baseline A. Its file references therefore
 describe a tree that is 168 commits ahead of the tree the work will start from. This document:
 
@@ -133,7 +133,7 @@ added after 10-07, **(c)** merge into another Story/owner, **(d)** keep as propo
 | Cited path (as written) | State | Disposition / note |
 | --- | --- | --- |
 | `docs/plans/2026-10-19-complete-deletion-plan.md` | E | Modify in place. |
-| `docs/superpowers/plans/issue-91/index.md` | E | Modify in place. |
+| `docs/plans/issue-91/index.md` | E | Modify in place. |
 | `AGENTS.md`, `.agents/skills/vivy-plugin/SKILL.md`, `.agents/skills/vivy-eino/SKILL.md` | E | Read. |
 | `internal/storage/migrations/runner.go` | E | Read; head is 035, not 043 (see C/G2 row). |
 | `internal/runtime/checkpoint.go`, `internal/runtime/approval_binding.go` | E | Read; both carry hashes/digests at baseline (C3/C6). |
@@ -194,7 +194,7 @@ audit confirms most of it and corrects two points.
 | `internal/runtime/prompt.go` | E (not yet cited) | **Add to D04 extraction list:** the reminder templates live here (`renderNudge`, `internal/runtime/prompt.go:110`); they are not in `nudge_state.go`. |
 | `internal/runtime/engine.go`, `tooladapter.go`, `tool_failure.go`, `mapper.go`, `service.go` | E | Modify; `engine.go:376` installs nudge middleware unconditionally. |
 | `schemas/events/payloads/tool.nudge.json` | E | Retain; v1 requires `tool_call_id`, `tool_name`, `reason`, `repeat_count` (enum 3/5), `template_version` const `nudge-v1`. |
-| `docs/architecture/NUDGE-DESIGN.md`, `docs/plans/nudge/ND-0..4.md` | E | Retain/update; both exist at baseline A. |
+| `docs/architecture/NUDGE-DESIGN.md`, `docs/archive/plans/nudge/ND-0..4.md` | E | Retain/update; both exist at baseline A. |
 | `sdk/port/loopexp/nudge.go`, `internal/runtime/extensions.go`, `internal/runtime/extensions/nudge/adapter.go`, `internal/app/assembly_loop_extensions.go` | P | (d) create. Absent at baseline A **and at 10-18**; the plan's "adapter" file is proposed design, not a 10-18 artifact. |
 | `plugins/exp/nudge/`, `recipes/exp-nudge.vivy.yml` | P | (d) owned by E-NUDGE; D04 explicitly does not create them. |
 | `internal/runtime/tool_continuation_test.go` | P | (d) proposed test; absent at both trees. |

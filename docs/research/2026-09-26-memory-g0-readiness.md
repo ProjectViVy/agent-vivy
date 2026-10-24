@@ -7,7 +7,7 @@ the current Laputa surface at the MEM-0A pin). Evidence = inspected file
 lines at the pinned revision; anything not directly inspected is marked
 *inferred*.
 
-Inputs: `docs/superpowers/specs/2026-09-26-memory-providers-design.md`
+Inputs: `docs/specs/2026-09-26-memory-providers-design.md`
 (§Gaps), `docs/research/2026-09-26-memory-upstream-pin.md` (MEM-0A),
 `docs/architecture/SCX-PLUGIN-INTEGRATION.md` (capability rulings),
 `docs/architecture/VIVY-MODULE-STANDARD.md` (trust levels T0–T3,

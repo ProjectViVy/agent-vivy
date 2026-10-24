@@ -46,7 +46,7 @@ snake_case output-cap reason, idempotent `Open`.
 ## 4 — Trackers agree
 
 ```text
-rg -n 'MEM-1B' docs/superpowers/plans/memory/index.md
+rg -n 'MEM-1B' docs/plans/memory/index.md
 ```
 
 `index.md` shows MEM-1B Done 2026-09-26 pointing here. MEM-2 stays

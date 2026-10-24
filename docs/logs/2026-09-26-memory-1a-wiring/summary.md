@@ -1,6 +1,6 @@
 # MEM-1A — Vivy runtime wiring for BML
 
-Iteration: 2026-09-26. Scope: `docs/superpowers/plans/memory/MEM-1A.md` —
+Iteration: 2026-09-26. Scope: `docs/plans/memory/MEM-1A.md` —
 wire the `bml/` library into the Vivy runtime as a T1 module (bounded recall,
 committed-experience ingest, explicit memory CRUD + status) and rewire the
 `vivy/memory` UI view from demo stubs to `module.action.invoke`. Executed as
@@ -46,4 +46,4 @@ T1–T4 all Approved; 2 fix rounds total.
 ## Next (not done here)
 
 MEM-2..5 remain Blocked on the gates named in
-`docs/superpowers/plans/memory/index.md`.
+`docs/plans/memory/index.md`.

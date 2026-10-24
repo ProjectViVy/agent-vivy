@@ -1,6 +1,6 @@
 # VCP C1 — session tree, clone, JSONL import, HTML export
 
-Story: `docs/superpowers/plans/vivy-code-parity/C1-session-tree-storage.md`
+Story: `docs/plans/vivy-code-parity/C1-session-tree-storage.md`
 
 ## What landed
 

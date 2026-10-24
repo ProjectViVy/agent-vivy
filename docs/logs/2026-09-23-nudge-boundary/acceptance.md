@@ -1,6 +1,6 @@
 # ND-3 acceptance
 
-Mapped against docs/plans/nudge/ND-3.md "Acceptance and handoff".
+Mapped against docs/archive/plans/nudge/ND-3.md "Acceptance and handoff".
 
 ## Required evidence
 

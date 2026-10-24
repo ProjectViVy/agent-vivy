@@ -5424,7 +5424,7 @@ func newRunID() domain.RunID {
 
 // checkpointIDFor derives the run's checkpoint id; it is stable for the
 // run's lifetime so a later ResumeWithParams finds the exact checkpoint
-// the interrupt wrote (docs/eino-capability-verify.md §2.2).
+// the interrupt wrote (docs/archive/eino-capability-verify.md §2.2).
 func checkpointIDFor(runID domain.RunID) string {
 	return "ckpt-" + string(runID)
 }

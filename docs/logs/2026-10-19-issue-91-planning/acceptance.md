@@ -1,6 +1,6 @@
 # Human review of the planning deliverable
 
-Open [the package index](../../superpowers/plans/issue-91/index.md), follow the
+Open [the package index](../../plans/issue-91/index.md), follow the
 shared design §10 and any Story. Each Story identifies concrete existing or
 proposed files, contracts, ordered checkboxes, verification commands, expected
 behavior and its stop condition. The index contains all 15 plans and owns their

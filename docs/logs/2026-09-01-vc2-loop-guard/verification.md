@@ -34,7 +34,7 @@ Date: 2026-09-01
 
 - `schemas/events/payloads/run.failed.json`: the cause_category enum adds
   `loop_detected` (wire contract).
-- `docs/AGENT-VIVY-ARCHITECTURE-V0.md` ADR-004: the category list is completed
+- `docs/archive/AGENT-VIVY-ARCHITECTURE-V0.md` ADR-004: the category list is completed
   (`human_timeout` was also missing and was corrected).
 - No UI change: `ui/src/lib/failure.ts` directly displays the bounded server
   message for non-`provider_error` categories, so `loop_detected` works

@@ -1,6 +1,6 @@
 package runtime
 
-// ND-4 (docs/plans/nudge/ND-4.md): integrated acceptance of the complete
+// ND-4 (docs/archive/plans/nudge/ND-4.md): integrated acceptance of the complete
 // failure → feedback → correction/nudge → bounded-stop contract in the
 // product path — real Service, Journal (sqlite), governed tools and the
 // production engine wiring (NewEngine: enhanced adapters, dynamic tool

@@ -1,6 +1,6 @@
 # G3 — TUI extras: search, prompt-jump, copy, editor, startup listing, OSC8, renderers
 
-Story: `docs/superpowers/plans/vivy-code-parity/G3-tui-extras.md`
+Story: `docs/plans/vivy-code-parity/G3-tui-extras.md`
 Commit: `feat(tui): transcript search, editor, renderers, startup listing`
 
 ## What shipped

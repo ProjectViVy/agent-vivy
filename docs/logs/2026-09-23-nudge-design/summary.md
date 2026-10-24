@@ -6,4 +6,4 @@ Delivered one detailed engineering design and five Story plans with exact owners
 
 Source inspection identified that the current stream barrier runs after the provider request starts, MCP IsError becomes plain text at ToolWorld, strict tool.finished schemas need coordinated changes, and the hard stop currently omits the sixth result event. ND-D1 addresses each explicitly. It chooses transient Eino WrapModel injection and typed internal MCP errors without new SDK fields.
 
-This is documentation only. No product code, schema, dependency, plugin, public API or existing runtime behavior changed. No automatic correction feature has shipped. The preliminary issue comment remains historical; NUDGE-DESIGN.md is the detailed contract and docs/plans/nudge/README.md owns readiness.
+This is documentation only. No product code, schema, dependency, plugin, public API or existing runtime behavior changed. No automatic correction feature has shipped. The preliminary issue comment remains historical; NUDGE-DESIGN.md is the detailed contract and docs/archive/plans/nudge/README.md owns readiness.

@@ -1,6 +1,6 @@
 # G2 — Configurable keybindings
 
-Story: `docs/superpowers/plans/vivy-code-parity/G2-keybindings.md`
+Story: `docs/plans/vivy-code-parity/G2-keybindings.md`
 Commit: `feat(tui): configurable keybindings`
 
 ## What shipped

@@ -32,7 +32,7 @@ This pre-design is not a claim that proposed interfaces exist. PG-0 must settle 
 Existing read/modify scope:
 - `docs/architecture/PLAN-GOAL-PREDESIGN.md`
 - `docs/plans/plan-goal/README.md`
-- `docs/eino-capability-verify.md`
+- `docs/archive/eino-capability-verify.md`
 - `internal/runtime/engine.go`
 - `internal/runtime/tooladapter.go`
 - `internal/storage/sqlite/history_mutations.go`

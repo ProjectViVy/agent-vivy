@@ -1,6 +1,6 @@
 # VCP E2 — Tool exposure levels + session activation
 
-Story: `docs/superpowers/plans/vivy-code-parity/E2-tool-exposure.md`
+Story: `docs/plans/vivy-code-parity/E2-tool-exposure.md`
 Commit message: `feat(tools): exposure levels with session activation`
 
 ## What landed

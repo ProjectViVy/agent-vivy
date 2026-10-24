@@ -33,7 +33,7 @@ IDs remain monotonic through CN-31.
   Assembly wiring are unchanged. Host, storage, conformance, and app wiring
   tests carry the new evidence.
 - Implementation plan:
-  `docs/superpowers/plans/2026-09-15-pr36-review-fixes.md`.
+  `docs/plans/2026-09-15-pr36-review-fixes.md`.
 - Eino capability check: not applicable. This change sequences Vivy-owned
   delivery-ledger state around the existing `Service.RunWithOptions` entry;
   it adds no model, agent-loop, tool-orchestration, or Eino adapter capability.

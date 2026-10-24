@@ -1711,7 +1711,7 @@ func userAssistantPairs(msgs []domain.Message) [][2]string {
 }
 
 // The second run of a session must carry the first turn's transcript:
-// without the feed every turn is stateless (docs/v1-minimal-agent-proposal.md §1).
+// without the feed every turn is stateless (docs/archive/v1-minimal-agent-proposal.md §1).
 func TestServiceFeedsSessionHistory(t *testing.T) {
 	cm := &capturingModel{}
 	svc, backend, _ := newTestService(t, cm)

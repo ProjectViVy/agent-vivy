@@ -38,7 +38,7 @@ This directory is the **decision and design dossier** for AGENT-VIVY V0. Impleme
 
 ## 3. Source artifacts in parent directories
 
-- `diva-go/agent-vivy/` — **implementation repo** (independent git repo, single Go module `agent-vivy`). Consumes Eino exclusively as online dependencies; `.workspace/eino/` below is a read-only API reference only. Holds `docs/IMPLEMENTATION-PLAN.md` (architecture translation) and `docs/TODO.md` (M0–M4 work breakdown).
+- `diva-go/agent-vivy/` — **implementation repo** (independent git repo, single Go module `agent-vivy`). Consumes Eino exclusively as online dependencies; `.workspace/eino/` below is a read-only API reference only. Holds `docs/archive/IMPLEMENTATION-PLAN.md` (architecture translation) and `docs/TODO.md` (M0–M4 work breakdown).
 - `diva-go/.workspace/` — vendored reference projects used by V0 design.
   - `crush/` — Go application-assembly patterns reference.
   - `eino/` — V0 execution framework (read-only reference; NOT imported by `agent-vivy`).

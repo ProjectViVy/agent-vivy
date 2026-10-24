@@ -1,6 +1,6 @@
 # ND-2 acceptance
 
-Plan: `docs/plans/nudge/ND-2.md` — "One bounded run-local detector
+Plan: `docs/archive/plans/nudge/ND-2.md` — "One bounded run-local detector
 observes typed outcomes and never loses the executed sixth call from the
 Journal." Scope: state, lifecycle, Journal payloads and schema
 compatibility; no model prompt injection.

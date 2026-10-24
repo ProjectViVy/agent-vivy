@@ -6,7 +6,7 @@
 - Worktree: /workspace/scratch/370b2dd4ebcc/agent-vivy-session
 - Branch: feat/issue-51-session-continuity
 - Final-fix base revision: 145d5d91c899b50278d29b888f587793452f210f
-- Story plan: docs/superpowers/plans/session-continuity/T2.md
+- Story plan: docs/plans/session-continuity/T2.md
 - Report to write: .superpowers/sdd/2026-09-21-session-continuity/t2-report.md
 - Required final-fix commit message: fix(storage): harden history metadata visibility
 

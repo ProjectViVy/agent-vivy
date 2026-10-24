@@ -2,8 +2,8 @@
 
 **Commit:** `feat(runtime): dual-track message queue with turn-boundary steering`
 **Depends on:** A3 (rpc mode), face.Options (A1)
-**Spec:** `docs/superpowers/specs/2026-10-06-vivy-code-parity-design.md` §5.2
-**Plan:** `docs/superpowers/plans/vivy-code-parity/B1-kernel-steering.md`
+**Spec:** `docs/specs/2026-10-06-vivy-code-parity-design.md` §5.2
+**Plan:** `docs/plans/vivy-code-parity/B1-kernel-steering.md`
 
 ## Eino capability check (mandatory first step)
 

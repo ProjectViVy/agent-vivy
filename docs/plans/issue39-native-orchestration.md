@@ -19,7 +19,7 @@ Current state (2026-09-26): provisional implementation for ORCH-02–07 is prese
 
 ## Scope
 ### Must have
-- Keep `docs/superpowers/plans/issue39-eino-orchestration/index.md` as the only Story-state/dependency authority and execute waves `{01}`, `{02}`, `{03,05}`, `{04,06}`, `{07}`, `{08}`.
+- Keep `docs/plans/issue39-eino-orchestration/index.md` as the only Story-state/dependency authority and execute waves `{01}`, `{02}`, `{03,05}`, `{04,06}`, `{07}`, `{08}`.
 - G0 must prove the real Service, policy, approval, budget, broker, Eino Workflow and checkpoint path before child or graph surfaces ship. The owner has authorized provisional branch implementation before that gate; implementation status does not change the G0 release gate.
 - Preserve the legacy synchronous one-shot agent tool; make DAG nodes one-shot by default; add a distinct explicit continuable mode with stable ChildSession identity.
 - Permit post-origin-Run continuation only from a new active Run in the same origin parent Session, with effective authority equal to current authority intersected with the immutable original ceiling.
@@ -96,7 +96,7 @@ These values were explicitly selected by the repository owner during the Issue #
 - [x] 1. Reconcile the execution baseline and isolate the write lane
   What to do / Must NOT do: Use `git-master` read-only inspection to record branch, HEAD, `origin/main`, worktree status, Eino pin, migrations, active Issue #39 comments and overlapping mask/worker/Service changes. Create or select a task-owned clean worktree for execution because the current root contains unrelated `.omo/.omc` operational state. Never reset, clean, stage or overwrite unrelated changes.
   Parallelization: Wave 0 | Blocked by: none | Blocks: 3,4
-  References: `AGENTS.md` Parallel lanes and Delivery; `docs/superpowers/plans/issue39-eino-orchestration/index.md:5-18,63-69`; `go.mod:3,13`; GitHub Issue #39 comments `5754140743`, `5754206830`, `5798636327`.
+  References: `AGENTS.md` Parallel lanes and Delivery; `docs/plans/issue39-eino-orchestration/index.md:5-18,63-69`; `go.mod:3,13`; GitHub Issue #39 comments `5754140743`, `5754206830`, `5798636327`.
   Acceptance criteria: evidence records `git status --short --branch`, `git rev-parse HEAD origin/main`, `git diff --check`, current migration tails, and confirms the chosen worktree has no unrelated tracked edits; all baseline drift is reconciled into todo 3 before code.
   QA scenarios: happy - exact baseline and isolated worktree recorded; failure - changed Eino pin, migration collision or overlapping active lane blocks execution with paths and owner. Use PowerShell/git; Evidence `<attemptDir>/task-1-issue39-native-orchestration.md`.
   Commit: N | preparation evidence only
@@ -114,7 +114,7 @@ These values were explicitly selected by the repository owner during the Issue #
   Resume note (2026-09-26): contract freeze commit b77090618c175c8c1dec3aeafcb3576d5d5e0b38 is independently confirmed, contains the 12 intended documentation paths, and is the base of the G0 worktree. Independent link traversal found 29 targets and 0 failures. At that point G0 remained open; Task 5 below retains the later historical NO-GO and records the approved recovery revision.
   What to do / Must NOT do: Update the architecture, index and ORCH-01–08 plans together. Close D4/D8/D10/D12/D14 using the exact values in this plan's Authoritative product decisions table, whose approval source is `.omo/drafts/issue39-native-orchestration.md`; specify origin parent Run, current authorizer Run, activation Run and ChildSession identities; define mailbox states and at-least-once/idempotent semantics; make direct messaging required; replace `WithMaxRunSteps` and `AddEnd` sketches with host finite limits and actual `End()` usage; change ORCH-08 acceptance to R1-R14; resolve disconnected-node validation as stated in this plan. Keep index as sole Story status DAG and ORCH-01 as the only execution-ready Story until G0 passes. Do not reinterpret or reopen the approved product decisions during execution.
   Parallelization: Wave 0 | Blocked by: 1,2 | Blocks: 4
-  References: `docs/superpowers/specs/2026-09-23-issue39-eino-orchestration-design.md:39-46,74-112,139-156`; `index.md:20-69`; all `ORCH-*.md`; local Eino `compose/graph.go:679-695,880-884`, `compose/graph_run.go:362-379`, `compose/workflow.go:164-209`; this plan Scope.
+  References: `docs/specs/2026-09-23-issue39-eino-orchestration-design.md:39-46,74-112,139-156`; `index.md:20-69`; all `ORCH-*.md`; local Eino `compose/graph.go:679-695,880-884`, `compose/graph_run.go:362-379`, `compose/workflow.go:164-209`; this plan Scope.
   Acceptance criteria: `rg` finds no active Issue39 instruction to use `WithMaxRunSteps`, `AddEnd`, optional mailbox delivery, open context/model choice, or R1-R7-only acceptance; Markdown links resolve; docs state planning approval does not bypass gates; `git diff --check` passes.
   QA scenarios: happy - decision table and all Story contracts agree; failure - any contradictory lifecycle, Eino API or acceptance statement fails a scripted doc assertion. Use `rg`, Node link checker and `git diff --check`; Evidence `<attemptDir>/task-3-issue39-native-orchestration.md`.
   Commit: Y | `docs(issue39): freeze native orchestration contracts`

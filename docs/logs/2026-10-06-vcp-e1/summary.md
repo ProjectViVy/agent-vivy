@@ -1,6 +1,6 @@
 # VCP-E1 — shell/fs tool upgrades
 
-Story: `docs/superpowers/plans/vivy-code-parity/E1-shell-tool-upgrade.md`
+Story: `docs/plans/vivy-code-parity/E1-shell-tool-upgrade.md`
 Scope: env injection, `shell_command_prefix`, `!!` no-context variant,
 oversized output spill-to-file. T1 internal edits only.
 

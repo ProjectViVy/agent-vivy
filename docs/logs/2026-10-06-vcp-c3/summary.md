@@ -1,6 +1,6 @@
 # VCP C3 — GUI session tree page and byte-verified export
 
-Story: `docs/superpowers/plans/vivy-code-parity/C3-gui-session.md`
+Story: `docs/plans/vivy-code-parity/C3-gui-session.md`
 
 ## What landed
 

@@ -1,6 +1,6 @@
 # Human review
 
-[The current index](../../superpowers/plans/issue-91/index.md) confirms that only
+[The current index](../../plans/issue-91/index.md) confirms that only
 the three named capabilities move to experimental selection. Shared C11 names
 proposed source paths, Module IDs, selected/unselected behavior and the exact
 current seam limitation. D04/D05 do not pretend those interfaces already exist.

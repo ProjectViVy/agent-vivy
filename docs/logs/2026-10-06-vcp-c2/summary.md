@@ -1,6 +1,6 @@
 # VCP C2 — TUI session tree and portability commands
 
-Story: `docs/superpowers/plans/vivy-code-parity/C2-tui-session-cmds.md`
+Story: `docs/plans/vivy-code-parity/C2-tui-session-cmds.md`
 
 ## What landed
 

@@ -1,6 +1,6 @@
 # G1 — Loadable JSON themes with auto light/dark
 
-Story: `docs/superpowers/plans/vivy-code-parity/g1-tui-themes.md`
+Story: `docs/plans/vivy-code-parity/g1-tui-themes.md`
 Commit: `feat(tui): loadable JSON themes with auto light/dark`
 
 ## What shipped

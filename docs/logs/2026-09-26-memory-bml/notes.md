@@ -1,6 +1,6 @@
 # MEM-1 iteration log — BML restoration as standalone Go library
 
-Date: 2026-09-26. Branch: `feat/memory`. Story: `docs/superpowers/plans/memory/MEM-1.md`.
+Date: 2026-09-26. Branch: `feat/memory`. Story: `docs/plans/memory/MEM-1.md`.
 
 ## Outcome
 
@@ -56,4 +56,4 @@ Final gate: `cd bml && gofmt -l . && go vet ./... && go test ./...` all clean.
 ## Next (not done here)
 
 MEM-1A — Vivy runtime wiring (Port/Module adapter for bml), gated on the
-G0 contract stories MEM-0B/0C/0D. See `docs/superpowers/plans/memory/index.md`.
+G0 contract stories MEM-0B/0C/0D. See `docs/plans/memory/index.md`.

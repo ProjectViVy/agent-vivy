@@ -179,7 +179,7 @@ func (factory *EngineFactory) Build(ctx context.Context, ts []tools.Tool, cfg En
 // tool-calling chat model and the resolved tool set. Domain models cross
 // the boundary via WrapModel at wiring time; native eino-ext components
 // are passed in directly. Streaming is always enabled; resume reuses the
-// mode persisted in the checkpoint (docs/eino-capability-verify.md 2.2).
+// mode persisted in the checkpoint (docs/archive/eino-capability-verify.md 2.2).
 // When cfg.Checkpoints is wired, the runner persists interrupt points
 // through the versioned blob bridge; a nil store keeps interrupts
 // non-resumable (eino skips persistence without a CheckPointStore).
@@ -557,7 +557,7 @@ func (e *Engine) Query(ctx context.Context, text string, opts ...adk.AgentRunOpt
 // transcript the service rebuilds from the message store (MA-1, ADR-009).
 // eino's TypedRunner.Query is exactly this call with a single fresh user
 // message, so the checkpoint/resume contract carries over unchanged
-// (docs/v1-minimal-agent-proposal.md §1).
+// (docs/archive/v1-minimal-agent-proposal.md §1).
 func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.AgenticMessage, opts ...adk.AgentRunOption) *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]] {
 	return e.runner.Run(ctx, msgs, opts...)
 }
@@ -565,7 +565,7 @@ func (e *Engine) RunHistory(ctx context.Context, msgs []*schema.AgenticMessage, 
 // Resume restarts a suspended run from its checkpoint, feeding the resume
 // payload (an approval, question answer, or Plan review decision) back to
 // the interrupted tool via params.Targets. The caller must pass the
-// checkpoint id used to start the run (docs/eino-capability-verify.md §2.2).
+// checkpoint id used to start the run (docs/archive/eino-capability-verify.md §2.2).
 func (e *Engine) Resume(ctx context.Context, checkpointID string, params *adk.ResumeParams, opts ...adk.AgentRunOption) (*adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]], error) {
 	return e.runner.ResumeWithParams(ctx, checkpointID, params, opts...)
 }

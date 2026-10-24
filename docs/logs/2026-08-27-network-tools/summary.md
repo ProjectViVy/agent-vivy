@@ -4,7 +4,7 @@
 
 Upgrade the `Settings → Network Tools` section from an 「Agent-Diva migration preview」
 (fake data: bocha/brave/zhipu, which did not exist in the backend) to a **real settings
-section**, exposing the [EINO native network tools](/docs/AGENT-VIVY-ARCHITECTURE-V0.md)
+section**, exposing the [EINO native network tools](/docs/archive/AGENT-VIVY-ARCHITECTURE-V0.md)
 already present in the Vivy runtime (`network_search`: bing/google/duckduckgo/searxng/
 wikipedia; `http_request`: read-only web fetching, with only the status surface implemented
 this round). Backend first, frontend second; per the user's request, **lay the foundation

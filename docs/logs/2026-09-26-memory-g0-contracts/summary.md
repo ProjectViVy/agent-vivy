@@ -12,7 +12,7 @@ landing on the repo trackers. Docs only; no code changed in this iteration.
 | MEM-0B | Memory capability profile: standardized capability bundle over existing Ports, trusted-scope/identity mapping | `docs/architecture/VIVY-MEMORY-PROFILE.md` |
 | MEM-0C | Host contracts closing GAP-A (persona projection) and GAP-B (completed-session export) | `docs/architecture/VIVY-MEMORY-HOST-CONTRACTS.md` |
 | MEM-0D | Mutation authority under Grants; Eino/EinoExt + Laputa readiness revalidation at pinned revisions | `docs/research/2026-09-26-memory-g0-readiness.md` |
-| MEM-0E | Tracker foldback: TODO/DEFER/OPEN-ITEMS stage rows, SCX cross-refs, this log | this directory + `docs/superpowers/plans/memory/index.md` |
+| MEM-0E | Tracker foldback: TODO/DEFER/OPEN-ITEMS stage rows, SCX cross-refs, this log | this directory + `docs/plans/memory/index.md` |
 
 MEM-1 landed earlier in the same phase: the standalone `bml/` Go module
 (record model, typed SQLite+FTS5 store, maintenance, `MemoryHome` facade,
@@ -35,7 +35,7 @@ on `feat/memory`. Its own iteration log already exists at
   the capability table's memory note.
 - `docs/architecture/SCX-ARCHITECTURE-DESIGN.md` §C: one-line pointer to the
   frozen profile.
-- `docs/superpowers/plans/memory/index.md`: Story-state column updated to the
+- `docs/plans/memory/index.md`: Story-state column updated to the
   landed reality (MEM-0A..0E Done, MEM-1 Done, MEM-1A Ready).
 
 ## Key rulings

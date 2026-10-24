@@ -8,13 +8,13 @@
 2. `docs/research/2026-10-19-baseline-a-reanchor.md` shows, per Story D00–D14,
    which 10-18 paths exist at baseline A and the disposition of every missing
    one; it also maps C1–C11 to the 10-07 tree.
-3. `docs/superpowers/plans/issue-91/index.md` states the baseline split: #91 is
+3. `docs/plans/issue-91/index.md` states the baseline split: #91 is
    the base cut (hash retirement, core contraction, seam) and the three retained
    packages are delivered by E-NUDGE/E-WARMING/E-STEERING.
 4. `D04` and `D05` are seam-only Stories: they no longer create
    `plugins/exp/*` or claim package parity; each links its epic and states the
    interim single-core behavior.
-5. The three epic packages exist under `docs/superpowers/plans/` with an index,
+5. The three epic packages exist under `docs/plans/` with an index,
    four Stories each, explicit shared gates (T1-only factory ports, Eino
    capability check, import quarantine, physical omission, no hash, no second
    path) and their own acceptance.

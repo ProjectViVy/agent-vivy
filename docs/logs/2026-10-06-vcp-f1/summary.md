@@ -1,6 +1,6 @@
 # VCP F1 — seven-level thinking with per-model policy
 
-Story: `docs/superpowers/plans/vivy-code-parity/F1-thinking-levels.md`
+Story: `docs/plans/vivy-code-parity/F1-thinking-levels.md`
 Plan commit message: `feat(model): seven-level thinking with per-model policy`
 
 ## What landed

@@ -2,7 +2,7 @@
 
 **Commit:** `feat(vivy-code): rpc subprocess mode`
 **Depends on:** A1 (flags/face.Options), A2 (facerun + JSONLSink projection)
-**Spec:** `docs/superpowers/specs/2026-10-06-vivy-code-parity-design.md` §5.3
+**Spec:** `docs/specs/2026-10-06-vivy-code-parity-design.md` §5.3
 
 ## What landed
 

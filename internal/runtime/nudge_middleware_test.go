@@ -1,6 +1,6 @@
 package runtime
 
-// ND-3 (docs/plans/nudge/ND-3.md): the production boundary middleware
+// ND-3 (docs/archive/plans/nudge/ND-3.md): the production boundary middleware
 // end-to-end through Service/Engine with the real nudgeState, plus the
 // unit-level prepare/template contracts from NUDGE-DESIGN §6/§7.
 

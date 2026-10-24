@@ -74,7 +74,7 @@ removed.
 - `README.md`, `docs/dev/real-provider-smoke.md` (rewritten as a DeepSeek
   runbook with the original M4 report preserved as archived history),
   `docs/research/prd-agent-vivy-v0.md` (v0.6 revision note superseding the
-  provider counts in D-018/D-022/D-023), `docs/IMPLEMENTATION-PLAN.md` §4.2,
+  provider counts in D-018/D-022/D-023), `docs/archive/IMPLEMENTATION-PLAN.md` §4.2,
   `schemas/providers.bundle.schema.json`,
   `schemas/events/payloads/run.started.json`.
 - `docs/TODO.md` §0.1 — two new entries: `DEEPSEEK-REASONING-CONTENT` (the

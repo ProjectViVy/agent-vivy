@@ -1,6 +1,6 @@
 # VCP D1 — Compaction instructions, per-model overrides, file manifest
 
-Story: `docs/superpowers/plans/vivy-code-parity/D1-compaction-instructions.md`
+Story: `docs/plans/vivy-code-parity/D1-compaction-instructions.md`
 
 ## What landed
 

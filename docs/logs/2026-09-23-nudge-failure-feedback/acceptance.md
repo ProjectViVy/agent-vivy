@@ -1,4 +1,4 @@
-# ND-1 acceptance mapping (docs/plans/nudge/ND-1.md)
+# ND-1 acceptance mapping (docs/archive/plans/nudge/ND-1.md)
 
 | Plan requirement | Where it lands | Status |
 |---|---|---|

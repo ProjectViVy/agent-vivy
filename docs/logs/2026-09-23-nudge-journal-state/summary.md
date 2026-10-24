@@ -1,6 +1,6 @@
 # ND-2 — bounded run-local nudge detector over durable outcomes
 
-Iteration: `docs/plans/nudge/ND-2.md`, issue #58 (agent error correction).
+Iteration: `docs/archive/plans/nudge/ND-2.md`, issue #58 (agent error correction).
 
 ## What changed
 

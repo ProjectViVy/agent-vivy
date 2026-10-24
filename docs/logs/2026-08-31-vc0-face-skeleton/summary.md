@@ -32,7 +32,7 @@ assembly skeleton and code-face prompt framing; it does not change the tool surf
   - `ui/src/lib/store.ts` / `ui/src/components/chat/ChatView.tsx`: startRun,
     preflight, pending resume, and regeneration all carry the current mask's face.
   - i18n: the programmer mask's capability list adds "Runs with the code face".
-- Contract documentation: `docs/dev/NEW_UI_ARCHITECTURE.md` synchronizes the Face type and preflight fields.
+- Contract documentation: `docs/archive/dev/NEW_UI_ARCHITECTURE.md` synchronizes the Face type and preflight fields.
 
 ## Design trade-offs
 

@@ -126,7 +126,7 @@ fallback; incomplete Chinese may compile only with visible
 inputs, while runtime locale selection is not.
 
 The approved decision record is
-`docs/superpowers/specs/2026-09-09-plugin-i18n-contract-freeze-design.md`.
+`docs/specs/2026-09-09-plugin-i18n-contract-freeze-design.md`.
 The normative sources remain `VIVY-MODULE-STANDARD.md`,
 `VIVY-PORT-CATALOG.md`, `VIVY-PLUGIN-SPEC.md`, and `VIVY-ASSEMBLY.md`.
 

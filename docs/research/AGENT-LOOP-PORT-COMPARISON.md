@@ -593,7 +593,7 @@ normal path; the summary model uses a scripted model with fixed output). Verific
 
 ### Decision Anchors
 
-- `docs/v1-minimal-agent-proposal.md` — MA-1..MA-4, D-007 isolation
+- `docs/archive/v1-minimal-agent-proposal.md` — MA-1..MA-4, D-007 isolation
 - `docs/architecture/VIVY-ASSEMBLY.md` — loop as a first-class assembly unit, factory default eino
 - `docs/architecture/SELF-EVOLVING-GATEWAY.md` — loop direction (builtin | generation)
 - `docs/research/DSH-VS-AGENT-VIVY-CAPABILITY-GAP.md` — style and evidence conventions from the previous comparison

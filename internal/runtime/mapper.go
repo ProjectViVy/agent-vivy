@@ -34,7 +34,7 @@ const defaultProviderStallThreshold = 15 * time.Second
 // resume an interrupted tool call (C6 / PG-0).
 type interruptDetails struct {
 	// ResumeTarget is the root-cause interrupt id: the key ResumeWithParams
-	// targets (docs/eino-capability-verify.md §2.4).
+	// targets (docs/archive/eino-capability-verify.md §2.4).
 	ResumeTarget string
 	// Raw is the engine interrupt info; steer resume walks its context
 	// chain for the agent-level resume target.

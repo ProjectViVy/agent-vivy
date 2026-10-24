@@ -356,7 +356,7 @@ network_search · tool_search
 ### agent-vivy (relative to repository root)
 
 - Positioning/philosophy: `prd-agent-vivy-v0.md:76-141`; `AGENT-VIVY-DIRECTION.md`
-- Architecture/ADRs: `docs/AGENT-VIVY-ARCHITECTURE-V0.md` (ADR-001..018)
+- Architecture/ADRs: `docs/archive/AGENT-VIVY-ARCHITECTURE-V0.md` (ADR-001..018)
 - Worldview/Studio: `docs/architecture/VIVY-WORLDVIEW.md`,
   `VIVY-STUDIO.md`, `SELF-EVOLVING-GATEWAY.md`, `VIVY-GATEWAY-AND-STUDIO.md`
 - Assembly/plugins: `VIVY-ASSEMBLY.md`, `VIVY-PLUGIN-SPEC.md`, `sdk/plugin/plugin.go`,
@@ -371,5 +371,5 @@ network_search · tool_search
 - Worker: `internal/worker/supervisor.go`, `server.go`; `internal/app/worker.go`
 - Studio: `cmd/vivy-studio/main.go`, `internal/studiocore/service.go`,
   `internal/eval/*`
-- Roadmap/catalog: `docs/GOAL-AGENT-HARNESS-ROADMAP.md`, `docs/IMPLEMENTATION-PLAN.md`,
+- Roadmap/catalog: `docs/archive/GOAL-AGENT-HARNESS-ROADMAP.md`, `docs/archive/IMPLEMENTATION-PLAN.md`,
   `docs/TODO.md`

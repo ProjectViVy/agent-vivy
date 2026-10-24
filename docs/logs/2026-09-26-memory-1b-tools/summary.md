@@ -1,6 +1,6 @@
 # MEM-1B — Agent-facing memory_* tools + MEM-1A defect fixes
 
-Iteration: 2026-09-26. Scope: `docs/superpowers/plans/memory/MEM-1B.md` —
+Iteration: 2026-09-26. Scope: `docs/plans/memory/MEM-1B.md` —
 expose the BML store to the agent itself as six `std/tool@v1` providers
 under a third catalog record `vivy/memory-bml-tools`, and land the six
 cheap defect fixes from the MEM-1A whole-branch review in the same pass.
@@ -66,4 +66,4 @@ independently reviewed; one fix round.
 ## Next (not done here)
 
 MEM-2..5 remain Blocked on the gates named in
-`docs/superpowers/plans/memory/index.md`.
+`docs/plans/memory/index.md`.

@@ -3,7 +3,7 @@
 Date: 2026-10-19; scope refreshed 2026-10-20
 
 Authority: [shared deletion design](2026-10-19-complete-deletion-plan.md) and
-[#91 planning index](../superpowers/plans/issue-91/index.md). This supplement
+[#91 planning index](../plans/issue-91/index.md). This supplement
 clarifies sequencing and handoff; it does not authorize implementation, change
 product scope, replace technical contracts or certify any behavior.
 
@@ -61,9 +61,9 @@ released-migration rewrites are authorized.
 
 ## Phase B: Extract retained first-party plugins
 
-[E-NUDGE](../superpowers/plans/epic-nudge/index.md),
-[E-WARMING](../superpowers/plans/epic-warming/index.md) and
-[E-STEERING](../superpowers/plans/epic-steering/index.md) remain the component
+[E-NUDGE](../plans/epic-nudge/index.md),
+[E-WARMING](../plans/epic-warming/index.md) and
+[E-STEERING](../plans/epic-steering/index.md) remain the component
 tracks under #93. The owner revised their direction on 2026-10-20: keep the
 three behaviors on the current stable line and require ordinary first-party
 pluginization later. Do not move them into `plugins/exp/` or apply the former
@@ -96,7 +96,7 @@ Each proposed batch records a small handoff in the existing issue/PR:
   pending, not inherited from an old merge.
 - Failure/rollback boundary and explicit next batch or blocker.
 
-[D07](../superpowers/plans/issue-91/D07.md) is the explanatory release/consent
+[D07](../plans/issue-91/D07.md) is the explanatory release/consent
 checkpoint for the later bundle/toolkit batch. It has no baseline implementation,
 converter fragment, DAG edge or wave slot. That batch must resolve owned
 release identity, fresh executable consent, conversion and recovery before it

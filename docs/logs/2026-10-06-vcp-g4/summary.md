@@ -1,6 +1,6 @@
 # G4 — Inline terminal images — summary
 
-**Story:** `docs/superpowers/plans/vivy-code-parity/G4-inline-images.md`
+**Story:** `docs/plans/vivy-code-parity/G4-inline-images.md`
 **Commit:** `feat(tui): inline image display for supporting terminals`
 
 ## What landed
