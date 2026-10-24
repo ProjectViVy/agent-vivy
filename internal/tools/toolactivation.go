@@ -89,8 +89,12 @@ func ToolActivationFromContext(ctx context.Context) *ToolActivation {
 // The names are product surface, not a search catalog: only tools that are
 // actually enabled are included by the engine. Everything else active is
 // supplied to the dynamic tool-search layer.
+//
+// agent is core: delegation is a first-class capability the model must see
+// without first searching, otherwise it cannot answer whether it can delegate.
 var fixedVisibleToolNames = map[string]struct{}{
 	AskUserName:     {},
+	AgentName:       {},
 	ListDirName:     {},
 	ReadFileName:    {},
 	SearchFilesName: {},
