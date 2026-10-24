@@ -2263,3 +2263,103 @@ func TestContinuityAdmissionWorkspaceRollback(t *testing.T) {
 		t.Fatalf("uncertain admission left %d workspace entries, want preserved 1", got)
 	}
 }
+
+type statusErrorModel struct{ err error }
+
+func (m statusErrorModel) Stream(context.Context, []*domain.Message) (domain.Stream[*domain.Message], error) {
+	return nil, m.err
+}
+
+// A provider failure carries an HTTP status; the terminal event tells the user
+// which side of the request the failure belongs to instead of always blaming
+// the provider configuration.
+func TestServiceRunFailedProviderHTTPStatus(t *testing.T) {
+	cases := []struct {
+		name         string
+		err          error
+		wantCategory string
+		wantContains string
+		wantAbsent   string
+	}{
+		{
+			name:         "400 request shape",
+			err:          errors.New("error, status code: 400, status: 400 Bad Request, body: {\"error\":\"tool call result does not follow tool call (2013)\"}"),
+			wantCategory: causeInternalError,
+			wantContains: "HTTP 400",
+			wantAbsent:   providerUnavailableMessage,
+		},
+		{
+			name:         "401 rejected key",
+			err:          errors.New("error, status code: 401, status: 401 Unauthorized"),
+			wantCategory: causeProviderError,
+			wantContains: "API key missing",
+			wantAbsent:   providerUnavailableMessage,
+		},
+		{
+			name:         "429 rate limit",
+			err:          errors.New("error, status code: 429, status: 429 Too Many Requests"),
+			wantCategory: causeProviderError,
+			wantContains: "HTTP 429",
+			wantAbsent:   providerUnavailableMessage,
+		},
+		{
+			name:         "500 unavailable",
+			err:          errors.New("error, status code: 500, status: 500 Internal Server Error"),
+			wantCategory: causeProviderError,
+			wantContains: "HTTP 500",
+			wantAbsent:   providerUnavailableMessage,
+		},
+		{
+			name:         "transport keeps the configuration hint",
+			err:          errors.New("model stream recv: dial tcp 127.0.0.1:9999: connect: connection refused"),
+			wantCategory: causeProviderError,
+			wantContains: providerUnavailableMessage,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			svc, backend, _ := newTestService(t, statusErrorModel{err: test.err})
+			mustCreateSession(t, backend, "sess-1")
+			runID, err := svc.Run(context.Background(), "sess-1", "hello")
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			waitForRunStatus(t, backend, runID, domain.RunFailed)
+			events := replayAll(t, backend, runID)
+			last := events[len(events)-1]
+			if last.Type != domain.EventRunFailed {
+				t.Fatalf("last event = %s, want run.failed", last.Type)
+			}
+			category, message := payloadFailureOf(t, last.Payload)
+			if category != test.wantCategory {
+				t.Fatalf("cause category = %q, want %q (message %q)", category, test.wantCategory, message)
+			}
+			if !strings.Contains(message, test.wantContains) {
+				t.Fatalf("failure message = %q, want it to contain %q", message, test.wantContains)
+			}
+			if test.wantAbsent != "" && strings.Contains(message, test.wantAbsent) {
+				t.Fatalf("failure message = %q, must not contain %q", message, test.wantAbsent)
+			}
+		})
+	}
+}
+
+// A child run uses the same status split so the parent sees the same cause.
+func TestTerminalEventChildProviderHTTPStatus(t *testing.T) {
+	mapper := newEventMapper("run-child", 0)
+	event := (&Service{}).terminalEvent(
+		withChildTerminal(context.Background()),
+		mapper,
+		errors.New("error, status code: 400, status: 400 Bad Request"),
+	)
+	if event.Type != domain.EventChildFailed {
+		t.Fatalf("event type = %s, want child.failed", event.Type)
+	}
+	category, message := payloadFailureOf(t, event.Payload)
+	if category != causeInternalError {
+		t.Fatalf("cause category = %q, want %q", category, causeInternalError)
+	}
+	if !strings.Contains(message, "HTTP 400") {
+		t.Fatalf("child failure message = %q, want it to name HTTP 400", message)
+	}
+}

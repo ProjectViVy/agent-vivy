@@ -9,7 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -5025,7 +5028,10 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			return m.build(domain.EventChildCancelled, map[string]any{"reason": reasonUserRequested})
 		}
 		message := "The child task could not be completed. Please retry."
-		if providerMessage, ok := keyMissingMessage(cause); ok {
+		category := causeCategoryOf(cause)
+		if statusCategory, statusMessage, ok := providerHTTPFailure(cause); ok {
+			category, message = statusCategory, statusMessage
+		} else if providerMessage, ok := keyMissingMessage(cause); ok {
 			message = providerMessage
 		} else if isProviderTransportError(cause) {
 			message = providerUnavailableMessage
@@ -5035,7 +5041,7 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			message = "The child task context exceeds the configured limit."
 		}
 		return m.build(domain.EventChildFailed, map[string]any{
-			"cause_category": causeCategoryOf(cause), "message": message,
+			"cause_category": category, "message": message,
 		})
 	}
 	var ce *adk.CancelError
@@ -5082,7 +5088,9 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 	slog.Warn("run failed", "run", string(m.runID), "err", cause)
 	category := causeCategoryOf(cause)
 	message := "The model run could not be completed. Please try again."
-	if category == causeProviderError {
+	if statusCategory, statusMessage, ok := providerHTTPFailure(cause); ok {
+		category, message = statusCategory, statusMessage
+	} else if category == causeProviderError {
 		message = providerUnavailableMessage
 	}
 	return m.build(domain.EventRunFailed, payloadRunFailed{
@@ -5128,6 +5136,48 @@ func keyMissingMessage(err error) (string, bool) {
 		return "API key missing: configure a model API key in the welcome wizard or Settings → Model.", true
 	}
 	return "", false
+}
+
+// providerStatusPattern reads the HTTP status the Eino OpenAI adapter embeds
+// in its error text ("error, status code: 400, status: ...").
+var providerStatusPattern = regexp.MustCompile(`(?i)status code: (\d{3})`)
+
+// providerStatus reports the HTTP status a provider failure carries, if any.
+func providerStatus(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	match := providerStatusPattern.FindStringSubmatch(err.Error())
+	if match == nil {
+		return 0, false
+	}
+	status, convErr := strconv.Atoi(match[1])
+	if convErr != nil {
+		return 0, false
+	}
+	return status, true
+}
+
+// providerHTTPFailure splits provider failures by HTTP status so the user is
+// told what actually went wrong. A 4xx caused by our own request shape is an
+// internal error, not a configuration problem; only transport failures leave
+// with providerUnavailableMessage.
+func providerHTTPFailure(err error) (category, message string, ok bool) {
+	status, ok := providerStatus(err)
+	if !ok {
+		return "", "", false
+	}
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return causeProviderError, fmt.Sprintf("API key missing or rejected by the model provider (HTTP %d). Update it in Settings → Model.", status), true
+	case status == http.StatusTooManyRequests:
+		return causeProviderError, fmt.Sprintf("模型服务触发限流（HTTP %d），请稍后重试。", status), true
+	case status >= http.StatusInternalServerError:
+		return causeProviderError, fmt.Sprintf("模型服务暂时不可用（HTTP %d），请稍后重试。", status), true
+	case status >= http.StatusBadRequest:
+		return causeInternalError, fmt.Sprintf("模型服务拒绝了本次请求（HTTP %d）。请新建会话后重试；若仍出现，请附运行日志反馈。", status), true
+	}
+	return "", "", false
 }
 
 // providerTransportMarkers recognize transport-level provider failures

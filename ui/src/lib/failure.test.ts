@@ -43,11 +43,33 @@ describe('classifyFailure', () => {
     expect(classifyFailureMessage('The model service could not be reached.').kind).toBe('provider');
     expect(classifyFailureMessage('Vivy control plane disconnected').kind).toBe('control_plane');
   });
+
+  it('keeps the backend status split as the provider detail', () => {
+    const rejected = classifyFailureMessage(
+      '模型服务拒绝了本次请求（HTTP 400）。请新建会话后重试；若仍出现，请附运行日志反馈。',
+    );
+    expect(rejected.kind).toBe('provider');
+    expect(rejected.detail).toContain('HTTP 400');
+    expect(rejected.hintKey).toBeUndefined();
+
+    expect(classifyFailureMessage('模型服务暂时不可用（HTTP 500），请稍后重试。').kind).toBe('provider');
+    expect(classifyFailureMessage('模型服务触发限流（HTTP 429），请稍后重试。').detail).toContain('HTTP 429');
+  });
+
+  it('routes an HTTP 401 message to model settings', () => {
+    const failure = classifyFailureMessage(
+      'API key missing or rejected by the model provider (HTTP 401). Update it in Settings → Model.',
+    );
+    expect(failure.kind).toBe('api_key');
+    expect(failure.action).toBe('open_model_settings');
+  });
 });
 
 describe('runFailedMessage', () => {
-  it('reads the structured run.failed payload and ignores empty values', () => {
-    expect(runFailedMessage({ cause_category: 'provider_error', message: '  key missing  ' })).toBe('Unable to connect! Check your provider configuration!');
+  it('prefers the backend message and falls back to the provider detail', () => {
+    expect(runFailedMessage({ cause_category: 'provider_error', message: '  key missing  ' })).toBe('key missing');
+    expect(runFailedMessage({ cause_category: 'provider_error' })).toBe('Unable to connect! Check your provider configuration!');
+    expect(runFailedMessage({ cause_category: 'provider_error', message: '   ' })).toBe('Unable to connect! Check your provider configuration!');
     expect(runFailedMessage({ cause_category: 'internal_error' })).toBeNull();
     expect(runFailedMessage(undefined)).toBeNull();
   });

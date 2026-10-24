@@ -201,7 +201,8 @@ func feedableMessages(stored []domain.Message) []domain.Message {
 }
 
 // pairToolTurns drops assistant tool-call rows without a matching tool
-// result in the same window, and tool results without a matching call.
+// result in the same window and tool results without a matching call, then
+// restores call/result adjacency.
 func pairToolTurns(in []domain.Message) []domain.Message {
 	haveResult := make(map[string]bool)
 	haveCall := make(map[string]bool)
@@ -216,10 +217,10 @@ func pairToolTurns(in []domain.Message) []domain.Message {
 			haveCall[msg.ToolCallID] = true
 		}
 	}
-	out := make([]domain.Message, 0, len(in))
+	paired := make([]domain.Message, 0, len(in))
 	for _, msg := range in {
 		if msg.ToolCallID == "" {
-			out = append(out, msg)
+			paired = append(paired, msg)
 			continue
 		}
 		if msg.Role == domain.RoleAssistant && !haveResult[msg.ToolCallID] {
@@ -228,9 +229,40 @@ func pairToolTurns(in []domain.Message) []domain.Message {
 		if msg.Role == domain.RoleTool && !haveCall[msg.ToolCallID] {
 			continue
 		}
-		out = append(out, msg)
+		paired = append(paired, msg)
 	}
-	return out
+	return stabilizeToolTurns(paired)
+}
+
+// stabilizeToolTurns defers user rows that landed inside an open tool-call
+// group (a mid-run steer is persisted as it arrives) until that group's results
+// are emitted. Providers reject a tool result that does not immediately follow
+// its call, so calls and results stay adjacent; no row is dropped here.
+func stabilizeToolTurns(in []domain.Message) []domain.Message {
+	out := make([]domain.Message, 0, len(in))
+	var deferred []domain.Message
+	open := 0
+	for _, msg := range in {
+		switch {
+		case msg.Role == domain.RoleAssistant && msg.ToolCallID != "":
+			open++
+			out = append(out, msg)
+		case msg.Role == domain.RoleTool && msg.ToolCallID != "":
+			out = append(out, msg)
+			if open > 0 {
+				open--
+			}
+			if open == 0 && len(deferred) > 0 {
+				out = append(out, deferred...)
+				deferred = deferred[:0]
+			}
+		case msg.Role == domain.RoleUser && open > 0:
+			deferred = append(deferred, msg)
+		default:
+			out = append(out, msg)
+		}
+	}
+	return append(out, deferred...)
 }
 
 func projectFeed(msgs []domain.Message) []*schema.AgenticMessage {

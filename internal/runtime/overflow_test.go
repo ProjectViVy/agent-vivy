@@ -353,3 +353,48 @@ func TestIsEmptyLengthStop(t *testing.T) {
 		t.Errorf("nil message should not trigger recovery")
 	}
 }
+
+// The overflow retry tail keeps a steer that was persisted inside an open tool
+// call group after that group's results, so the retry does not repeat the
+// provider's "tool result does not follow tool call" rejection.
+func TestCompactForOverflowStabilizesPendingToolGroups(t *testing.T) {
+	m := &overflowScriptedModel{response: testAssistant("ok")}
+	svc, backend := newOverflowService(t, m)
+	ctx := context.Background()
+	const sessionID domain.SessionID = "sess-overflow-tail"
+	mustCreateSession(t, backend, sessionID)
+	appendMessage := func(msg domain.Message) {
+		t.Helper()
+		msg.SessionID = sessionID
+		if err := backend.AppendMessage(ctx, msg); err != nil {
+			t.Fatalf("append message: %v", err)
+		}
+	}
+	appendMessage(domain.Message{ID: "m1", RunID: "seed-run", Role: domain.RoleUser, Content: "old", CreatedAt: 1})
+	appendMessage(domain.Message{ID: "m2", RunID: "seed-run", Role: domain.RoleAssistant, Content: "old answer", CreatedAt: 2})
+	appendMessage(domain.Message{ID: "m3", RunID: "seed-run", Role: domain.RoleUser, Content: "kept", CreatedAt: 3})
+	appendMessage(domain.Message{ID: "m4", RunID: "run-live", Role: domain.RoleUser, Content: "task", CreatedAt: 4})
+	appendMessage(domain.Message{ID: "m5", RunID: "run-live", Role: domain.RoleAssistant, ToolCallID: "t1", ToolName: tools.EchoInfoName, ToolArgs: []byte(`{}`), CreatedAt: 5})
+	appendMessage(domain.Message{ID: "m6", RunID: "run-live", Role: domain.RoleUser, Content: "steer", CreatedAt: 6})
+	appendMessage(domain.Message{ID: "m7", RunID: "run-live", Role: domain.RoleTool, ToolCallID: "t1", ToolName: tools.EchoInfoName, Content: "one", CreatedAt: 7})
+
+	rec, tail, err := svc.compactForOverflow(ctx, sessionID, "run-live")
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("no compaction record produced")
+	}
+	if len(tail) != 5 {
+		t.Fatalf("tail messages = %d, want kept row + task + call + result + steer: %+v", len(tail), tail)
+	}
+	if calls := agenticToolCalls(tail[2]); len(calls) != 1 || calls[0].CallID != "t1" {
+		t.Fatalf("tail[2] = %+v, want the pending tool call", tail[2])
+	}
+	if results := agenticToolResults(tail[3]); len(results) != 1 || results[0].CallID != "t1" {
+		t.Fatalf("tail[3] = %+v, want the tool result immediately after its call", tail[3])
+	}
+	if got := agenticMessageText(tail[4]); got != "steer" {
+		t.Fatalf("tail[4] = %q, want the deferred steer", got)
+	}
+}

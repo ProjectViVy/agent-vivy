@@ -354,3 +354,130 @@ func (t *countingTool) InvokableRun(context.Context, json.RawMessage) (string, e
 	t.calls++
 	return "called", nil
 }
+
+// An unapprovable proposal is a per-call refusal, not a suspended run: the
+// model is told why the call did not run and can correct the arguments.
+func TestToolAdapterPreflightArgErrorRefusesInsteadOfSuspending(t *testing.T) {
+	tool := &proposalStubTool{
+		spec:       effectfulProposalSpec("staged_write"),
+		prepareErr: &tools.ArgError{Field: "cwd", Reason: "must stay inside the run workspace"},
+	}
+	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	result, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`)
+	if err != nil {
+		t.Fatalf("unpreparable proposal failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "must stay inside the run workspace") {
+		t.Fatalf("refusal result = %q", result)
+	}
+	if tool.prepareCalls != 1 || tool.invocations != 0 {
+		t.Fatalf("prepare calls = %d, invocations = %d, want 1/0", tool.prepareCalls, tool.invocations)
+	}
+}
+
+// A provider that stages state implements PreflightProposal so the pre-check
+// never stages twice; PrepareProposal must not be consulted.
+func TestToolAdapterPreflightCapabilitySkipsPrepare(t *testing.T) {
+	tool := &preflightStubTool{
+		proposalStubTool: proposalStubTool{
+			spec:       effectfulProposalSpec("skill_manage"),
+			prepareErr: errors.New("prepare must not run during preflight"),
+		},
+		preflightErr: &tools.ArgError{Field: "name", Reason: "is required"},
+	}
+	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	result, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`)
+	if err != nil {
+		t.Fatalf("unpreparable proposal failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") {
+		t.Fatalf("refusal result = %q", result)
+	}
+	if tool.prepareCalls != 0 || tool.preflightCalls != 1 {
+		t.Fatalf("prepare calls = %d, preflight calls = %d, want 0/1", tool.prepareCalls, tool.preflightCalls)
+	}
+	if tool.invocations != 0 {
+		t.Fatalf("refused tool invocations = %d, want 0", tool.invocations)
+	}
+}
+
+// A sandbox denial raised while preparing the proposal keeps the policy
+// classification so the run inspector shows a governance refusal.
+func TestToolAdapterPreflightSandboxDenialRefusesAsPolicyDenied(t *testing.T) {
+	tool := &preflightStubTool{
+		proposalStubTool: proposalStubTool{spec: effectfulProposalSpec("staged_write")},
+		preflightErr:     fmt.Errorf("%w: cwd symlink escapes the run workspace", ErrSandboxDenied),
+	}
+	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	err := adapter.preflightToolProposal(context.Background(), json.RawMessage(`{"value":"draft"}`))
+	refusal, ok := asToolRefusal(err)
+	if !ok {
+		t.Fatalf("preflight denial = %v, want a tool refusal", err)
+	}
+	if refusal.classification != toolFailureReasonPolicyDenied {
+		t.Fatalf("refusal classification = %q, want %q", refusal.classification, toolFailureReasonPolicyDenied)
+	}
+	result, runErr := adapter.InvokableRun(context.Background(), `{"value":"draft"}`)
+	if runErr != nil {
+		t.Fatalf("preflight denial failed the run: %v", runErr)
+	}
+	if !strings.Contains(result, "did not run") {
+		t.Fatalf("refusal result = %q", result)
+	}
+}
+
+// A wiring failure is not something the model can correct: it stays fatal so
+// the defect is visible instead of becoming a plausible-looking refusal.
+func TestToolAdapterPreflightWiringFailureStaysRunFatal(t *testing.T) {
+	tool := &proposalStubTool{
+		spec:       effectfulProposalSpec("staged_write"),
+		prepareErr: errors.New("tools: skills backend not wired"),
+	}
+	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	if _, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`); err == nil || !strings.Contains(err.Error(), "backend not wired") {
+		t.Fatalf("wiring failure = %v, want the original run-fatal error", err)
+	}
+	if tool.invocations != 0 {
+		t.Fatalf("failed preflight invocations = %d, want 0", tool.invocations)
+	}
+}
+
+func effectfulProposalSpec(name string) domain.ToolSpec {
+	return domain.ToolSpec{
+		Name:     name,
+		Readonly: false,
+		Params: map[string]domain.ToolParam{
+			"value": {Required: true},
+		},
+	}
+}
+
+type proposalStubTool struct {
+	spec         domain.ToolSpec
+	prepareCalls int
+	invocations  int
+	prepareErr   error
+}
+
+func (t *proposalStubTool) Spec() domain.ToolSpec { return t.spec }
+
+func (t *proposalStubTool) InvokableRun(context.Context, json.RawMessage) (string, error) {
+	t.invocations++
+	return "ran", nil
+}
+
+func (t *proposalStubTool) PrepareProposal(context.Context, json.RawMessage) (domain.ToolProposal, error) {
+	t.prepareCalls++
+	return domain.ToolProposal{}, t.prepareErr
+}
+
+type preflightStubTool struct {
+	proposalStubTool
+	preflightCalls int
+	preflightErr   error
+}
+
+func (t *preflightStubTool) PreflightProposal(context.Context, json.RawMessage) error {
+	t.preflightCalls++
+	return t.preflightErr
+}

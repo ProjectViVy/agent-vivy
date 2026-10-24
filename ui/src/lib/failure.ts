@@ -38,9 +38,7 @@ const CONTROL_PLANE_MARKERS = [
 ] as const;
 
 const API_KEY_MARKERS = [
-  'api key missing',
-  'api key is missing',
-  'missing api key',
+  'api key',
   '密钥未配置',
   '没有可用的 api key',
 ] as const;
@@ -51,6 +49,13 @@ const PROVIDER_MARKERS = [
   'model service',
   'model provider',
   '无法连接！请检查供应商配置！',
+] as const;
+
+// 后端按 HTTP 状态细分的 model 服务失败文案（已是用户可读中文）。
+const STATUS_PROVIDER_MARKERS = [
+  '模型服务暂时不可用',
+  '模型服务拒绝',
+  '模型服务触发限流',
 ] as const;
 
 export function classifyFailure(error: unknown): ClassifiedFailure {
@@ -76,6 +81,15 @@ export function classifyFailureMessage(raw: string): ClassifiedFailure {
       titleKey: 'errors.controlPlaneTitle',
       detail: t('errors.controlPlaneUnreachable'),
       action: 'retry',
+    };
+  }
+
+  if (includesAny(message, STATUS_PROVIDER_MARKERS)) {
+    return {
+      kind: 'provider',
+      titleKey: 'errors.providerTitle',
+      detail: message,
+      action: 'none',
     };
   }
 
@@ -108,8 +122,8 @@ export function classifyFailureMessage(raw: string): ClassifiedFailure {
 }
 
 export function runFailedMessage(payload: Record<string, unknown> | undefined): string | null {
-  if (payload?.cause_category === 'provider_error') return t('errors.providerDetail');
   const message = payload?.message;
   if (typeof message === 'string' && message.trim()) return message.trim();
+  if (payload?.cause_category === 'provider_error') return t('errors.providerDetail');
   return null;
 }
