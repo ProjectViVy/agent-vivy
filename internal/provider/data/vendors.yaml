@@ -22,6 +22,7 @@
           context_window: 1000000
           input_per_mtok: 1.32
           output_per_mtok: 3.96
+          supports_images: false
           supports_thinking: true
         - id: deepseek-v4-flash
           context_window: 1000000
@@ -30,8 +31,11 @@
           supports_images: true
           supports_thinking: true
         - id: deepseek-chat
+          supports_images: false
         - id: deepseek-coder
+          supports_images: false
         - id: deepseek-reasoner
+          supports_images: false
           supports_thinking: true
       capabilities:
         - deepseek-thinking
@@ -40,6 +44,7 @@
       default_model: deepseek-chat
       models:
         - id: deepseek-chat
+          supports_images: false
       supports_prompt_caching: true
   provenance:
     source: agent-diva/agent-diva-providers/src/providers.yaml

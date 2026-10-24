@@ -134,6 +134,33 @@ func TestCatalogRefForEndpointCarriesVendorIdentity(t *testing.T) {
 	}
 }
 
+// Image capability is tri-state: a declared true/false is authoritative, and
+// an absent declaration stays unknown so the attachment gate fails open.
+func TestResolveModelInfoCarriesImageKnownness(t *testing.T) {
+	vendor := testDeepSeekVendor("https://api.deepseek.com")
+	vendor.Endpoints[0].Models = append(vendor.Endpoints[0].Models,
+		Model{ID: "text-only", SupportsImages: boolPointer(false)},
+		Model{ID: "images-undeclared"},
+	)
+	catalog := NewCatalog(vendor)
+	for _, test := range []struct {
+		model           string
+		supports, known bool
+	}{
+		{"deepseek-flash", true, true},
+		{"text-only", false, true},
+		{"images-undeclared", false, false},
+	} {
+		info, err := catalog.ResolveModelInfo(context.Background(), "deepseek", test.model)
+		if err != nil {
+			t.Fatalf("%s: %v", test.model, err)
+		}
+		if info.SupportsImages != test.supports || info.ImagesKnown != test.known {
+			t.Fatalf("%s image capability = %v/%v, want %v/%v", test.model, info.SupportsImages, info.ImagesKnown, test.supports, test.known)
+		}
+	}
+}
+
 func TestCatalogRefForEndpointRejectsUnknownVendor(t *testing.T) {
 	endpoint := testEndpoint(t, testOpenAIVendor("https://api.openai.com/v1"))
 	if _, err := NewCatalog().RefForEndpoint("does-not-exist", endpoint); err == nil {

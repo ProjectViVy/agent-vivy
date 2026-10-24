@@ -228,7 +228,7 @@ func (t *listDirTool) InvokableRun(ctx context.Context, args json.RawMessage) (s
 
 func (t *readFileTool) Spec() domain.ToolSpec {
 	return domain.ToolSpec{
-		Name: ReadFileName, Description: "Reads a bounded text file from the current run workspace. Text content lines are prefixed with 1-based file line numbers (\"N\\tline\") so patch and start_line/end_line targets can be located exactly. Image files (png/jpeg/gif/webp) are attached as images for vision models.", Readonly: true,
+		Name: ReadFileName, Description: "Reads a bounded text file from the current run workspace. Text content lines are prefixed with 1-based file line numbers (\"N\\tline\") so patch and start_line/end_line targets can be located exactly. Image files (png/jpeg/gif/webp) are attached as images for vision models; a text-only model receives a descriptive text result instead.", Readonly: true,
 		Keywords: []string{"read", "file", "source", "cat"},
 		Params: map[string]domain.ToolParam{
 			"path":       {Desc: "Workspace-relative file path.", Required: true},
@@ -269,6 +269,14 @@ func (t *readFileTool) InvokableRun(ctx context.Context, args json.RawMessage) (
 		return "", err
 	}
 	if result.ImageMIME != "" {
+		// A text-only model rejects an image part with a provider-level 400
+		// that poisons every later request in the run (DeepSeek 2013). The
+		// read degrades to an honest text result the model can act on.
+		if !ImagesSupported(ctx) {
+			result.Content = fmt.Sprintf("%s is an image (%s, %d bytes); the active model does not accept image input, so the image is not attached.", result.Path, result.ImageMIME, result.Bytes)
+			result.Binary = true
+			return marshalToolResult(result)
+		}
 		return marshalToolResult(imagePartsEnvelope(result))
 	}
 	if !result.Binary {

@@ -3058,6 +3058,13 @@ func (s *Service) driveWithExecution(ctx context.Context, m *eventMapper, sessio
 	runCtx = tools.WithSessionID(runCtx, sessionID)
 	runCtx = tools.WithWorkControl(runCtx, s)
 	runCtx = tools.WithWorkspaceID(runCtx, workspaceID)
+	// Media-producing tools consult the declared capability: an image part
+	// sent to a text-only route fails the whole provider call (and every
+	// later request in the run). Unknown routes stay unbound and keep the
+	// status-quo allow.
+	if info := s.GetModelInfo(runCtx); info.ImagesKnown {
+		runCtx = tools.WithImagesSupported(runCtx, info.SupportsImages)
+	}
 	if historyScope != nil {
 		runCtx = WithHistoryScope(runCtx, *historyScope)
 	}

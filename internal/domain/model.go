@@ -27,9 +27,13 @@ type ModelInfo struct {
 	CachedInputPerMTokens float64
 	OutputPerMTokens      float64
 	// SupportsImages reports whether the model accepts image parts in
-	// multimodal input. Zero-value (false) is the conservative default for
-	// unknown models.
+	// multimodal input. It is meaningful only when ImagesKnown is true;
+	// unknown routes keep the status-quo allow.
 	SupportsImages bool
+	// ImagesKnown reports that the catalog declares the model's image
+	// capability. False means unknown (for example a custom gateway model),
+	// and every image gate then fails open instead of guessing.
+	ImagesKnown bool
 	// SupportsThinking reports whether the model accepts an explicit
 	// extended-thinking request (per-call option). Zero-value (false) is
 	// the conservative default: the UI hides the thinking selector and the

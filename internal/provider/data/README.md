@@ -86,6 +86,13 @@ keeps its conservative default — `context_window: 0`/absent falls back to
 unpriced (never free), and an unknown `supports_thinking` sends no reasoning
 parameters. Do not fill in a plausible-looking number.
 
+`supports_images` has three states: absent (unknown, the attachment gate fails
+open), `true`, and `false`. An explicit `false` is authoritative: the RPC and
+channel attachment gates reject or drop images, and `read_file` returns a text
+description instead of an image part. This matters because a text-only route
+such as DeepSeek `deepseek-chat` answers an image part with HTTP 400
+`invalid params (2013)` and then fails every later request in the run.
+
 Only the three first-party vendors (`deepseek`, `openai`, `anthropic`) carry
 metadata, because those are the values the previous Go tables already
 asserted. The other 42 vendors deliberately report unknown; declaring metadata

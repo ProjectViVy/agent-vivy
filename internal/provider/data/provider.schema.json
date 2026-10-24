@@ -93,7 +93,7 @@
         "context_window": { "type": "integer", "minimum": 0, "description": "0 or absent means unknown; consumers fall back to 128000." },
         "input_per_mtok": { "type": "number", "minimum": 0, "description": "Reference USD per million input tokens. 0 or absent means unpriced, never free." },
         "output_per_mtok": { "type": "number", "minimum": 0, "description": "Reference USD per million output tokens. 0 or absent means unpriced, never free." },
-        "supports_images": { "type": "boolean", "description": "Absent means unknown; the image gate fails open for custom gateways." },
+        "supports_images": { "type": "boolean", "description": "Absent means unknown; the image gate fails open for custom gateways. An explicit false makes media-producing tools degrade to text instead of sending an image part the provider rejects." },
         "supports_thinking": { "type": "boolean", "description": "Absent means unknown; no reasoning parameters are sent." },
         "thinking_levels": {
           "type": "array",

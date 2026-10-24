@@ -94,6 +94,7 @@ func (r *claudeRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 		modelID = r.endpoint.DefaultModel
 	}
 	meta, _ := r.endpoint.Model(modelID)
+	images, imagesKnown := meta.Images()
 	return domain.ModelInfo{
 		ID:               modelID,
 		Provider:         r.Name(),
@@ -101,7 +102,8 @@ func (r *claudeRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 		MaxOutputTokens:  0,                  // varies by model; ref default covers the protocol floor
 		InputPerMTokens:  meta.InputPerMTok,
 		OutputPerMTokens: meta.OutputPerMTok,
-		SupportsImages:   meta.SupportsImages,
+		SupportsImages:   images,
+		ImagesKnown:      imagesKnown,
 		SupportsThinking: meta.SupportsThinking,
 	}, nil
 }

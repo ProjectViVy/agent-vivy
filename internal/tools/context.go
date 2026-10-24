@@ -12,6 +12,7 @@ type toolCallIDContextKey struct{}
 type proposalDataContextKey struct{}
 type sessionIDContextKey struct{}
 type workspaceIDContextKey struct{}
+type imagesSupportedContextKey struct{}
 
 // WithRunID binds the durable run identity for tools that need a run-scoped
 // capability such as the isolated filesystem. The runtime owns the source of
@@ -93,4 +94,17 @@ func WithWorkspaceID(ctx context.Context, workspaceID string) context.Context {
 func WorkspaceIDFromContext(ctx context.Context) string {
 	workspaceID, _ := ctx.Value(workspaceIDContextKey{}).(string)
 	return workspaceID
+}
+
+// WithImagesSupported binds whether the active model accepts image parts. The
+// runtime owns the capability truth; tools only consume it.
+func WithImagesSupported(ctx context.Context, supported bool) context.Context {
+	return context.WithValue(ctx, imagesSupportedContextKey{}, supported)
+}
+
+// ImagesSupported reports whether the active model accepts image input. A
+// context without the binding keeps the status-quo allow for unknown routes.
+func ImagesSupported(ctx context.Context) bool {
+	supported, ok := ctx.Value(imagesSupportedContextKey{}).(bool)
+	return !ok || supported
 }

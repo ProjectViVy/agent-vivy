@@ -54,8 +54,11 @@ func TestParseVendorsAcceptsValidDocument(t *testing.T) {
 	if !ok {
 		t.Fatal("endpoint does not carry example-chat")
 	}
-	if model.ContextWindow != 128000 || !model.SupportsThinking || !model.SupportsImages {
+	if model.ContextWindow != 128000 || !model.SupportsThinking {
 		t.Fatalf("unexpected model metadata: %+v", model)
+	}
+	if images, known := model.Images(); !known || !images {
+		t.Fatalf("example-chat image capability = %v/%v, want declared true", images, known)
 	}
 	if got := endpoint.ModelIDs(); len(got) != 2 || got[0] != "example-chat" || got[1] != "example-reasoner" {
 		t.Fatalf("ModelIDs = %v", got)
@@ -408,13 +411,16 @@ func TestLoadEmbeddedMetadataAnchors(t *testing.T) {
 	if !ok {
 		t.Fatal("deepseek must declare deepseek-flash")
 	}
-	if flash.ContextWindow != 1000000 || flash.InputPerMTok != 0.3 || flash.OutputPerMTok != 1.2 || !flash.SupportsImages || !flash.SupportsThinking {
+	if flash.ContextWindow != 1000000 || flash.InputPerMTok != 0.3 || flash.OutputPerMTok != 1.2 || !flash.SupportsThinking {
 		t.Fatalf("deepseek-flash metadata = %+v", flash)
 	}
-	// A model listed without metadata stays unknown: zero means unknown, never
-	// free and never zero-cost (DESIGN §6).
-	if chat, ok := deepseek.Model("deepseek-chat"); !ok || !reflect.DeepEqual(chat, Model{ID: "deepseek-chat"}) {
-		t.Fatalf("unannotated model must carry only its id, got %+v", chat)
+	if images, known := flash.Images(); !known || !images {
+		t.Fatalf("deepseek-flash image capability = %v/%v, want declared true", images, known)
+	}
+	// A declared text-only model must refuse images before the provider does:
+	// absent means unknown, an explicit false means no (2026-10-24 DeepSeek 2013).
+	if chat, ok := deepseek.Model("deepseek-chat"); !ok || !reflect.DeepEqual(chat, Model{ID: "deepseek-chat", SupportsImages: boolPointer(false)}) {
+		t.Fatalf("deepseek-chat must declare text-only input, got %+v", chat)
 	}
 	if _, ok := index["deepseek"].Endpoint(AdapterAnthropicMessages, "https://api.deepseek.com/anthropic"); !ok {
 		t.Fatal("deepseek must keep its Anthropic-compatible endpoint")
@@ -431,8 +437,18 @@ func TestLoadEmbeddedMetadataAnchors(t *testing.T) {
 	if !ok {
 		t.Fatal("sensenova must declare sensenova-6.8-flash-lite")
 	}
-	if lite.ContextWindow != 262144 || !lite.SupportsImages || !lite.SupportsThinking {
+	if lite.ContextWindow != 262144 || !lite.SupportsThinking {
 		t.Fatalf("sensenova-6.8-flash-lite metadata = %+v", lite)
+	}
+	if images, known := lite.Images(); !known || !images {
+		t.Fatalf("sensenova-6.8-flash-lite image capability = %v/%v, want declared true", images, known)
+	}
+	// A model listed without supports_images stays unknown: the gate fails open
+	// instead of guessing (provider.schema.json).
+	if u1, ok := sensenova.Model("sensenova-u1-fast"); !ok {
+		t.Fatal("sensenova must declare sensenova-u1-fast")
+	} else if images, known := u1.Images(); known || images {
+		t.Fatalf("unannotated model image capability = %v/%v, want unknown", images, known)
 	}
 	glm, ok := sensenova.Model("glm-5.2")
 	if !ok || glm.ContextWindow != 1048576 || !glm.SupportsThinking {

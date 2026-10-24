@@ -219,6 +219,7 @@ func modelInfoFor(vendor Vendor, endpoint Endpoint, modelID string) domain.Model
 		modelID = endpoint.DefaultModel
 	}
 	meta, _ := endpoint.Model(modelID)
+	images, imagesKnown := meta.Images()
 	return domain.ModelInfo{
 		ID:                   modelID,
 		Provider:             vendor.Name,
@@ -226,7 +227,8 @@ func modelInfoFor(vendor Vendor, endpoint Endpoint, modelID string) domain.Model
 		MaxOutputTokens:      0,                  // varies by model; let the API decide
 		InputPerMTokens:      meta.InputPerMTok,
 		OutputPerMTokens:     meta.OutputPerMTok,
-		SupportsImages:       meta.SupportsImages,
+		SupportsImages:       images,
+		ImagesKnown:          imagesKnown,
 		SupportsThinking:     meta.SupportsThinking,
 		ThinkingLevels:       meta.ThinkingLevels,
 		DefaultThinking:      meta.DefaultThinking,

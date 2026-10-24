@@ -3684,7 +3684,7 @@ func (h *controlHandler) prepareTurnOptions(ctx context.Context, params turnPara
 	// model cannot take images. Unknown models keep the status-quo allow —
 	// gating on the zero-value default would break every custom gateway.
 	if len(attachments) > 0 {
-		if info := h.deps.Service.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
+		if info := h.deps.Service.GetModelInfo(ctx); info.ImagesKnown && !info.SupportsImages {
 			return zero, &Error{Code: InvalidParams, Message: fmt.Sprintf("model %q does not support image attachments", info.ID)}
 		}
 	}

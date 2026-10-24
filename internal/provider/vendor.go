@@ -42,7 +42,7 @@ type Model struct {
 	ContextWindow    int     `yaml:"context_window"`
 	InputPerMTok     float64 `yaml:"input_per_mtok"`
 	OutputPerMTok    float64 `yaml:"output_per_mtok"`
-	SupportsImages   bool    `yaml:"supports_images"`
+	SupportsImages   *bool   `yaml:"supports_images"`
 	SupportsThinking bool    `yaml:"supports_thinking"`
 	// ThinkingLevels declares the effort levels the model accepts
 	// (minimal..max). Empty keeps the legacy auto/on/off surface.
@@ -59,6 +59,17 @@ type Model struct {
 	// CacheLifetimeSeconds is the cache TTL the warming scheduler
 	// refreshes before; required when supports_warming is set.
 	CacheLifetimeSeconds int `yaml:"cache_lifetime_seconds"`
+}
+
+// Images reports the declared image capability and whether the data declares
+// it. Absent is unknown, not unsupported: the attachment gate keeps its
+// status-quo allow for custom gateways, while an explicit false makes a
+// text-only model refuse image input before the provider does.
+func (m Model) Images() (supports, known bool) {
+	if m.SupportsImages == nil {
+		return false, false
+	}
+	return *m.SupportsImages, true
 }
 
 // ModelSampling holds per-thinking-level sampling overrides. Pointers

@@ -104,7 +104,7 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 
 	info := s.GetModelInfo(ctx)
 	out.ThinkingSupported = info.SupportsThinking
-	out.ImageSupportKnown = info.ContextWindow > 0
+	out.ImageSupportKnown = info.ImagesKnown
 	out.ImageSupported = info.SupportsImages
 	if info.ContextWindow > 0 {
 		out.ModelLimitTokens = info.ContextWindow

@@ -715,7 +715,7 @@ func NewWithAssembly(ctx context.Context, cfg config.Config, runtimeAssembly gen
 				// degrades visibly instead: attachments drop with a
 				// warning and the text still runs.
 				if len(attachments) > 0 {
-					if info := svc.GetModelInfo(ctx); info.ContextWindow > 0 && !info.SupportsImages {
+					if info := svc.GetModelInfo(ctx); info.ImagesKnown && !info.SupportsImages {
 						channel := ""
 						if prov != nil {
 							channel = prov.Channel

@@ -71,6 +71,7 @@ func (r *openaiRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 		modelID = r.endpoint.DefaultModel
 	}
 	meta, _ := r.endpoint.Model(modelID)
+	images, imagesKnown := meta.Images()
 	return domain.ModelInfo{
 		ID:               modelID,
 		Provider:         r.Name(),
@@ -78,7 +79,8 @@ func (r *openaiRef) ModelInfo(_ context.Context, modelID string) (domain.ModelIn
 		MaxOutputTokens:  0,                  // varies by model; let API decide
 		InputPerMTokens:  meta.InputPerMTok,
 		OutputPerMTokens: meta.OutputPerMTok,
-		SupportsImages:   meta.SupportsImages,
+		SupportsImages:   images,
+		ImagesKnown:      imagesKnown,
 		SupportsThinking: meta.SupportsThinking,
 	}, nil
 }

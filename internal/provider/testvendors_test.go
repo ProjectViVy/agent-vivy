@@ -23,17 +23,19 @@ func testVendor(name, displayName, envKey, adapter, baseURL, defaultModel string
 	}
 }
 
+func boolPointer(value bool) *bool { return &value }
+
 func testOpenAIVendor(baseURL string) Vendor {
 	return testVendor("openai", "OpenAI", "OPENAI_API_KEY", AdapterOpenAICompletions, baseURL, "gpt-4o", []Model{
-		{ID: "gpt-4o", ContextWindow: 128000, InputPerMTok: 2.5, OutputPerMTok: 10, SupportsImages: true},
-		{ID: "gpt-4o-mini", ContextWindow: 128000, InputPerMTok: 0.15, OutputPerMTok: 0.6, SupportsImages: true},
+		{ID: "gpt-4o", ContextWindow: 128000, InputPerMTok: 2.5, OutputPerMTok: 10, SupportsImages: boolPointer(true)},
+		{ID: "gpt-4o-mini", ContextWindow: 128000, InputPerMTok: 0.15, OutputPerMTok: 0.6, SupportsImages: boolPointer(true)},
 		{ID: "gpt-3.5-turbo", ContextWindow: 16385, InputPerMTok: 0.5, OutputPerMTok: 1.5},
 	})
 }
 
 func testClaudeVendor(baseURL string) Vendor {
 	vendor := testVendor("anthropic", "Anthropic", "ANTHROPIC_API_KEY", AdapterAnthropicMessages, baseURL, "claude-sonnet-4-5", []Model{
-		{ID: "claude-sonnet-4-5", ContextWindow: 200000, InputPerMTok: 3, OutputPerMTok: 15, SupportsImages: true, SupportsThinking: true},
+		{ID: "claude-sonnet-4-5", ContextWindow: 200000, InputPerMTok: 3, OutputPerMTok: 15, SupportsImages: boolPointer(true), SupportsThinking: true},
 	})
 	vendor.Endpoints[0].SupportsPromptCaching = true
 	return vendor
@@ -41,8 +43,8 @@ func testClaudeVendor(baseURL string) Vendor {
 
 func testDeepSeekVendor(baseURL string) Vendor {
 	return testVendor("deepseek", "DeepSeek", "DEEPSEEK_API_KEY", AdapterOpenAICompletions, baseURL, "deepseek-flash", []Model{
-		{ID: "deepseek-flash", ContextWindow: 1000000, InputPerMTok: 0.30, OutputPerMTok: 1.20, SupportsImages: true, SupportsThinking: true},
-		{ID: "deepseek-chat", ContextWindow: 128000, InputPerMTok: 0.28, OutputPerMTok: 0.42, SupportsImages: true},
+		{ID: "deepseek-flash", ContextWindow: 1000000, InputPerMTok: 0.30, OutputPerMTok: 1.20, SupportsImages: boolPointer(true), SupportsThinking: true},
+		{ID: "deepseek-chat", ContextWindow: 128000, InputPerMTok: 0.28, OutputPerMTok: 0.42, SupportsImages: boolPointer(true)},
 	}, CapabilityDeepSeekThinking)
 }
 
