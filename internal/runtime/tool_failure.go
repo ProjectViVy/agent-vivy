@@ -36,6 +36,7 @@ const (
 	toolFailureReasonUserDenied       = domain.ToolReasonUserDenied
 	toolFailureReasonCommandFailed    = domain.ToolReasonCommandFailed
 	toolFailureReasonRemoteTool       = domain.ToolReasonRemoteTool
+	toolFailureReasonChildFailed      = domain.ToolReasonChildFailed
 
 	toolEffectsNotExecuted = domain.ToolEffectsNotExecuted
 	toolEffectsNone        = domain.ToolEffectsNone
@@ -69,6 +70,18 @@ func classifyToolFailure(ctx context.Context, spec domain.ToolSpec, err error) (
 			Status:     toolFailureStatusRecoverable,
 			Reason:     toolFailureReasonInvalidArguments,
 			Diagnostic: boundToolFailureDiagnostic(err.Error()),
+			Effects:    toolEffectsUnknown,
+		}, true
+	}
+	// A delegated child that did not finish is a task outcome for the parent
+	// model, never a parent-run fault: the diagnostic already describes the
+	// child's failure and running more of the same call is the model's choice.
+	var childErr *tools.ChildTaskError
+	if errors.As(err, &childErr) {
+		return toolFailure{
+			Status:     toolFailureStatusRecoverable,
+			Reason:     toolFailureReasonChildFailed,
+			Diagnostic: boundToolFailureDiagnostic(childErr.Error()),
 			Effects:    toolEffectsUnknown,
 		}, true
 	}

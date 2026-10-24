@@ -836,8 +836,23 @@ func TestOneShotChildUsesNativeRunnerWithoutCreatingAddressableSessionOrParentMe
 	}
 	svc.WaitIdle(ctx)
 	waitForRunStatus(t, backend, started.Run.ID, domain.RunCompleted)
-	if _, err := backend.LoadRunPrompt(ctx, started.Run.ID); err != nil {
+	prompt, err := backend.LoadRunPrompt(ctx, started.Run.ID)
+	if err != nil {
 		t.Fatalf("load durable one-shot prompt snapshot: %v", err)
+	}
+	instruction, err := promptInstruction(prompt)
+	if err != nil {
+		t.Fatalf("admitted child instruction: %v", err)
+	}
+	if instruction != childStaticInstruction {
+		t.Fatalf("child instruction = %q, want %q", instruction, childStaticInstruction)
+	}
+	var promptPayload storage.RunPromptPayload
+	if err := json.Unmarshal(prompt.Payload, &promptPayload); err != nil {
+		t.Fatalf("decode child prompt payload: %v", err)
+	}
+	if promptPayload.Persona.Source != "runtime/task-child" || promptPayload.Persona.Body != childStaticInstruction {
+		t.Fatalf("child prompt provenance = %+v", promptPayload.Persona)
 	}
 	summary, failure, err := svc.OneShotChildOutcome(ctx, started.Run.ID)
 	if err != nil || failure != "" || summary != "test response to: one shot clean task" {

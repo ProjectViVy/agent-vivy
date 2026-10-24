@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
 	"agent-vivy/internal/domain"
 	controlrpc "agent-vivy/internal/rpc"
 	"agent-vivy/internal/runtime"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/tools"
 )
 
@@ -48,6 +48,11 @@ func (r *agentToolRef) StartAgentTask(ctx context.Context, task string) (string,
 		Text:        task,
 	})
 	if err != nil {
+		// A saturated child budget is the model's planning problem, not a
+		// broken run: surface it as a tool result the parent can act on.
+		if errors.Is(err, storage.ErrChildConcurrencyLimit) {
+			return "", tools.NewChildTaskError("too many sub-agents are already running for this request; wait for one to finish or do the work directly")
+		}
 		return "", err
 	}
 	final, err := m.WaitChild(ctx, started.ID)
@@ -63,12 +68,12 @@ func (r *agentToolRef) StartAgentTask(ctx context.Context, task string) (string,
 	case "completed":
 		return final.Result, nil
 	case "cancelled":
-		return "", errors.New("sub-agent was cancelled")
+		return "", tools.NewChildTaskError("the sub-agent was cancelled before it finished")
 	default:
 		if final.Error != "" {
-			return "", fmt.Errorf("sub-agent failed: %s", final.Error)
+			return "", tools.NewChildTaskError(final.Error)
 		}
-		return "", errors.New("sub-agent failed")
+		return "", tools.NewChildTaskError("the sub-agent ended without a result")
 	}
 }
 

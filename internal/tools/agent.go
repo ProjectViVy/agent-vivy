@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"agent-vivy/internal/domain"
 )
@@ -14,6 +15,42 @@ const AgentName = "agent"
 // maxAgentTaskBytes bounds the delegation brief so a runaway model cannot
 // push unbounded text into the child harness.
 const maxAgentTaskBytes = 64 << 10
+
+// maxChildTaskDetailBytes bounds the child diagnostic carried by
+// ChildTaskError so a runaway child failure cannot flood the parent context.
+const maxChildTaskDetailBytes = 2 << 10
+
+// ChildTaskError reports a delegated child that did not complete. It
+// describes the child's task, not the parent run: the runtime converts it to
+// an ordinary tool result so the parent model can continue without it.
+type ChildTaskError struct {
+	Detail string
+}
+
+func (e *ChildTaskError) Error() string {
+	if detail := strings.TrimSpace(e.Detail); detail != "" {
+		return "sub-agent failed: " + detail
+	}
+	return "sub-agent failed"
+}
+
+// NewChildTaskError bounds and redacts a raw child failure message before it
+// enters the parent's tool result.
+func NewChildTaskError(detail string) *ChildTaskError {
+	return &ChildTaskError{Detail: boundChildDetail(detail)}
+}
+
+func boundChildDetail(text string) string {
+	text = strings.TrimSpace(RedactSensitive(text))
+	if len(text) <= maxChildTaskDetailBytes {
+		return text
+	}
+	cut := maxChildTaskDetailBytes
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
+}
 
 // AgentOperations is the sub-agent seam the agent tool is built over; the
 // app layer implements it over the durable child-run machinery (parent-owned
@@ -55,14 +92,14 @@ func (t *agentTool) InvokableRun(ctx context.Context, args json.RawMessage) (str
 		Task string `json:"task"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("agent arguments must be a JSON object: %w", err)
+		return "", &ArgError{Field: "args", Reason: fmt.Sprintf("must be a JSON object: %v", err)}
 	}
 	task := strings.TrimSpace(params.Task)
 	if task == "" {
-		return "", fmt.Errorf("tool argument %q: must not be empty", "task")
+		return "", &ArgError{Field: "task", Reason: "must not be empty"}
 	}
 	if len(task) > maxAgentTaskBytes {
-		return "", fmt.Errorf("tool argument %q: exceeds the %d KiB limit", "task", maxAgentTaskBytes>>10)
+		return "", &ArgError{Field: "task", Reason: fmt.Sprintf("exceeds the %d KiB limit", maxAgentTaskBytes>>10)}
 	}
 	return t.ops.StartAgentTask(ctx, task)
 }

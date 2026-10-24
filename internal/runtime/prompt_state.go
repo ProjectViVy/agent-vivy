@@ -32,6 +32,10 @@ type PromptInput struct {
 	// projected for this session's first primary run. The body comes from the
 	// bound cognitive bundle's Prepare and is persisted verbatim.
 	FrozenText string
+	// Instruction is the complete admitted instruction for a clean-context
+	// run (a delegated child). When set it wins verbatim: a child must not
+	// inherit the parent's persona, frozen authority or mask frame.
+	Instruction string
 }
 
 type runPromptContextKey struct{}
@@ -84,23 +88,33 @@ func buildPromptSnapshot(in PromptInput) (storage.RunPromptSnapshot, error) {
 		return storage.RunPromptSnapshot{}, errors.New("runtime: prompt snapshot requires the admitted policy definition")
 	}
 	persona := in.Persona
-	if strings.TrimSpace(persona.Body) == "" {
-		persona.Body = promptAsset("persona-default.md")
-		persona.Source = "runtime/persona-default"
-		persona.Revision = "1"
-	}
-	if strings.TrimSpace(persona.Body) == "" {
-		return storage.RunPromptSnapshot{}, errors.New("runtime: default persona asset is empty")
-	}
-	if persona.Source == "" {
-		persona.Source = "runtime/persona"
-	}
-	if persona.Revision == "" {
-		persona.Revision = "1"
-	}
-	instruction, err := composeAuthoritativeInstruction(persona.Body, in.FrozenText, in.Capture.Mask, face, in.Frame)
-	if err != nil {
-		return storage.RunPromptSnapshot{}, err
+	verbatim := strings.TrimSpace(in.Instruction)
+	var instruction string
+	if verbatim != "" {
+		// A clean-context child carries exactly the instruction it runs under;
+		// provenance records that identity instead of a persona it never had.
+		persona = storage.PersonaSnapshot{Source: "runtime/task-child", Revision: "1", Body: verbatim}
+		instruction = verbatim
+	} else {
+		if strings.TrimSpace(persona.Body) == "" {
+			persona.Body = promptAsset("persona-default.md")
+			persona.Source = "runtime/persona-default"
+			persona.Revision = "1"
+		}
+		if strings.TrimSpace(persona.Body) == "" {
+			return storage.RunPromptSnapshot{}, errors.New("runtime: default persona asset is empty")
+		}
+		if persona.Source == "" {
+			persona.Source = "runtime/persona"
+		}
+		if persona.Revision == "" {
+			persona.Revision = "1"
+		}
+		composed, composeErr := composeAuthoritativeInstruction(persona.Body, in.FrozenText, in.Capture.Mask, face, in.Frame)
+		if composeErr != nil {
+			return storage.RunPromptSnapshot{}, composeErr
+		}
+		instruction = composed
 	}
 	payload := storage.RunPromptPayload{
 		Persona:     persona,

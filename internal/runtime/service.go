@@ -5024,11 +5024,12 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 			errors.Is(cause, errRunCancelled) || errors.As(cause, &cancelErr) {
 			return m.build(domain.EventChildCancelled, map[string]any{"reason": reasonUserRequested})
 		}
+		// Child terminals were previously silent, which made an underlying
+		// provider or tool failure unrecoverable from the user's report.
+		slog.Warn("child run failed", "run", string(m.runID), "err", cause)
 		message := "The child task could not be completed. Please retry."
-		if providerMessage, ok := keyMissingMessage(cause); ok {
+		if providerMessage, ok := providerFailureMessage(cause); ok {
 			message = providerMessage
-		} else if isProviderTransportError(cause) {
-			message = providerUnavailableMessage
 		} else if errors.Is(cause, adk.ErrExceedMaxIterations) {
 			message = "The child task reached its tool-call limit."
 		} else if errors.Is(cause, ErrContextBudgetExceeded) {
@@ -5106,6 +5107,9 @@ func causeCategoryOf(err error) string {
 }
 
 func isProviderFailure(err error) bool {
+	if toolInvocationFailure(err) {
+		return false
+	}
 	if errors.Is(err, provider.ErrModelNotConfigured) {
 		return true
 	}
@@ -5113,6 +5117,30 @@ func isProviderFailure(err error) bool {
 		return true
 	}
 	return isProviderTransportError(err)
+}
+
+// providerFailureMessage returns the provider-facing user message for a
+// terminal cause. Tool-origin failures are excluded before any marker scan:
+// the provider answered and the tool could not complete its own work.
+func providerFailureMessage(err error) (string, bool) {
+	if toolInvocationFailure(err) {
+		return "", false
+	}
+	if message, ok := keyMissingMessage(err); ok {
+		return message, true
+	}
+	if isProviderTransportError(err) {
+		return providerUnavailableMessage, true
+	}
+	return "", false
+}
+
+// toolInvocationFailure reports whether the cause chain carries a failure
+// raised by a tool's own invocation. Such a cause is never a provider failure,
+// even when the tool's diagnostic quotes an HTTP status.
+func toolInvocationFailure(err error) bool {
+	var toolErr *toolInvocationError
+	return errors.As(err, &toolErr)
 }
 
 // keyMissingMessage returns a user-actionable hint when the failure is a

@@ -126,6 +126,7 @@ starts executing the ordinary plugin, including the fused hard-stop decision.
 | `fs.ErrNotExist` from invocation of a readonly tool | recoverable / not_found | none; no global storage-error catch |
 | Known execute/bash CommandResult with nonzero exit | recoverable / command_failed | unknown; preserve exit code/output; never call it a safe-to-retry result |
 | First-party MCP IsError converted to ToolExecutionError | recoverable / remote_tool_error | unknown; preserve bounded untrusted response |
+| `*tools.ChildTaskError` from the delegated `agent` tool | recoverable / child_failed | unknown; bounded child diagnostic becomes the tool result, the parent run stays healthy |
 | Parent ctx cancellation/deadline or native Eino interruption | not a tool failure | propagate before classification |
 | MCP JSON-RPC/transport errors, unknown errors, local timeouts without explicit side-effect evidence | fatal | preserve current cause chain; no generic retry or recovery |
 | Policy engine, Journal, storage or invariant failure | fatal | never softened |

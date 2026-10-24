@@ -58,7 +58,7 @@ func ValidateToolOperationOutcome(outcome domain.ToolOperationOutcome) error {
 		}
 	case domain.ToolOutcomeRecoverable, domain.ToolOutcomeRefused:
 		switch outcome.Reason {
-		case domain.ToolReasonInvalidArguments, domain.ToolReasonNotFound, domain.ToolReasonPolicyDenied, domain.ToolReasonUserDenied, domain.ToolReasonCommandFailed, domain.ToolReasonRemoteTool:
+		case domain.ToolReasonInvalidArguments, domain.ToolReasonNotFound, domain.ToolReasonPolicyDenied, domain.ToolReasonUserDenied, domain.ToolReasonCommandFailed, domain.ToolReasonRemoteTool, domain.ToolReasonChildFailed:
 		default:
 			return errors.New("storage: invalid tool outcome reason")
 		}

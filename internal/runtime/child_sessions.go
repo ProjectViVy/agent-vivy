@@ -625,6 +625,10 @@ func (s *Service) buildChildRunAdmission(session domain.Session, run domain.Run,
 			RunID: run.ID, GenerationID: s.deps.GenerationID,
 			Capture: maskcontract.Capture{Selection: maskcontract.Selection{SessionID: session.ID}},
 			Face:    domain.FaceWeb, Policy: snapshot,
+			// A child runs under exactly one instruction. Admitting the same
+			// constant the restricted engine overrides keeps the durable and
+			// embedded views identical instead of gluing it onto a persona.
+			Instruction: childStaticInstruction,
 		})
 		if err != nil {
 			return storage.RunAdmission{}, fmt.Errorf("runtime: build child prompt snapshot: %w", err)

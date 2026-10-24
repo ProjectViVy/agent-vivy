@@ -97,6 +97,18 @@ func TestToolFailureClassification(t *testing.T) {
 			want: &toolFailure{Status: toolFailureStatusRecoverable, Reason: toolFailureReasonRemoteTool, Effects: toolEffectsUnknown},
 		},
 		{
+			name: "delegated child failure is recoverable child_failed",
+			spec: readonly,
+			err:  tools.NewChildTaskError("the child model returned HTTP 500"),
+			want: &toolFailure{Status: toolFailureStatusRecoverable, Reason: toolFailureReasonChildFailed, Effects: toolEffectsUnknown},
+		},
+		{
+			name: "delegated child failure under parent cancellation stays fatal",
+			ctx:  canceledCtx,
+			spec: readonly,
+			err:  tools.NewChildTaskError("the child was cancelled"),
+		},
+		{
 			name: "unknown transport error stays fatal",
 			spec: readonly,
 			err:  errors.New("connection reset by peer"),
@@ -399,5 +411,33 @@ func TestToolFailureTransportErrorStaysFatal(t *testing.T) {
 	}
 	if flaky.calls != 1 {
 		t.Fatalf("fatal invocation ran %d times, want 1", flaky.calls)
+	}
+}
+
+// A tool's own failure is never a provider failure. Its diagnostic may quote
+// provider wording or an HTTP status, but the provider answered and the tool
+// could not complete its work.
+func TestToolInvocationFailureIsNeverAProviderFailure(t *testing.T) {
+	cause := fmt.Errorf("engine event error: %w", &toolInvocationError{
+		tool: "agent",
+		err:  errors.New("API key missing: status code: 500 from the child model"),
+	})
+	if isProviderFailure(cause) {
+		t.Fatal("tool-origin failure classified as a provider failure")
+	}
+	if _, ok := providerFailureMessage(cause); ok {
+		t.Fatal("tool-origin failure produced a provider user message")
+	}
+	if category := causeCategoryOf(cause); category != causeInternalError {
+		t.Fatalf("tool-origin cause category = %q, want %q", category, causeInternalError)
+	}
+	// The same markers outside a tool invocation keep provider classification,
+	// so a genuine outage still reaches the user with the key hint.
+	direct := errors.New("API key missing: configure a model API key in Settings")
+	if !isProviderFailure(direct) {
+		t.Fatal("provider key failure lost its classification")
+	}
+	if message, ok := providerFailureMessage(direct); !ok || !strings.Contains(message, "API key missing") {
+		t.Fatalf("provider key message = %q ok=%v", message, ok)
 	}
 }
