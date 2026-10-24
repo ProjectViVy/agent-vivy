@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,9 @@ const (
 	organismLeaseKey = "vivy/organism"
 	leaseTTL         = 30 * time.Second
 	leaseHeartbeat   = 10 * time.Second
+	// busyTimeoutMS bounds how long a statement waits for the write lock before
+	// SQLite reports SQLITE_BUSY.
+	busyTimeoutMS = 5000
 )
 
 // Open opens (or creates) the database at path and applies all pending
@@ -41,7 +45,10 @@ func Open(ctx context.Context, path string) (*Backend, error) {
 	if !strings.HasPrefix(uriPath, "/") {
 		uriPath = "/" + uriPath // Windows drive paths must not become URL hosts.
 	}
-	dsn := (&url.URL{Scheme: "file", Path: uriPath}).String()
+	// A busy timeout turns an occasional second-handle write lock into a wait
+	// instead of an immediate SQLITE_BUSY. SetMaxOpenConns(1) only serializes
+	// this process, so a lease-holding neighbour can still hold the write lock.
+	dsn := (&url.URL{Scheme: "file", Path: uriPath, RawQuery: "_busy_timeout=" + strconv.Itoa(busyTimeoutMS)}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open sqlite %s: %w", path, err)

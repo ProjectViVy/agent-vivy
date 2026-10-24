@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-vivy/internal/domain"
+	"agent-vivy/internal/storage"
 	"agent-vivy/internal/storage/sqlite"
 	"agent-vivy/internal/tools"
 )
@@ -184,6 +185,57 @@ func TestServiceRecoverOrphanRunFails(t *testing.T) {
 	}
 	if n := countTerminal(replayAll(t, backend, orphan.ID)); n != 1 {
 		t.Fatalf("terminal events after double recovery = %d, want 1", n)
+	}
+}
+
+// A terminal append that hit a transient write lock after the event landed
+// leaves the run row active forever: every later recovery re-enumerates it and
+// the journal refuses the duplicate. The recorded terminal must still reconcile
+// the row, so the run stops being recovered.
+func TestServiceRecoverReconcilesRowAfterClosedJournal(t *testing.T) {
+	svc, backend, _ := newApprovalService(t, 5*time.Minute)
+	_ = svc
+	ctx := context.Background()
+
+	if err := backend.CreateSession(ctx, domain.Session{ID: "sess-stuck", Title: "stuck", CreatedAt: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	stuck := domain.Run{ID: "run-stuck-terminal", SessionID: "sess-stuck", Status: domain.RunActive, CreatedAt: time.Now().UnixMilli()}
+	if err := backend.CreateRun(ctx, stuck); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	// The crash window: the terminal is durable, the row was never flipped.
+	m := newEventMapper(stuck.ID, 0)
+	terminal := m.build(domain.EventRunFailed, payloadRunFailed{CauseCategory: causeInternalError, Message: "server restart"})
+	if _, err := backend.Append(ctx, storage.Commit{RunID: stuck.ID, Events: []domain.RunEvent{terminal}}); err != nil {
+		t.Fatalf("record terminal without flipping the row: %v", err)
+	}
+
+	restarted, _ := restartService(t, backend)
+	if err := restarted.Recover(ctx); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+
+	waitForRunStatus(t, backend, stuck.ID, domain.RunFailed)
+	events := replayAll(t, backend, stuck.ID)
+	if n := countTerminal(events); n != 1 {
+		t.Fatalf("terminal events = %d, want exactly 1", n)
+	}
+
+	// The reconciliation is terminal: a second pass finds nothing to recover and
+	// the journal is untouched.
+	if err := restarted.Recover(ctx); err != nil {
+		t.Fatalf("second recover: %v", err)
+	}
+	if after := replayAll(t, backend, stuck.ID); len(after) != len(events) {
+		t.Fatalf("second recovery appended events: before=%d after=%d", len(events), len(after))
+	}
+	r, err := backend.GetRun(ctx, stuck.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if r.Status != domain.RunFailed {
+		t.Fatalf("run status after second recovery = %s, want failed", r.Status)
 	}
 }
 

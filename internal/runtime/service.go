@@ -5352,16 +5352,28 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
 	defer cancel()
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: terminal.RunID, Events: []domain.RunEvent{terminal}})
+	reconciled := false
 	if err != nil {
-		// The run already holds a terminal (concurrent close) or the
-		// backend failed; either way the stored truth wins and the row
-		// must not be flipped here.
-		slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
-		s.cleanupRunState(terminal.RunID)
-		s.projectionMu.Unlock()
-		return
+		if !errors.Is(err, storage.ErrRunClosed) {
+			// The backend failed; the stored truth wins and the row must not be
+			// flipped here.
+			slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
+			s.cleanupRunState(terminal.RunID)
+			s.projectionMu.Unlock()
+			return
+		}
+		// The terminal is already durable but this process never flipped the run
+		// row, so every restart re-enumerates the run and hits the same closed
+		// journal. Adopt the recorded event: the Journal is the storage truth,
+		// and the two disagree only when the first append died mid-way.
+		if recorded, ok := s.recordedTerminal(persistCtx, terminal.RunID); ok {
+			terminal.Type = recorded.Type
+			terminal.Seq = recorded.Seq
+		}
+		reconciled = true
+	} else {
+		terminal.Seq = seq
 	}
-	terminal.Seq = seq
 
 	status := domain.RunCompleted
 	if mapped, ok := terminal.Type.RunStatus(); ok {
@@ -5370,7 +5382,15 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	if err := s.deps.Runs.SetRunStatus(persistCtx, terminal.RunID, status); err != nil {
 		slog.Error("set terminal run status", "run", string(terminal.RunID), "status", string(status), "err", err)
 	}
-	s.publish(persistCtx, terminal)
+	if reconciled {
+		// The event was published when it was first appended. Republishing would
+		// break the exactly-once terminal replay contract (AS-7); subscribers
+		// already fall back to the journal.
+		slog.Info("terminal already recorded; reconciled run row",
+			"run", string(terminal.RunID), "type", string(terminal.Type), "status", string(status))
+	} else {
+		s.publish(persistCtx, terminal)
+	}
 
 	s.mu.Lock()
 	var shellStateRefToDelete string
@@ -5472,6 +5492,24 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			}
 		}
 	}
+}
+
+// recordedTerminal reads back the terminal event the Journal already holds for a
+// run. It is only consulted after an append reported the run closed, so the
+// full replay never runs on a healthy path.
+func (s *Service) recordedTerminal(ctx context.Context, runID domain.RunID) (domain.RunEvent, bool) {
+	it, err := s.deps.Journal.Replay(ctx, runID, 0)
+	if err != nil {
+		return domain.RunEvent{}, false
+	}
+	defer func() { _ = it.Close() }()
+	var found domain.RunEvent
+	for it.Next() {
+		if event := it.Value().Event; event.Type.Terminal() {
+			found = event
+		}
+	}
+	return found, found.Type != ""
 }
 
 func (s *Service) cleanupRunState(runID domain.RunID) {
