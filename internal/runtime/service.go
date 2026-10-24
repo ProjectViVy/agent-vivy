@@ -345,11 +345,17 @@ type Service struct {
 	// overflowRecovered marks runs that already spent their single
 	// compact-and-retry recovery (VCP-D2); entries die in cleanupRunState.
 	overflowRecovered map[domain.RunID]bool
-	// overflowAwaiting records a dispatched recovery attempt (run → attempt)
+	// toolOrderRetried marks runs that already spent their single
+	// tool-result-order retry; entries die in cleanupRunState. The budget is
+	// separate from overflowRecovered because the two recoveries diagnose
+	// different faults, but both draw from the same modelMaxRetries budget, so
+	// whichever decider grants a retry first physically consumes it.
+	toolOrderRetried map[domain.RunID]bool
+	// autoRetryAwaiting records a dispatched recovery attempt (run → attempt)
 	// whose auto_retry.finished the consume loop still owes the journal:
 	// cleared on the first event after the retried call resolves, or on the
 	// run's terminal error.
-	overflowAwaiting map[domain.RunID]int
+	autoRetryAwaiting map[domain.RunID]int
 	// wg tracks every drive/resume goroutine so shutdown can drain the
 	// service before closing storage (E4): terminal events must persist
 	// while the journal is still open.
@@ -539,16 +545,17 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		contextViews:      make(map[domain.RunID]string),
 		lastCompaction:    make(map[domain.SessionID]*LastCompaction),
 		overflowRecovered: make(map[domain.RunID]bool),
-		overflowAwaiting:  make(map[domain.RunID]int),
+		toolOrderRetried:  make(map[domain.RunID]bool),
+		autoRetryAwaiting: make(map[domain.RunID]int),
 		humanPending:      make(map[domain.SessionID]int),
 		workFenced:        make(map[domain.RunID]struct{}),
 		workGates:         make(map[domain.RunID]*sync.Mutex),
 		workBlockedCalls:  make(map[domain.RunID]map[string]struct{}),
 	}
 	if eng != nil {
-		// VCP-D2: bind the compact-and-retry decider into the agent's
-		// ModelRetryConfig slot; nil-safe, one recovery per run.
-		eng.SetRetryDecider(svc.overflowRetryDecision)
+		// VCP-D2: bind the model retry deciders into the agent's
+		// ModelRetryConfig slot; nil-safe, one recovery per run per fault.
+		eng.SetRetryDecider(svc.modelRetryDecision)
 	}
 	return svc
 }
@@ -3637,7 +3644,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 	for {
 		ev, ok := iter.Next()
 		if !ok {
-			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
+			if attempt, pending := s.takeAutoRetryAwaiting(m.runID); pending {
 				// The iterator closed while a recovery retry was in flight:
 				// the retried call never resolved, so close the pair honestly.
 				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, false)
@@ -3645,7 +3652,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			break
 		}
 		if ev.Err == nil {
-			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
+			if attempt, pending := s.takeAutoRetryAwaiting(m.runID); pending {
 				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, true)
 			}
 		}
@@ -3715,7 +3722,7 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, warmErr))
 				return
 			}
-			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
+			if attempt, pending := s.takeAutoRetryAwaiting(m.runID); pending {
 				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, false)
 			}
 			// Eino absorbs a human interrupt into the pending cancel. That is
@@ -3794,22 +3801,23 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 	}
 }
 
-// takeOverflowAwaiting reports and clears a dispatched overflow recovery
-// attempt (VCP-D2). The decider sets it when granting the retry; the
-// consume loop closes the auto_retry pair on the first outcome.
-func (s *Service) takeOverflowAwaiting(runID domain.RunID) (int, bool) {
+// takeAutoRetryAwaiting reports and clears a dispatched auto-retry attempt
+// (VCP-D2 overflow recovery, or a tool-result-order retry). The decider sets it
+// when granting the retry; the consume loop closes the auto_retry pair on the
+// first outcome.
+func (s *Service) takeAutoRetryAwaiting(runID domain.RunID) (int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	attempt, ok := s.overflowAwaiting[runID]
+	attempt, ok := s.autoRetryAwaiting[runID]
 	if ok {
-		delete(s.overflowAwaiting, runID)
+		delete(s.autoRetryAwaiting, runID)
 	}
 	return attempt, ok
 }
 
-// emitAutoRetryFinished journals the outcome of an overflow recovery
-// attempt (VCP-D2): success on the first event after the retried call
-// resumes, failure when the retry itself errors or the stream ends.
+// emitAutoRetryFinished journals the outcome of a dispatched auto-retry
+// attempt: success on the first event after the retried call resumes, failure
+// when the retry itself errors or the stream ends.
 func (s *Service) emitAutoRetryFinished(ctx context.Context, m *eventMapper, sessionID domain.SessionID, attempt int, success bool) {
 	s.persistAndPublish(ctx, sessionID, m.build(domain.EventAutoRetryFinished, payloadAutoRetryFinished{Attempt: attempt, Success: success}))
 }
@@ -5236,6 +5244,75 @@ func providerStatus(err error) (int, bool) {
 	return status, true
 }
 
+// toolResultOrderReason tags a retry decision so the mapper can attribute the
+// auto_retry.* projection to a rejected tool-result order.
+const toolResultOrderReason = "tool_result_order"
+
+// toolResultOrderMarker is the provider-side code for "tool call result does
+// not follow tool call". It only ever appears inside an HTTP 400 body.
+const toolResultOrderMarker = "(2013)"
+
+// isToolResultOrderFailure reports a provider HTTP 400 whose body carries the
+// 2013 tool-result-order code. It reuses providerStatus; there is no second
+// status parser.
+func isToolResultOrderFailure(err error) bool {
+	status, ok := providerStatus(err)
+	return ok && status == http.StatusBadRequest && strings.Contains(err.Error(), toolResultOrderMarker)
+}
+
+// modelRetryDecision is the single decider bound into the engine's
+// ModelRetryConfig slot. Overflow recovery is consulted first because it is the
+// only one that rewrites the call input; the tool-result-order retry replays
+// the identical payload. Both draw from the same modelMaxRetries budget, so
+// whichever grants a retry first physically consumes it.
+func (s *Service) modelRetryDecision(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
+	// The ADK asks once more after the final attempt; a "retry" granted there
+	// never happens, so declining keeps auto_retry.started truthful.
+	if rc == nil || rc.RetryAttempt > modelMaxRetries {
+		return nil
+	}
+	if decision := s.overflowRetryDecision(ctx, rc); decision != nil {
+		return decision
+	}
+	return s.toolResultOrderRetryDecision(ctx, rc)
+}
+
+// toolResultOrderRetryDecision replays an identical model call once after the
+// provider rejected the tool-result order. The rejection is intermittent and a
+// manual retry recovers, so the payload is not rewritten — but a masked
+// ordering bug must stay diagnosable, hence the full error text in the log.
+func (s *Service) toolResultOrderRetryDecision(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
+	if rc == nil || !isToolResultOrderFailure(rc.Err) {
+		return nil
+	}
+	runID := contextRunID(ctx)
+	if runID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	if s.toolOrderRetried[runID] {
+		// One recovery per run: a second rejection fails honestly instead of
+		// replaying the same payload in a loop.
+		s.mu.Unlock()
+		return nil
+	}
+	s.toolOrderRetried[runID] = true
+	s.autoRetryAwaiting[runID] = rc.RetryAttempt
+	s.mu.Unlock()
+
+	slog.Error("provider rejected the tool result order; retrying the identical call once",
+		"run", string(runID), "attempt", rc.RetryAttempt, "err", errorChainText(rc.Err, 4096))
+	emitGovernanceEvent(ctx, GovernanceEvent{
+		Type:    domain.EventAutoRetryStarted,
+		Attempt: rc.RetryAttempt,
+		Reason:  toolResultOrderReason + ": " + errorChainText(rc.Err, 256),
+	})
+	return &adk.TypedRetryDecision[*schema.AgenticMessage]{
+		Retry:        true,
+		RejectReason: toolResultOrderReason,
+	}
+}
+
 // providerHTTPFailure splits provider failures by HTTP status so the user is
 // told what actually went wrong. A 4xx caused by our own request shape is an
 // internal error, not a configuration problem; only transport failures leave
@@ -5537,7 +5614,8 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
 	delete(s.overflowRecovered, runID)
-	delete(s.overflowAwaiting, runID)
+	delete(s.toolOrderRetried, runID)
+	delete(s.autoRetryAwaiting, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)
 }

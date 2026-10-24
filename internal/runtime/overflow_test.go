@@ -20,7 +20,8 @@ import (
 // overflowScriptedModel fails Stream calls in the window
 // (skipFirst, skipFirst+failCount] with a classified provider overflow
 // error, then answers. Generate serves the compaction summarizer (system
-// prompt carries the summary contract).
+// prompt carries the summary contract). errByCall overrides errText for a
+// specific 1-based call, so one run can fail differently per attempt.
 type overflowScriptedModel struct {
 	mu          sync.Mutex
 	streamCalls int
@@ -29,6 +30,7 @@ type overflowScriptedModel struct {
 	inputs      [][]*schema.AgenticMessage
 	response    *schema.AgenticMessage
 	errText     string
+	errByCall   map[int]string
 	lengthStop  bool
 }
 
@@ -42,7 +44,11 @@ func (m *overflowScriptedModel) Stream(_ context.Context, input []*schema.Agenti
 	errText := m.errText
 	lengthStop := m.lengthStop
 	resp := m.response
+	override, hasOverride := m.errByCall[n]
 	m.mu.Unlock()
+	if hasOverride {
+		return nil, errors.New(override)
+	}
 	if n > skipFirst && n <= skipFirst+failCount {
 		if errText == "" {
 			errText = "maximum context length is 4096 tokens, but the prompt has 9000"

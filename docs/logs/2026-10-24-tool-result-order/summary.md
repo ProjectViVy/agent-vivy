@@ -38,5 +38,9 @@ and only the model projection is reordered.
 - No provider transport retry. A 400 from a malformed feed stays terminal.
 - No change to the intermittent child first-call `400 (2013)` reported before a
   tool group exists; that needs request sampling and is tracked separately.
+  Superseded 2026-10-25: that rejection now gets one bounded retry of the
+  identical payload, see
+  `docs/logs/2026-10-25-tool-result-order-retry/summary.md`. The root cause on
+  the provider side is still unconfirmed.
 - `TOOL-REFUSAL-RESIDUAL`, `WORKFLOW-CHILD-FAULT` and `EMPTY-WORKSPACE-SESSIONS`
   are unaffected.

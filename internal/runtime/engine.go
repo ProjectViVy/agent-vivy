@@ -391,10 +391,10 @@ func NewEngine(ctx context.Context, m model.AgenticModel, ts []tools.Tool, cfg E
 		agentName = "task-child"
 		agentDescription = "Bounded task runner."
 	}
-	// VCP-D2: the overflow retry decider is service-bound (it needs Messages,
-	// Compactions, and the run's governance sink), which is not constructed
-	// until after the engine. The slot is filled by Engine.SetRetryDecider;
-	// a nil decider accepts every call as-is (no retry).
+	// VCP-D2: the model retry decider is service-bound (overflow recovery needs
+	// Messages, Compactions, and the run's governance sink), which is not
+	// constructed until after the engine. The slot is filled by
+	// Engine.SetRetryDecider; a nil decider accepts every call as-is (no retry).
 	var retryDecider ModelRetryDecider
 	agentCfg := &adk.TypedChatModelAgentConfig[*schema.AgenticMessage]{
 		Name:          agentName,
@@ -404,7 +404,7 @@ func NewEngine(ctx context.Context, m model.AgenticModel, ts []tools.Tool, cfg E
 		Model:         observeChatModel(m),
 		Handlers:      handlers,
 		ModelRetryConfig: &adk.TypedModelRetryConfig[*schema.AgenticMessage]{
-			MaxRetries: 1,
+			MaxRetries: modelMaxRetries,
 			ShouldRetry: func(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
 				if retryDecider == nil {
 					return nil
@@ -439,14 +439,18 @@ func NewEngine(ctx context.Context, m model.AgenticModel, ts []tools.Tool, cfg E
 	return eng, nil
 }
 
-// ModelRetryDecider is the VCP-D2 overflow-recovery hook: the service binds
-// its compact-and-retry decider after the engine exists. The signature uses
-// the ADK's typed agentic types because it is invoked verbatim by
-// TypedModelRetryConfig.ShouldRetry.
+// modelMaxRetries is the whole per-run model retry budget. The ADK consults
+// ShouldRetry once more after the final attempt, so a decider that grants a
+// retry beyond this budget would publish a retry that never happens.
+const modelMaxRetries = 1
+
+// ModelRetryDecider is the model-retry hook: the service binds its deciders
+// after the engine exists. The signature uses the ADK's typed agentic types
+// because it is invoked verbatim by TypedModelRetryConfig.ShouldRetry.
 type ModelRetryDecider func(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage]
 
-// SetRetryDecider binds the overflow recovery decider (nil decider = every
-// model error propagates as before). Called once by the service at wiring.
+// SetRetryDecider binds the model retry decider (nil decider = every model
+// error propagates as before). Called once by the service at wiring.
 func (e *Engine) SetRetryDecider(d ModelRetryDecider) {
 	if e != nil && e.setRetryDecider != nil {
 		e.setRetryDecider(d)

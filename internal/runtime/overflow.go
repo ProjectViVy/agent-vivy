@@ -155,7 +155,7 @@ func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.TypedRetryC
 		return nil
 	}
 	s.overflowRecovered[runID] = true
-	s.overflowAwaiting[runID] = rc.RetryAttempt
+	s.autoRetryAwaiting[runID] = rc.RetryAttempt
 	s.mu.Unlock()
 
 	emitGovernanceEvent(ctx, GovernanceEvent{
@@ -180,7 +180,7 @@ func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.TypedRetryC
 		return nil
 	}
 	// The retried call's first streamed event (or its own failure) emits
-	// auto_retry.finished from the consume loop via overflowAwaiting — the
+	// auto_retry.finished from the consume loop via autoRetryAwaiting — the
 	// decider only reports that the recovery attempt was dispatched.
 	modified := make([]*schema.AgenticMessage, 0, 2+len(tail))
 	modified = append(modified, rc.InputMessages[0]) // per-run preamble stays first
