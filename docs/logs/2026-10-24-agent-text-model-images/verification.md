@@ -38,6 +38,10 @@ The E2E asserts: parent completes, the agent tool result carries the child's
 completed answer (not `sub-agent failed`), the provider saw zero image requests,
 and the child model input contains the `read_file` text degradation.
 
+A paired control, `TestAgentChildOnVisionModelAttachesImages`, runs the same
+scenario on `deepseek-flash` and asserts the provider received exactly one
+request carrying `"image_url"` — a declared vision route is not over-blocked.
+
 ## Unit coverage added
 
 - `internal/provider/catalog_test.go`: declared `true`, declared `false`, and

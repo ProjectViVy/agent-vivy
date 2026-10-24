@@ -24,26 +24,28 @@ import (
 // a request with an image proves the run attached media to a text-only model.
 type textModelAgentServer struct {
 	server *httptest.Server
-	mu     sync.Mutex
-	parent int
-	child  int
-	// imageRejections counts requests that carried an image part.
-	imageRejections int
-	childBodies     []string
+	// rejectImages makes the server behave like a text-only DeepSeek route.
+	rejectImages bool
+	mu           sync.Mutex
+	parent       int
+	child        int
+	// imageRequests counts requests that carried an image part.
+	imageRequests int
+	childBodies   []string
 }
 
-func newTextModelAgentServer(t *testing.T) *textModelAgentServer {
+func newTextModelAgentServer(t *testing.T, rejectImages bool) *textModelAgentServer {
 	t.Helper()
-	s := &textModelAgentServer{}
+	s := &textModelAgentServer{rejectImages: rejectImages}
 	s.server = httptest.NewServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.server.Close)
 	return s
 }
 
-func (s *textModelAgentServer) stats() (parent, child, imageRejections int, childBodies []string) {
+func (s *textModelAgentServer) stats() (parent, child, imageRequests int, childBodies []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.parent, s.child, s.imageRejections, append([]string(nil), s.childBodies...)
+	return s.parent, s.child, s.imageRequests, append([]string(nil), s.childBodies...)
 }
 
 func (s *textModelAgentServer) handle(w http.ResponseWriter, r *http.Request) {
@@ -73,12 +75,14 @@ func (s *textModelAgentServer) handle(w http.ResponseWriter, r *http.Request) {
 	isChild := strings.HasPrefix(strings.TrimSpace(system), "Execute the assigned task")
 	if strings.Contains(raw, `"image_url"`) || strings.Contains(raw, "data:image/") {
 		s.mu.Lock()
-		s.imageRejections++
+		s.imageRequests++
 		s.mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = io.WriteString(w, `{"error":{"message":"invalid params, 400 (2013)","type":"invalid_request_error","code":2013}}`)
-		return
+		if s.rejectImages {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":{"message":"invalid params, 400 (2013)","type":"invalid_request_error","code":2013}}`)
+			return
+		}
 	}
 	call := 0
 	if isChild {
@@ -133,12 +137,54 @@ func (s *textModelAgentServer) handle(w http.ResponseWriter, r *http.Request) {
 // run inherits the poisoned session. read_file degrades to a text result and
 // the delegated task completes.
 func TestAgentChildOnTextOnlyModelOmitsImages(t *testing.T) {
+	model := newTextModelAgentServer(t, true)
+	agentResult, parent, child, imageRequests, childBodies := runAgentScreenshotScenario(t, "deepseek-chat", model)
+	if strings.Contains(agentResult, "sub-agent failed") {
+		t.Fatalf("child run failed with an attachable image in a text-only model request: %q", agentResult)
+	}
+	if !strings.Contains(agentResult, "could not be attached") {
+		t.Fatalf("agent tool result = %q, want the child's completed answer", agentResult)
+	}
+	if imageRequests != 0 {
+		t.Fatalf("provider received %d image request(s); a text-only model must never receive an image part", imageRequests)
+	}
+	if parent < 2 || child < 2 {
+		t.Fatalf("provider requests parent=%d child=%d, want a completed delegation", parent, child)
+	}
+	if joined := strings.Join(childBodies, "\n"); !strings.Contains(joined, "does not accept image input") {
+		t.Fatalf("child model input = %q, want the read_file text degradation", joined)
+	}
+}
+
+// The control: a declared vision route still receives the image, so the fix
+// cannot silently turn every model into a text-only one.
+func TestAgentChildOnVisionModelAttachesImages(t *testing.T) {
+	model := newTextModelAgentServer(t, false)
+	agentResult, _, _, imageRequests, childBodies := runAgentScreenshotScenario(t, "deepseek-flash", model)
+	if strings.Contains(agentResult, "sub-agent failed") {
+		t.Fatalf("vision child failed: %q", agentResult)
+	}
+	if !strings.Contains(agentResult, "could not be attached") {
+		t.Fatalf("agent tool result = %q, want the child's completed answer", agentResult)
+	}
+	if imageRequests != 1 {
+		t.Fatalf("provider image requests = %d, want exactly the one child read", imageRequests)
+	}
+	if joined := strings.Join(childBodies, "\n"); !strings.Contains(joined, `"image_url"`) {
+		t.Fatalf("child model input = %q, want the attached image part", joined)
+	}
+}
+
+// runAgentScreenshotScenario drives one app run where the parent delegates and
+// the child reads shot.png. It returns the parent's agent tool result and the
+// provider's request counters.
+func runAgentScreenshotScenario(t *testing.T, modelID string, model *textModelAgentServer) (agentResult string, parent, child, imageRequests int, childBodies []string) {
+	t.Helper()
 	runtime.SetEngineVersionOverride(pinnedEinoVersion)
 	t.Cleanup(func() { runtime.SetEngineVersionOverride("") })
 	t.Setenv("DEEPSEEK_API_KEY", "agent-text-model-e2e-key")
 	t.Setenv("VIVY_PROVIDER", "deepseek")
-	t.Setenv("VIVY_MODEL", "deepseek-chat")
-	model := newTextModelAgentServer(t)
+	t.Setenv("VIVY_MODEL", modelID)
 	t.Setenv("VIVY_API_BASE", model.server.URL)
 
 	cfg, workspace := planGoalTestConfig(t, []string{tools.AgentName, tools.ReadFileName})
@@ -167,8 +213,6 @@ func TestAgentChildOnTextOnlyModelOmitsImages(t *testing.T) {
 	if status != "completed" {
 		t.Fatalf("parent run status = %q, want completed", status)
 	}
-
-	var agentResult string
 	for _, event := range runEvents(t, client, runID) {
 		switch event["type"] {
 		case "run.failed":
@@ -180,21 +224,6 @@ func TestAgentChildOnTextOnlyModelOmitsImages(t *testing.T) {
 			}
 		}
 	}
-	if strings.Contains(agentResult, "sub-agent failed") {
-		t.Fatalf("child run failed with an attachable image in a text-only model request: %q", agentResult)
-	}
-	if !strings.Contains(agentResult, "could not be attached") {
-		t.Fatalf("agent tool result = %q, want the child's completed answer", agentResult)
-	}
-	parent, child, imageRejections, childBodies := model.stats()
-	if imageRejections != 0 {
-		t.Fatalf("provider rejected %d image request(s); a text-only model must never receive an image part", imageRejections)
-	}
-	if parent < 2 || child < 2 {
-		t.Fatalf("provider requests parent=%d child=%d, want a completed delegation", parent, child)
-	}
-	joined := strings.Join(childBodies, "\n")
-	if !strings.Contains(joined, "does not accept image input") {
-		t.Fatalf("child model input = %q, want the read_file text degradation", joined)
-	}
+	parent, child, imageRequests, childBodies = model.stats()
+	return agentResult, parent, child, imageRequests, childBodies
 }
