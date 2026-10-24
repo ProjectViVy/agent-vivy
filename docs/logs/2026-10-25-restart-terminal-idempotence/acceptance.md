@@ -49,18 +49,14 @@ Check: with the split pair running (`just run` + `cd ui; pnpm dev`,
 http://127.0.0.1:3015), open a session containing a reconciled run and reload — the
 transcript renders the terminal once, and no duplicate "run failed" row appears.
 
-## 5. Occasional lock contention no longer fails a terminal append
-
-`_busy_timeout=5000` means a write lock held briefly by another handle is waited out
-instead of failing immediately.
-
-Check: with a second read-only handle open on `data/vivy.db` (for example
-`sqlite3 data/vivy.db` holding a transaction), cancelling a run still records its
-terminal; the log shows no `database is locked` append failure.
-
-## 6. Nothing else moved
+## 5. Nothing else moved
 
 Ordinary runs still complete, fail, and cancel exactly as before; the healthy path
 still publishes its terminal. The regression suite for recovery
 (`TestServiceRecover*`), the goal-recovery shutdown path, and the SQLite storage
-conformance tests are unchanged and green.
+conformance tests are unchanged and green. The SQLite DSN is unchanged too: the
+`_busy_timeout` knob this delivery briefly added was removed again (see
+`summary.md`), so lock contention behaves exactly as it did before.
+
+A stuck run whose first append hit `SQLITE_BUSY` still reconciles on the next start —
+that is item 1, and it never depended on the timeout.

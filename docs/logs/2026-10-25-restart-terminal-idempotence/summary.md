@@ -39,17 +39,15 @@ Two changes, one delivery:
    drops from `Error` to `Info("terminal already recorded; reconciled run row")`.
    Any other append error keeps today's behavior: log, clean the in-memory state,
    return without touching the row.
-2. **SQLite waits for the write lock** (`internal/storage/sqlite/sqlite.go`). The DSN
-   gained `_busy_timeout=5000`. `SetMaxOpenConns(1)` (D-027 single writer) only
-   serializes this process; a second handle — a lease-holding neighbour, a backup
-   reader — can still own the write lock, and the default zero timeout turns that
-   into an immediate `SQLITE_BUSY`. Five seconds makes the occasional contention a
-   wait instead of a failed terminal append. D-027 is unchanged: still one
-   connection, no WAL or locking knob leaks through the storage contracts.
-
-`_busy_timeout` is the pinned driver's own DSN key (`modernc.org/sqlite v1.59.0`,
-`dsnPick(q, "_busy_timeout", "_timeout")`, validated as an integer), not a
-mattn-ism; the value is a named constant `busyTimeoutMS` beside the lease knobs.
+2. **SQLite busy timeout — added, then dropped.** This delivery first gave the DSN
+   `_busy_timeout=5000`, on the theory that `SetMaxOpenConns(1)` (D-027 single
+   writer) only serializes this process and a second handle could still own the
+   write lock. It was removed again in the same unmerged chain, for two reasons:
+   the reconciliation in item 1 is what actually fixes the recorded defect, so the
+   timeout bought nothing that was still needed; and `emitTerminal` holds
+   `projectionMu` across `Journal.Append`, so a 5s lock wait would stall event
+   mapping for every other run in the process. The DSN is back to its prior shape
+   and no busy-timeout knob remains.
 
 ## Explicitly not done
 

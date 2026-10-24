@@ -67,11 +67,41 @@ Two `waitForRunStatus`-polling tests failed once each under full-suite load on t
 
 Neither test touches the reconciled path: both drive a healthy run to its terminal,
 where `emitTerminal` behaves exactly as before (the `reconciled` branch is entered
-only when `Append` returns `storage.ErrRunClosed`). `_busy_timeout` cannot affect
-them either — each test opens its own temporary database and the backend holds a
-single connection, so there is no second handle to wait for. Recorded here rather
-than boarded; if the owner sees them again on an unloaded Linux gate they are worth a
-separate look.
+only when `Append` returns `storage.ErrRunClosed`).
+
+### The goal-report flake was diagnosed later, and it is not this lane's
+
+While measuring a later lane, `TestUnadmittedRunCannotReportCurrentGoalFromSameSession`
+proved reproducibly flaky. Interleaved round-robin sampling of the same
+`-count=10` invocation across the unmerged commit chain, so host load drift hits
+every tree equally:
+
+| Tree | Leaked `TempDir` cleanups |
+|---|---|
+| `9697dd0e` (stable) | 0 / 180 |
+| `7afa1d8e` (tool-failure continuation) | 16 / 60 |
+| `e858f878`, `b9243a93`, `bfc73540`, and the child-workspace branch | 3–9 / 20 each |
+
+The break starts at `7afa1d8e`, before any Lane 3 edit. That commit rewrote this
+test from `MaxRounds: 2` expecting `RunFailed` to `MaxRounds: 10` with a
+five-response scripted model expecting `RunCompleted`. `settleGoalRound`
+(`internal/runtime/goal_driver.go:328`) therefore takes its
+`status == RunCompleted && RoundsStarted < MaxRounds` branch and calls `wakeGoal`,
+which admits round after round in the same session. Those runs append after the
+test's `t.Cleanup` closed the backend — hence `journal append of terminal event
+failed ... database is closed`, a `run.failed` terminal for a run the test never
+created, and a `TempDir` that is no longer empty. Under the old shape the Goal
+blocked on the failed run and nothing was re-admitted. Whether cleanup wins the
+race is timing-dependent, which is exactly the observed intermittency.
+
+Two candidate causes were measured and ruled out for this lane: the
+`_busy_timeout=5000` DSN knob (an interleaved same-tree A/B was inconclusive, and
+the leak reproduces at 3–9/20 on trees that never had it) and the Lane 2 retry
+decider (reverting the binding alone leaked *more*: 10/150 vs 3/150).
+
+Boarded as `GOAL-ROUND-TEST-AFTERLIFE` in `docs/TODO.md` §0.1 rather than fixed
+here: the defect is in another lane's test, and fixing it means deciding how a test
+quiesces a live Goal, which belongs to that lane.
 
 ## Not run, with reasons
 
@@ -81,7 +111,7 @@ separate look.
 - Real-path browser smoke at `http://127.0.0.1:3015` — **pending**. Reproducing the
   original `SQLITE_BUSY` window on demand needs a second write handle against a live
   `data/vivy.db`, which the air-gap rule (ST-2) puts out of bounds for an agent
-  session; `acceptance.md` §5 writes the steps for the owner.
+  session; `acceptance.md` §1 writes the steps for the owner.
 - PostgreSQL conformance ran only through the repository's existing
   `./internal/storage/postgres` package tests; a DSN-backed PostgreSQL instance was
   not exercised (no change here touches it).
