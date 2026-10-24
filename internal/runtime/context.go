@@ -236,25 +236,60 @@ func pairToolTurns(in []domain.Message) []domain.Message {
 
 // stabilizeToolTurns defers user rows that landed inside an open tool-call
 // group (a mid-run steer is persisted as it arrives) until that group's results
-// are emitted. Providers reject a tool result that does not immediately follow
-// its call, so calls and results stay adjacent; no row is dropped here.
+// are emitted, and emits the results in call order. Providers reject a feed
+// whose tool result does not follow its call, and strict ones also reject a
+// group whose results are reordered: the Journal records tool.finished in
+// completion order, so an approval-gated call that finishes after a later call
+// would otherwise be replayed out of order on the next turn. No row is dropped
+// here.
 func stabilizeToolTurns(in []domain.Message) []domain.Message {
 	out := make([]domain.Message, 0, len(in))
-	var deferred []domain.Message
+	var deferred, results []domain.Message
+	var calls []string
 	open := 0
+	flush := func() {
+		if len(results) > 0 {
+			byID := make(map[string]domain.Message, len(results))
+			for _, r := range results {
+				byID[r.ToolCallID] = r
+			}
+			for _, id := range calls {
+				if r, ok := byID[id]; ok {
+					out = append(out, r)
+					delete(byID, id)
+				}
+			}
+			for _, r := range results {
+				if _, ok := byID[r.ToolCallID]; ok {
+					out = append(out, r)
+					delete(byID, r.ToolCallID)
+				}
+			}
+		}
+		results = results[:0]
+		calls = calls[:0]
+		if len(deferred) > 0 {
+			out = append(out, deferred...)
+			deferred = deferred[:0]
+		}
+	}
 	for _, msg := range in {
 		switch {
 		case msg.Role == domain.RoleAssistant && msg.ToolCallID != "":
 			open++
+			calls = append(calls, msg.ToolCallID)
 			out = append(out, msg)
 		case msg.Role == domain.RoleTool && msg.ToolCallID != "":
-			out = append(out, msg)
+			if open == 0 && len(calls) == 0 {
+				out = append(out, msg)
+				continue
+			}
+			results = append(results, msg)
 			if open > 0 {
 				open--
 			}
-			if open == 0 && len(deferred) > 0 {
-				out = append(out, deferred...)
-				deferred = deferred[:0]
+			if open == 0 {
+				flush()
 			}
 		case msg.Role == domain.RoleUser && open > 0:
 			deferred = append(deferred, msg)
@@ -262,7 +297,8 @@ func stabilizeToolTurns(in []domain.Message) []domain.Message {
 			out = append(out, msg)
 		}
 	}
-	return append(out, deferred...)
+	flush()
+	return out
 }
 
 func projectFeed(msgs []domain.Message) []*schema.AgenticMessage {

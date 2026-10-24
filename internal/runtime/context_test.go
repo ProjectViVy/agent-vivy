@@ -692,6 +692,47 @@ func TestPairToolTurnsKeepsSteerOrderOutsideGroups(t *testing.T) {
 	}
 }
 
+// The Journal records tool.finished in completion order. An approval-gated
+// call can finish after a later call in the same assistant message, so the
+// projection must restore call order: strict providers reject a group whose
+// results are reordered.
+func TestPairToolTurnsOrdersResultsByCall(t *testing.T) {
+	in := []domain.Message{
+		{Role: domain.RoleUser, Content: "start"},
+		{Role: domain.RoleAssistant, ToolCallID: "t1", ToolName: "bash", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleAssistant, ToolCallID: "t2", ToolName: "agent", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleTool, ToolCallID: "t2", ToolName: "agent", Content: "two"},
+		{Role: domain.RoleTool, ToolCallID: "t1", ToolName: "bash", Content: "one"},
+	}
+	got := pairToolTurns(in)
+	if len(got) != 5 {
+		t.Fatalf("stabilized rows = %d, want 5: %+v", len(got), got)
+	}
+	if got[1].ToolCallID != "t1" || got[2].ToolCallID != "t2" {
+		t.Fatalf("calls = %q/%q, want t1/t2", got[1].ToolCallID, got[2].ToolCallID)
+	}
+	if got[3].ToolCallID != "t1" || got[4].ToolCallID != "t2" {
+		t.Fatalf("results = %q/%q, want call order t1/t2", got[3].ToolCallID, got[4].ToolCallID)
+	}
+}
+
+func TestPairToolTurnsOrdersResultsByCallAfterSteer(t *testing.T) {
+	in := []domain.Message{
+		{Role: domain.RoleAssistant, ToolCallID: "t1", ToolName: "bash", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleAssistant, ToolCallID: "t2", ToolName: "agent", ToolArgs: []byte(`{}`)},
+		{Role: domain.RoleTool, ToolCallID: "t2", ToolName: "agent", Content: "two"},
+		{Role: domain.RoleUser, Content: "steer"},
+		{Role: domain.RoleTool, ToolCallID: "t1", ToolName: "bash", Content: "one"},
+	}
+	got := pairToolTurns(in)
+	if len(got) != 5 {
+		t.Fatalf("stabilized rows = %d, want 5: %+v", len(got), got)
+	}
+	if got[2].ToolCallID != "t1" || got[3].ToolCallID != "t2" || got[4].Content != "steer" {
+		t.Fatalf("stabilized rows = %+v, want t1 result, t2 result, steer", got)
+	}
+}
+
 // Dropping an unpaired call must not swallow a user row that arrived after it.
 func TestPairToolTurnsDropsOrphanCallWithoutLosingUserRow(t *testing.T) {
 	in := []domain.Message{
