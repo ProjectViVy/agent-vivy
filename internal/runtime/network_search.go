@@ -46,11 +46,11 @@ func NewNetworkSearchService(client *http.Client, endpoints map[string]string) *
 		client = &http.Client{Timeout: 8 * time.Second}
 	}
 	providers := map[string]SearchProvider{}
-	providers["bing"] = &bingSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, endpoint: endpointOr(endpoints, "bing", "https://api.bing.microsoft.com/v7.0/search")}, apiKeyEnv: "BING_SEARCH_API_KEY"}
-	providers["google"] = &googleSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, endpoint: endpointOr(endpoints, "google", "https://customsearch.googleapis.com/customsearch/v1")}, apiKeyEnv: "GOOGLE_SEARCH_API_KEY", cxEnv: "GOOGLE_SEARCH_CX"}
-	providers["duckduckgo"] = &duckDuckGoSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, endpoint: endpointOr(endpoints, "duckduckgo", "https://api.duckduckgo.com/")}}
-	providers["searxng"] = &searxNGSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, endpoint: endpointOr(endpoints, "searxng", os.Getenv("SEARXNG_SEARCH_URL"))}}
-	providers["wikipedia"] = &wikipediaSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, endpoint: endpointOr(endpoints, "wikipedia", "https://en.wikipedia.org/w/api.php")}}
+	providers["bing"] = &bingSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, name: "bing", endpoint: endpointOr(endpoints, "bing", "https://api.bing.microsoft.com/v7.0/search")}, apiKeyEnv: "BING_SEARCH_API_KEY"}
+	providers["google"] = &googleSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, name: "google", endpoint: endpointOr(endpoints, "google", "https://customsearch.googleapis.com/customsearch/v1")}, apiKeyEnv: "GOOGLE_SEARCH_API_KEY", cxEnv: "GOOGLE_SEARCH_CX"}
+	providers["duckduckgo"] = &duckDuckGoSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, name: "duckduckgo", endpoint: endpointOr(endpoints, "duckduckgo", "https://api.duckduckgo.com/")}}
+	providers["searxng"] = &searxNGSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, name: "searxng", endpoint: endpointOr(endpoints, "searxng", os.Getenv("SEARXNG_SEARCH_URL"))}}
+	providers["wikipedia"] = &wikipediaSearchProvider{searchHTTPProvider: searchHTTPProvider{client: client, name: "wikipedia", endpoint: endpointOr(endpoints, "wikipedia", "https://en.wikipedia.org/w/api.php")}}
 	return &NetworkSearchService{client: client, providers: providers, order: []string{"bing", "google", "duckduckgo", "searxng", "wikipedia"}}
 }
 
@@ -150,7 +150,7 @@ func (s *NetworkSearchService) Search(ctx context.Context, _ domain.RunID, req t
 	}
 	results, err := p.Search(ctx, SearchProviderRequest{Query: query, MaxResults: maxResults, Language: req.Language})
 	if err != nil {
-		return tools.SearchResponse{}, err
+		return tools.SearchResponse{}, fmt.Errorf("network search: provider %s failed: %w", providerName, err)
 	}
 	if len(results) > maxResults {
 		results = results[:maxResults]
@@ -164,16 +164,20 @@ func (s *NetworkSearchService) Search(ctx context.Context, _ domain.RunID, req t
 
 type searchHTTPProvider struct {
 	client   *http.Client
+	name     string
 	endpoint string
 }
 
 func (p *searchHTTPProvider) get(ctx context.Context, params url.Values, headers map[string]string, out any) error {
 	if p.endpoint == "" {
-		return errors.New("search provider endpoint is not configured")
+		if envNames := searchProviderEnvNames[p.name]; len(envNames) > 0 {
+			return fmt.Errorf("search provider %s endpoint is not configured: set %s", p.name, strings.Join(envNames, " and "))
+		}
+		return fmt.Errorf("search provider %s endpoint is not configured", p.name)
 	}
 	u, err := url.Parse(p.endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return errors.New("search provider endpoint must be an http(s) URL")
+		return fmt.Errorf("search provider %s endpoint must be an http(s) URL", p.name)
 	}
 	query := u.Query()
 	for key, values := range params {
@@ -192,14 +196,14 @@ func (p *searchHTTPProvider) get(ctx context.Context, params url.Values, headers
 	}
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("search provider request: %w", err)
+		return fmt.Errorf("search provider %s request: %w", p.name, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return fmt.Errorf("search provider rate limited")
+		return fmt.Errorf("search provider %s rate limited", p.name)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("search provider returned HTTP %d", resp.StatusCode)
+		return fmt.Errorf("search provider %s returned HTTP %d", p.name, resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSearchResponseBytes+1))
 	if err != nil {
@@ -223,7 +227,7 @@ func (p *bingSearchProvider) Name() string { return "bing" }
 func (p *bingSearchProvider) Search(ctx context.Context, req SearchProviderRequest) ([]tools.SearchResult, error) {
 	key := os.Getenv(p.apiKeyEnv)
 	if key == "" {
-		return nil, errors.New("bing search API key is not configured")
+		return nil, fmt.Errorf("bing search API key is not configured: set %s", p.apiKeyEnv)
 	}
 	// Decode the fields separately because Bing returns lower-case JSON keys.
 	var raw struct {
@@ -254,7 +258,7 @@ func (p *googleSearchProvider) Name() string { return "google" }
 func (p *googleSearchProvider) Search(ctx context.Context, req SearchProviderRequest) ([]tools.SearchResult, error) {
 	key, cx := os.Getenv(p.apiKeyEnv), os.Getenv(p.cxEnv)
 	if key == "" || cx == "" {
-		return nil, errors.New("google search API key or cx is not configured")
+		return nil, fmt.Errorf("google search API key or cx is not configured: set %s and %s", p.apiKeyEnv, p.cxEnv)
 	}
 	var raw struct {
 		Items []struct {
