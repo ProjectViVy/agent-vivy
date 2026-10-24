@@ -1,6 +1,6 @@
 # ND-0: pin nudge Eino integration contracts
 
-2026-09-23. Issue #58; Story ND-0 of docs/plans/nudge; baseline branch
+2026-09-23. Issue #58; Story ND-0 of docs/archive/plans/nudge; baseline branch
 docs/issue58-nudge-design @ 5b093c7f.
 
 Delivered `internal/runtime/nudge_contract_test.go`: a test-only proof that

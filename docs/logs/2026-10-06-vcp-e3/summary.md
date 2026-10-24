@@ -1,6 +1,6 @@
 # VCP E3 — tool_search over the deferred catalog
 
-Story: `docs/superpowers/plans/vivy-code-parity/E3-tool-search.md`
+Story: `docs/plans/vivy-code-parity/E3-tool-search.md`
 Commit message: `feat(runtime): tool_search deferred-catalog e2e`
 
 ## Deviation from plan (recorded)

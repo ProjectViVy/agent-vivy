@@ -1,6 +1,6 @@
 package runtime
 
-// ND-1 (docs/plans/nudge/ND-1.md): the §5 classification allowlist at the
+// ND-1 (docs/archive/plans/nudge/ND-1.md): the §5 classification allowlist at the
 // common governed adapter — typed ArgError/not_found/command_failed/
 // remote_tool_error records become model-visible results inside one Run
 // while cancellation, native interrupts and unlisted errors keep their

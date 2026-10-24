@@ -48,7 +48,7 @@ untouched.
    `NOT NULL DEFAULT ''` columns, survival of old rows with
    `EffectiveSource()=="ui"`, and round-tripping of a provenance-bearing write.
 8. **Documentation consistency**: the conformance count in
-   `docs/AGENT-VIVY-ARCHITECTURE-V0.md` changed from CN-01..CN-16 to CN-01..CN-17.
+   `docs/archive/AGENT-VIVY-ARCHITECTURE-V0.md` changed from CN-01..CN-16 to CN-01..CN-17.
 
 ## Difference from the contract (implemented per PLAN; architect confirmation pending)
 

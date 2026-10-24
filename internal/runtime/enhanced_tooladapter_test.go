@@ -1,6 +1,6 @@
 package runtime
 
-// ND-1 (docs/plans/nudge/ND-1.md) enhanced-adapter assertion: a soft
+// ND-1 (docs/archive/plans/nudge/ND-1.md) enhanced-adapter assertion: a soft
 // conversion must not lose its typed failure identity when the call runs
 // through the multimodal enhancedToolAdapter wrapper — the diagnostic is
 // plain text, so normalizeEnhancedResult carries it to the model and the

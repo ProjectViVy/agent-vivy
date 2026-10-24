@@ -1,6 +1,6 @@
 # I1 — local-LLM compatibility module — summary
 
-**Story:** `docs/superpowers/plans/vivy-code-parity/I1-local-llm.md`
+**Story:** `docs/plans/vivy-code-parity/I1-local-llm.md`
 **Commits:** `feat(plugins): local-llm compatibility module` (a251ada, module),
 `feat(plugins): local-llm conformance pins and iteration log` (this entry)
 

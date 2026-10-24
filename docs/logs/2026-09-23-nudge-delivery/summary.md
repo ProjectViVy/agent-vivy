@@ -1,6 +1,6 @@
 # ND-4 Delivery Summary — Integrated acceptance and handoff
 
-Date: 2026-09-23. Story: [ND-4](../../plans/nudge/ND-4.md), issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58). Branch `docs/issue58-nudge-design`.
+Date: 2026-09-23. Story: [ND-4](../../archive/plans/nudge/ND-4.md), issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58). Branch `docs/issue58-nudge-design`.
 
 ## What was delivered
 
@@ -34,5 +34,5 @@ Observed at `http://127.0.0.1:3015`, run `run_3362b503793c9356`: three `read_fil
 ## Files
 
 - New: `internal/runtime/nudge_acceptance_test.go`.
-- Updated: `sdk/internal/assembly/conformance_results.json` (internal source digest refresh, same procedure as every ND commit), `docs/plans/nudge/README.md` (index statuses), `docs/COMPLETE.MD` (completion record).
+- Updated: `sdk/internal/assembly/conformance_results.json` (internal source digest refresh, same procedure as every ND commit), `docs/archive/plans/nudge/README.md` (index statuses), `docs/COMPLETE.MD` (completion record).
 - Evidence: this directory's `verification.md` and `acceptance.md`; smoke artifacts under `/home/ubuntu/smoke/` (not committed).

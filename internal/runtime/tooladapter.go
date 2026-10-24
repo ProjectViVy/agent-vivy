@@ -772,6 +772,21 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			return a.run(ctx, string(args), operation)
 		}
 	}
+	forceHumanApproval := spec.Name == tools.CreateGoalName
+	needsApproval := evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval || forceHumanApproval
+	if needsApproval {
+		// A proposal that cannot be prepared must not suspend the run: the
+		// service would have no reviewable proposal and could only close the
+		// run with a generic pause failure. Check it on the final arguments,
+		// while the model can still correct the call. A resumed call was
+		// validated before human review; a late error there is drift, not a
+		// bad argument, so only first executions are checked.
+		if wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx); !wasInterrupted {
+			if err := a.preflightToolProposal(ctx, args); err != nil {
+				return "", err
+			}
+		}
+	}
 	if spec.Interaction == domain.ToolInteractionQuestion {
 		isTarget, hasData, answer := einotool.GetResumeContext[string](ctx)
 		if isTarget && hasData {
@@ -786,8 +801,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		}
 		operation = &admitted
 	}
-	forceHumanApproval := spec.Name == tools.CreateGoalName
-	if evaluation.Decision == domain.PolicyPrompt || middlewareRequiresApproval || forceHumanApproval {
+	if needsApproval {
 		if middlewareRequiresApproval {
 			wasInterrupted, _, _ := einotool.GetInterruptState[string](ctx)
 			if !wasInterrupted {
@@ -866,6 +880,36 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		}
 	}
 	return a.run(ctx, string(args), operation)
+}
+
+// preflightToolProposal checks the review a suspension would carry, without
+// producing it. A provider that stages durable state implements
+// tools.ProposalPreflight so the check is side-effect free; for every other
+// provider PrepareProposal is itself the check.
+func (a *toolAdapter) preflightToolProposal(ctx context.Context, args json.RawMessage) error {
+	ctx = tools.WithRunID(ctx, contextRunID(ctx))
+	var err error
+	switch provider := a.t.(type) {
+	case tools.ProposalPreflight:
+		err = provider.PreflightProposal(ctx, args)
+	case tools.ProposalProvider:
+		_, err = provider.PrepareProposal(ctx, args)
+	default:
+		return nil
+	}
+	if err == nil {
+		return nil
+	}
+	var argErr *tools.ArgError
+	switch {
+	case errors.As(err, &argErr):
+		return refuseCall(publicRefusalReason(err), err, toolFailureReasonInvalidArguments)
+	case errors.Is(err, ErrSandboxDenied), errors.Is(err, ErrPolicyDenied):
+		return refuseCall(publicRefusalReason(err), err, toolFailureReasonPolicyDenied)
+	}
+	// Wiring and backend failures stay run-fatal: the call was never
+	// inspected, so blaming the model's arguments would hide a broken install.
+	return err
 }
 
 func (a *toolAdapter) run(ctx context.Context, argumentsInJSON string, operation ...*domain.ToolOperation) (string, error) {

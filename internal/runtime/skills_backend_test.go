@@ -311,6 +311,12 @@ func TestEinoSkillBackendProjectOverlayAndCollision(t *testing.T) {
 	if !errors.Is(err, errSkillReadOnly) {
 		t.Fatalf("manage project skill err = %v, want read-only", err)
 	}
+	err = backend.PreflightSkillProposal(context.Background(), "run", tools.SkillManageRequest{
+		Action: "edit", SkillName: "project-only", Content: "---\nname: project-only\ndescription: A test skill\n---\n\nhacked\n",
+	})
+	if !errors.Is(err, errSkillReadOnly) || !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("preflight project skill err = %v, want a policy-classified refusal", err)
+	}
 }
 
 func TestRepositoryProjectSkillsLoad(t *testing.T) {
@@ -598,5 +604,60 @@ func TestSkillSupportingSymlinkCannotCreateOutsideRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "new-dir")); !os.IsNotExist(err) {
 		t.Fatalf("rejected write created external parent: %v", err)
+	}
+}
+
+// Preflight validates the mutation without staging a revision, so the approval
+// pre-check cannot leave an orphan pending revision behind.
+func TestSkillPreflightValidatesWithoutStagingRevision(t *testing.T) {
+	backend, root, store := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "old body")
+	ctx := context.Background()
+	request := tools.SkillManageRequest{Action: "patch", SkillName: "demo-skill", OldString: "old body", NewString: "new body"}
+
+	if err := backend.PreflightSkillProposal(ctx, "run_preflight", request); err != nil {
+		t.Fatalf("preflight valid patch: %v", err)
+	}
+	if pending, err := store.ListPendingSkillRevisions(ctx); err != nil || len(pending) != 0 {
+		t.Fatalf("pending revisions after preflight = %d/%v, want none", len(pending), err)
+	}
+
+	invalid := request
+	invalid.OldString = "absent"
+	if err := backend.PreflightSkillProposal(ctx, "run_preflight", invalid); err == nil || !strings.Contains(err.Error(), "patch source was not found") {
+		t.Fatalf("preflight invalid patch = %v, want the missing source", err)
+	}
+	if pending, err := store.ListPendingSkillRevisions(ctx); err != nil || len(pending) != 0 {
+		t.Fatalf("pending revisions after invalid preflight = %d/%v, want none", len(pending), err)
+	}
+
+	if _, err := backend.PrepareSkillProposal(ctx, "run_preflight", request); err != nil {
+		t.Fatalf("prepare patch: %v", err)
+	}
+	if pending, err := store.ListPendingSkillRevisions(ctx); err != nil || len(pending) != 1 {
+		t.Fatalf("pending revisions after prepare = %d/%v, want one", len(pending), err)
+	}
+}
+
+// The tool forwards preflight to the real backend without staging, which is the
+// path the approval pre-check uses for skill_manage.
+func TestSkillManageToolPreflightReachesBackendWithoutStaging(t *testing.T) {
+	backend, root, store := openSkillTestBackend(t)
+	writeSkillFixture(t, root, "demo-skill", "old body")
+	tool, ok := tools.NewSkillManage(backend).(tools.ProposalPreflight)
+	if !ok {
+		t.Fatal("skill_manage does not expose ProposalPreflight")
+	}
+	ctx := tools.WithRunID(context.Background(), "run_tool_preflight")
+	valid := json.RawMessage(`{"action":"patch","name":"demo-skill","old_string":"old body","new_string":"new body"}`)
+	if err := tool.PreflightProposal(ctx, valid); err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	if pending, err := store.ListPendingSkillRevisions(ctx); err != nil || len(pending) != 0 {
+		t.Fatalf("pending revisions = %d/%v, want none", len(pending), err)
+	}
+	invalid := json.RawMessage(`{"action":"patch","name":"demo-skill","old_string":"absent","new_string":"new body"}`)
+	if err := tool.PreflightProposal(ctx, invalid); err == nil {
+		t.Fatal("preflight accepted a patch whose source is absent")
 	}
 }

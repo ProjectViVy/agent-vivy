@@ -38,7 +38,7 @@ stale token. Truthful degradation: closed/absent service yields explicit
 
 ```text
 rg -n 'MEM-1A' docs/TODO.md docs/DEFER.MD docs/research/OPEN-ITEMS.md \
-  docs/superpowers/plans/memory/index.md
+  docs/plans/memory/index.md
 ```
 
 `index.md` shows MEM-1A Done 2026-09-26 pointing here; `docs/TODO.md` §0.1,

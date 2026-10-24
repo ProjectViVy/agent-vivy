@@ -1,6 +1,6 @@
 # VCP A2 — `--mode print` and `--mode json`
 
-Date: 2026-10-06. Story: [A2](../../superpowers/plans/vivy-code-parity/A2-print-json-modes.md). Spec: VCP-D1 §5.1 / RQ-JSON.
+Date: 2026-10-06. Story: [A2](../../plans/vivy-code-parity/A2-print-json-modes.md). Spec: VCP-D1 §5.1 / RQ-JSON.
 
 ## What landed
 

@@ -1,6 +1,6 @@
 # VCP B2 — TUI steering and follow-up key tracks
 
-Date: 2026-10-06. Story: `docs/superpowers/plans/vivy-code-parity/B2-tui-steering.md`.
+Date: 2026-10-06. Story: `docs/plans/vivy-code-parity/B2-tui-steering.md`.
 
 ## What shipped
 

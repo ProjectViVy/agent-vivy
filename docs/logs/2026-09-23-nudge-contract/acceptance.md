@@ -1,6 +1,6 @@
 # ND-0 acceptance
 
-Goal (docs/plans/nudge/ND-0.md): prove the pinned Eino surfaces can support
+Goal (docs/archive/plans/nudge/ND-0.md): prove the pinned Eino surfaces can support
 the specified ordering and metadata without a second runtime. Scope:
 integration evidence and minimal test-only helpers — no production code or
 dependency upgrades. Met.

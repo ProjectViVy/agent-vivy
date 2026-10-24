@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,7 +131,7 @@ func TestCommandBackendRejectsShellEscapesOutsideCwdAndSecrets(t *testing.T) {
 		want    string
 	}{
 		{name: "shell", request: tools.CommandRequest{Command: "go;whoami"}, want: "shell syntax"},
-		{name: "outside cwd", request: tools.CommandRequest{Command: "go", Cwd: ".."}, want: "escapes"},
+		{name: "outside cwd", request: tools.CommandRequest{Command: "go", Cwd: ".."}, want: "inside the run workspace"},
 		{name: "secret env", request: tools.CommandRequest{Command: "go", Env: map[string]string{"API_KEY": "secret"}}, want: "not allowlisted"},
 	}
 	for _, test := range cases {
@@ -180,5 +181,53 @@ func TestCommandBackendTimeoutCeiling(t *testing.T) {
 				t.Fatalf("timeout = %v, want %v", validated.scope.timeout, test.want)
 			}
 		})
+	}
+}
+
+// A rejected cwd is a model-correctable argument error (or a sandbox denial),
+// not a generic failure: the approval preflight turns it into a tool refusal.
+func TestCommandBackendCwdRejectionsAreCorrectable(t *testing.T) {
+	manager, err := NewWorkspaceManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sandbox, err := NewSandboxManager(domain.SandboxModeDangerFullAccess, t.TempDir(), []string{"go"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := NewCommandBackend(manager, sandbox, []string{"go"}, 30*time.Second)
+	workspace, err := manager.Ensure(context.Background(), "run-command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace.Path, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		cwd  string
+	}{
+		{name: "absolute", cwd: workspace.Path},
+		{name: "escape", cwd: "../../../../.."},
+		{name: "missing", cwd: "missing"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := backend.PrepareCommand(context.Background(), "run-command", tools.CommandRequest{Command: "go", Cwd: test.cwd})
+			var argErr *tools.ArgError
+			if !errors.As(err, &argErr) || argErr.Field != "cwd" {
+				t.Fatalf("cwd %q error = %v, want a cwd ArgError", test.cwd, err)
+			}
+		})
+	}
+
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(workspace.Path, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, err = backend.PrepareCommand(context.Background(), "run-command", tools.CommandRequest{Command: "go", Cwd: "link"})
+	if !errors.Is(err, ErrSandboxDenied) {
+		t.Fatalf("symlink cwd error = %v, want ErrSandboxDenied", err)
 	}
 }

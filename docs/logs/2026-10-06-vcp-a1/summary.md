@@ -1,7 +1,7 @@
 # VCP-A1 — vivy-code flag surface + face.Options extension
 
-**Story:** `docs/superpowers/plans/vivy-code-parity/A1-flags-face-options.md` (RQ-CLI)
-**Spec:** `docs/superpowers/specs/2026-10-06-vivy-code-parity-design.md` §5.1
+**Story:** `docs/plans/vivy-code-parity/A1-flags-face-options.md` (RQ-CLI)
+**Spec:** `docs/specs/2026-10-06-vivy-code-parity-design.md` §5.1
 
 ## What landed
 

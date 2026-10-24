@@ -1,6 +1,6 @@
 # ND-4 Acceptance Record
 
-Date: 2026-09-23. Against [ND-4.md](../../plans/nudge/ND-4.md) acceptance and the N1–N5 requirement trace.
+Date: 2026-09-23. Against [ND-4.md](../../archive/plans/nudge/ND-4.md) acceptance and the N1–N5 requirement trace.
 
 ## Plan tasks
 

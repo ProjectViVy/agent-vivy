@@ -145,6 +145,13 @@ func (tool governedProposalTool) PrepareProposal(ctx context.Context, args json.
 	return tool.proposal.PrepareProposal(ctx, args)
 }
 
+// PreflightProposal keeps the pre-suspension check free of staged state. The
+// wrapper always exposes it so the runtime sees one capability; providers that
+// persist a proposal opt into tools.ProposalPreflight.
+func (tool governedProposalTool) PreflightProposal(ctx context.Context, args json.RawMessage) error {
+	return preflightProposal(tool.proposal, ctx, args)
+}
+
 type governedClassifiedProposalTool struct {
 	governedTool
 	classifier tools.InvocationClassifier
@@ -157,6 +164,18 @@ func (tool governedClassifiedProposalTool) ClassifyInvocation(args json.RawMessa
 
 func (tool governedClassifiedProposalTool) PrepareProposal(ctx context.Context, args json.RawMessage) (domain.ToolProposal, error) {
 	return tool.proposal.PrepareProposal(ctx, args)
+}
+
+func (tool governedClassifiedProposalTool) PreflightProposal(ctx context.Context, args json.RawMessage) error {
+	return preflightProposal(tool.proposal, ctx, args)
+}
+
+func preflightProposal(provider tools.ProposalProvider, ctx context.Context, args json.RawMessage) error {
+	if checker, ok := provider.(tools.ProposalPreflight); ok {
+		return checker.PreflightProposal(ctx, args)
+	}
+	_, err := provider.PrepareProposal(ctx, args)
+	return err
 }
 
 func newGovernedRuntimeTool(host *toolhost.Host, id string, spec domain.ToolSpec, behavior tools.Tool) tools.Tool {

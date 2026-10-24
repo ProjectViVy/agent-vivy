@@ -5,7 +5,7 @@ Branch: `feat/issue-51-session-continuity`, pushed to `origin` (`ProjectViVy/age
 
 ## Where things stand
 
-- **T0, T1, T2: Accepted** (see `docs/superpowers/plans/session-continuity/index.md` — the sole authoritative status ledger).
+- **T0, T1, T2: Accepted** (see `docs/plans/session-continuity/index.md` — the sole authoritative status ledger).
 - **T3: Review pending — implementation and review are DONE, only the final ci gate and the acceptance bookkeeping remain.** All focused Go tests pass (runtime, rpc, app, tools, storage, sdk/tui/live, sdk/tui/stream, faces/headless module); UI vitest 14/14 pass. Two rounds of independent scoped re-review completed with final verdict "acceptable for T3 acceptance" — full artifact at `docs/logs/2026-09-21-session-continuity-implementation/t3-review.md`.
 - **T4–T12: not started.** The user paused the goal at T3 closure and handed the remainder to you.
 - Phase 0 verification debt is fully burned down: toolchain (go1.26.4 / just1.46.0) works; the 73 stale test fixtures that predated T2's fail-closed message-position allocation were fixed in test-only commit `29908309`.
@@ -34,7 +34,7 @@ Branch: `feat/issue-51-session-continuity`, pushed to `origin` (`ProjectViVy/age
 
 ### 2. Then T4 → T12, strictly sequential
 
-Follow the approved plan (`C:\Users\com01\.qoder-cn\plans\graceful-pebble-shrew.md`, Phase 2) and each story file `docs/superpowers/plans/session-continuity/T4.md` … `T12.md`, under the shared contract `docs/superpowers/plans/2026-09-21-session-continuity.md`. Per-story cycle: gate on predecessors Accepted → red tests with the exact command in the story file → minimal implementation inside the story's permitted files only → focused tests green → `git diff --check` → `just ci` → one focused commit with the story-specified message → update verification.md + index.md from observed results → `docs: accept session continuity S`. UI stories (T7/T8/T11) additionally require real browser smoke at `http://127.0.0.1:3015` via the split pair (`just run` + `cd ui && pnpm dev`), not screenshots. T12 is the final gate (E2E coding loop, Playwright continuity spec, Lite recipe pack + inspect, split-GUI smoke).
+Follow the approved plan (`C:\Users\com01\.qoder-cn\plans\graceful-pebble-shrew.md`, Phase 2) and each story file `docs/plans/session-continuity/T4.md` … `T12.md`, under the shared contract `docs/plans/2026-09-21-session-continuity.md`. Per-story cycle: gate on predecessors Accepted → red tests with the exact command in the story file → minimal implementation inside the story's permitted files only → focused tests green → `git diff --check` → `just ci` → one focused commit with the story-specified message → update verification.md + index.md from observed results → `docs: accept session continuity S`. UI stories (T7/T8/T11) additionally require real browser smoke at `http://127.0.0.1:3015` via the split pair (`just run` + `cd ui && pnpm dev`), not screenshots. T12 is the final gate (E2E coding loop, Playwright continuity spec, Lite recipe pack + inspect, split-GUI smoke).
 
 ## Hard constraints (user decisions — do not re-litigate)
 
@@ -50,4 +50,4 @@ Follow the approved plan (`C:\Users\com01\.qoder-cn\plans\graceful-pebble-shrew.
 - go1.26.4, just1.46.0, node, pnpm available. No Docker, no psql, no Playwright browser confirmed. `ui/node_modules` gets installed by the ci `ui-ci` step.
 - `faces/headless` and `faces/tui` are **separate Go modules** — test them with `cd faces/headless && go test ./...`; root `go test ./...` does not cover them.
 - Full-suite reference timings: runtime ~82s, rpc ~52s, app ~31s, storage/sqlite ~52s.
-- Key docs: ledger `docs/superpowers/plans/session-continuity/index.md`; evidence `docs/logs/2026-09-21-session-continuity-implementation/verification.md`; review `…/t3-review.md`; spec `docs/superpowers/specs/2026-09-21-session-continuity-design.md`.
+- Key docs: ledger `docs/plans/session-continuity/index.md`; evidence `docs/logs/2026-09-21-session-continuity-implementation/verification.md`; review `…/t3-review.md`; spec `docs/specs/2026-09-21-session-continuity-design.md`.

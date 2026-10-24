@@ -16,7 +16,7 @@ grep -n 'MEM-' docs/TODO.md docs/DEFER.MD docs/research/OPEN-ITEMS.md
   deferred) and `MEM-CAP` carrying the still-deferred AutoDream / Evolution /
   RAG scope.
 - `docs/research/OPEN-ITEMS.md` mirrors both.
-- `docs/superpowers/plans/memory/index.md` is the authoritative story table
+- `docs/plans/memory/index.md` is the authoritative story table
   and says the same.
 
 ## 2 — The cited artifacts are real

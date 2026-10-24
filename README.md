@@ -155,7 +155,7 @@ From the repository root, `node scripts/check-i18n-completeness.js` validates
 Web catalog key/placeholder parity and maintained runtime copy. `just ci`
 runs it after UI dependency installation without replacing the existing Go,
 headless, plugin-module, or UI gates. See the
-[I18N implementation status](docs/superpowers/specs/2026-09-09-i18n-design.md#final-implementation-status)
+[I18N implementation status](docs/specs/2026-09-09-i18n-design.md#final-implementation-status)
 for fresh verification evidence and the deliberately deferred plugin catalog
 proposal; Go/TUI execution and the complete `just ci` gate remain unverified
 in the 2026-09-09 Task 9 environment.

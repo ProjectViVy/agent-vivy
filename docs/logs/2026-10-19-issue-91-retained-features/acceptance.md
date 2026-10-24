@@ -1,6 +1,6 @@
 # Acceptance of the scope correction
 
-Open [the current index](../../superpowers/plans/issue-91/index.md): retention is
+Open [the current index](../../plans/issue-91/index.md): retention is
 owner-confirmed, not another approval question. D04 preserves actual coaching;
 D05 preserves actual warming and same-Run steering. Their regression acceptance
 and D14 must reject no-op features, a never-invoked warmer, or follow-up-only

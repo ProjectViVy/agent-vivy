@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"agent-vivy/internal/app"
 	"agent-vivy/internal/config"
 	"agent-vivy/internal/logging"
+	"agent-vivy/internal/storage/migrations"
 	"agent-vivy/sdk/generation"
 )
 
@@ -105,6 +107,10 @@ func main() {
 	a, err := app.New(ctx, cfg, app.WithInstructionRoot(instructionRoot))
 	if err != nil {
 		logger.Error("composition failed", "err", err)
+		if hint, ok := incompatibleStoreHint(err, cfg.DataDirectory()); ok {
+			logger.Error("data directory belongs to a different Vivy build",
+				"err", err, "data_dir", cfg.DataDirectory(), "hint", hint)
+		}
 		os.Exit(1)
 	}
 
@@ -112,6 +118,17 @@ func main() {
 		logger.Error("run failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// incompatibleStoreHint explains a data directory written by a different Vivy
+// build. Refusing to migrate is correct; the hint makes it actionable without
+// offering to modify, reset, or replace the existing store.
+func incompatibleStoreHint(err error, dataDir string) (string, bool) {
+	if !errors.Is(err, migrations.ErrUnsupportedSourceFormat) &&
+		!errors.Is(err, migrations.ErrUpgradeRequired) {
+		return "", false
+	}
+	return fmt.Sprintf("data directory %s belongs to a different Vivy build; set VIVY_USER_HOME to a separate directory for this build, or run the build that created this data, and do not delete the existing database without a backup", dataDir), true
 }
 
 // loadConfig reads VIVY_CONFIG when set, otherwise config.yaml when

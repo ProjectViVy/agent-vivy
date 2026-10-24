@@ -1,6 +1,6 @@
 # ND-1 — Selective tool failure feedback
 
-Goal (docs/plans/nudge/ND-1.md): "A supported failed invocation becomes an
+Goal (docs/archive/plans/nudge/ND-1.md): "A supported failed invocation becomes an
 unsuccessful tool result that allows same-Run correction." Classification
 happens at the common governed adapter; per-call failure metadata is marked
 on the ND-2 side channel; native fatal/interrupt paths are retained;

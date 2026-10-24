@@ -2,7 +2,7 @@
 
 Revision **D04 producer boundary**, 2026-10-21. Issue [#58](https://github.com/ProjectViVy/agent-vivy/issues/58).
 Baseline: `a8d361b0244a1c40be513622bbdaebb5c9d40014` (local and fetched main).
-Delivery authority: [plan index](../plans/nudge/README.md). This engineering specification supersedes the preliminary issue comment where explicitly refined below. D04 updates the shipped interim core implementation; #93 owns ordinary first-party plugin extraction.
+Delivery authority: [plan index](../archive/plans/nudge/README.md). This engineering specification supersedes the preliminary issue comment where explicitly refined below. D04 updates the shipped interim core implementation; #93 owns ordinary first-party plugin extraction.
 
 ## 1. Intent and requirements
 

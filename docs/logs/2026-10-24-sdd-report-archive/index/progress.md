@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/superpowers/plans/toolkits/index.md
+# SDD ledger — plan: docs/plans/toolkits/index.md
 
 ## Scope and starting point
 - Branch `TOOLKITS`, clean at `f7b032ad`.

@@ -133,7 +133,7 @@ The current implementation evidence is in:
 - [`internal/runtime/isolation.go`](../../internal/runtime/isolation.go): validated per-run workspace allocation and path containment boundary.
 - [`internal/storage/sqlite/sqlite.go`](../../internal/storage/sqlite/sqlite.go): pure-Go SQLite backend with versioned migrations and one-writer configuration.
 - [`internal/storage/sqlite/messages.go`](../../internal/storage/sqlite/messages.go): append-only session message persistence.
-- [`docs/GOAL-AGENT-HARNESS-ROADMAP.md`](../../docs/GOAL-AGENT-HARNESS-ROADMAP.md) and [`docs/TODO.md`](../../docs/TODO.md): current harness scope and deferred memory/RAG, MCP/plugins, extra providers, and filesystem-journal work.
+- [`docs/archive/GOAL-AGENT-HARNESS-ROADMAP.md`](../../docs/archive/GOAL-AGENT-HARNESS-ROADMAP.md) and [`docs/TODO.md`](../../docs/TODO.md): current harness scope and deferred memory/RAG, MCP/plugins, extra providers, and filesystem-journal work.
 
 The main compatibility gap is not Eino tool invocation. It is the Vivy-owned control plane around the Eino primitives: filesystem safety and mutation review, Skills management/staging, HITL persistence and review UI, FTS5 search tables for session recall, and possibly a durable todo table.
 
@@ -385,7 +385,7 @@ The local Hermes checkout carries the MIT License and upstream marks the reposit
 ### Local evidence
 
 - Hermes: `toolsets.py`, `tools/registry.py`, `tools/file_tools.py`, `tools/file_operations.py`, `tools/path_security.py`, `tools/tool_output_limits.py`, `tools/session_search_tool.py`, `tools/skills_tool.py`, `tools/skill_manager_tool.py`, `tools/approval.py`, `tools/checkpoint_manager.py`, `tools/todo_tool.py`, `tools/terminal_tool.py`, `tools/process_registry.py`, `pyproject.toml`, and `LICENSE`.
-- Vivy: `internal/tools`, `internal/runtime`, `internal/storage/sqlite`, `docs/GOAL-AGENT-HARNESS-ROADMAP.md`, and `docs/TODO.md`.
+- Vivy: `internal/tools`, `internal/runtime`, `internal/storage/sqlite`, `docs/archive/GOAL-AGENT-HARNESS-ROADMAP.md`, and `docs/TODO.md`.
 - Eino: `go.mod` pins `github.com/cloudwego/eino v0.9.13`; the local module contains `adk/middlewares/filesystem`, `adk/middlewares/skill`, `adk/middlewares/plantask`, and the ADK checkpoint/interrupt APIs used by the runtime.
 
 ### Public sources

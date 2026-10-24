@@ -74,5 +74,5 @@ import (
 
 ## Reference material (read-only)
 
-- `docs/eino-capability-verify.md` — capability verification write-up.
+- `docs/archive/eino-capability-verify.md` — capability verification write-up.
 - `docs/architecture/VIVY-STUDIO.md` — product rules; Vivy Studio is the first-party daily IDE, while other authorized developer tools may work directly in this repo. Daily `vivy.exe` is not an IDE.

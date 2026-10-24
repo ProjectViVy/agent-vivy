@@ -13,7 +13,7 @@ import (
 )
 
 // Fail-closed read errors: a checkpoint that cannot be verified is never
-// handed back to the engine (docs/eino-capability-verify.md §3.5).
+// handed back to the engine (docs/archive/eino-capability-verify.md §3.5).
 var (
 	// ErrCheckpointCorrupted means the outer envelope is malformed or uses an
 	// unsupported format. The opaque native payload has no Vivy checksum.

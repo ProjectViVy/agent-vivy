@@ -1,6 +1,6 @@
 package mcphost
 
-// ND-1 (docs/plans/nudge/ND-1.md) ToolWorld assertions: a remote
+// ND-1 (docs/archive/plans/nudge/ND-1.md) ToolWorld assertions: a remote
 // tool-result error (IsError) crosses the internal error channel as the
 // typed ToolExecutionError carrying the untrusted text, while
 // JSON-RPC/transport failures keep their untyped fatal path.

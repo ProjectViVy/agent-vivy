@@ -1,6 +1,6 @@
 package runtime
 
-// ND-3 (docs/plans/nudge/ND-3.md): the transient reminder at the model
+// ND-3 (docs/archive/plans/nudge/ND-3.md): the transient reminder at the model
 // boundary (NUDGE-DESIGN §6/§7). An immutable WrapModel middleware reads
 // committed producer outcomes for the native batch whose tool results sit
 // at the input tail, persists at most one tool.nudge scheduling event

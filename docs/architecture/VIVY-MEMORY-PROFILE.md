@@ -3,7 +3,7 @@
 Status: G0 contract freeze (MEM-0B). Docs-only; no code changes are implied by
 or authorized by this document.
 Issue: https://github.com/ProjectViVy/agent-vivy/issues/33
-Spec: [memory providers design](../superpowers/specs/2026-09-26-memory-providers-design.md)
+Spec: [memory providers design](../specs/2026-09-26-memory-providers-design.md)
 (REQ-MEM-1/6/7/8). Upstream pins:
 [2026-09-26-memory-upstream-pin](../research/2026-09-26-memory-upstream-pin.md).
 Rows this profile extends live in
