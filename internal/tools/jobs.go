@@ -311,7 +311,7 @@ func (r *JobRegistry) Kill(id string) (JobKillResult, error) {
 	j, ok := r.jobs[id]
 	r.mu.Unlock()
 	if !ok {
-		return JobKillResult{}, fmt.Errorf("job_kill: unknown job %s", id)
+		return JobKillResult{}, &ArgError{Field: "job_id", Reason: "unknown job " + id}
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -514,7 +514,7 @@ func (t *jobsTool) InvokableRun(ctx context.Context, args json.RawMessage) (stri
 	if t.name == JobOutputName {
 		res, ok := t.ops.JobRead(id)
 		if !ok {
-			return "", fmt.Errorf("%s: unknown job %s", t.name, id)
+			return "", &ArgError{Field: "job_id", Reason: "unknown job " + id}
 		}
 		return marshalToolResult(res)
 	}

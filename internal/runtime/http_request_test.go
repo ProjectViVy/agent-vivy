@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -133,5 +134,60 @@ func TestHTTPBackendSetConfigLiveApply(t *testing.T) {
 	}
 	if backend.client.Timeout != 5*time.Second {
 		t.Fatalf("timeout = %v, want 5s", backend.client.Timeout)
+	}
+}
+
+// Argument-shape refusals from http_request are model mistakes the caller can
+// correct on the next call; host and sandbox denials are policy refusals and
+// keep their fatal cause.
+func TestHTTPBackendArgumentErrorsAreModelCorrectable(t *testing.T) {
+	sandbox, err := NewSandboxManager(
+		domain.SandboxModeDangerFullAccess,
+		t.TempDir(),
+		nil,
+		&domain.NetworkPolicy{DenyPrivateIPs: false},
+	)
+	if err != nil {
+		t.Fatalf("new sandbox: %v", err)
+	}
+	backend := NewHTTPBackend([]string{"example.com"}, 64, 0, sandbox)
+	ctx := context.Background()
+	spec := domain.ToolSpec{Name: tools.HTTPRequestName, Readonly: true}
+
+	cases := []struct {
+		name  string
+		input tools.HTTPRequest
+		field string
+	}{
+		{name: "method", input: tools.HTTPRequest{Method: "POST", URL: "https://example.com/"}, field: "method"},
+		{name: "relative url", input: tools.HTTPRequest{URL: "/relative"}, field: "url"},
+		{name: "non-http scheme", input: tools.HTTPRequest{URL: "ftp://example.com/file"}, field: "url"},
+		{name: "credential query", input: tools.HTTPRequest{URL: "https://example.com/?access_token=secret"}, field: "url"},
+		{name: "credential header", input: tools.HTTPRequest{URL: "https://example.com/", Headers: map[string]string{"Cookie": "a=b"}}, field: "headers"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := backend.Request(ctx, "", tc.input)
+			var argErr *tools.ArgError
+			if !errors.As(err, &argErr) || argErr.Field != tc.field {
+				t.Fatalf("Request(%+v) err = %v, want *tools.ArgError on %q", tc.input, err, tc.field)
+			}
+			failure, ok := classifyToolFailure(ctx, spec, err)
+			if !ok || failure.Status != toolFailureStatusRecoverable || failure.Reason != toolFailureReasonInvalidArguments {
+				t.Fatalf("Request(%+v) classification = %+v/%v, want recoverable/invalid_arguments", tc.input, failure, ok)
+			}
+		})
+	}
+
+	_, err = backend.Request(ctx, "", tools.HTTPRequest{URL: "https://not-allowlisted.test/"})
+	if err == nil {
+		t.Fatal("host outside the allowlist was fetched")
+	}
+	var argErr *tools.ArgError
+	if errors.As(err, &argErr) {
+		t.Fatalf("host allowlist denial = %v, want an untyped policy error", err)
+	}
+	if _, ok := classifyToolFailure(ctx, spec, err); ok {
+		t.Fatal("host allowlist denial was classified as model-correctable")
 	}
 }

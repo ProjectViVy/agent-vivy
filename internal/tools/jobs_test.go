@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -213,8 +214,31 @@ func TestJobRegistryKillUnknownJob(t *testing.T) {
 	if _, ok := r.Read("job_nope"); ok {
 		t.Fatal("unknown job read reported ok")
 	}
-	if _, err := r.Kill("job_nope"); err == nil || !strings.Contains(err.Error(), "unknown job") {
+	_, err := r.Kill("job_nope")
+	if err == nil || !strings.Contains(err.Error(), "unknown job") {
 		t.Fatalf("unknown kill error = %v, want unknown job", err)
+	}
+	var argErr *ArgError
+	if !errors.As(err, &argErr) || argErr.Field != "job_id" {
+		t.Fatalf("unknown kill error = %v, want *ArgError on job_id", err)
+	}
+}
+
+// registryJobOps adapts the real registry to the tool-facing interface so the
+// tool tests exercise the production unknown-id path.
+type registryJobOps struct{ r *JobRegistry }
+
+func (o registryJobOps) JobRead(id string) (JobReadResult, bool)  { return o.r.Read(id) }
+func (o registryJobOps) JobKill(id string) (JobKillResult, error) { return o.r.Kill(id) }
+
+func TestJobToolsUnknownIDIsArgumentError(t *testing.T) {
+	ops := registryJobOps{r: NewJobRegistry()}
+	for _, tool := range []Tool{NewJobOutput(ops), NewJobKill(ops)} {
+		_, err := tool.InvokableRun(context.Background(), json.RawMessage(`{"job_id":"job_nope"}`))
+		var argErr *ArgError
+		if !errors.As(err, &argErr) || argErr.Field != "job_id" || !strings.Contains(argErr.Reason, "unknown job") {
+			t.Fatalf("%s unknown id error = %v, want *ArgError on job_id", tool.Spec().Name, err)
+		}
 	}
 }
 

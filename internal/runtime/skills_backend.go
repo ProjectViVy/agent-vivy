@@ -172,6 +172,9 @@ func (b *EinoSkillBackend) ListSkills(ctx context.Context, _ domain.RunID) ([]to
 }
 
 func (b *EinoSkillBackend) ViewSkill(ctx context.Context, _ domain.RunID, name, relativePath string) (tools.SkillView, error) {
+	if err := validSkillName(name); err != nil {
+		return tools.SkillView{}, &tools.ArgError{Field: "name", Reason: "must be a simple skill name"}
+	}
 	item, err := b.loadSkill(ctx, name)
 	if err != nil {
 		return tools.SkillView{}, err
@@ -189,7 +192,7 @@ func (b *EinoSkillBackend) ViewSkill(ctx context.Context, _ domain.RunID, name, 
 		return tools.SkillView{}, fmt.Errorf("skills: read %s: %w", rel, err)
 	}
 	if len(data) > maxSkillBytes || isBinary(data) {
-		return tools.SkillView{}, fmt.Errorf("skills: supporting file is binary or too large")
+		return tools.SkillView{}, &tools.ArgError{Field: "path", Reason: "must be a text file within the size limit"}
 	}
 	warnings := scanSkillText(string(data))
 	view := tools.SkillView{SkillSummary: b.summary(item), Content: string(data), RelativePath: rel}
@@ -503,7 +506,7 @@ func (b *EinoSkillBackend) locateSkill(ctx context.Context, name string) (loaded
 		return loadedSkill{}, skillRoot{}, err
 	}
 	if last == nil {
-		last = fmt.Errorf("skills: skill %q not found", name)
+		last = fmt.Errorf("skills: skill %q not found: %w", name, fs.ErrNotExist)
 	}
 	return loadedSkill{}, skillRoot{}, last
 }
@@ -619,7 +622,7 @@ func (b *EinoSkillBackend) skillDirOf(ctx context.Context, name string) (skillRo
 		}
 		return root, dir, nil
 	}
-	return skillRoot{}, "", fmt.Errorf("skills: skill %q not found", name)
+	return skillRoot{}, "", fmt.Errorf("skills: skill %q not found: %w", name, fs.ErrNotExist)
 }
 
 func (b *EinoSkillBackend) writableSkillDir(ctx context.Context, name string) (string, error) {
@@ -640,7 +643,7 @@ func skillDirIn(root, name string) (string, error) {
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
-		return "", fmt.Errorf("skills: skill %q not found", name)
+		return "", fmt.Errorf("skills: skill %q not found: %w", name, fs.ErrNotExist)
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("skills: skill %q is not a directory", name)
@@ -658,20 +661,27 @@ func (b *EinoSkillBackend) resolveSkillPath(ctx context.Context, name, relative 
 	}
 	relative = filepath.Clean(filepath.FromSlash(strings.TrimSpace(relative)))
 	if relative == "." || filepath.IsAbs(relative) || filepath.VolumeName(relative) != "" || strings.ContainsRune(relative, '\x00') {
-		return "", "", errors.New("skills: supporting path must be relative")
+		return "", "", &tools.ArgError{Field: "path", Reason: "must be a relative path under the skill"}
 	}
 	relativeSlash := filepath.ToSlash(relative)
 	parts := strings.Split(relativeSlash, "/")
 	if relativeSlash != "SKILL.md" && (len(parts) == 0 || parts[0] != "references" && parts[0] != "templates" && parts[0] != "scripts" && parts[0] != "assets") {
-		return "", "", errors.New("skills: supporting path must be under references, templates, scripts, or assets")
+		return "", "", &tools.ArgError{Field: "path", Reason: "must be under references, templates, scripts, or assets"}
 	}
 	path := filepath.Join(dir, relative)
 	if err := validateUnderRoot(dir, path); err != nil {
 		return "", "", err
 	}
 	if !allowMissing {
-		if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink != 0 || info.IsDir() {
-			return "", "", errors.New("skills: supporting file is unavailable")
+		info, err := os.Lstat(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return "", "", fmt.Errorf("skills: supporting file %s is unavailable: %w", filepath.ToSlash(filepath.Join(name, relative)), fs.ErrNotExist)
+			}
+			return "", "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || info.IsDir() {
+			return "", "", &tools.ArgError{Field: "path", Reason: "is not a readable supporting file"}
 		}
 	}
 	return path, filepath.ToSlash(filepath.Join(name, relative)), nil
