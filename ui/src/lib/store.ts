@@ -200,6 +200,8 @@ interface RuntimeState {
   /** 内核队列动词：纯文本走内核双轨；带附件/引用回退本地 FIFO。 */
   steerMessage: (submission: api.TurnSubmission) => Promise<void>;
   followUpMessage: (submission: api.TurnSubmission) => Promise<void>;
+  /** 直接发送：中断活动 run 并以本条消息开新一轮（保留完整提交）。 */
+  sendNowMessage: (submission: api.TurnSubmission) => Promise<void>;
   refreshQueue: (sessionId?: string) => Promise<void>;
   removeKernelQueued: (queueId: string) => Promise<void>;
   /** pi Alt+Up：弹出最新 pending follow-up 回编辑框；空轨返回 null。 */
@@ -1001,6 +1003,17 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     if (!kernelEligible(submission)) { get().enqueueMessage(submission); return; }
     try {
       adoptQueueResult(sessionId, await api.followUpTurn(sessionId, submission.text), submission);
+      void get().refreshQueue();
+    } catch (error) { set({ runError: errorMessage(error) }); }
+  },
+  // 直接发送：服务端排队一条带 interrupt_current 的 follow-up 并取消活动 run，
+  // 终态结算时自动准入。附件/引用不走内核轨，回退本地 FIFO（settle 后发送）。
+  sendNowMessage: async (submission) => {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    if (!kernelEligible(submission)) { get().enqueueMessage(submission); return; }
+    try {
+      adoptQueueResult(sessionId, await api.sendNowTurn(sessionId, submission), submission);
       void get().refreshQueue();
     } catch (error) { set({ runError: errorMessage(error) }); }
   },

@@ -144,7 +144,7 @@ func (s *Service) rebuildQueue(ctx context.Context, sessionID domain.SessionID, 
 				return errors.New("runtime: invalid queued turn")
 			}
 			pending = removeQueued(pending, p.QueueID)
-			pending = append(pending, domain.QueuedTurn{ID: p.QueueID, SessionID: sessionID, Track: p.Track, Text: p.Text, RequestRef: p.RequestRef, CreatedAt: time.UnixMilli(ev.CreatedAt)})
+			pending = append(pending, domain.QueuedTurn{ID: p.QueueID, SessionID: sessionID, Track: p.Track, Text: p.Text, RequestRef: p.RequestRef, CreatedAt: time.UnixMilli(ev.CreatedAt), InterruptCurrent: p.InterruptCurrent})
 		case domain.EventTurnDequeued, domain.EventTurnSteered:
 			var p struct {
 				QueueID string `json:"queue_id"`
@@ -172,7 +172,18 @@ func (s *Service) rebuildQueue(ctx context.Context, sessionID domain.SessionID, 
 			pending = append(inFlight, pending...)
 			inFlight = nil
 		case domain.EventRunCancelled:
-			pending, inFlight = nil, nil
+			// A send-now survives the cancellation it triggered: replay must
+			// keep it queued so a crash between cancel and admission still
+			// delivers the turn. Everything else was flushed by the
+			// terminal's aborted turn.dequeued markers.
+			kept := make([]domain.QueuedTurn, 0, len(pending))
+			for _, item := range pending {
+				if item.InterruptCurrent {
+					item.Track = domain.QueueTrackFollowUp
+					kept = append(kept, item)
+				}
+			}
+			pending, inFlight = kept, nil
 		}
 	}
 	if err := it.Err(); err != nil {
@@ -244,15 +255,39 @@ func (s *Service) Steer(ctx context.Context, sessionID domain.SessionID, text st
 	return s.SteerWithOptions(ctx, sessionID, text, RunOptions{})
 }
 func (s *Service) SteerWithOptions(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions) (domain.QueuedTurn, error) {
-	return s.enqueueTurn(ctx, sessionID, text, o, true)
+	return s.enqueueTurn(ctx, sessionID, text, o, true, false)
 }
 func (s *Service) FollowUp(ctx context.Context, sessionID domain.SessionID, text string) (domain.QueuedTurn, error) {
 	return s.FollowUpWithOptions(ctx, sessionID, text, RunOptions{})
 }
 func (s *Service) FollowUpWithOptions(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions) (domain.QueuedTurn, error) {
-	return s.enqueueTurn(ctx, sessionID, text, o, false)
+	return s.enqueueTurn(ctx, sessionID, text, o, false, false)
 }
-func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions, steer bool) (domain.QueuedTurn, error) {
+
+// SendNow interrupts the session's active run and admits the text as the
+// next run. The turn is a flagged follow-up: cancellation flushes every
+// other queued item, the flagged turn survives the terminal, and the
+// settle drains it — one durable admission path, replay-safe.
+func (s *Service) SendNow(ctx context.Context, sessionID domain.SessionID, text string) (domain.QueuedTurn, error) {
+	return s.SendNowWithOptions(ctx, sessionID, text, RunOptions{})
+}
+func (s *Service) SendNowWithOptions(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions) (domain.QueuedTurn, error) {
+	item, err := s.enqueueTurn(ctx, sessionID, text, o, false, true)
+	if err != nil {
+		return domain.QueuedTurn{}, err
+	}
+	// The admission fence is released: resolve the run driving the session
+	// now instead of cancelling an id read under the fence.
+	runID := s.activeRunForSession(sessionID)
+	if runID == "" {
+		return item, nil
+	}
+	if _, err := s.CancelRun(context.WithoutCancel(ctx), runID); err != nil {
+		slog.Warn("send now could not cancel the active run", "session", string(sessionID), "run", string(runID), "err", err)
+	}
+	return item, nil
+}
+func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions, steer, interruptCurrent bool) (domain.QueuedTurn, error) {
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	runID := s.activeRunForSession(sessionID)
@@ -267,12 +302,12 @@ func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, t
 	if err != nil {
 		return domain.QueuedTurn{}, err
 	}
-	item := domain.QueuedTurn{ID: newQueueID(), SessionID: sessionID, Track: domain.QueueTrackFollowUp, Text: text, CreatedAt: time.Now(), EnqueuedOn: runID, Request: request}
+	item := domain.QueuedTurn{ID: newQueueID(), SessionID: sessionID, Track: domain.QueueTrackFollowUp, Text: text, CreatedAt: time.Now(), EnqueuedOn: runID, Request: request, InterruptCurrent: interruptCurrent}
 	s.mu.Lock()
 	_, suspended := s.pending[runID]
 	cancelFn, cancellable := s.steerCancels[runID]
 	s.mu.Unlock()
-	if steer && request == nil && !suspended && cancellable {
+	if steer && !interruptCurrent && request == nil && !suspended && cancellable {
 		item.Track = domain.QueueTrackSteer
 	}
 	if request != nil {
@@ -288,7 +323,7 @@ func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, t
 			return domain.QueuedTurn{}, fmt.Errorf("runtime: save queued request: %w", err)
 		}
 	}
-	ev := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes).build(domain.EventTurnQueued, payloadTurnQueued{QueueID: item.ID, Track: item.Track, Text: item.Text, RequestRef: item.RequestRef})
+	ev := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes).build(domain.EventTurnQueued, payloadTurnQueued{QueueID: item.ID, Track: item.Track, Text: item.Text, RequestRef: item.RequestRef, InterruptCurrent: item.InterruptCurrent})
 	item.CreatedAt = time.UnixMilli(ev.CreatedAt)
 	if _, err := s.appendRunEventLocked(ctx, ev, false); err != nil {
 		if item.RequestRef != "" {
@@ -299,7 +334,11 @@ func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, t
 		return domain.QueuedTurn{}, fmt.Errorf("runtime: persist queue marker: %w", err)
 	}
 	s.mu.Lock()
-	if item.Track == domain.QueueTrackSteer {
+	if item.InterruptCurrent {
+		// The send-now is the first turn admitted after the cancellation
+		// that follows this enqueue.
+		q.followUp = append([]domain.QueuedTurn{item}, q.followUp...)
+	} else if item.Track == domain.QueueTrackSteer {
 		q.steer = append(q.steer, item)
 		s.steerArmed[runID] = true
 	} else {
@@ -404,6 +443,29 @@ func (s *Service) persistQueueRemoval(ctx context.Context, items []domain.Queued
 	return nil
 }
 
+// persistQueueRemovalGrouped flushes items that ride different run journals.
+// persistQueueRemoval fails on a mixed carrier, so the caller groups by the
+// enqueue carrier instead of dropping the removal.
+func (s *Service) persistQueueRemovalGrouped(ctx context.Context, items []domain.QueuedTurn, reason string) error {
+	if len(items) == 0 {
+		return nil
+	}
+	groups := make(map[domain.RunID][]domain.QueuedTurn)
+	order := make([]domain.RunID, 0, 2)
+	for _, item := range items {
+		if _, ok := groups[item.EnqueuedOn]; !ok {
+			order = append(order, item.EnqueuedOn)
+		}
+		groups[item.EnqueuedOn] = append(groups[item.EnqueuedOn], item)
+	}
+	for _, runID := range order {
+		if err := s.persistQueueRemoval(ctx, groups[runID], reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // QueueState returns the session's pending queue without mutating it.
 // afterRun, when non-empty, resolves the run the kernel auto-started for
 // that specific settle (admission races the terminal publish, so callers
@@ -443,49 +505,102 @@ func (s *Service) SetQueueMode(ctx context.Context, sessionID domain.SessionID, 
 	return nil
 }
 
-// takeSteerHead pops the next steer item the boundary-cancel should inject.
-// Mode "all" drains every queued steer into one delivery (the resume leg
-// appends them all); "one-at-a-time" serves only the head.
-func (s *Service) takeSteerTurn(sessionID domain.SessionID, runID domain.RunID) []domain.QueuedTurn {
-	s.projectionMu.Lock()
-	defer s.projectionMu.Unlock()
-	q := s.queueFor(context.Background(), sessionID)
-	s.mu.Lock()
-	if len(q.steer) == 0 {
-		s.mu.Unlock()
+// steerHeadFor returns the steer items a delivery should inject. Mode "all"
+// drains every queued steer into one delivery; "one-at-a-time" serves only
+// the head. It does not mutate the lane.
+func (s *Service) steerHeadFor(q *sessionQueue) []domain.QueuedTurn {
+	if q == nil || len(q.steer) == 0 {
 		return nil
 	}
 	out := append([]domain.QueuedTurn(nil), q.steer...)
 	if q.steerMode != domain.QueueModeAll {
 		out = out[:1]
 	}
+	return out
+}
+
+// commitSteerDelivery makes an injected steer durable: it journals
+// turn.steered, moves exactly those items from the steer lane to in-flight,
+// and records the user transcript rows. It runs from the steer middleware
+// when the text actually reached a model call, so a cancel or a further
+// interrupt before that point leaves the guidance queued.
+func (s *Service) commitSteerDelivery(sessionID domain.SessionID, runID domain.RunID, items []domain.QueuedTurn) {
+	if len(items) == 0 {
+		return
+	}
+	s.projectionMu.Lock()
+	q := s.queueFor(context.Background(), sessionID)
+	s.mu.Lock()
+	if _, active := s.active[runID]; !active {
+		s.mu.Unlock()
+		s.projectionMu.Unlock()
+		return
+	}
+	queued := make(map[string]struct{}, len(q.steer))
+	for _, item := range q.steer {
+		queued[item.ID] = struct{}{}
+	}
+	delivered := make([]domain.QueuedTurn, 0, len(items))
+	for _, item := range items {
+		if _, ok := queued[item.ID]; ok {
+			delivered = append(delivered, item)
+		}
+	}
 	s.mu.Unlock()
-	events := make([]domain.RunEvent, 0, len(out))
+	if len(delivered) == 0 {
+		s.projectionMu.Unlock()
+		return
+	}
+	events := make([]domain.RunEvent, 0, len(delivered))
 	m := newEventMapper(runID, s.engine.cfg.MaxEventPayloadBytes)
-	for _, item := range out {
+	for _, item := range delivered {
 		events = append(events, m.build(domain.EventTurnSteered, payloadTurnSteered{QueueID: item.ID, Text: item.Text}))
 	}
 	seq, err := s.deps.Journal.Append(context.Background(), storage.Commit{RunID: runID, Events: events})
 	if err != nil {
 		slog.Error("steer persistence failed", "run", string(runID), "err", err)
-		return nil
+		s.projectionMu.Unlock()
+		return
 	}
 	s.mu.Lock()
-	q.steer = q.steer[len(out):]
-	q.inFlight = append(q.inFlight, out...)
+	for _, item := range delivered {
+		q.steer = removeQueued(q.steer, item.ID)
+		q.inFlight = append(q.inFlight, item)
+	}
 	s.mu.Unlock()
 	for i := range events {
 		events[i].Seq = seq - domain.EventSeq(len(events)-1-i)
 		s.publish(context.Background(), events[i])
 	}
-	for _, item := range out {
-		if s.deps.Messages != nil {
-			if err := s.deps.Messages.AppendMessage(context.Background(), domain.Message{ID: newMessageID(), SessionID: sessionID, Role: domain.RoleUser, Content: item.Text, CreatedAt: time.Now().UnixMilli()}); err != nil {
-				slog.Error("steer transcript persistence failed", "run", string(runID), "err", err)
-			}
+	s.projectionMu.Unlock()
+	for _, item := range delivered {
+		if s.deps.Messages == nil {
+			continue
+		}
+		if err := s.deps.Messages.AppendMessage(context.Background(), domain.Message{ID: newMessageID(), SessionID: sessionID, Role: domain.RoleUser, Content: item.Text, CreatedAt: time.Now().UnixMilli()}); err != nil {
+			slog.Error("steer transcript persistence failed", "run", string(runID), "err", err)
 		}
 	}
-	return out
+}
+
+// disarmSteer drops a pending boundary trigger without touching the lane.
+func (s *Service) disarmSteer(runID domain.RunID) {
+	s.mu.Lock()
+	delete(s.steerArmed, runID)
+	s.mu.Unlock()
+}
+
+// peekSteerForResume reports the steer items a resume leg should inject. It
+// never consumes them: an interrupt landing before the next model call must
+// keep the guidance queued for the leg that really reaches the model.
+func (s *Service) peekSteerForResume(sessionID domain.SessionID, runID domain.RunID) []domain.QueuedTurn {
+	q := s.queueFor(context.Background(), sessionID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, active := s.active[runID]; !active {
+		return nil
+	}
+	return s.steerHeadFor(q)
 }
 
 // drainFollowUps starts one complete request per Run. The new Run's atomic
@@ -526,17 +641,18 @@ func (s *Service) drainFollowUps(sessionID domain.SessionID, settlingRun domain.
 	return nil
 }
 
-// steerPendingCancel consumes the armed flag and pops the steer lane when
-// the consume loop observed the boundary cancel it triggered.
+// steerPendingCancel consumes the armed flag and reports the steer items the
+// resumed leg should deliver. The lane itself is untouched: delivery becomes
+// durable only when the middleware injects it into a model call.
 func (s *Service) steerPendingCancel(runID domain.RunID, sessionID domain.SessionID) []domain.QueuedTurn {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	armed := s.steerArmed[runID]
 	delete(s.steerArmed, runID)
-	s.mu.Unlock()
 	if !armed {
 		return nil
 	}
-	return s.takeSteerTurn(sessionID, runID)
+	return s.steerHeadFor(s.queues[sessionID])
 }
 
 // pendingQueueDepth reports pending follow-ups that need admitting — used at
@@ -594,7 +710,7 @@ func joinLines(parts []string) string {
 // in the SAME run's history (turn.steered is the single continuity marker).
 // Nil iterator = resume unavailable; the caller falls back to terminal settle
 // and the items re-enter the follow-up lane.
-func (s *Service) resumeSteeredRun(ctx context.Context, runID domain.RunID, items []domain.QueuedTurn, info *adk.InterruptInfo) *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]] {
+func (s *Service) resumeSteeredRun(ctx context.Context, sessionID domain.SessionID, runID domain.RunID, items []domain.QueuedTurn, info *adk.InterruptInfo) *adk.AsyncIterator[*adk.TypedAgentEvent[*schema.AgenticMessage]] {
 	eng := engineFromContext(ctx)
 	if eng == nil {
 		eng = s.engine
@@ -603,6 +719,7 @@ func (s *Service) resumeSteeredRun(ctx context.Context, runID domain.RunID, item
 		return nil
 	}
 	ctx = withSteerText(ctx, steerMessageText(items))
+	ctx = withSteerDelivery(ctx, s.newSteerDelivery(sessionID, runID, items))
 	// Resume targets must be actual InterruptCtx IDs. The boundary-cancel
 	// interrupt carries the agent context plus the pending tool context;
 	// walk every context and its parent chain and address the agent-level
@@ -676,7 +793,7 @@ func (s *Service) resumeSteeredAsync(ctx context.Context, m *eventMapper, sessio
 		steerCtx = s.withLiveModelStreamObserver(steerCtx, m, sessionID, ledger, onDelta, execution.child != nil, warmer)
 		steerCtx = withRunCacheWarmer(steerCtx, warmer)
 		defer warmer.stop()
-		next := s.resumeSteeredRun(steerCtx, runID, items, info)
+		next := s.resumeSteeredRun(steerCtx, sessionID, runID, items, info)
 		if next == nil {
 			steerCtx := withNudgeEmitter(withNudgeState(context.Background(), newNudgeState()), s.nudgeEmitter(m, sessionID))
 			s.emitTerminal(steerCtx, m, m.build(domain.EventRunFailed, payloadRunFailed{Message: "steer resume unavailable"}))

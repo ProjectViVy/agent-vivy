@@ -90,6 +90,9 @@ func (s *Service) queueAdmissionSnapshot(ctx context.Context, sessionID domain.S
 			continue
 		}
 		item.Track = domain.QueueTrackFollowUp
+		// A survivor is ordinary queued text: it must never interrupt a
+		// future run on the strength of a past send-now.
+		item.InterruptCurrent = false
 		snapshot.Pending = append(snapshot.Pending, item)
 	}
 	return snapshot
@@ -112,6 +115,7 @@ func (s *Service) commitQueueAdmission(sessionID domain.SessionID, runID domain.
 		}
 		item.EnqueuedOn = runID
 		item.Track = domain.QueueTrackFollowUp
+		item.InterruptCurrent = false
 		q.followUp = append(q.followUp, item)
 	}
 	s.mu.Unlock()

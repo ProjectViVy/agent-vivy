@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check, CheckCircle, ChevronDown, Clock, History, Lightbulb, LightbulbOff,
-  Paperclip, Send, Shield, ShieldCheck, Shrink, Sparkles, Square, X,
+  Paperclip, Send, Shield, ShieldCheck, Shrink, Sparkles, Square, X, Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,8 @@ interface ChatInputProps {
    *  （turn/follow_up）；缺省时回退 onQueue 本地 FIFO。 */
   onSteer?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
   onFollowUp?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
+  /** 直接发送：中断当前 run 并以本条消息开新一轮。 */
+  onSendNow?: (content: string, mode: RunMode, attachments?: AttachmentInput[], thinking?: ThinkingMode) => Promise<void> | void;
   /** pi Alt+Up：弹出最新 pending follow-up 文本回编辑框。 */
   onDequeue?: () => Promise<string | null>;
   onCancel?: () => Promise<void> | void;
@@ -84,7 +86,7 @@ const PERMISSION_MODES: { value: PermissionMode; icon: LucideIcon; label: string
   { value: 'trusted', icon: CheckCircle, label: 'chatInput.permissionTrusted', desc: 'chatInput.permissionTrustedDesc' },
 ];
 
-export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onCancel, disabled: inputDisabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
+export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onSendNow, onDequeue, onCancel, disabled: inputDisabled, running, placeholder, context = null, draftPreset = null }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<AttachmentInput[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -224,7 +226,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
   ];
   const totalQueued = kernelItems.length + queuedMessages.length;
 
-  const send = async (track: 'send' | 'steer' | 'follow_up' = 'send') => {
+  const send = async (track: 'send' | 'steer' | 'follow_up' | 'send_now' = 'send') => {
     if (disabled || sendLock.current || !activeSessionId) return;
     if (commands.menuOpen) { commands.choose(commands.index); textareaRef.current?.focus(); return; }
     const content = value.trim();
@@ -238,9 +240,14 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       if (prepared) {
         const outgoing = pending.length ? pending : undefined;
         if (running && !prepared.forceSend) {
-          const handler = track === 'follow_up' ? onFollowUp : onSteer;
-          if (!handler && !onQueue) return;
-          await (handler ?? onQueue)!(prepared.text, 'normal', outgoing, thinkingMode);
+          if (track === 'send_now') {
+            if (!onSendNow) return;
+            await onSendNow(prepared.text, 'normal', outgoing, thinkingMode);
+          } else {
+            const handler = track === 'follow_up' ? onFollowUp : onSteer;
+            if (!handler && !onQueue) return;
+            await (handler ?? onQueue)!(prepared.text, 'normal', outgoing, thinkingMode);
+          }
         } else await onSend(prepared.text, 'normal', outgoing, thinkingMode);
       }
       if (!commands.isCurrent()) return;
@@ -432,6 +439,8 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       if (commands.handleKeyDown(event)) return;
       // pi 键位：运行中 Enter=steer、Shift+Alt+Enter=follow-up（浏览器安全）、
       // Alt+↑=撤回最新排队项回编辑框；Shift+Enter 仍是换行。
+      // Cmd/Ctrl+Enter 优先于普通 Enter：运行中=直接发送（中断当前 run）。
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void send(running ? 'send_now' : 'send'); return; }
       if (event.key === 'Enter' && event.shiftKey && event.altKey && running) { event.preventDefault(); void send('follow_up'); return; }
       if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send('steer'); return; }
       if (event.key === 'ArrowUp' && event.altKey) { event.preventDefault(); void dequeue(); return; }
@@ -469,6 +478,7 @@ export function ChatInput({ onSend, onQueue, onSteer, onFollowUp, onDequeue, onC
       )}
     </div><WorkspaceSelector workspacePath={activeSession?.workspace_path ?? ''} disabled={!activeSessionId || permissionLocked} onSelect={chooseWorkspace} />{notice ? <span className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">{notice}</span> : null}<div className="flex-1" />{running ? (
   <>
+    <button type="button" onClick={() => void send('send_now')} disabled={disabled || !canSend} className="rounded-full border border-border p-2.5 text-amber-600 transition-colors hover:bg-accent disabled:opacity-40" title={t('chatInput.sendNow')} aria-label={t('chatInput.sendNow')}><Zap className="h-4 w-4" /></button>
     <button type="button" onClick={() => void send('follow_up')} disabled={disabled || !canSend} className="rounded-full border border-border p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40" title={t('chatInput.sendAsFollowUp')} aria-label={t('chatInput.sendAsFollowUp')}><Clock className="h-4 w-4" /></button>
     <button type="button" onClick={() => void send('steer')} disabled={disabled || !canSend} className="rounded-full bg-primary p-2.5 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.steer')} aria-label={t('chatInput.steer')}><Send className="h-4 w-4" /></button>
     <Button size="icon" variant="destructive" className="rounded-full" onClick={totalQueued ? () => clearQueue() : () => void onCancel?.()} disabled={disabled} title={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>

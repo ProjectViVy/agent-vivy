@@ -1411,6 +1411,8 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.steerTurn(ctx, request)
 	case "turn/follow_up":
 		return h.followUpTurn(ctx, request)
+	case "turn/send_now":
+		return h.sendNowTurn(ctx, request)
 	case "queue/state":
 		return h.queueState(ctx, request)
 	case "queue/clear":
@@ -3743,6 +3745,30 @@ func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any
 		return nil, runtimeError(err)
 	}
 	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track}, nil
+}
+
+// sendNowTurn interrupts the session's active run and admits the text as
+// the next run; on an idle session it degrades to a normal start.
+func (h *controlHandler) sendNowTurn(ctx context.Context, request Request) (any, *Error) {
+	params, rpcErr := parseTurnParams(request)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if params.SessionID == "" || params.Text == "" {
+		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
+	}
+	options, rpcErr := h.prepareTurnOptions(ctx, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	item, err := h.deps.Service.SendNowWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
+	if err != nil {
+		if errors.Is(err, runtime.ErrQueueUnavailable) {
+			return h.queueStartFallback(ctx, params, options)
+		}
+		return nil, runtimeError(err)
+	}
+	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track, "interrupt_current": item.InterruptCurrent}, nil
 }
 
 // queueStartFallback runs a queued turn as a fresh prompt when the session

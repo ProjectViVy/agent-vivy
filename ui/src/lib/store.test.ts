@@ -8,7 +8,7 @@ const api = vi.hoisted(() => ({
   historySearch: vi.fn(), historyRead: vi.fn(), historySessions: vi.fn(), previewReference: vi.fn(), referenceGet: vi.fn(),
   deliverablesList: vi.fn(), deliverablesGet: vi.fn(), deliverablesRead: vi.fn(), deliverablesClose: vi.fn(),
   listProviders: vi.fn(), upsertProvider: vi.fn(), deleteProvider: vi.fn(), getSessionWork: vi.fn(), commitWork: vi.fn(),
-  steerTurn: vi.fn(), followUpTurn: vi.fn(), clearSessionQueue: vi.fn(async () => ({ cleared: true, texts: [] })), dequeueQueuedTurn: vi.fn(), removeQueuedTurn: vi.fn(),
+  steerTurn: vi.fn(), followUpTurn: vi.fn(), sendNowTurn: vi.fn(), clearSessionQueue: vi.fn(async () => ({ cleared: true, texts: [] })), dequeueQueuedTurn: vi.fn(), removeQueuedTurn: vi.fn(),
   getQueueState: vi.fn(async (): Promise<QueueState> => ({ steering: [], follow_up: [], steer_mode: 'one-at-a-time', follow_up_mode: 'all', pending: 0 })),
 }));
 const subscription = vi.hoisted(() => ({ onEvent: undefined as undefined | ((event: { run_id: string; seq: number; type: string; created_at: number; payload_version: number; payload: Record<string, unknown> }) => void), onError: undefined as undefined | ((message: string, retryable?: boolean) => void) }));
@@ -809,6 +809,20 @@ describe('Vivy store integrity', () => {
     await useVivyStore.getState().followUpMessage({ text: 'after this', mode: 'normal' });
     expect(api.followUpTurn).toHaveBeenCalledWith('s1', 'after this');
     expect(useVivyStore.getState().messages.find((m) => m.content === 'after this')).toBeUndefined();
+  });
+
+  it('routes send-now to turn/send_now and keeps the bubble to the journal', async () => {
+    api.listMessages.mockResolvedValue({ messages: [] });
+    api.getRun.mockResolvedValue({ id: 'r1', session_id: 's1', status: 'active', created_at: 1 });
+    api.getRunLog.mockResolvedValue({ events: [] });
+    api.listChildren.mockResolvedValue({ children: [] });
+    api.sendNowTurn.mockResolvedValue({ queued: true, queue_id: 'q3', track: 'follow_up', interrupt_current: true });
+    await useVivyStore.getState().selectSession('s1');
+    await useVivyStore.getState().openRun('r1', 's1');
+    await useVivyStore.getState().sendNowMessage({ text: 'do this instead', mode: 'normal', thinking: 'high' });
+    expect(api.sendNowTurn).toHaveBeenCalledWith('s1', expect.objectContaining({ text: 'do this instead', mode: 'normal', thinking: 'high' }));
+    expect(useVivyStore.getState().messages.find((m) => m.content === 'do this instead')).toBeUndefined();
+    expect(useVivyStore.getState().queuedMessages).toEqual([]);
   });
 
   it('adopts a kernel-admitted run after the settling run completes', async () => {

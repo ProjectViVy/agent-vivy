@@ -692,6 +692,8 @@ func (c *client) startTurnWithAttachmentsAndContext(ctx context.Context, session
 // queuedTurnView is one kernel queued turn (VCP-B2).
 type queuedTurnView struct {
 	Text string `json:"text"`
+	// InterruptCurrent marks a send-now item; the TUI does not surface it yet.
+	InterruptCurrent bool `json:"interrupt_current"`
 }
 
 // queueStateView is the kernel dual-track queue snapshot (VCP-B2).

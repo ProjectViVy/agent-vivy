@@ -1932,6 +1932,9 @@ export interface FaceClientAPI {
    * fresh run on an idle session. */
   steerTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
   followUpTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
+  /** Send now: durable flagged follow-up that cancels the active run and is
+   * admitted on its terminal settle; idle sessions start a fresh run. */
+  sendNowTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceQueueTurnResult>;
   getQueueState(sessionId: string, afterRunId?: string): Promise<FaceQueueState>;
   clearSessionQueue(sessionId: string): Promise<FaceQueueClearResult>;
   dequeueQueuedTurn(sessionId: string): Promise<FaceQueueDequeueResult>;
@@ -2060,6 +2063,9 @@ export interface FaceQueuedTurn {
   readonly mode?: string;
   readonly created_at: number;
   readonly enqueued_on?: string;
+  /** Set on a send-now item: cancels its carrier run and is admitted on the
+   * terminal settle. Cleared once admitted. */
+  readonly interrupt_current?: boolean;
 }
 
 export interface FaceQueueState {
@@ -2072,13 +2078,15 @@ export interface FaceQueueState {
   readonly admitted_run_id?: string;
 }
 
-/** turn/steer and turn/follow_up answer one of two shapes: queued onto the
- * kernel lanes, or (idle session) a fresh run start — pi's "prompt while
- * idle" rule. run_id/status carry the fallback shape. */
+/** turn/steer, turn/follow_up and turn/send_now answer one of two shapes:
+ * queued onto the kernel lanes, or (idle session) a fresh run start — pi's
+ * "prompt while idle" rule. run_id/status carry the fallback shape. */
 export interface FaceQueueTurnResult {
   readonly queued: boolean;
   readonly queue_id?: string;
   readonly track?: string;
+  /** Set by turn/send_now: the queued turn interrupts its carrier run. */
+  readonly interrupt_current?: boolean;
   readonly run_id?: string;
   readonly status?: string;
 }
@@ -2221,6 +2229,8 @@ export interface FaceStoreState {
    * face-local FIFO. */
   steerMessage(submission: FaceTurnSubmission): Promise<void>;
   followUpMessage(submission: FaceTurnSubmission): Promise<void>;
+  /** Interrupts the active run and opens a new one with this submission. */
+  sendNowMessage(submission: FaceTurnSubmission): Promise<void>;
   refreshQueue(sessionId?: string): Promise<void>;
   removeKernelQueued(queueId: string): Promise<void>;
   /** Pops the newest pending follow-up back into the editor (pi Alt+Up);

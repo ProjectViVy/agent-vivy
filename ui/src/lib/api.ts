@@ -389,20 +389,22 @@ export type HistorySession = FaceHistorySession;
 export type TurnContinuity = FaceTurnContinuity;
 export type TurnSubmission = FaceTurnSubmission;
 
+const turnPayload = (sessionId: string, submission: TurnSubmission) => ({
+  session_id: sessionId,
+  text: submission.text,
+  mode: submission.mode === 'plan' ? 'normal' : submission.mode,
+  collaboration_mode: submission.mode === 'plan' ? 'plan' : undefined,
+  collaboration_version: submission.mode === 'plan' ? 1 : undefined,
+  face: submission.face,
+  attachments: submission.attachments,
+  thinking: submission.thinking,
+  request_id: submission.continuity?.request_id,
+  references: submission.continuity?.references,
+  history_scope: submission.continuity?.history_scope,
+});
+
 export const startTurn = (sessionId: string, submission: TurnSubmission) =>
-  request<{ run_id: string; status: RunStatus }>('turn/start', {
-    session_id: sessionId,
-    text: submission.text,
-      mode: submission.mode === 'plan' ? 'normal' : submission.mode,
-      collaboration_mode: submission.mode === 'plan' ? 'plan' : undefined,
-      collaboration_version: submission.mode === 'plan' ? 1 : undefined,
-    face: submission.face,
-    attachments: submission.attachments,
-    thinking: submission.thinking,
-    request_id: submission.continuity?.request_id,
-    references: submission.continuity?.references,
-    history_scope: submission.continuity?.history_scope,
-  });
+  request<{ run_id: string; status: RunStatus }>('turn/start', turnPayload(sessionId, submission));
 /** Kernel dual-track queue (pi parity, VCP-B3): steer injects at the next
  * turn boundary of the active run; follow_up is admitted after terminal
  * settle. Kernel items are text-only. Types owned by @vivy/ui-sdk so the
@@ -419,6 +421,11 @@ export const steerTurn = (sessionId: string, text: string) =>
   request<QueueTurnResult>('turn/steer', { session_id: sessionId, text });
 export const followUpTurn = (sessionId: string, text: string) =>
   request<QueueTurnResult>('turn/follow_up', { session_id: sessionId, text });
+/** Send now: cancel the active run and admit this turn next. Carries the full
+ * turn submission because it opens a fresh run; on an idle session it is a
+ * plain turn/start fallback. */
+export const sendNowTurn = (sessionId: string, submission: TurnSubmission) =>
+  request<QueueTurnResult>('turn/send_now', turnPayload(sessionId, submission));
 export const getQueueState = (sessionId: string, afterRunId?: string) =>
   request<QueueState>('queue/state', { session_id: sessionId, after_run_id: afterRunId })
     // Go nil slices marshal as null; faces always want arrays.

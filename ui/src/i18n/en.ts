@@ -389,6 +389,7 @@ export const en: Dictionary = {
     removeQueued: 'Remove',
     steer: 'Steer (Enter)',
     sendAsFollowUp: 'Queue follow-up (Shift+Alt+Enter)',
+    sendNow: 'Send now: interrupt the current run (Cmd/Ctrl+Enter)',
     queueLaneSteer: 'steer',
     queueLaneFollowUp: 'queued',
     attachHistory: 'Attach history',
