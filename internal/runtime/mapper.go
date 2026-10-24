@@ -46,6 +46,11 @@ type interruptDetails struct {
 	IntendedArguments json.RawMessage
 	Message           string
 	PlanSubmissionID  string
+	// Human marks a root-cause context that belongs to a human interaction
+	// (tool approval, ask_user, plan review) rather than a model-boundary
+	// cancellation. A cancel that absorbed such an interrupt must suspend
+	// the run instead of being treated as a steer delivery point.
+	Human bool
 }
 
 // eventMapper converts Eino AgentEvents into Vivy domain.RunEvents
@@ -161,8 +166,15 @@ func (m *eventMapper) onEventEach(ev *adk.TypedAgentEvent[*schema.AgenticMessage
 		if errors.As(ev.Err, &ce) {
 			if len(ce.InterruptContexts) > 0 {
 				// Boundary-cancel checkpoints carry their interrupt
-				// contexts; the steer resume needs the real ctx ids.
-				m.interrupt = &interruptDetails{Raw: &adk.InterruptInfo{InterruptContexts: ce.InterruptContexts}}
+				// contexts; the steer resume needs the real ctx ids. A
+				// human interrupt absorbed by the pending cancel keeps its
+				// payload here too, so classify it through the same
+				// extraction the ordinary interrupt path uses.
+				m.interrupt = m.extractInterrupt(&adk.InterruptInfo{InterruptContexts: ce.InterruptContexts})
+			} else {
+				// No contexts means no checkpoint behind this cancel; a
+				// stale interrupt must never steer a resume.
+				m.interrupt = nil
 			}
 			return errRunCancelled
 		}
@@ -567,8 +579,21 @@ func (m *eventMapper) toolCallEvents(msg *schema.AgenticMessage) []domain.RunEve
 // back to the most recent open call when the address names no id.
 func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetails {
 	d := &interruptDetails{Raw: info}
+	if info == nil {
+		d.Args = map[string]any{}
+		return d
+	}
 	for _, c := range info.InterruptContexts {
-		if !c.IsRootCause {
+		if c == nil || !c.IsRootCause {
+			continue
+		}
+		// Classify from the root-cause payload only. The openCalls fallback
+		// below must never decide this: any pending call would otherwise
+		// turn an ordinary model-boundary cancel into a human suspend.
+		if rootInterruptIsHuman(c.Info) {
+			d.Human = true
+		}
+		if d.ResumeTarget != "" {
 			continue
 		}
 		d.ResumeTarget = c.ID
@@ -578,18 +603,7 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 				d.ToolName = seg.ID
 			}
 		}
-		if toolName, args, intendedArguments, message, ok := decodeToolApprovalInterrupt(c.Info); ok && (d.ToolName == "" || d.ToolName == toolName) {
-			if d.ToolName == "" {
-				d.ToolName = toolName
-			}
-			d.Args = args
-			d.IntendedArguments = append(json.RawMessage(nil), intendedArguments...)
-			d.Message = message
-		}
-		if submissionID, ok := decodePlanReviewInterrupt(c.Info); ok {
-			d.PlanSubmissionID = submissionID
-		}
-		break
+		m.applyRootInterrupt(d, c.Info)
 	}
 	var matched *openToolCall
 	for i := len(m.openCalls) - 1; i >= 0; i-- {
@@ -613,6 +627,40 @@ func (m *eventMapper) extractInterrupt(info *adk.InterruptInfo) *interruptDetail
 		d.Args = map[string]any{}
 	}
 	return d
+}
+
+// applyRootInterrupt decodes the first root-cause payload into review details.
+func (m *eventMapper) applyRootInterrupt(d *interruptDetails, info any) {
+	if toolName, args, intendedArguments, message, ok := decodeToolApprovalInterrupt(info); ok && (d.ToolName == "" || d.ToolName == toolName) {
+		if d.ToolName == "" {
+			d.ToolName = toolName
+		}
+		d.Args = args
+		d.IntendedArguments = append(json.RawMessage(nil), intendedArguments...)
+		d.Message = message
+		return
+	}
+	if submissionID, ok := decodePlanReviewInterrupt(info); ok {
+		d.PlanSubmissionID = submissionID
+		return
+	}
+	if toolName, ok := decodeAskUserInterrupt(info); ok && (d.ToolName == "" || d.ToolName == toolName) {
+		d.ToolName = toolName
+	}
+}
+
+// rootInterruptIsHuman reports whether one root-cause payload belongs to a
+// human interaction. Approval, plan review and ask_user are the only
+// interrupts Vivy raises from a tool node.
+func rootInterruptIsHuman(info any) bool {
+	if _, _, _, _, ok := decodeToolApprovalInterrupt(info); ok {
+		return true
+	}
+	if _, ok := decodePlanReviewInterrupt(info); ok {
+		return true
+	}
+	_, ok := decodeAskUserInterrupt(info)
+	return ok
 }
 
 // toolResultEvents emits tool.started immediately followed by

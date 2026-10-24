@@ -54,6 +54,21 @@ func redactToolError(err error) error {
 	return &redactedToolError{cause: err, message: message}
 }
 
+// askUserInterruptPrefix marks the plain-string payload einotool.Interrupt
+// raises when a question tool suspends the run.
+const askUserInterruptPrefix = "user answer required for "
+
+// decodeAskUserInterrupt reports the question tool named by an ask_user
+// interrupt payload.
+func decodeAskUserInterrupt(info any) (string, bool) {
+	encoded, ok := info.(string)
+	if !ok || !strings.HasPrefix(encoded, askUserInterruptPrefix) {
+		return "", false
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(encoded, askUserInterruptPrefix))
+	return name, name != ""
+}
+
 func encodeToolApprovalInterrupt(toolName string, arguments json.RawMessage, message string) string {
 	canonical, err := canonicalToolArguments(arguments)
 	if err != nil {
@@ -777,7 +792,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 		if isTarget && hasData {
 			return answer, nil
 		}
-		return "", einotool.Interrupt(ctx, "user answer required for "+spec.Name)
+		return "", einotool.Interrupt(ctx, askUserInterruptPrefix+spec.Name)
 	}
 	if operation == nil && coordinator != nil && !isModelWorkTool(spec.Name) {
 		admitted, err := coordinator.Admit(ctx, compose.GetToolCallID(ctx), spec.Name, []byte(argumentsInJSON), []byte(middlewareInput), []byte(args))

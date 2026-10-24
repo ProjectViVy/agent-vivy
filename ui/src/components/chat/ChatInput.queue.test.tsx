@@ -21,6 +21,7 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
   let onSend: ReturnType<typeof vi.fn>;
   let onSteer: ReturnType<typeof vi.fn>;
   let onFollowUp: ReturnType<typeof vi.fn>;
+  let onSendNow: ReturnType<typeof vi.fn>;
   let onDequeue: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -31,6 +32,7 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
     onSend = vi.fn(async () => undefined);
     onSteer = vi.fn(async () => undefined);
     onFollowUp = vi.fn(async () => undefined);
+    onSendNow = vi.fn(async () => undefined);
     onDequeue = vi.fn(async () => 'restored text');
     container = document.createElement('div');
     document.body.append(container);
@@ -48,7 +50,7 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
 
   async function render(running = true) {
     await act(async () => root.render(
-      <ChatInput onSend={onSend} onSteer={onSteer} onFollowUp={onFollowUp} onDequeue={onDequeue} running={running} />,
+      <ChatInput onSend={onSend} onSteer={onSteer} onFollowUp={onFollowUp} onSendNow={onSendNow} onDequeue={onDequeue} running={running} />,
     ));
   }
   const input = () => container.querySelector('textarea')!;
@@ -76,6 +78,27 @@ describe('composer queue tracks (VCP-B3, pi parity)', () => {
     await type('after this');
     await key('Enter', { shiftKey: true, altKey: true });
     expect(onFollowUp).toHaveBeenCalledWith('after this', 'normal', undefined, 'auto');
+    expect(onSteer).not.toHaveBeenCalled();
+  });
+
+  it('routes Cmd/Ctrl+Enter to send-now ahead of the steer branch', async () => {
+    await render(true);
+    await type('do this instead');
+    await key('Enter', { metaKey: true });
+    expect(onSendNow).toHaveBeenCalledWith('do this instead', 'normal', undefined, 'auto');
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onFollowUp).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('offers a send-now button while running', async () => {
+    await render(true);
+    await type('swap task');
+    await act(async () => {
+      [...container.querySelectorAll<HTMLButtonElement>('button')]
+        .find((b) => b.getAttribute('aria-label')?.startsWith('Send now'))!.click();
+    });
+    expect(onSendNow).toHaveBeenCalledWith('swap task', 'normal', undefined, 'auto');
     expect(onSteer).not.toHaveBeenCalled();
   });
 

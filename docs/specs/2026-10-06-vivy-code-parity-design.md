@@ -119,6 +119,7 @@ Each pi command maps to existing or new `vivy.rpc.v1` methods:
 |---|---|
 | prompt | `turn/start` |
 | steer / follow_up / abort / clear_queue | `turn/steer` / `turn/follow_up` / `turn/cancel` / `queue/clear` (B1) |
+| send_now (interrupt the run, start this turn next) | `turn/send_now` — durable flagged follow-up (`turn.queued{interrupt_current:true}`) + cancel of the active run; admitted on the cancelled terminal's settle |
 | new_session / switch_session / set_session_name | `session/new` / `session/select` / `session/rename` (existing) |
 | get_state / get_messages / get_session_stats / get_last_assistant_text | `session/context`/`session/status` + `history/read` + `session/stats` (new light RPC) |
 | set_model / cycle_model / get_available_models | `settings/update`-style model set + `model/list`; `cycle_model` is face-side (uses ordered list) |

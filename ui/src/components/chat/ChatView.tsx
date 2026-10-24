@@ -84,12 +84,16 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   // 队列，附件/引用回退本地 FIFO。
   const steerMessage = useVivyStore((state) => state.steerMessage);
   const followUpMessage = useVivyStore((state) => state.followUpMessage);
+  const sendNowMessage = useVivyStore((state) => state.sendNowMessage);
   const dequeueQueuedTurn = useVivyStore((state) => state.dequeueQueuedTurn);
   const queueRestoreText = useVivyStore((state) => state.queueRestoreText);
   const steer = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) =>
     steerMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() }).finally(clearDraftContext);
   const followUp = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) =>
     followUpMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() }).finally(clearDraftContext);
+  // 直接发送：中断当前 run，本轮消息作为下一轮立刻准入。
+  const sendNow = (text: string, mode: RunMode = 'normal', attachments?: AttachmentInput[], thinking?: ThinkingMode) =>
+    sendNowMessage({ text, mode, face, attachments, thinking, continuity: continuityFor() }).finally(clearDraftContext);
   // 内核队列冲刷（abort/clear）把文本还给编辑框——与 dequeue 同路。
   const appliedQueueSeq = useRef(0);
   useEffect(() => {
@@ -169,7 +173,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         </div></ScrollArea>
         <WorkControlBar key={`work-${sessionId}`} sessionId={sessionId} />
         <TodoProgressStrip />
-        <ChatInput key={`composer-${sessionId}`} onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onSteer={(text, mode, attachments, thinking) => steer(text, mode, attachments, thinking)} onFollowUp={(text, mode, attachments, thinking) => followUp(text, mode, attachments, thinking)} onDequeue={dequeueQueuedTurn} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset?.sessionId === sessionId ? draftPreset : null} />
+        <ChatInput key={`composer-${sessionId}`} onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onSteer={(text, mode, attachments, thinking) => steer(text, mode, attachments, thinking)} onFollowUp={(text, mode, attachments, thinking) => followUp(text, mode, attachments, thinking)} onSendNow={(text, mode, attachments, thinking) => sendNow(text, mode, attachments, thinking)} onDequeue={dequeueQueuedTurn} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset?.sessionId === sessionId ? draftPreset : null} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}

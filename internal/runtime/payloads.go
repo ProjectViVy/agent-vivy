@@ -455,6 +455,9 @@ type payloadTurnQueued struct {
 	Track      string `json:"track"`
 	Text       string `json:"text"`
 	RequestRef string `json:"request_ref,omitempty"`
+	// InterruptCurrent marks a send-now: the turn survives the cancellation
+	// it triggers and is admitted as the next run.
+	InterruptCurrent bool `json:"interrupt_current,omitempty"`
 }
 
 type payloadTurnDequeued struct {

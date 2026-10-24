@@ -387,6 +387,7 @@ export const zh = {
     removeQueued: '移除',
     steer: '引导 (Enter)',
     sendAsFollowUp: '排队跟进 (Shift+Alt+Enter)',
+    sendNow: '直接发送：中断当前运行 (Cmd/Ctrl+Enter)',
     queueLaneSteer: '引导',
     queueLaneFollowUp: '排队',
     attachHistory: '引用历史',

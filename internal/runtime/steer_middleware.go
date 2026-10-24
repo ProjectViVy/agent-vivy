@@ -14,6 +14,7 @@ package runtime
 
 import (
 	"context"
+	"sync"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -36,6 +37,45 @@ func withSteerText(ctx context.Context, text string) context.Context {
 func steerTextFrom(ctx context.Context) string {
 	text, _ := ctx.Value(steerTextKey{}).(string)
 	return text
+}
+
+type steerDeliveryKey struct{}
+
+// steerDelivery commits queued steer items once their text actually reached
+// a model call. A resumed leg can be interrupted again (tool approval, plan
+// review, ask_user) before the next model call; committing at injection time
+// instead of at resume time keeps the guidance in the queue across such
+// suspensions.
+type steerDelivery struct {
+	once   sync.Once
+	commit func()
+}
+
+func (d *steerDelivery) mark() {
+	if d == nil {
+		return
+	}
+	d.once.Do(d.commit)
+}
+
+// withSteerDelivery binds the one-shot delivery commit for the leg.
+func withSteerDelivery(ctx context.Context, d *steerDelivery) context.Context {
+	if d == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, steerDeliveryKey{}, d)
+}
+
+func steerDeliveryFrom(ctx context.Context) *steerDelivery {
+	d, _ := ctx.Value(steerDeliveryKey{}).(*steerDelivery)
+	return d
+}
+
+func (s *Service) newSteerDelivery(sessionID domain.SessionID, runID domain.RunID, items []domain.QueuedTurn) *steerDelivery {
+	if len(items) == 0 {
+		return nil
+	}
+	return &steerDelivery{commit: func() { s.commitSteerDelivery(sessionID, runID, items) }}
 }
 
 // steerMessageText renders the queued steer turns as one delivery: multiple
@@ -70,6 +110,7 @@ func (m *steerMiddleware) BeforeModelRewriteState(ctx context.Context, state *ad
 			continue
 		}
 		if existing, ok := msg.Extra[steerExtraKey].(string); ok && existing == text {
+			steerDeliveryFrom(ctx).mark()
 			return ctx, state, nil
 		}
 	}
@@ -77,6 +118,7 @@ func (m *steerMiddleware) BeforeModelRewriteState(ctx context.Context, state *ad
 	injected.Extra = map[string]any{steerExtraKey: text}
 	next := *state
 	next.Messages = insertSteerBeforeTrailingToolCalls(state.Messages, injected)
+	steerDeliveryFrom(ctx).mark()
 	return ctx, &next, nil
 }
 

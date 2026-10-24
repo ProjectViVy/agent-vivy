@@ -3670,18 +3670,33 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 				s.emitTerminal(ctx, m, s.terminalEvent(ctx, m, warmErr))
 				return
 			}
-			// VCP-B1: a steer-armed boundary cancel surfaces as a checkpoint
-			// interrupt, not a CancelError. Consume it here: resume the
-			// checkpoint with the steered message injected via a
-			// HistoryModifier — same run, turn.steered continuity marker.
-			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
-				// The resume leg must NOT run inside the cancelled run's own
-				// consume — Runner.Resume serializes on the checkpoint while
-				// this iterator is still open (same reason approval resumes
-				// drive from the responding goroutine, not the suspended leg).
-				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
+			// A human interrupt is not a steer delivery point: the guidance
+			// stays queued and is injected by the next leg that reaches the
+			// model, so an approval never consumes it.
+			if m.interrupt != nil && m.interrupt.Human {
+				s.disarmSteer(m.runID)
+				if state != nil {
+					state.Abort(errRunInterrupted)
+				}
+				s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
 				return
 			}
+			// VCP-B1: a steer-armed boundary cancel surfaces as a checkpoint
+			// interrupt, not a CancelError. Resume the checkpoint with the
+			// steered message injected by the typed middleware — same run,
+			// turn.steered continuity marker. A user cancel must never
+			// resurrect a steer delivery.
+			if ctx.Err() == nil {
+				if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+					// The resume leg must NOT run inside the cancelled run's own
+					// consume — Runner.Resume serializes on the checkpoint while
+					// this iterator is still open (same reason approval resumes
+					// drive from the responding goroutine, not the suspended leg).
+					s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
+					return
+				}
+			}
+			s.disarmSteer(m.runID)
 			if state != nil {
 				state.Abort(errRunInterrupted)
 			}
@@ -3696,13 +3711,27 @@ func (s *Service) consume(ctx context.Context, m *eventMapper, sessionID domain.
 			if attempt, pending := s.takeOverflowAwaiting(m.runID); pending {
 				s.emitAutoRetryFinished(ctx, m, sessionID, attempt, false)
 			}
+			// Eino absorbs a human interrupt into the pending cancel. That is
+			// a suspension, not a boundary delivery: keep the steer lane
+			// intact and hand the run to the durable approval/question owner.
+			if errors.Is(err, errRunCancelled) && m.interrupt != nil && m.interrupt.Human {
+				s.disarmSteer(m.runID)
+				if state != nil {
+					state.Abort(err)
+				}
+				s.handleInterrupt(ctx, m, sessionID, selectedTools, mode)
+				return
+			}
 			// VCP-B1: a steer-triggered boundary cancel is not a run failure.
 			// Resume the checkpoint with the steered message injected into
 			// history — same run, single turn.steered continuity marker.
-			if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
-				s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
-				return
+			if ctx.Err() == nil {
+				if items := s.steerPendingCancel(m.runID, sessionID); items != nil {
+					s.resumeSteeredAsync(ctx, m, sessionID, selectedTools, mode, ledger, items, beforeComplete, execution)
+					return
+				}
 			}
+			s.disarmSteer(m.runID)
 			if state != nil {
 				state.Abort(err)
 			}
@@ -4817,6 +4846,13 @@ func (s *Service) resumeRun(parent context.Context, sessionID domain.SessionID, 
 	ctx = withNudgeState(ctx, state)
 	ctx = withNudgeEmitter(ctx, s.nudgeEmitter(m, sessionID))
 	m.setRunScope(s.deps.TenantID, workspaceID, string(sessionID))
+	// Guidance queued before the suspension belongs to the next leg that
+	// reaches the model: bind it here so an approval resume delivers it,
+	// while the lane itself stays untouched until the middleware injects.
+	if steerItems := s.peekSteerForResume(sessionID, runID); len(steerItems) > 0 {
+		ctx = withSteerText(ctx, steerMessageText(steerItems))
+		ctx = withSteerDelivery(ctx, s.newSteerDelivery(sessionID, runID, steerItems))
+	}
 	cancelOpt, steerCancel := adk.WithCancel()
 	if steerCancel != nil {
 		s.mu.Lock()
@@ -5322,6 +5358,8 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	delete(s.workGates, terminal.RunID)
 	delete(s.runSessions, terminal.RunID)
 	var removedQueued []domain.QueuedTurn
+	var abortedQueued []domain.QueuedTurn
+	var sendNowSurvived bool
 	if q := s.queues[runSession]; q != nil {
 		switch terminal.Type {
 		case domain.EventRunFailed:
@@ -5334,11 +5372,28 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			removedQueued = append(removedQueued, q.inFlight...)
 			q.inFlight = nil
 		case domain.EventRunCancelled:
-			removedQueued = append(append(append(removedQueued, q.steer...), q.followUp...), q.inFlight...)
-			q.steer, q.followUp, q.inFlight = nil, nil, nil
+			// A send-now is the reason this run was cancelled and is admitted
+			// next; every other queued item returns to the caller through an
+			// aborted turn.dequeued marker.
+			kept := make([]domain.QueuedTurn, 0, len(q.followUp))
+			for _, item := range q.followUp {
+				if item.InterruptCurrent {
+					kept = append(kept, item)
+					continue
+				}
+				abortedQueued = append(abortedQueued, item)
+			}
+			abortedQueued = append(abortedQueued, q.steer...)
+			abortedQueued = append(abortedQueued, q.inFlight...)
+			q.steer, q.followUp, q.inFlight = nil, kept, nil
+			sendNowSurvived = len(kept) > 0
 		}
 	}
 	s.mu.Unlock()
+	if err := s.persistQueueRemovalGrouped(persistCtx, abortedQueued, "aborted"); err != nil {
+		slog.Warn("queue abort flush failed", "session", string(runSession), "err", err)
+	}
+	removedQueued = append(removedQueued, abortedQueued...)
 	s.deleteQueuedRequests(persistCtx, removedQueued)
 	s.deleteShellState(shellStateRefToDelete)
 	s.projectionMu.Unlock()
@@ -5357,11 +5412,19 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	// VCP-B1: a settling human turn admits the follow-up lane (steer items
 	// left behind demote into it); a user abort flushes both lanes instead —
 	// pi semantics: queued text returns to the caller via turn.dequeued, not
-	// into a run the user just cancelled. Goal/cron runs are excluded.
-	if runSession != "" && goalSession == "" {
+	// into a run the user just cancelled. A send-now is the exception: it is
+	// the turn the cancellation was requested for. Goal/cron runs are
+	// excluded from the completed/failed drain only.
+	if runSession != "" {
 		switch terminal.Type {
+		case domain.EventRunCancelled:
+			if sendNowSurvived {
+				s.drainFollowUps(runSession, terminal.RunID)
+			}
 		case domain.EventRunCompleted, domain.EventRunFailed:
-			s.drainFollowUps(runSession, terminal.RunID)
+			if goalSession == "" {
+				s.drainFollowUps(runSession, terminal.RunID)
+			}
 		}
 	}
 }
