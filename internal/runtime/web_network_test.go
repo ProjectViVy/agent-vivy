@@ -57,6 +57,32 @@ func TestWebFetchUsesConfiguredProxy(t *testing.T) {
 	}
 }
 
+// A NO_PROXY entry must not remove the configured endpoint from the dial allow
+// set: NO_PROXY decides whether a request uses a proxy, not whether the proxy
+// is reachable.
+func TestWebFetchProxiesHostOutsideNoProxy(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Scheme != "http" || r.URL.Host != "other.test" {
+			t.Errorf("proxy received %s %s, want absolute-form http://other.test", r.Method, r.URL)
+		}
+		_, _ = io.WriteString(w, "proxied body")
+	}))
+	defer proxy.Close()
+
+	network := newWebNetwork(&httpproxy.Config{HTTPProxy: proxy.URL, NoProxy: "example.com"})
+	network.lookupIP = testPublicLookup
+	backend := newWebFetchBackend(1<<20, nil, network)
+	result, err := backend.Fetch(context.Background(), "", tools.WebFetchRequest{URL: "http://other.test/page", Format: "text"})
+	if err != nil {
+		t.Fatalf("fetch through proxy: %v", err)
+	}
+	if result.Content != "proxied body" || hits.Load() != 1 {
+		t.Fatalf("result = %+v, proxy hits = %d", result, hits.Load())
+	}
+}
+
 func TestWebFetchRejectsPrivateTargetBehindProxy(t *testing.T) {
 	var hits atomic.Int32
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

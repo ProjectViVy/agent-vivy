@@ -26,9 +26,12 @@ New/updated tests, all deterministic (no live network; every proxy case uses an
 `httptest` proxy plus an injected resolver):
 
 - `internal/runtime/web_network_test.go` — fetch through an HTTP proxy succeeds and the
-  proxy sees the absolute-form request; a private target behind the same proxy is
-  refused with zero proxy hits; a redirect into a private host is refused and the hop
-  is never sent.
+  proxy sees the absolute-form request; a `NO_PROXY=example.com` entry leaves a fetch of
+  `http://other.test/` proxied (`TestWebFetchProxiesHostOutsideNoProxy`, which fails
+  against the previous probe-derived allow set: the probe host matched `NO_PROXY`, the
+  allow set came back empty, and the proxy's own loopback address was then refused as a
+  private target); a private target behind the same proxy is refused with zero proxy
+  hits; a redirect into a private host is refused and the hop is never sent.
 - `internal/runtime/download_test.go` — `TestDownloadStreamsThroughConfiguredProxy`.
 - `internal/runtime/tool_failure_test.go` — `TestModelLegToolFailureFallback`
   (plain error → `tool_error`; `*url.Error` / `net.Error` / per-call timeout →

@@ -36,38 +36,63 @@ func newWebNetwork(cfg *httpproxy.Config) *webNetwork {
 	proxyFunc := cfg.ProxyFunc()
 	return &webNetwork{
 		proxyFunc: proxyFunc,
-		dialAllow: proxyDialAllow(proxyFunc),
+		dialAllow: proxyDialAllow(cfg),
 		lookupIP: func(ctx context.Context, host string) ([]net.IPAddr, error) {
 			return net.DefaultResolver.LookupIPAddr(ctx, host)
 		},
 	}
 }
 
-// proxyDialAllow records the proxy endpoints the transport may dial. The
-// snapshot proxy function decides which URL is used for an HTTP and an HTTPS
-// request, so NO_PROXY and scheme selection match the real transport.
-func proxyDialAllow(proxyFunc func(*url.URL) (*url.URL, error)) map[string]struct{} {
+// proxyDialAllow records the proxy endpoints the transport may dial. It reads
+// the configured endpoints directly rather than asking the proxy function about
+// a sample URL: NO_PROXY decides whether a request uses a proxy at all, not
+// whether a configured endpoint is reachable, so probing a host that NO_PROXY
+// matches would silently drop every endpoint and deny all proxied dials.
+func proxyDialAllow(cfg *httpproxy.Config) map[string]struct{} {
 	allow := map[string]struct{}{}
-	for _, raw := range []string{"http://example.com/", "https://example.com/"} {
-		u, err := url.Parse(raw)
-		if err != nil {
-			continue
+	if cfg == nil {
+		return allow
+	}
+	for _, raw := range []string{cfg.HTTPProxy, cfg.HTTPSProxy} {
+		if proxy, ok := parseProxyEndpoint(raw); ok {
+			allow[proxy] = struct{}{}
 		}
-		proxy, err := proxyFunc(u)
-		if err != nil || proxy == nil {
-			continue
-		}
-		host := strings.ToLower(strings.TrimSuffix(proxy.Hostname(), "."))
-		if host == "" {
-			continue
-		}
-		port := proxy.Port()
-		if port == "" {
-			port = defaultProxyPort(proxy.Scheme)
-		}
-		allow[net.JoinHostPort(host, port)] = struct{}{}
 	}
 	return allow
+}
+
+// parseProxyEndpoint normalizes a configured proxy into the host:port the
+// transport dials. The scheme rule mirrors httpproxy.parseProxy: anything that
+// is not a recognized proxy scheme is read as an HTTP proxy.
+func parseProxyEndpoint(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !isProxyScheme(u.Scheme) {
+		if u, err = url.Parse("http://" + raw); err != nil {
+			return "", false
+		}
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if host == "" {
+		return "", false
+	}
+	port := u.Port()
+	if port == "" {
+		port = defaultProxyPort(u.Scheme)
+	}
+	return net.JoinHostPort(host, port), true
+}
+
+func isProxyScheme(scheme string) bool {
+	switch strings.ToLower(scheme) {
+	case "http", "https", "socks5", "socks5h":
+		return true
+	default:
+		return false
+	}
 }
 
 func defaultProxyPort(scheme string) string {

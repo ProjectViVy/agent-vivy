@@ -33,11 +33,16 @@ Three fixes, one delivery:
    model is told the host is not allowlisted instead of losing the run.
 2. **Proxy-aware public network.** New `internal/runtime/web_network.go` owns the
    outbound policy for `web_fetch` and `download`: it snapshots
-   `httpproxy.FromEnvironment()`, allows exactly the configured proxy endpoints as
-   dial targets, and still resolves every target locally — private/local targets are
-   refused before a request is sent, and each redirect hop is revalidated. A
-   credential-bearing or non-HTTP(S) URL is now a typed `*tools.ArgError`, so it is
-   `invalid_arguments` in both the normal and the preflight path.
+   `httpproxy.FromEnvironment()`, allows exactly the configured proxy endpoints
+   (`HTTPProxy` / `HTTPSProxy`, parsed straight from the config) as dial targets, and
+   still resolves every target locally — private/local targets are refused before a
+   request is sent, and each redirect hop is revalidated. The dial allow set is derived
+   from the configured endpoints, not by probing the snapshot proxy function with a
+   sample URL: `NO_PROXY` decides whether a request uses a proxy, not whether the
+   endpoint is dialable, and a `NO_PROXY` entry matching the probe host used to empty
+   the allow set and deny every proxied dial. A credential-bearing or non-HTTP(S) URL is
+   now a typed `*tools.ArgError`, so it is `invalid_arguments` in both the normal and
+   the preflight path.
 3. **Bounded child cause.** `child.failed` carries an optional `detail`
    (≤1024 bytes, redacted) except when the cause is already a provider-specific
    message; `ChildRunDetails` composes it as `message + "\nCause: " + detail`, so a
