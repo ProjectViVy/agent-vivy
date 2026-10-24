@@ -42,6 +42,28 @@ UI tests added: send-now button while running, Cmd+Enter precedence over the
 steer branch, `sendNowMessage` submission shape; `sdk/ui` store/API surface
 parity compiles.
 
+## Post-merge re-verification (into `stable`)
+
+`stable` had advanced with `fix/run-failure-repair` plus the
+`docs/superpowers/` → `docs/` plan/spec move; merging it into
+`feat/steer-sendnow` was conflict-free and carried the `turn/send_now`
+command-map row to `docs/specs/2026-10-06-vivy-code-parity-design.md`.
+Re-ran on the merged tree:
+
+| Command | Result |
+|---|---|
+| `go test ./internal/runtime ./internal/rpc ./internal/domain -count=1` | PASS (70.6s / 21.0s / 0.3s) |
+| `go test ./sdk/tui/... -count=1` | PASS |
+| `gofmt -l` + `go vet` on the scoped packages | clean |
+| `cd ui && pnpm typecheck` | PASS |
+| changed UI tests (3 files) | 77 passed, 1 pre-existing failure |
+| `cd sdk/ui && pnpm typecheck && pnpm test` | PASS — 29 tests |
+
+The one UI failure is `store.test.ts › keeps the run.failed payload as the
+conversation error`: `stable`'s `runFailedMessage` now prefers the payload text
+over `errors.providerDetail`, but that expectation was not updated upstream. It
+reproduces on a pristine `stable` checkout and is unrelated to this delivery.
+
 ## Full UI suite (pre-existing failures)
 
 `cd ui && pnpm test`: 648 passed, 44 failed in 8 files
