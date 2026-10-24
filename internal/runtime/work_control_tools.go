@@ -29,7 +29,7 @@ func (s *Service) modelWorkContext(ctx context.Context) (domain.SessionID, domai
 		return "", "", err
 	}
 	if run.SessionID != sessionID || (run.Kind != "" && run.Kind != domain.RunKindPrimary) {
-		return "", "", fmt.Errorf("runtime: work tool run is not the session primary run")
+		return "", "", workNotAdmitted("runtime: work tool run is not the session primary run")
 	}
 	if run.Status != domain.RunActive {
 		return "", "", ErrWorkRunUnavailable
@@ -230,7 +230,7 @@ func (s *Service) ReportGoal(ctx context.Context, goalID string, revision int64,
 	admittedRef := s.goalRunRefs[runID]
 	s.mu.Unlock()
 	if !owned {
-		return domain.WorkState{}, errors.New("runtime: only the admitted Goal run may report Goal state")
+		return domain.WorkState{}, workNotAdmitted("runtime: only the admitted Goal run may report Goal state")
 	}
 	goalID, reason = strings.TrimSpace(goalID), strings.TrimSpace(reason)
 	if goalID == "" || revision <= 0 || (status != "completed" && status != "blocked") {

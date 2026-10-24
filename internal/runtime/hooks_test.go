@@ -65,8 +65,8 @@ func TestToolHookChainDenyFailsClosed(t *testing.T) {
 		name: "deny", pre: PreToolUseResult{Decision: hookDeny, Reason: "blocked by test"},
 	})
 	_, err := chain.PreToolUse(context.Background(), ToolHookCall{ToolName: "write_note"})
-	if !errors.Is(err, ErrHookBlocked) {
-		t.Fatalf("error = %v, want ErrHookBlocked", err)
+	if !errors.Is(err, ErrHookDenied) {
+		t.Fatalf("error = %v, want ErrHookDenied", err)
 	}
 }
 

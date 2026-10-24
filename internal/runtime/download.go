@@ -24,6 +24,7 @@ const maxDownloadBytes = 100 << 20
 type DownloadBackend struct {
 	client   *http.Client
 	sandbox  *SandboxManager
+	network  *webNetwork
 	files    *EinoFilesystemBackend
 	maxBytes int64
 }
@@ -31,9 +32,14 @@ type DownloadBackend struct {
 var _ tools.DownloadOperations = (*DownloadBackend)(nil)
 
 func NewDownloadBackend(files *EinoFilesystemBackend, sandbox *SandboxManager) *DownloadBackend {
+	return newDownloadBackend(files, sandbox, newWebNetworkFromEnv())
+}
+
+func newDownloadBackend(files *EinoFilesystemBackend, sandbox *SandboxManager, network *webNetwork) *DownloadBackend {
 	return &DownloadBackend{
-		client:   &http.Client{Transport: newPublicHTTPTransport(), Timeout: defaultDownloadTime},
+		client:   &http.Client{Transport: network.transport(), Timeout: defaultDownloadTime},
 		sandbox:  sandbox,
+		network:  network,
 		files:    files,
 		maxBytes: maxDownloadBytes,
 	}
@@ -42,11 +48,8 @@ func NewDownloadBackend(files *EinoFilesystemBackend, sandbox *SandboxManager) *
 // allowLoopbackForTest lets httptest servers on 127.0.0.1 exercise the
 // pipeline in tests; the production constructor never enables it.
 func (b *DownloadBackend) allowLoopbackForTest() {
-	b.client.Transport = &http.Transport{
-		Proxy:             http.ProxyFromEnvironment,
-		DialContext:       safeDialContext,
-		ForceAttemptHTTP2: true,
-	}
+	b.network.allowLoopback = true
+	b.client.Transport = b.network.testTransport()
 }
 
 // Download implements tools.DownloadOperations. The adapter assumes policy/
@@ -65,6 +68,9 @@ func (b *DownloadBackend) Download(ctx context.Context, runID domain.RunID, inpu
 			return tools.DownloadResult{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}
+	if err := b.network.validateTarget(ctx, u); err != nil {
+		return tools.DownloadResult{}, err
+	}
 	before, err := captureFileBefore(ctx, root, path, b.maxBytes)
 	if err != nil {
 		return tools.DownloadResult{}, err
@@ -75,7 +81,7 @@ func (b *DownloadBackend) Download(ctx context.Context, runID domain.RunID, inpu
 
 	client := *b.client
 	client.Timeout = clampFetchTimeout(input.TimeoutSeconds, defaultDownloadTime, minDownloadTimeout, maxDownloadTimeout)
-	client.CheckRedirect = publicRedirectCheck()
+	client.CheckRedirect = b.network.redirectCheck()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return tools.DownloadResult{}, fmt.Errorf("download: build request: %w", err)

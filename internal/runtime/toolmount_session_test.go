@@ -92,7 +92,7 @@ func TestServiceSessionPinRestoresSkillMountedTools(t *testing.T) {
 
 // TestServiceSessionPinDoesNotLeakAcrossSessions pins the negative: the
 // session pin restores mounts only within their session. In a different
-// session the hidden echo_info call is rejected by the adapter gate, even
+// session the hidden echo_info call is refused by the adapter gate, even
 // though the same storage holds the mount.
 func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 	ctx := context.Background()
@@ -157,10 +157,11 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run 2: %v", err)
 	}
-	// The adapter gate rejects the call as an engine node error, so the run
-	// fails closed instead of feeding the rejection back to the model.
-	waitForRunStatus(t, backend, run2, domain.RunFailed)
+	// The adapter gate refuses the call, so the model sees a refusal instead
+	// of the hidden tool running and instead of losing the run.
+	waitForRunStatus(t, backend, run2, domain.RunCompleted)
 
+	var refusals int
 	for _, ev := range replayAll(t, backend, run2) {
 		if ev.Type != domain.EventToolFinished {
 			continue
@@ -169,8 +170,18 @@ func TestServiceSessionPinDoesNotLeakAcrossSessions(t *testing.T) {
 		if err := json.Unmarshal(ev.Payload, &p); err != nil {
 			t.Fatalf("decode tool.finished: %v", err)
 		}
-		if p.ToolName == tools.EchoInfoName && p.Error == "" && strings.Contains(p.Result, "echo leak") {
-			t.Fatalf("echo_info succeeded in a session without the mount; result = %s", p.Result)
+		if p.ToolName != tools.EchoInfoName {
+			continue
 		}
+		if p.Outcome == "" || strings.Contains(p.Result, "echo leak") {
+			t.Fatalf("echo_info ran in a session without the mount; row = %+v", p)
+		}
+		if p.Outcome != toolFailureStatusRefused || p.Reason != toolFailureReasonPolicyDenied || p.Effects != toolEffectsNotExecuted {
+			t.Fatalf("unmounted echo_info row = %s/%s/%s, want refused/policy_denied/not_executed", p.Outcome, p.Reason, p.Effects)
+		}
+		refusals++
+	}
+	if refusals != 1 {
+		t.Fatalf("echo_info refusals = %d, want one", refusals)
 	}
 }

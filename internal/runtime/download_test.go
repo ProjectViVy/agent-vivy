@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"agent-vivy/internal/domain"
@@ -119,6 +120,36 @@ func TestDownloadRejectsOversizeAndBadURLs(t *testing.T) {
 	defer loopback.Close()
 	if _, err := plain.Download(context.Background(), runID, tools.DownloadRequest{URL: loopback.URL, Path: "local.bin"}); err == nil || !strings.Contains(err.Error(), "private or local") {
 		t.Fatalf("expected private-address refusal, got %v", err)
+	}
+}
+
+func TestDownloadStreamsThroughConfiguredProxy(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Host != "example.test" {
+			t.Errorf("proxy received host %q, want example.test", r.URL.Host)
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte("proxied download"))
+	}))
+	defer proxy.Close()
+
+	backend, workspace, runID := newDownloadTestBackend(t, 1<<20)
+	network := proxyTestNetwork(t, proxy.URL)
+	backend.network = network
+	backend.client = &http.Client{Transport: network.transport(), Timeout: defaultDownloadTime}
+
+	result, err := backend.Download(context.Background(), runID, tools.DownloadRequest{URL: "http://example.test/file.bin", Path: "proxy/file.bin"})
+	if err != nil {
+		t.Fatalf("download through proxy: %v", err)
+	}
+	if result.Bytes != int64(len("proxied download")) || hits.Load() != 1 {
+		t.Fatalf("result = %+v, proxy hits = %d", result, hits.Load())
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, "proxy", "file.bin"))
+	if err != nil || string(data) != "proxied download" {
+		t.Fatalf("workspace payload wrong: %q err=%v", data, err)
 	}
 }
 

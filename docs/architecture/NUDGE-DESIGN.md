@@ -122,18 +122,36 @@ starts executing the ordinary plugin, including the fused hard-stop decision.
 | --- | --- | --- |
 | Existing dispatch validation refusal | refused / invalid_arguments | not_executed; existing result remains readable |
 | Existing policy, safety or human refusal | refused / policy_denied or user_denied | not_executed; explicit boundary-respecting reminder |
+| Per-call governance refusal: deny table, plan-mode denial, a tool outside the run selection, tool-hook `deny`, a public-fetch target outside the internet surface, or a work action this run is not admitted for | refused / policy_denied | not_executed; the refusal text becomes the tool result and the run continues |
 | `*tools.ArgError` from actual tool invocation | recoverable / invalid_arguments | unknown unless known validation occurred before dispatch; preserve unwrap |
 | `fs.ErrNotExist` from invocation of a readonly tool | recoverable / not_found | none; no global storage-error catch |
 | Known execute/bash CommandResult with nonzero exit | recoverable / command_failed | unknown; preserve exit code/output; never call it a safe-to-retry result |
 | First-party MCP IsError converted to ToolExecutionError | recoverable / remote_tool_error | unknown; preserve bounded untrusted response |
 | `*tools.ChildTaskError` from the delegated `agent` tool | recoverable / child_failed | unknown; bounded child diagnostic becomes the tool result, the parent run stays healthy |
+| Network-shaped invocation failure (`*url.Error`, `net.Error`, a per-call timeout whose parent context is still live) | recoverable / network_failed | unknown; bounded diagnostic; whether to retry is the model's decision |
+| Any other invocation failure on a model-driven leg | recoverable / tool_error | unknown; bounded diagnostic; never presented as a success |
 | Parent ctx cancellation/deadline or native Eino interruption | not a tool failure | propagate before classification |
-| MCP JSON-RPC/transport errors, unknown errors, local timeouts without explicit side-effect evidence | fatal | preserve current cause chain; no generic retry or recovery |
-| Policy engine, Journal, storage or invariant failure | fatal | never softened |
+| Runtime-integrity faults: the nudge invariant (`MarkFailure` without a call ID), durable tool-operation coordinator / Journal / storage failure, policy-engine evaluation failure, tool-hook **chain execution** failure (spawn, timeout, malformed envelope, empty or invalid rewrite), stale approval binding, preflight backend/IO failure, `adk` guardrails, provider failure | fatal | preserve the cause chain; never softened |
+
+This is the pi `agent-loop` model: `runToolCall` returns an `isError` tool result for
+an unknown tool, invalid arguments, a blocked call or a thrown error, appends it to
+context, and only a provider stop/abort or an explicit terminate ends the loop. Vivy
+applies the same rule on a **model-driven leg only** — a leg with bound nudge state —
+because Eino's `ToolsNode` escalates every non-interrupt tool error into a run-fatal
+`NodeRunError` (`compose/tool_node.go`) and offers no continue-on-error switch. The
+governed shell and other non-model callers keep their original error behavior: they
+have no nudge state and no model to correct the call.
 
 Command failures are recognized only for the reserved command-tool implementation/result contract, before output framing/truncation. Do not parse arbitrary JSON from unrelated tools or search for the word “error”. `CommandResult.exit_code` is typed data. A nonzero code is an unsuccessful command even where a CLI uses it for “no match”; it remains model-visible and only identical repetition produces a reminder.
 
-At the inner invocation seam, retain error provenance. The runtime can convert only allowlisted execution failures; hook/authorization/storage errors passing through dispatch do not become recoverable merely because their messages resemble an argument error. Existing refusal branches should explicitly mark reason/status rather than infer them from refusal text.
+At the inner invocation seam, retain error provenance. On a model-driven leg every
+invocation error becomes a result except control flow, explicit governance refusals
+and runtime-integrity faults. The typed allowlist still owns the precise reason; the
+`network_failed` / `tool_error` fallback only covers what the allowlist does not name,
+and it never relabels a refusal as a tool error. Hook and authorization failures
+passing through dispatch keep their own classification rather than inheriting one from
+error text. Existing refusal branches should explicitly mark reason/status rather than
+infer them from refusal text.
 
 On soft conversion: preserve the diagnostic as bounded untrusted result text and the explicit classification; commit both through the existing operation owner before returning nil error to Eino. The mapper resolves durable classification first, using a producer failure mark only for existing non-operation paths. Do not export Go error text before redaction. Missing call ID during a model-originated conversion is an invariant failure, not a name-based fallback. Non-model shell paths retain their existing error behavior and have no nudge state.
 

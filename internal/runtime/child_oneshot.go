@@ -393,6 +393,9 @@ func (s *Service) ChildRunDetails(ctx context.Context, runID domain.RunID) (summ
 				return "", "", "", err
 			}
 			message = payload["message"]
+			if detail := payload["detail"]; detail != "" {
+				message += "\nCause: " + detail
+			}
 		case domain.EventChildCancelled:
 			message = "child task was cancelled"
 		}

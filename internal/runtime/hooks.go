@@ -11,7 +11,12 @@ import (
 	"agent-vivy/internal/domain"
 )
 
-var ErrHookBlocked = errors.New("runtime: tool hook blocked execution")
+var (
+	ErrHookBlocked = errors.New("runtime: tool hook blocked execution")
+	// ErrHookDenied is a governance decision: the hook decided this call must
+	// not run. Unlike a hook chain failure it is a per-call refusal.
+	ErrHookDenied = errors.New("runtime: tool hook denied execution")
+)
 
 type hookDecision string
 
@@ -100,7 +105,7 @@ func (c *ToolHookChain) PreToolUse(ctx context.Context, call ToolHookCall) (json
 				reason = "pre-tool hook denied execution"
 			}
 			emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventHookBlocked, ToolName: call.ToolName, HookName: hook.Name(), Phase: "pre", Reason: reason, DurationMs: elapsed.Milliseconds()})
-			return nil, fmt.Errorf("%w: %s", ErrHookBlocked, reason)
+			return nil, fmt.Errorf("%w: %s", ErrHookDenied, reason)
 		case hookRewrite:
 			if len(result.UpdatedArgs) == 0 {
 				return nil, fmt.Errorf("%w: %s returned an empty rewrite", ErrHookBlocked, hook.Name())

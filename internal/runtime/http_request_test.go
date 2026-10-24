@@ -187,6 +187,9 @@ func TestHTTPBackendArgumentErrorsAreModelCorrectable(t *testing.T) {
 	if errors.As(err, &argErr) {
 		t.Fatalf("host allowlist denial = %v, want an untyped policy error", err)
 	}
+	if !errors.Is(err, ErrPolicyDenied) {
+		t.Fatalf("host allowlist denial = %v, want ErrPolicyDenied", err)
+	}
 	if _, ok := classifyToolFailure(ctx, spec, err); ok {
 		t.Fatal("host allowlist denial was classified as model-correctable")
 	}

@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -134,6 +136,88 @@ func TestToolFailureClassification(t *testing.T) {
 			if tc.want == nil {
 				if ok {
 					t.Fatalf("classified %+v into %+v, want unlisted cause", tc.err, got)
+				}
+				return
+			}
+			if !ok {
+				t.Fatalf("%v classified fatal, want %+v", tc.err, *tc.want)
+			}
+			if got.Status != tc.want.Status || got.Reason != tc.want.Reason || got.Effects != tc.want.Effects {
+				t.Fatalf("classification = %+v, want %+v", got, *tc.want)
+			}
+			if got.Diagnostic == "" {
+				t.Fatal("classified failure lost its diagnostic")
+			}
+		})
+	}
+}
+
+// On a model-driven leg anything outside the runtime-integrity set becomes
+// a recoverable result; network-shaped errors keep their own reason.
+func TestModelLegToolFailureFallback(t *testing.T) {
+	spec := domain.ToolSpec{Name: "reader", Readonly: true}
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	interruptErr := einotool.Interrupt(context.Background(), "approval needed")
+	cases := []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want *toolFailure
+	}{
+		{
+			name: "plain error becomes tool_error",
+			err:  errors.New("tool panicked"),
+			want: &toolFailure{Status: toolFailureStatusRecoverable, Reason: toolFailureReasonToolError, Effects: toolEffectsUnknown},
+		},
+		{
+			name: "url.Error becomes network_failed",
+			err:  &url.Error{Op: "Get", URL: "https://example.invalid", Err: errors.New("dial failed")},
+			want: &toolFailure{Status: toolFailureStatusRecoverable, Reason: toolFailureReasonNetworkFailed, Effects: toolEffectsUnknown},
+		},
+		{
+			name: "net.Error becomes network_failed",
+			err:  &net.DNSError{Err: "no such host", Name: "example.invalid", IsNotFound: true},
+			want: &toolFailure{Status: toolFailureStatusRecoverable, Reason: toolFailureReasonNetworkFailed, Effects: toolEffectsUnknown},
+		},
+		{
+			name: "per-call timeout with a live parent becomes network_failed",
+			err:  &net.DNSError{Err: "i/o timeout", Name: "example.invalid", IsTimeout: true},
+			want: &toolFailure{Status: toolFailureStatusRecoverable, Reason: toolFailureReasonNetworkFailed, Effects: toolEffectsUnknown},
+		},
+		{
+			name: "typed ArgError keeps invalid_arguments",
+			err:  &tools.ArgError{Field: "q", Reason: "required"},
+			want: &toolFailure{Status: toolFailureStatusRecoverable, Reason: toolFailureReasonInvalidArguments, Effects: toolEffectsUnknown},
+		},
+		{
+			name: "parent cancellation stays unclassified",
+			ctx:  canceledCtx,
+			err:  errors.New("connection reset by peer"),
+		},
+		{
+			name: "context.Canceled stays unclassified",
+			err:  context.Canceled,
+		},
+		{
+			name: "native interrupt stays unclassified",
+			err:  interruptErr,
+		},
+		{
+			name: "refusal sentinel stays a refusal",
+			err:  fmt.Errorf("%w: host %q is not allowlisted", ErrPolicyDenied, "api.github.com"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := tc.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			got, ok := classifyModelLegToolFailure(ctx, spec, tc.err)
+			if tc.want == nil {
+				if ok {
+					t.Fatalf("classified %v into %+v, want unclassified", tc.err, got)
 				}
 				return
 			}
@@ -388,29 +472,38 @@ func TestToolFailureUnknownEffectsCountOnce(t *testing.T) {
 	}
 }
 
-// An unlisted invocation error (transport) stays fatal: no soft
-// conversion, no fabricated result, the run fails.
-func TestToolFailureTransportErrorStaysFatal(t *testing.T) {
+// A plain invocation error on a model-driven leg is a recoverable
+// tool_error result: the model sees the diagnostic and the run continues.
+func TestToolFailureTransportErrorBecomesToolResult(t *testing.T) {
 	t1 := "call-transport"
 	flaky := &transportErrTool{}
 	script := []*schema.AgenticMessage{
 		testToolCalls(failureToolCall(t1, "flaky_remote", `{"q":"x"}`)),
-		testAssistant("should never arrive"),
+		testAssistant("recovered after the tool error"),
 	}
 	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{flaky}})
-	runID, err := h.svc.Run(context.Background(), "sess-failure-fatal", "run the flaky tool")
+	runID, err := h.svc.Run(context.Background(), "sess-failure-continuation", "run the flaky tool")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	waitForRunStatus(t, h.backend, runID, domain.RunFailed)
-	if h.journal.indexOf(domain.EventToolFinished, t1) >= 0 {
-		p := h.journal.finishedPayload(t, t1)
-		if p.Outcome != "" {
-			t.Fatalf("fatal error was soft-converted: finished row %+v", p)
-		}
+	waitForRunStatus(t, h.backend, runID, domain.RunCompleted)
+
+	p := h.journal.finishedPayload(t, t1)
+	if p.Outcome != toolFailureStatusRecoverable || p.Reason != toolFailureReasonToolError || p.Effects != toolEffectsUnknown {
+		t.Fatalf("%s row = %s/%s/%s, want recoverable/tool_error/unknown", t1, p.Outcome, p.Reason, p.Effects)
+	}
+	if !strings.Contains(p.Error, "connection reset by peer") {
+		t.Fatalf("%s diagnostic = %q", t1, p.Error)
 	}
 	if flaky.calls != 1 {
-		t.Fatalf("fatal invocation ran %d times, want 1", flaky.calls)
+		t.Fatalf("tool error invocation ran %d times, want 1", flaky.calls)
+	}
+	joined := ""
+	for _, m := range toolResults(h.model.entry(1).input) {
+		joined += agenticMessageText(m) + "\n"
+	}
+	if !strings.Contains(joined, "connection reset by peer") {
+		t.Fatalf("next model turn missing the tool diagnostic:\n%s", joined)
 	}
 }
 

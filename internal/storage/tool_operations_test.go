@@ -43,6 +43,8 @@ func TestToolOperationOutcomeValidation(t *testing.T) {
 	for _, outcome := range []domain.ToolOperationOutcome{
 		{Result: "ok", Status: "success", Effects: "unknown"},
 		{Result: "correct input", Status: "recoverable", Reason: "invalid_arguments", Effects: "not_executed"},
+		{Result: "network down", Status: "recoverable", Reason: "network_failed", Effects: "unknown"},
+		{Result: "tool failed", Status: "recoverable", Reason: "tool_error", Effects: "unknown"},
 		{Result: "denied", Status: "refused", Reason: "user_denied", Effects: "not_executed"},
 		{Failure: "broken", Status: "fatal", Effects: "unknown"},
 	} {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"net"
+	"net/url"
 
 	"github.com/cloudwego/eino/compose"
 
@@ -37,6 +39,8 @@ const (
 	toolFailureReasonCommandFailed    = domain.ToolReasonCommandFailed
 	toolFailureReasonRemoteTool       = domain.ToolReasonRemoteTool
 	toolFailureReasonChildFailed      = domain.ToolReasonChildFailed
+	toolFailureReasonNetworkFailed    = domain.ToolReasonNetworkFailed
+	toolFailureReasonToolError        = domain.ToolReasonToolError
 
 	toolEffectsNotExecuted = domain.ToolEffectsNotExecuted
 	toolEffectsNone        = domain.ToolEffectsNone
@@ -105,6 +109,49 @@ func classifyToolFailure(ctx context.Context, spec domain.ToolSpec, err error) (
 		}, true
 	}
 	return toolFailure{}, false
+}
+
+// classifyModelLegToolFailure is the §5 gate for a model-driven leg. Typed
+// classifications keep their precise reason; every other invocation failure
+// becomes a tool result so the model can adapt in this Run. Only control flow
+// (cancellation, interrupts), explicit governance refusals and
+// runtime-integrity faults stay on the fatal path.
+func classifyModelLegToolFailure(ctx context.Context, spec domain.ToolSpec, err error) (toolFailure, bool) {
+	if failure, ok := classifyToolFailure(ctx, spec, err); ok {
+		return failure, true
+	}
+	if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return toolFailure{}, false
+	}
+	if _, interrupted := compose.IsInterruptRerunError(err); interrupted {
+		return toolFailure{}, false
+	}
+	if _, refused := asToolRefusal(err); refused {
+		// Refusals carry an explicit not_executed status; keep that boundary.
+		return toolFailure{}, false
+	}
+	reason := toolFailureReasonToolError
+	if isNetworkFailure(err) {
+		reason = toolFailureReasonNetworkFailed
+	}
+	return toolFailure{
+		Status:     toolFailureStatusRecoverable,
+		Reason:     reason,
+		Diagnostic: boundToolFailureDiagnostic(err.Error()),
+		Effects:    toolEffectsUnknown,
+	}, true
+}
+
+// isNetworkFailure recognizes transport-level failures. A per-call timeout
+// reaches here with the parent context still live, so it is a tool outcome
+// rather than control flow.
+func isNetworkFailure(err error) bool {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
 }
 
 // boundToolFailureDiagnostic redacts secrets and clamps the diagnostic

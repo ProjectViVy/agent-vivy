@@ -112,7 +112,7 @@ func (b *HTTPBackend) Request(ctx context.Context, _ domain.RunID, input tools.H
 	}
 
 	if !b.hostAllowed(u.Hostname()) {
-		return tools.HTTPResponse{}, fmt.Errorf("http request: host %q is not allowlisted", u.Hostname())
+		return tools.HTTPResponse{}, fmt.Errorf("%w: host %q is not allowlisted", ErrPolicyDenied, u.Hostname())
 	}
 	if queryHasCredential(u.Query()) {
 		return tools.HTTPResponse{}, &tools.ArgError{Field: "url", Reason: "must not carry credential-like query parameters"}

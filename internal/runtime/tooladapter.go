@@ -177,8 +177,9 @@ func asToolRefusal(err error) (*toolRefusal, bool) {
 		return refusal, true
 	}
 	if errors.Is(err, ErrPolicyDenied) || errors.Is(err, ErrPlanModeToolDenied) || errors.Is(err, ErrSandboxDenied) ||
+		errors.Is(err, ErrHookDenied) || errors.Is(err, errPublicTargetDenied) ||
 		errors.Is(err, ErrWorkUnavailable) || errors.Is(err, ErrWorkSessionRequired) ||
-		errors.Is(err, ErrWorkRunUnavailable) || errors.Is(err, ErrWorkRunTerminal) ||
+		errors.Is(err, ErrWorkRunUnavailable) || errors.Is(err, ErrWorkRunTerminal) || errors.Is(err, ErrWorkRunNotAdmitted) ||
 		errors.Is(err, storage.ErrWorkVersionConflict) || errors.Is(err, storage.ErrWorkRequestConflict) ||
 		errors.Is(err, storage.ErrWorkInvalidMutation) || errors.Is(err, storage.ErrWorkRunConflict) ||
 		errors.Is(err, domain.ErrStaleGoalReference) || errors.Is(err, domain.ErrGoalArmed) || errors.Is(err, domain.ErrWorkRoundLimit) {
@@ -594,7 +595,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			ok = true
 		}
 		if !ok {
-			return "", fmt.Errorf("runtime: tool %q is not selected for this request", spec.Name)
+			return "", refuseCall("tool "+spec.Name+" is not selected for this request", nil, toolFailureReasonPolicyDenied)
 		}
 	}
 	profile := policyProfile(ctx)
@@ -962,10 +963,11 @@ func (a *toolAdapter) invoke(ctx context.Context, argumentsInJSON string) (strin
 	return outcome.Result, err
 }
 
-// toolInvocationError marks an error raised by a tool's own invocation outside
-// the §5 allowlist. The run still fails, but the cause is the tool, not the
-// model provider: its diagnostic must never be relabelled as a provider
-// outage, even when it quotes an HTTP status or provider wording.
+// toolInvocationError marks a tool error that still ends the run: it came from
+// a non-model caller, or it is a runtime-integrity fault on a model leg. The
+// cause is the tool, not the model provider: its diagnostic must never be
+// relabelled as a provider outage, even when it quotes an HTTP status or
+// provider wording.
 type toolInvocationError struct {
 	tool string
 	err  error
@@ -999,12 +1001,13 @@ func (a *toolAdapter) invokeOutcome(ctx context.Context, argumentsInJSON string)
 	}
 	if err != nil {
 		// §5 soft conversion applies only on a model-driven leg (a nudge
-		// side channel is bound): an allowlisted invocation error becomes
-		// a typed record plus the bounded untrusted diagnostic as an
-		// ordinary result, so the model can correct the next call in this
-		// Run. Non-model governed-shell callers keep the original error.
+		// side channel is bound): a typed invocation error — or any remaining
+		// tool failure — becomes a bounded untrusted result, so the model can
+		// correct or route around it in this Run. Cancellation, interrupts,
+		// governance refusals and runtime-integrity faults keep their fatal
+		// path. Non-model governed-shell callers keep the original error.
 		if state := nudgeStateFromContext(ctx); state != nil {
-			if failure, ok := classifyToolFailure(ctx, a.t.Spec(), err); ok {
+			if failure, ok := classifyModelLegToolFailure(ctx, a.t.Spec(), err); ok {
 				if markErr := state.MarkFailure(compose.GetToolCallID(ctx), failure); markErr != nil {
 					return domain.ToolOperationOutcome{}, markErr
 				}

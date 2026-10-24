@@ -110,6 +110,8 @@ func TestChildRunCannotEnterPlanThroughWorkTool(t *testing.T) {
 	}
 }
 
+// An unadmitted report is a per-call refusal: the Goal is untouched, the
+// model sees that it did not run, and the run still completes.
 func TestUnadmittedRunCannotReportCurrentGoalFromSameSession(t *testing.T) {
 	ctx := context.Background()
 	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "unadmitted-goal-report.db"))
@@ -125,7 +127,7 @@ func TestUnadmittedRunCannotReportCurrentGoalFromSameSession(t *testing.T) {
 	if _, err := backend.CommitWork(ctx, domain.WorkMutation{
 		SessionID: sessionID, ExpectedVersion: 0, RequestID: "seed-current-goal", RequestInput: "seed-current-goal",
 		Kind: domain.WorkEventGoalCreated, Goal: domain.GoalRef{ID: "goal-current", Revision: 1},
-		Objective: "owner's bounded work", MaxRounds: 2,
+		Objective: "owner's bounded work", MaxRounds: 10,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +135,13 @@ func TestUnadmittedRunCannotReportCurrentGoalFromSameSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := NewEngine(ctx, NewScriptedModel(testToolCalls(testCall("report-unadmitted", tools.ReportGoalName, `{"goal_id":"goal-current","revision":1,"status":"completed","reason":"I claim this Goal"}`))), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
+	engine, err := NewEngine(ctx, NewScriptedModel(
+		testToolCalls(testCall("report-unadmitted", tools.ReportGoalName, `{"goal_id":"goal-current","revision":1,"status":"completed","reason":"I claim this Goal"}`)),
+		testAssistant("Cannot report from this run."),
+		testAssistant("Leaving the Goal to its owner."),
+		testAssistant("Nothing further to report."),
+		testAssistant("Done."),
+	), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 		AutoApproveTools: []string{tools.ReportGoalName}})
 	if err != nil {
 		t.Fatal(err)
@@ -146,23 +154,39 @@ func TestUnadmittedRunCannotReportCurrentGoalFromSameSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForRunStatus(t, backend, runID, domain.RunFailed)
+	waitForRunStatus(t, backend, runID, domain.RunCompleted)
+	// The Goal stays with its owner: no completion or block was recorded. The
+	// version may advance from ordinary round accounting while the Goal lives.
 	work, err := backend.ReadWork(ctx, sessionID)
-	if err != nil || work.Goal == nil || work.Goal.Phase != domain.WorkPhaseActive || work.Version != 1 ||
-		hasWorkKind(t, backend, sessionID, domain.WorkEventGoalCompleted) {
+	if err != nil || work.Goal == nil || work.Goal.Phase != domain.WorkPhaseActive ||
+		hasWorkKind(t, backend, sessionID, domain.WorkEventGoalCompleted) ||
+		hasWorkKind(t, backend, sessionID, domain.WorkEventGoalBlocked) {
 		t.Fatalf("unadmitted report changed Goal: %+v / %v", work, err)
 	}
-	var failed bool
+	var refusal payloadToolFinished
+	var refusals int
 	for _, event := range replayAll(t, backend, runID) {
 		if event.Type == domain.EventRunFailed {
-			failed = true
+			t.Fatalf("unadmitted refusal failed the run: %s", event.Payload)
 		}
-		if event.Type == domain.EventToolFinished {
-			t.Fatalf("unadmitted Goal report unexpectedly finished: %s", event.Payload)
+		if event.Type != domain.EventToolFinished {
+			continue
 		}
+		if err := json.Unmarshal(event.Payload, &refusal); err != nil {
+			t.Fatalf("decode tool.finished: %v", err)
+		}
+		refusals++
 	}
-	if !failed {
-		t.Fatal("unadmitted run Journal has no terminal failure")
+	if refusals != 1 {
+		t.Fatalf("tool.finished rows = %d, want the single refused report", refusals)
+	}
+	if refusal.Outcome != toolFailureStatusRefused || refusal.Reason != toolFailureReasonPolicyDenied ||
+		refusal.Effects != toolEffectsNotExecuted {
+		t.Fatalf("unadmitted report row = %s/%s/%s, want refused/policy_denied/not_executed",
+			refusal.Outcome, refusal.Reason, refusal.Effects)
+	}
+	if !strings.Contains(refusal.Result, "did not run") || !strings.Contains(refusal.Result, "admitted Goal run") {
+		t.Fatalf("unadmitted report result = %q", refusal.Result)
 	}
 }
 

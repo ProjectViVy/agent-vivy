@@ -5075,18 +5075,25 @@ func (s *Service) terminalEvent(ctx context.Context, m *eventMapper, cause error
 		slog.Warn("child run failed", "run", string(m.runID), "err", cause)
 		message := "The child task could not be completed. Please retry."
 		category := causeCategoryOf(cause)
+		providerSpecific := false
 		if statusCategory, statusMessage, ok := providerHTTPFailure(cause); ok {
 			category, message = statusCategory, statusMessage
+			providerSpecific = true
 		} else if providerMessage, ok := providerFailureMessage(cause); ok {
 			message = providerMessage
+			providerSpecific = true
 		} else if errors.Is(cause, adk.ErrExceedMaxIterations) {
 			message = "The child task reached its tool-call limit."
 		} else if errors.Is(cause, ErrContextBudgetExceeded) {
 			message = "The child task context exceeds the configured limit."
 		}
-		return m.build(domain.EventChildFailed, map[string]any{
-			"cause_category": category, "message": message,
-		})
+		payload := payloadChildFailed{CauseCategory: category, Message: message}
+		if !providerSpecific {
+			// A bounded, redacted cause lets the parent tell a network fault
+			// from a runtime fault; provider messages are already specific.
+			payload.Detail = truncateUTF8(tools.RedactSensitive(cause.Error()), 1024)
+		}
+		return m.build(domain.EventChildFailed, payload)
 	}
 	var ce *adk.CancelError
 	if errors.Is(cause, errRunCancelled) || ctx.Err() != nil || errors.As(cause, &ce) {

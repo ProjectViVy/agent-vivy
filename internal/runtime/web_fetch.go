@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -41,18 +40,24 @@ var markdownConverter = htmltomarkdown.NewConverter("", true, nil)
 type WebFetchBackend struct {
 	client       *http.Client
 	sandbox      *SandboxManager
+	network      *webNetwork
 	maxBodyBytes int
 }
 
 var _ tools.WebFetchOperations = (*WebFetchBackend)(nil)
 
 func NewWebFetchBackend(maxBodyBytes int, sandbox *SandboxManager) *WebFetchBackend {
+	return newWebFetchBackend(maxBodyBytes, sandbox, newWebNetworkFromEnv())
+}
+
+func newWebFetchBackend(maxBodyBytes int, sandbox *SandboxManager, network *webNetwork) *WebFetchBackend {
 	if maxBodyBytes <= 0 || maxBodyBytes > 8<<20 {
 		maxBodyBytes = defaultHTTPResponseBytes
 	}
 	return &WebFetchBackend{
-		client:       &http.Client{Transport: newPublicHTTPTransport(), Timeout: defaultFetchTimeout},
+		client:       &http.Client{Transport: network.transport(), Timeout: defaultFetchTimeout},
 		sandbox:      sandbox,
+		network:      network,
 		maxBodyBytes: maxBodyBytes,
 	}
 }
@@ -60,47 +65,8 @@ func NewWebFetchBackend(maxBodyBytes int, sandbox *SandboxManager) *WebFetchBack
 // allowLoopbackForTest lets httptest servers on 127.0.0.1 exercise the
 // pipeline in tests; the production constructor never enables it.
 func (b *WebFetchBackend) allowLoopbackForTest() {
-	b.client.Transport = &http.Transport{
-		Proxy:             http.ProxyFromEnvironment,
-		DialContext:       safeDialContext,
-		ForceAttemptHTTP2: true,
-	}
-}
-
-func newPublicHTTPTransport() *http.Transport {
-	return &http.Transport{
-		Proxy:             http.ProxyFromEnvironment,
-		DialContext:       publicOnlyDialContext,
-		ForceAttemptHTTP2: true,
-		MaxIdleConns:      8,
-		IdleConnTimeout:   30 * time.Second,
-	}
-}
-
-// publicOnlyDialContext is safeDialContext without the explicit-localhost
-// bypass: the web tools have no allowlist, so a private target must fail at
-// dial time even if DNS rebinding swaps the address after validation.
-func publicOnlyDialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if isPrivateOrLocalIP(ip) {
-			return nil, errors.New("public fetch: target address is private or local")
-		}
-	} else {
-		ips, err := net.LookupIP(host)
-		if err != nil {
-			return nil, err
-		}
-		for _, ip := range ips {
-			if isPrivateOrLocalIP(ip) {
-				return nil, errors.New("public fetch: resolved address is private or local")
-			}
-		}
-	}
-	return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, net.JoinHostPort(host, port))
+	b.network.allowLoopback = true
+	b.client.Transport = b.network.testTransport()
 }
 
 // validatePublicURL enforces the shared web-tool surface: absolute HTTP(S),
@@ -108,24 +74,12 @@ func publicOnlyDialContext(ctx context.Context, network, address string) (net.Co
 func validatePublicURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil {
-		return nil, errors.New("public fetch: URL must be an absolute HTTP(S) URL without credentials")
+		return nil, &tools.ArgError{Field: "url", Reason: "must be an absolute HTTP(S) URL without credentials"}
 	}
 	if queryHasCredential(u.Query()) {
-		return nil, errors.New("public fetch: credential-like query parameters are denied")
+		return nil, &tools.ArgError{Field: "url", Reason: "must not carry credential-like query parameters"}
 	}
 	return u, nil
-}
-
-func publicRedirectCheck() func(*http.Request, []*http.Request) error {
-	return func(next *http.Request, via []*http.Request) error {
-		if len(via) >= maxFetchRedirects {
-			return fmt.Errorf("public fetch: stopped after %d redirects", maxFetchRedirects)
-		}
-		if _, err := validatePublicURL(next.URL.String()); err != nil {
-			return errors.New("public fetch: redirect leaves the credential-free internet surface")
-		}
-		return nil
-	}
 }
 
 func clampFetchTimeout(seconds int, fallback, min, max time.Duration) time.Duration {
@@ -157,9 +111,12 @@ func (b *WebFetchBackend) Fetch(ctx context.Context, _ domain.RunID, input tools
 			return tools.WebFetchResult{}, fmt.Errorf("sandbox: %w", err)
 		}
 	}
+	if err := b.network.validateTarget(ctx, u); err != nil {
+		return tools.WebFetchResult{}, err
+	}
 	client := *b.client
 	client.Timeout = clampFetchTimeout(input.TimeoutSeconds, defaultFetchTimeout, minFetchTimeout, maxFetchTimeout)
-	client.CheckRedirect = publicRedirectCheck()
+	client.CheckRedirect = b.network.redirectCheck()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return tools.WebFetchResult{}, fmt.Errorf("web fetch: build request: %w", err)

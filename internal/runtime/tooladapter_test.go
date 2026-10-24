@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-vivy/internal/domain"
 	"agent-vivy/internal/tools"
@@ -51,11 +52,35 @@ func TestToolAdapterRejectsToolOutsideRunSelection(t *testing.T) {
 	tool := &countingTool{}
 	adapter := newToolAdapter(tool, 0, nil, nil, nil)
 	ctx := withSelectedTools(context.Background(), []string{"another_tool"})
-	if _, err := adapter.InvokableRun(ctx, `{}`); err == nil || !strings.Contains(err.Error(), "not selected") {
-		t.Fatalf("unselected tool error = %v, want fail-closed rejection", err)
+	result, err := adapter.InvokableRun(ctx, `{}`)
+	if err != nil {
+		t.Fatalf("unselected tool failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "not selected") {
+		t.Fatalf("unselected tool result = %q", result)
 	}
 	if tool.calls != 0 {
 		t.Fatalf("unselected tool calls = %d, want zero", tool.calls)
+	}
+}
+
+// A hook deny is a per-call refusal: the tool never runs, the model sees a
+// refused result, and the run continues.
+func TestToolAdapterHookDenyRefusesCall(t *testing.T) {
+	tool := &countingTool{}
+	chain := NewToolHookChain(time.Second, &testToolHook{
+		name: "deny", pre: PreToolUseResult{Decision: hookDeny, Reason: "blocked by test"},
+	})
+	adapter := newToolAdapter(tool, 0, nil, chain, nil)
+	result, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`)
+	if err != nil {
+		t.Fatalf("hook deny failed the run: %v", err)
+	}
+	if !strings.Contains(result, "did not run") || !strings.Contains(result, "blocked by test") {
+		t.Fatalf("hook deny result = %q", result)
+	}
+	if tool.calls != 0 {
+		t.Fatalf("hook-denied tool calls = %d, want zero", tool.calls)
 	}
 }
 

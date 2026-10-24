@@ -443,6 +443,7 @@ type payloadChildCompleted struct {
 type payloadChildFailed struct {
 	CauseCategory string `json:"cause_category"`
 	Message       string `json:"message"`
+	Detail        string `json:"detail,omitempty"`
 }
 
 type payloadChildCancelled struct {

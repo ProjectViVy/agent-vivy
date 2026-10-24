@@ -15,7 +15,22 @@ var (
 	ErrWorkSessionRequired = errors.New("runtime: work session is required")
 	ErrWorkRunUnavailable  = errors.New("runtime: work run is unavailable")
 	ErrWorkRunTerminal     = errors.New("runtime: work run has reached a terminal work state")
+	// ErrWorkRunNotAdmitted marks a run that is not allowed to take this work
+	// action (a child run, or a run that does not own the session Goal). The
+	// action never executes, so the model gets a refusal it can route around
+	// instead of losing the run.
+	ErrWorkRunNotAdmitted = errors.New("runtime: this run is not admitted for the requested work action")
 )
+
+// workAdmissionError keeps each site's own wording model-visible while still
+// identifying the refusal family, so the adapter gate refuses the call
+// without appending the shared sentinel text to the message.
+type workAdmissionError struct{ message string }
+
+func (e *workAdmissionError) Error() string { return e.message }
+func (e *workAdmissionError) Unwrap() error { return ErrWorkRunNotAdmitted }
+
+func workNotAdmitted(message string) error { return &workAdmissionError{message: message} }
 
 // EnterPlan coordinates the human Goal-to-Plan transition. The Goal pause is
 // durable before cancellation; neither admission nor projection locks are
