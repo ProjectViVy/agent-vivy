@@ -28,13 +28,10 @@ type Baseline = { count: number; files: string[] };
 const BASELINE: Record<Group, Record<Category, Baseline>> = {
   src: {
     palette: {
-      count: 158,
+      count: 154,
       files: [
         'ui/src/components/chat/ChatInput.tsx',
-        'ui/src/components/chat/DeliverableCard.tsx',
-        'ui/src/components/chat/MessageBubble.tsx',
         'ui/src/components/chat/ModelSwitcher.tsx',
-        'ui/src/components/chat/ToolRow.tsx',
         'ui/src/components/cron/CronTaskManagementView.tsx',
         'ui/src/components/demo/DemoBanner.tsx',
         'ui/src/components/files/FilesPanel.tsx',
@@ -63,20 +60,15 @@ const BASELINE: Record<Group, Record<Category, Baseline>> = {
       ],
     },
     textSize: {
-      count: 81,
+      count: 55,
       files: [
         'ui/src/components/chat/ChatInput.tsx',
-        'ui/src/components/chat/ChatView.tsx',
         'ui/src/components/chat/ContextReferenceChip.tsx',
         'ui/src/components/chat/ConversationSidebar.tsx',
-        'ui/src/components/chat/DeliverableCard.tsx',
-        'ui/src/components/chat/MessageBubble.tsx',
         'ui/src/components/chat/ModelSwitcher.tsx',
-        'ui/src/components/chat/ReasoningRow.tsx',
         'ui/src/components/chat/ReferenceDetail.tsx',
         'ui/src/components/chat/RunInspector.tsx',
         'ui/src/components/chat/TodoProgressStrip.tsx',
-        'ui/src/components/chat/ToolRow.tsx',
         'ui/src/components/chat/WorkControlBar.tsx',
         'ui/src/components/files/FilesPanel.tsx',
         'ui/src/components/layout/WelcomeWizard.tsx',

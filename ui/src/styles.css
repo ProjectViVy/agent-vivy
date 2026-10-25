@@ -29,6 +29,27 @@
   --tw-prose-td-borders: currentColor;
 }
 
+/* 流式光标：贴在最后一段行内文字之后，使用品牌色；空正文时由组件渲染实体光标。
+   与 row-sweep 一样，reduced-motion 下停止闪烁。 */
+@keyframes vivy-caret-blink {
+  0%, 45% { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+.streaming-caret > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: var(--color-brand);
+  vertical-align: -0.15em;
+  animation: vivy-caret-blink 1.1s steps(1, end) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .streaming-caret > :last-child::after { animation: none; }
+}
+
 /* 运行中的折叠行扫光（思考行 / 工具行，对照 DSH 的 row sweep）。
    transform 动画不触发布局；prefers-reduced-motion 下整条去掉。 */
 @keyframes vivy-row-sweep {

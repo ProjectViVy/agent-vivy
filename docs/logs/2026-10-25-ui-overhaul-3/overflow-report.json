@@ -1,0 +1,212 @@
+{
+  "390": {
+    "states": {
+      "rich": {
+        "viewport": 390,
+        "horizontalDocumentScroll": false,
+        "docScroll": 390,
+        "docClient": 390,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 112,
+            "text": "Context usage"
+          }
+        ]
+      },
+      "tool": {
+        "viewport": 390,
+        "horizontalDocumentScroll": false,
+        "docScroll": 390,
+        "docClient": 390,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 112,
+            "text": "Context usage"
+          }
+        ]
+      },
+      "approval": {
+        "viewport": 390,
+        "horizontalDocumentScroll": false,
+        "docScroll": 390,
+        "docClient": 390,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 138,
+            "text": "Awaiting approval"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 112,
+            "text": "Context usage"
+          },
+          {
+            "tag": "span",
+            "cls": "truncate",
+            "clipped": true,
+            "client": 30,
+            "scroll": 108,
+            "text": "Default workspace"
+          }
+        ]
+      }
+    },
+    "consoleErrors": []
+  },
+  "1280": {
+    "states": {
+      "rich": {
+        "viewport": 1280,
+        "horizontalDocumentScroll": false,
+        "docScroll": 1280,
+        "docClient": 1280,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 112,
+            "text": "Context usage"
+          }
+        ]
+      },
+      "tool": {
+        "viewport": 1280,
+        "horizontalDocumentScroll": false,
+        "docScroll": 1280,
+        "docClient": 1280,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 112,
+            "text": "Context usage"
+          }
+        ]
+      },
+      "approval": {
+        "viewport": 1280,
+        "horizontalDocumentScroll": false,
+        "docScroll": 1280,
+        "docClient": 1280,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 46,
+            "text": "Failed"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 138,
+            "text": "Awaiting approval"
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "clipped": true,
+            "client": 1,
+            "scroll": 112,
+            "text": "Context usage"
+          }
+        ]
+      }
+    },
+    "consoleErrors": []
+  }
+}

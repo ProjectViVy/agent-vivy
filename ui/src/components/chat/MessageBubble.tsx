@@ -1,91 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Check, Copy, GitFork, Pencil, RefreshCw, Rewind, X } from 'lucide-react';
 import type { Message } from '@/lib/api';
-import { dateTimeLocale, useTranslation } from '@/i18n';
-import { parseToolResultDiff } from '@/lib/diff';
-import { stripUntrustedHeader } from '@/lib/run-rows';
-import { cn } from '@/lib/utils';
-import { DiffView } from '@/components/ui/DiffView';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-
-// 消息功能栏（对照 Agent-DIVA msg-actions 移植，用户侧交互参考 ChatGPT）：
-// 用户消息（蓝色气泡）：下方悬停才浮现的复制 + 编辑（编辑 = rewind 截点 +
-// 新文本重开回合，JOURNAL-REWIND-AND-FORK），
-// 平时 opacity-0 不占视觉、保留布局位避免悬停跳动；
-// 助手消息：时间戳 + 复制（启用，带「已复制」反馈）+ 重新生成
-// （重发之前最近一条用户消息）+ 回退 / 分叉（rewind = 该消息起退出上下文；
-// fork = 以该消息为止的历史复制新会话，原会话不动）。
-// 密钥式敏感操作不存在；复制仅使用浏览器剪贴板。
-// 工具结果是文件变更 JSON（FileMutationResult，含 diff 字段）时改用
-// DiffView 呈现统一/分栏 diff，原始 JSON 折叠保留；其余工具结果维持纯文本。
-const ACTION_BUTTON = 'flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent';
-
-function formatTime(timestamp: number): string {
-  if (!timestamp) return '';
-  return new Date(timestamp).toLocaleTimeString(dateTimeLocale(), { hour: '2-digit', minute: '2-digit' });
-}
-
-/** 复制到剪贴板：优先 Clipboard API；受限 webview（如内嵌浏览器）拒绝时退回 execCommand。 */
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    try {
-      const area = document.createElement('textarea');
-      area.value = text;
-      area.style.position = 'fixed';
-      area.style.opacity = '0';
-      document.body.appendChild(area);
-      area.select();
-      const succeeded = document.execCommand('copy');
-      area.remove();
-      return succeeded;
-    } catch {
-      return false;
-    }
-  }
-}
-
-// Markdown 正文：GFM（表格 / 删除线 / 任务列表 / 自动链接）由 remark-gfm 提供；
-// 排版由 styles.css 的 @plugin "@tailwindcss/typography" 承担（.prose）。
-// className 用于主色气泡（用户消息）追加 .prose-inherit 保持前景色。
-function MarkdownBody({ content, className }: { content: string; className?: string }) {
-  return (
-    <div className={cn('prose prose-sm max-w-none break-words dark:prose-invert', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-    </div>
-  );
-}
-
-function ToolResultBubble({ message }: { message: Message }) {
-  const { t } = useTranslation();
-  // 内核给工具结果加了可信度信封头；比对面向前解析前先剥掉，否则文件变更的
-  // diff 永远解析不出来（历史消息有的带信封、有的不带）。
-  const toolDiff = parseToolResultDiff(stripUntrustedHeader(message.content));
-  if (!toolDiff) {
-    return <div className="mx-auto my-3 max-w-2xl min-w-0 rounded-xl border bg-muted/40 p-3 text-sm"><div className="mb-1 text-xs font-medium text-muted-foreground">{t('chat.toolResult')}</div><pre className="overflow-x-auto whitespace-pre-wrap break-words">{message.content}</pre></div>;
-  }
-  return (
-    <div className="mx-auto my-3 max-w-2xl min-w-0 rounded-xl border bg-muted/40 p-3 text-sm">
-      <div className="mb-1 flex min-w-0 items-baseline gap-2 text-xs font-medium text-muted-foreground">
-        <span className="shrink-0">{t('chat.toolResult')}</span>
-        {toolDiff.path ? <code className="min-w-0 truncate font-mono">{toolDiff.path}</code> : null}
-      </div>
-      <DiffView diff={toolDiff.diff} />
-      <details className="mt-2">
-        <summary className="cursor-pointer text-xs text-muted-foreground">{t('chat.toolResultRaw')}</summary>
-        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words">{message.content}</pre>
-      </details>
-    </div>
-  );
-}
+import { MessageAssistantBubble } from './message-assistant';
+import { MessageUserBubble } from './message-user';
+import { ToolResultBubble } from './tool-result';
 
 export function MessageBubble({
   message,
@@ -111,120 +27,30 @@ export function MessageBubble({
   /** 分叉确认：以该消息为止的历史复制新会话并跳转。 */
   onFork?: () => void | Promise<void>;
 }) {
-  const { t } = useTranslation();
-  const user = message.role === 'user';
-  const [copied, setCopied] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [confirming, setConfirming] = useState<'rewind' | 'fork' | null>(null);
-	const [pending, setPending] = useState<'edit' | 'rewind' | 'fork' | null>(null);
-	const [actionError, setActionError] = useState<string | null>(null);
-  const copyTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (copyTimer.current !== null) window.clearTimeout(copyTimer.current); }, []);
-
-  const copy = async () => {
-    if (!(await copyTextToClipboard(message.content))) return;
-    setCopied(true);
-    if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
-    copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
-  };
-
   if (message.role === 'tool') return <ToolResultBubble message={message} />;
   // 空壳助手消息不渲染（空气泡）：内核为每个 tool.requested 都投影一条
   // content 为空的 assistant 消息（internal/runtime/message_projector.go
   // EventToolRequested），此前它渲染成一只空气泡 + 一整条操作栏。
-  // 工具调用自身的呈现是另一件事，不在这里补。
   if (message.role !== 'user' && message.content.trim() === '' && !streaming) return null;
-  // channel 出处徽章（CH-C1-N3）：ui 轮无 provenance，不出任何标记。
-  const origin = message.provenance
-    ? [message.provenance.channel || message.provenance.source, message.provenance.chat_id].filter(Boolean).join(' · ')
-    : '';
-  if (user) {
-    return <article data-message-id={message.id} className="group my-4 flex min-w-0 justify-end"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-end">
-      {origin ? <div className="mb-0.5 px-1 text-[10px] text-muted-foreground">{origin}</div> : null}
-      <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-sm">
-        {message.attachments?.length ? (
-          <div className="mb-2 flex flex-wrap justify-end gap-1.5">
-            {message.attachments.map((item, index) => (
-              <img key={`${item.name ?? 'image'}-${index}`} src={item.data_url} alt={item.name || item.mime_type} className="max-h-40 max-w-full rounded-xl border border-white/20 object-cover" />
-            ))}
-          </div>
-        ) : null}
-        {editing ? (
-          <div className="min-w-[16rem] space-y-2">
-            <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-20 bg-background text-foreground" aria-label={t('chat.edit')} autoFocus />
-            <div className="flex justify-end gap-1">
-              <button type="button" className={ACTION_BUTTON} disabled={!draft.trim() || !onEditConfirm || pending !== null} aria-label={t('chat.editSave')} title={t('chat.editSave')}
-                onClick={async () => { if (!onEditConfirm) return; setPending('edit'); setActionError(null); try { await onEditConfirm(draft); setEditing(false); } catch (error) { setActionError(error instanceof Error ? error.message : String(error)); } finally { setPending(null); } }}>
-                <Check className="h-3 w-3" />
-              </button>
-              <button type="button" className={ACTION_BUTTON} disabled={pending !== null} aria-label={t('chat.editCancel')} title={t('chat.editCancel')} onClick={() => setEditing(false)}>
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-			{actionError ? <p className="text-xs text-destructive" role="alert">{actionError}</p> : null}
-          </div>
-        ) : (
-          <MarkdownBody content={message.content || (streaming ? '…' : '')} className="prose-inherit" />
-        )}
-      </div>
-      {streaming || editing ? null : (
-        <div className="mt-1 flex items-center gap-0.5 px-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-          <button type="button" className={ACTION_BUTTON} onClick={() => void copy()} title={copied ? t('chat.copied') : t('chat.copy')} aria-label={copied ? t('chat.copied') : t('chat.copy')}>
-            {copied ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}
-          </button>
-          <button type="button" className={ACTION_BUTTON} disabled={actionsDisabled || !onEditConfirm}
-            onClick={() => { setDraft(message.content); setEditing(true); }} title={t('chat.edit')} aria-label={t('chat.edit')}>
-            <Pencil className="h-3 w-3" />
-          </button>
-        </div>
-      )}
-    </div></article>;
+  if (message.role === 'user') {
+    return (
+      <MessageUserBubble
+        message={message}
+        streaming={streaming}
+        actionsDisabled={actionsDisabled}
+        onEditConfirm={onEditConfirm}
+      />
+    );
   }
-  return <article data-message-id={message.id} className="group my-4 flex min-w-0 justify-start"><div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-start">
-    <div className="w-fit max-w-full min-w-0 overflow-hidden rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-relaxed shadow-sm">
-      <MarkdownBody content={message.content || (streaming ? '…' : '')} />
-    </div>
-    {streaming ? null : (
-      <div className="mt-1.5 flex items-center gap-0.5 px-1 opacity-60 transition-opacity group-hover:opacity-100 justify-start">
-        <span className="mr-0.5 text-[10px] text-muted-foreground">{formatTime(message.created_at)}</span>
-        <button type="button" className={ACTION_BUTTON} onClick={() => void copy()} title={copied ? t('chat.copied') : t('chat.copy')} aria-label={copied ? t('chat.copied') : t('chat.copy')}>
-          {copied ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}
-        </button>
-        <button type="button" className={ACTION_BUTTON} disabled={actionsDisabled || !canRegenerate || !onRegenerate} onClick={onRegenerate} title={t('chat.regenerate')} aria-label={t('chat.regenerate')}>
-          <RefreshCw className="h-3 w-3" />
-        </button>
-        <button type="button" className={ACTION_BUTTON} disabled={actionsDisabled || !onRewind} onClick={() => setConfirming('rewind')} title={t('chat.rewind')} aria-label={t('chat.rewind')}>
-          <Rewind className="h-3 w-3" />
-        </button>
-        <button type="button" className={ACTION_BUTTON} disabled={actionsDisabled || !onFork} onClick={() => setConfirming('fork')} title={t('chat.fork')} aria-label={t('chat.fork')}>
-          <GitFork className="h-3 w-3" />
-        </button>
-      </div>
-    )}
-	{actionError ? <p className="mt-1 text-xs text-destructive" role="alert">{actionError}</p> : null}
-    <AlertDialog open={confirming !== null} onOpenChange={(open) => { if (!open && pending === null) setConfirming(null); }}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{confirming === 'fork' ? t('chat.forkConfirmTitle') : t('chat.rewindConfirmTitle')}</AlertDialogTitle>
-          <AlertDialogDescription>{confirming === 'fork' ? t('chat.forkConfirmBody') : t('chat.rewindConfirmBody')}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending !== null}>{t('chat.editCancel')}</AlertDialogCancel>
-          <AlertDialogAction disabled={pending !== null} onClick={async (event) => {
-            event.preventDefault();
-            const action = confirming;
-			if (!action) return;
-			setPending(action); setActionError(null);
-			try {
-				if (action === 'rewind') await onRewind?.();
-				if (action === 'fork') await onFork?.();
-				setConfirming(null);
-			} catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
-			finally { setPending(null); }
-          }}>{confirming === 'fork' ? t('chat.fork') : t('chat.rewind')}</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  </div></article>;
+  return (
+    <MessageAssistantBubble
+      message={message}
+      streaming={streaming}
+      canRegenerate={canRegenerate}
+      actionsDisabled={actionsDisabled}
+      onRegenerate={onRegenerate}
+      onRewind={onRewind}
+      onFork={onFork}
+    />
+  );
 }

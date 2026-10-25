@@ -21,7 +21,7 @@ describe('MessageBubble', () => {
 
   it('keeps an empty assistant bubble while streaming', () => {
     const html = renderToStaticMarkup(<MessageBubble message={assistant()} streaming />);
-    expect(html).toContain('…');
+    expect(html).toContain('data-streaming-caret');
   });
 
   it('still renders a user message whose text is empty', () => {

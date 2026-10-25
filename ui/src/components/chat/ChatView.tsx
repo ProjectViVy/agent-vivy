@@ -159,10 +159,16 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-4xl p-4">
-          {phase === 'loading' ? <div className="space-y-3 pt-4"><div className="h-16 w-2/3 animate-pulse rounded-2xl bg-muted"/><div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-muted"/></div> : null}
+        <ScrollArea className="min-h-0 flex-1"><div className="mx-auto max-w-content p-4">
+          {phase === 'loading' ? (
+            <div className="space-y-3 pt-4" aria-busy>
+              <div className="h-16 w-2/3 animate-pulse rounded-2xl bg-sunken" />
+              <div className="ml-auto h-10 w-1/2 animate-pulse rounded-2xl bg-sunken" />
+              <div className="h-24 w-3/4 animate-pulse rounded-2xl bg-sunken" />
+            </div>
+          ) : null}
           {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
-          {phase === 'empty' && transcript.length === 0 && !runError ? <div className="py-24"><p className="text-center text-lg text-muted-foreground">{t('chat.startNew')}</p></div> : null}
+          {phase === 'empty' && transcript.length === 0 && !runError ? <div className="py-24"><p className="text-center text-title text-fg-muted">{t('chat.startNew')}</p></div> : null}
           {transcript.map((row) => {
             if (row.kind === 'user' || row.kind === 'assistant') return <MessageBubble key={row.id} message={row.message} streaming={row.kind === 'assistant' && row.streaming} canRegenerate={regeneratePrompt(messages, row.message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(row.message.id)} onEditConfirm={(text) => handleEdit(row.message.id, text)} onRewind={() => handleRewind(row.message.id)} onFork={() => handleFork(row.message.id)} />;
             if (row.kind === 'toolResult') return <MessageBubble key={row.id} message={row.message} />;
@@ -191,7 +197,7 @@ function RunRowView({ row }: { row: RunRow }) {
   if (row.kind === 'deliverables') return <DeliverableCard set={row.set} />;
   if (row.kind === 'assistant') return null;
   return (
-    <div className="my-2 text-center text-[11px] text-muted-foreground">
+    <div className="my-2 text-center text-2xs text-fg-muted">
       {row.kind === 'notice' && row.tag === 'retry'
         ? row.text
         : t('chat.toolCompacted', { detail: row.text === '' ? '' : ` · ${row.text}` })}
