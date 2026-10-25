@@ -564,7 +564,6 @@ export const en: Dictionary = {
     defaultProvider: 'Default',
     currentRuntimeConfig: 'Current runtime config',
     switchModelAria: 'Switch model, currently {{provider}} {{model}}',
-    switchModelTitle: 'Switch model',
     defaultModel: 'Default model',
     chooseModel: 'Choose a model',
     currentConfig: 'Current config',

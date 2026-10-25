@@ -562,7 +562,6 @@ export const zh = {
     defaultProvider: '默认',
     currentRuntimeConfig: '当前运行配置',
     switchModelAria: '切换模型，当前为{{provider}} {{model}}',
-    switchModelTitle: '切换模型',
     defaultModel: '默认模型',
     chooseModel: '选择模型',
     currentConfig: '当前配置',

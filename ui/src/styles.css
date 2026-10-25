@@ -140,9 +140,12 @@
   --container-content: var(--content-max);
   --container-sidebar: var(--sidebar-w);
 
-  /* shadcn aliases — derived, never authored. Every call site still on
-     `bg-background` / `text-muted-foreground` resolves through the semantic
-     set above; blocks 2-6 migrate call sites and delete entries here. */
+  /* shadcn aliases — derived, never authored. The vendored shadcn primitives
+     under `components/ui` name their tokens `background` / `muted-foreground` /
+     `primary` / etc. Those names resolve through the semantic set above, so the
+     aliases are a permanent compatibility boundary, not a second source of
+     truth and not a pending deletion. Hand-authored surfaces should prefer the
+     semantic utilities (`bg-canvas`, `text-fg-muted`, `border-line`) directly. */
   --color-background: var(--bg-app);
   --color-foreground: var(--fg);
   --color-card: var(--bg-raised);
