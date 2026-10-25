@@ -2186,7 +2186,6 @@ export interface FaceStoreState {
   readonly reviewBusyIds: string[];
   readonly reviewCenterOpen: boolean;
   readonly filesPanelOpen: boolean;
-  readonly sessionDrawerOpen: boolean;
   /** Store action mirrored for UI Modules (VCP C3): selects a session and
    * loads its transcript — the same path the sidebar's session list uses. */
   selectSession(id: string): Promise<void>;
@@ -2275,7 +2274,6 @@ export interface FaceStoreState {
   respondReview(id: string, response: FaceReviewResponse): Promise<void>;
   setReviewCenterOpen(open: boolean): void;
   setFilesPanelOpen(open: boolean): void;
-  setSessionDrawerOpen(open: boolean): void;
   loadTodos(sessionId?: string): Promise<void>;
   updateTodoStatus(todoId: string, status: FaceTodoStatus): Promise<void>;
   setTodoPanelOpen(open: boolean): void;

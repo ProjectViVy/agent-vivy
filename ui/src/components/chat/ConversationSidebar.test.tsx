@@ -124,9 +124,10 @@ describe('ConversationSidebar session list header', () => {
 	});
 
 	it('switches to the flat view and remembers it', async () => {
-		await act(async () => button('View options').click());
+		// Radix opens on pointerdown, which happy-dom's .click() does not emit.
+		await act(async () => button('View options').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })));
 		expect(document.querySelector('[role="menu"]')).not.toBeNull();
-		const flat = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+		const flat = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
 			.find((node) => node.textContent?.includes('Flat list'))!;
 		await act(async () => flat.click());
 

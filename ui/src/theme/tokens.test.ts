@@ -28,7 +28,7 @@ type Baseline = { count: number; files: string[] };
 const BASELINE: Record<Group, Record<Category, Baseline>> = {
   src: {
     palette: {
-      count: 159,
+      count: 158,
       files: [
         'ui/src/components/chat/ChatInput.tsx',
         'ui/src/components/chat/DeliverableCard.tsx',
@@ -57,14 +57,13 @@ const BASELINE: Record<Group, Record<Category, Baseline>> = {
         'ui/src/components/ui/DiffView.tsx',
         'ui/src/components/ui/alert-dialog.tsx',
         'ui/src/components/ui/dialog.tsx',
-        'ui/src/components/ui/drawer.tsx',
         'ui/src/components/ui/sheet.tsx',
         'ui/src/routes/__root.tsx',
         'ui/src/routes/_layout.tsx',
       ],
     },
     textSize: {
-      count: 85,
+      count: 81,
       files: [
         'ui/src/components/chat/ChatInput.tsx',
         'ui/src/components/chat/ChatView.tsx',
@@ -90,13 +89,11 @@ const BASELINE: Record<Group, Record<Category, Baseline>> = {
         'ui/src/components/trajectory/TrajectoryLedger.tsx',
         'ui/src/components/trajectory/TrajectoryPanel.tsx',
         'ui/src/components/trajectory/TrajectoryTimeline.tsx',
-        'ui/src/components/ui/calendar.tsx',
-        'ui/src/components/ui/form.tsx',
       ],
     },
     hex: {
-      count: 5,
-      files: ['ui/src/components/ui/chart.tsx'],
+      count: 0,
+      files: [],
     },
   },
   plugins: {

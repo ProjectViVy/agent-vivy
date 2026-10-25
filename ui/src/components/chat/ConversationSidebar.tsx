@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import {
-  Check, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderPlus,
-  Pencil, Plus, Search, SlidersHorizontal, Trash2, X,
+  ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderPlus,
+  Plus, Search, SlidersHorizontal, X,
 } from 'lucide-react';
 import type { Session } from '@/lib/api';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { SIDEBAR_VIVY_GROUP, useGroupedNavigation } from '@/plugins/grouped-navigation';
@@ -16,6 +19,7 @@ import {
   filterSessions, readSessionListView, storeSessionListView, type SessionListView,
 } from './session-list-view';
 import { WorkspaceFolderDialog } from './WorkspaceFolderDialog';
+import { SessionRow } from './session-row';
 
 type SidebarView = 'root' | 'toolbox' | 'vivy';
 /** Every entry names its left icon from the host icon set, core or Module. */
@@ -95,25 +99,10 @@ export function ConversationSidebar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
-  const viewMenuRef = useRef<HTMLDivElement>(null);
   const view = manualView ?? pathView;
   const searching = query.trim().length > 0;
 
   useEffect(() => setManualView(null), [pathView]);
-  useEffect(() => {
-    if (!viewMenuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (viewMenuRef.current?.contains(event.target as Node)) return;
-      setViewMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setViewMenuOpen(false); };
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [viewMenuOpen]);
 
   const groups = useMemo(() => groupSessionsByWorkspace(sessions, t('workspace.default')), [sessions, t]);
   const matches = useMemo(() => filterSessions(sessions, query, {
@@ -163,38 +152,23 @@ export function ConversationSidebar({
   const renderSession = (session: Session) => {
     const editing = editingSessionId === session.id;
     return (
-      <div
+      <SessionRow
         key={session.id}
-        onClick={() => { if (!editing) onSelectSession(session.id); }}
-        className={cn(
-          'group relative flex min-h-8 cursor-pointer items-center rounded-lg px-2.5 py-1.5 text-sm transition-colors',
-          activeSessionId === session.id ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-sidebar-accent/50',
-          busyId === session.id && 'opacity-60',
-        )}
-      >
-        {editing ? (
-          <div className="flex w-full min-w-0 items-center gap-1">
-            <input
-              autoFocus value={editingTitle} onChange={(event) => setEditingTitle(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') void saveRename(); if (event.key === 'Escape') setEditingSessionId(null); }}
-              onClick={(event) => event.stopPropagation()}
-              className="min-w-0 flex-1 rounded border bg-background px-2 py-0.5 text-sm outline-none focus:border-primary"
-            />
-            <button type="button" onClick={(event) => { event.stopPropagation(); void saveRename(); }} title={t('common.save')} className="rounded p-0.5 hover:bg-sidebar-accent"><Check className="h-3.5 w-3.5" /></button>
-            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingSessionId(null); }} title={t('common.cancel')} className="rounded p-0.5 hover:bg-sidebar-accent"><X className="h-3.5 w-3.5" /></button>
-          </div>
-        ) : (
-          <>
-            <span className={cn('min-w-0 flex-1 truncate group-hover:pr-12', !session.title && 'text-muted-foreground')}>
-              {session.title || t('errors.newSessionDefault')}
-            </span>
-            <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-              <button type="button" onClick={(event) => { event.stopPropagation(); setEditingSessionId(session.id); setEditingTitle(session.title); }} title={t('common.edit')} className="rounded p-1 hover:bg-sidebar-accent"><Pencil className="h-3.5 w-3.5" /></button>
-              <button type="button" onClick={(event) => { event.stopPropagation(); void onDeleteSession(session.id); }} title={t('common.delete')} className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
-            </div>
-          </>
-        )}
-      </div>
+        title={session.title || t('errors.newSessionDefault')}
+        untitled={!session.title}
+        active={activeSessionId === session.id}
+        busy={busyId === session.id}
+        onSelect={() => onSelectSession(session.id)}
+        rename={{
+          editing,
+          draft: editingTitle,
+          onDraftChange: setEditingTitle,
+          onStart: () => { setEditingSessionId(session.id); setEditingTitle(session.title); },
+          onSave: () => void saveRename(),
+          onCancel: () => setEditingSessionId(null),
+        }}
+        onDelete={() => void onDeleteSession(session.id)}
+      />
     );
   };
 
@@ -227,26 +201,20 @@ export function ConversationSidebar({
         <>
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">{t('layout.sessions')}</span>
           <button type="button" onClick={() => setSearchOpen(true)} title={t('sidebar.search')} aria-label={t('sidebar.search')} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><Search className="h-3.5 w-3.5" /></button>
-          <div ref={viewMenuRef} className="relative">
-            <button type="button" onClick={() => setViewMenuOpen((open) => !open)} title={t('sidebar.view')} aria-label={t('sidebar.view')} aria-haspopup="menu" aria-expanded={viewMenuOpen} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><SlidersHorizontal className="h-3.5 w-3.5" /></button>
-            {viewMenuOpen ? (
-              <div role="menu" className="absolute right-0 top-7 z-20 w-44 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
+          <DropdownMenu open={viewMenuOpen} onOpenChange={setViewMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <button type="button" title={t('sidebar.view')} aria-label={t('sidebar.view')} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><SlidersHorizontal className="h-3.5 w-3.5" /></button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuRadioGroup value={viewMode} onValueChange={(value) => selectViewMode(value as SessionListView)}>
                 {VIEW_MODES.map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={viewMode === mode}
-                    onClick={() => selectViewMode(mode)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <Check className={cn('h-3.5 w-3.5 shrink-0', viewMode !== mode && 'opacity-0')} />
-                    <span className="min-w-0 flex-1 truncate">{t(mode === 'grouped' ? 'sidebar.viewGrouped' : 'sidebar.viewFlat')}</span>
-                  </button>
+                  <DropdownMenuRadioItem key={mode} value={mode} className="text-xs">
+                    {t(mode === 'grouped' ? 'sidebar.viewGrouped' : 'sidebar.viewFlat')}
+                  </DropdownMenuRadioItem>
                 ))}
-              </div>
-            ) : null}
-          </div>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button type="button" onClick={() => setFolderPickerOpen(true)} title={t('sidebar.openFolder')} aria-label={t('sidebar.openFolder')} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><FolderPlus className="h-3.5 w-3.5" /></button>
         </>
       )}

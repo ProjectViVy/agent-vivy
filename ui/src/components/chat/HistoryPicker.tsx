@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { SessionRow } from './session-row';
 import { dateTimeLocale, useTranslation } from '@/i18n';
 
 export interface HistoryPickerProps {
@@ -175,17 +176,17 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
       <ScrollArea className="min-h-0 flex-1">
         {sessionsPhase === 'loading' && sessions.length === 0 ? <div className="space-y-2 p-2"><Skeleton className="h-10" /><Skeleton className="h-10" /></div> : null}
         {sessionsPhase === 'ready' && sessions.length === 0 ? <p className="p-3 text-sm text-muted-foreground">{t('historyPicker.noSessions')}</p> : null}
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            type="button"
-            onClick={() => setSourceId(session.id)}
-            className={`flex w-full flex-col gap-0.5 border-b px-3 py-2 text-left hover:bg-accent ${sourceId === session.id ? 'bg-accent' : ''}`}
-          >
-            <span className="truncate text-sm" title={session.title}>{session.title || session.id}</span>
-            <span className="truncate text-xs text-muted-foreground">{session.workspace_label || new Date(session.updated_at).toLocaleString(dateTimeLocale())}</span>
-          </button>
-        ))}
+        <div className="divide-y divide-border">
+          {sessions.map((session) => (
+            <SessionRow
+              key={session.id}
+              title={session.title || session.id}
+              subtitle={session.workspace_label || new Date(session.updated_at).toLocaleString(dateTimeLocale())}
+              active={sourceId === session.id}
+              onSelect={() => setSourceId(session.id)}
+            />
+          ))}
+        </div>
         {sessionsCursor ? (
           <Button type="button" variant="ghost" size="sm" className="m-2" disabled={sessionsPhase === 'loading'} onClick={() => void loadSessions(sessionQuery, sessionsCursor)}>
             {sessionsPhase === 'loading' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}{t('historyPicker.loadMore')}

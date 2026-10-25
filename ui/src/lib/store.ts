@@ -160,7 +160,6 @@ interface RuntimeState {
   reviewBusyIds: string[];
   reviewCenterOpen: boolean;
   filesPanelOpen: boolean;
-  sessionDrawerOpen: boolean;
   settings: api.Settings | null;
   settingsPhase: Phase;
   settingsError: string | null;
@@ -252,7 +251,6 @@ interface RuntimeState {
   respondReview: (id: string, response: { action: 'approve' | 'deny' | 'answer' | 'cancel'; reason?: string; answer?: string }) => Promise<void>;
   setReviewCenterOpen: (open: boolean) => void;
   setFilesPanelOpen: (open: boolean) => void;
-  setSessionDrawerOpen: (open: boolean) => void;
   loadTodos: (sessionId?: string) => Promise<void>;
   updateTodoStatus: (todoId: string, status: api.TodoStatus) => Promise<void>;
   setTodoPanelOpen: (open: boolean) => void;
@@ -596,7 +594,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   work: null, workPhase: 'idle', workError: null, workBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
-  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
+  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false,
   settings: null, settingsPhase: 'idle', settingsError: null,
   providers: [], catalog: [], providersPhase: 'idle', providersError: null,
   species: null, generations: [], evals: [], promotions: [], lifecyclePhase: 'idle', lifecycleError: null, lifecycleBusy: false,
@@ -1230,7 +1228,6 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   setReviewCenterOpen: (open) => set({ reviewCenterOpen: open }),
   setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
-  setSessionDrawerOpen: (open) => set({ sessionDrawerOpen: open }),
   loadSettings: async () => {
     const operation = beginSettingsRead();
     if (!operation) return;
