@@ -342,16 +342,10 @@ type Service struct {
 	// lastCompaction is process-local observability for the UI (the
 	// durable record lives in the journal as context.compacted events).
 	lastCompaction map[domain.SessionID]*LastCompaction
-	// overflowRecovered marks runs that already spent their single
-	// compact-and-retry recovery (VCP-D2); entries die in cleanupRunState.
-	overflowRecovered map[domain.RunID]bool
-	// modelRetries marks runs that already spent their single model-call retry
-	// and records the rejected input's structural fingerprint plus the reason
-	// the grant was made (tool-result order or a bare provider 2013); entries
-	// die in cleanupRunState. The budget is separate from overflowRecovered
-	// because the recoveries diagnose different faults, but both draw from the
-	// same modelMaxRetries budget, so whichever decider grants a retry first
-	// physically consumes it.
+	// modelRetries is the run-scoped model retry budget: it marks a run that
+	// already spent its single recovery and records the rejected input's
+	// structural fingerprint plus the reason (context overflow, tool-result
+	// order or a bare provider 2013). Entries die in cleanupRunState.
 	modelRetries map[domain.RunID]modelRetryState
 	// autoRetryAwaiting records a dispatched recovery attempt (run → attempt)
 	// whose auto_retry.finished the consume loop still owes the journal:
@@ -545,7 +539,6 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		runTools:          make(map[domain.RunID]map[string]struct{}),
 		contextViews:      make(map[domain.RunID]string),
 		lastCompaction:    make(map[domain.SessionID]*LastCompaction),
-		overflowRecovered: make(map[domain.RunID]bool),
 		modelRetries:      make(map[domain.RunID]modelRetryState),
 		autoRetryAwaiting: make(map[domain.RunID]int),
 		humanPending:      make(map[domain.SessionID]int),
@@ -5364,8 +5357,8 @@ type modelRetryState struct {
 // modelRetryDecision is the single decider bound into the engine's
 // ModelRetryConfig slot. Overflow recovery is consulted first because it is the
 // only one that rewrites the call input; the other two replay the identical
-// payload. All draw from the same modelMaxRetries budget, so whichever grants a
-// retry first physically consumes it.
+// payload. All three draw from the same run-scoped modelRetries budget, so
+// whichever grants a retry first consumes it for the rest of the run.
 func (s *Service) modelRetryDecision(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
 	// The ADK asks once more after the final attempt; a "retry" granted there
 	// never happens, so declining keeps auto_retry.started truthful.
@@ -5422,9 +5415,23 @@ func (s *Service) toolResultOrderRetryDecision(ctx context.Context, rc *adk.Type
 // have already proved the fault; this owns the one-retry-per-run rule and the
 // shared budget bookkeeping.
 func (s *Service) grantModelRetry(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage], reason, detail string) *adk.TypedRetryDecision[*schema.AgenticMessage] {
+	if !s.reserveModelRetry(ctx, rc, reason, detail) {
+		return nil
+	}
+	return &adk.TypedRetryDecision[*schema.AgenticMessage]{
+		Retry:        true,
+		RejectReason: reason,
+	}
+}
+
+// reserveModelRetry claims the run's single model recovery. It records the
+// rejected input's fingerprint, marks the dispatched attempt for
+// auto_retry.finished, and announces the grant. It returns false when the run
+// already spent its budget.
+func (s *Service) reserveModelRetry(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage], reason, detail string) bool {
 	runID := contextRunID(ctx)
 	if runID == "" {
-		return nil
+		return false
 	}
 	fingerprint := modelRequestFingerprint(rc.InputMessages)
 	s.mu.Lock()
@@ -5436,13 +5443,13 @@ func (s *Service) grantModelRetry(ctx context.Context, rc *adk.TypedRetryContext
 			"run", string(runID), "reason", reason, "previous_reason", previous.reason,
 			"identical", previous.fingerprint == fingerprint,
 			"first_attempt", previous.attempt, "attempt", rc.RetryAttempt)
-		return nil
+		return false
 	}
 	s.modelRetries[runID] = modelRetryState{fingerprint: fingerprint, attempt: rc.RetryAttempt, reason: reason}
 	s.autoRetryAwaiting[runID] = rc.RetryAttempt
 	s.mu.Unlock()
 
-	slog.Error("provider rejected the model call; retrying the identical call once",
+	slog.Error("provider rejected the model call; retrying the model call once",
 		"run", string(runID), "reason", reason, "attempt", rc.RetryAttempt,
 		"fingerprint", clampFingerprint(fingerprint), "detail", detail)
 	emitGovernanceEvent(ctx, GovernanceEvent{
@@ -5450,10 +5457,7 @@ func (s *Service) grantModelRetry(ctx context.Context, rc *adk.TypedRetryContext
 		Attempt: rc.RetryAttempt,
 		Reason:  reason + ": fingerprint=" + clampFingerprint(fingerprint) + "; " + detail,
 	})
-	return &adk.TypedRetryDecision[*schema.AgenticMessage]{
-		Retry:        true,
-		RejectReason: reason,
-	}
+	return true
 }
 
 // provider2013Reason tags a retry granted for a bare MiniMax 2013. It names the
@@ -5847,7 +5851,6 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	}
 	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
-	delete(s.overflowRecovered, runID)
 	delete(s.modelRetries, runID)
 	delete(s.autoRetryAwaiting, runID)
 	s.mu.Unlock()

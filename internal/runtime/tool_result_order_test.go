@@ -118,20 +118,21 @@ func TestToolResultOrderSecondFailureEndsRun(t *testing.T) {
 }
 
 func TestOverflowRetryConsumesBudgetBeforeToolResultOrder(t *testing.T) {
-	// One physical retry per run: overflow recovery takes it, so a later
-	// tool-result-order rejection must not publish a retry that cannot happen.
-	// The run carries a real tool turn (seeded history) so the order gate is
-	// evaluated on the budget, not on the missing-tool-turn shortcut.
+	// One recovery per run: overflow takes the run-scoped budget, so a later
+	// model call's tool-result-order rejection publishes no second retry. The
+	// rejection lands at RetryAttempt 1, which the per-call ADK guard cannot
+	// decline; only the run budget can.
 	m := &overflowScriptedModel{
-		skipFirst: 0,
 		failCount: 1,
 		errText:   "prompt is too long",
-		errByCall: map[int]string{2: toolResultOrderErr},
+		errByCall: map[int]string{3: toolResultOrderErr},
+		responses: map[int]*schema.AgenticMessage{2: orderToolTurn()},
 	}
 	svc, backend := newOverflowService(t, m)
+	svc.engine.cfg.Compaction.KeepRecent = 2
 	ctx := context.Background()
 	mustCreateSession(t, backend, "sess-order3")
-	seedOrderToolTurn(t, backend, "sess-order3")
+	seedOrderHistoryWithUser(t, backend, "sess-order3")
 
 	runID, err := svc.Run(ctx, "sess-order3", "overflow then order")
 	if err != nil {
@@ -140,6 +141,9 @@ func TestOverflowRetryConsumesBudgetBeforeToolResultOrder(t *testing.T) {
 	waitFor(t, "run fails", func() bool {
 		return runTerminal(t, backend, runID) == domain.RunFailed
 	})
+	if got := m.calls(); got != 3 {
+		t.Fatalf("model calls = %d, want 3 (overflow, retried call, later call)", got)
+	}
 
 	events := journalEvents(t, backend, runID)
 	started := eventsOfType(events, domain.EventAutoRetryStarted)
@@ -153,8 +157,28 @@ func TestOverflowRetryConsumesBudgetBeforeToolResultOrder(t *testing.T) {
 		t.Fatalf("context.compacted count = %d, want 1", got)
 	}
 	finished := eventsOfType(events, domain.EventAutoRetryFinished)
-	if len(finished) != 1 || eventPayload(t, finished[0])["success"] != false {
+	if len(finished) != 1 || eventPayload(t, finished[0])["success"] != true {
 		t.Fatalf("auto_retry.finished events = %v", finished)
+	}
+}
+
+// seedOrderHistoryWithUser persists pre-run history with a user row, so a
+// KeepRecent of 2 folds only that row and leaves the completed tool turn in
+// the retried feed.
+func seedOrderHistoryWithUser(t *testing.T, backend *sqlite.Backend, sessionID domain.SessionID) {
+	t.Helper()
+	ctx := context.Background()
+	rows := []domain.Message{
+		{ID: "seed-user", SessionID: sessionID, Role: domain.RoleUser, Content: "start", CreatedAt: 1},
+		{ID: "seed-call", SessionID: sessionID, Role: domain.RoleAssistant,
+			ToolCallID: "seed-tool-call", ToolName: "echo_info", ToolArgs: []byte(`{"text":"probe"}`), CreatedAt: 2},
+		{ID: "seed-result", SessionID: sessionID, Role: domain.RoleTool,
+			ToolCallID: "seed-tool-call", ToolName: "echo_info", Content: "probe", CreatedAt: 3},
+	}
+	for _, row := range rows {
+		if err := backend.AppendMessage(ctx, row); err != nil {
+			t.Fatalf("append seeded history: %v", err)
+		}
 	}
 }
 

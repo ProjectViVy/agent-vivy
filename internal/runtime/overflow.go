@@ -147,22 +147,9 @@ func (s *Service) overflowRetryDecision(ctx context.Context, rc *adk.TypedRetryC
 	if sessionID == "" || runID == "" {
 		return nil
 	}
-	s.mu.Lock()
-	if s.overflowRecovered[runID] {
-		// One recovery per run: a second overflow fails honestly instead of
-		// compacting-and-retrying in a loop.
-		s.mu.Unlock()
+	if !s.reserveModelRetry(ctx, rc, overflowRecoveryReason, errorChainText(rc.Err, 256)) {
 		return nil
 	}
-	s.overflowRecovered[runID] = true
-	s.autoRetryAwaiting[runID] = rc.RetryAttempt
-	s.mu.Unlock()
-
-	emitGovernanceEvent(ctx, GovernanceEvent{
-		Type:    domain.EventAutoRetryStarted,
-		Attempt: rc.RetryAttempt,
-		Reason:  overflowRecoveryReason + ": " + errorChainText(rc.Err, 256),
-	})
 	finish := func(ok bool) {
 		emitGovernanceEvent(ctx, GovernanceEvent{Type: domain.EventAutoRetryFinished, Attempt: rc.RetryAttempt, Success: ok})
 	}
