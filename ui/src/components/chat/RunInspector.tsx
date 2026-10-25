@@ -147,7 +147,7 @@ export function RunInspector() {
   return <Tabs value={tab} onValueChange={setTab} className="flex h-full flex-col">
     {sessionRuns.length ? <div className="mx-4 mt-4">
       <label className="sr-only" htmlFor="run-inspector-run-picker">{t('runInspector.selectRun')}</label>
-      <select id="run-inspector-run-picker" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs" value={run?.id ?? ''} onChange={(event) => { const id = event.target.value; if (id && activeSessionId) void openRun(id, activeSessionId); }}>
+      <select id="run-inspector-run-picker" className="w-full rounded-md border border-input bg-surface px-2 py-1.5 text-meta" value={run?.id ?? ''} onChange={(event) => { const id = event.target.value; if (id && activeSessionId) void openRun(id, activeSessionId); }}>
         {!run ? <option value="" disabled>{t('runInspector.noRun')}</option> : null}
         {sessionRuns.map((id) => <option key={id} value={id}>{id}{id === run?.id ? ` · ${run.status}` : ''}</option>)}
       </select>
@@ -161,39 +161,39 @@ export function RunInspector() {
     <div className="flex-1 overflow-auto p-4">
       <TabsContent value="run" className="mt-0 space-y-4">
         {run ? <>
-          <div className="rounded-lg border p-3 text-sm">
+          <div className="rounded-lg border p-3 text-ui">
             <div className="flex items-center justify-between"><code>{run.id}</code><Badge>{run.status}</Badge></div>
-            <div className="mt-2 text-muted-foreground">{t('hostLabels.session', { id: run.session_id })}</div>
+            <div className="mt-2 text-fg-muted">{t('hostLabels.session', { id: run.session_id })}</div>
           </div>
           <div>
-            <h3 className="mb-2 text-sm font-medium">{t('runInspector.events')}</h3>
+            <h3 className="mb-2 text-ui font-medium">{t('runInspector.events')}</h3>
             <div className="space-y-1">{events.slice().reverse().map((event) => <div key={event.seq}>
-              <button type="button" className={`flex w-full items-center gap-2 rounded p-2 text-left text-xs hover:bg-muted ${openSeq === event.seq ? 'bg-muted' : ''}`} aria-expanded={openSeq === event.seq} onClick={() => setOpenSeq(openSeq === event.seq ? null : event.seq)}>
-                <span className="w-10 text-muted-foreground">#{event.seq}</span><span>{event.type}</span>
+              <button type="button" className={`flex w-full items-center gap-2 rounded p-2 text-left text-meta hover:bg-muted ${openSeq === event.seq ? 'bg-muted' : ''}`} aria-expanded={openSeq === event.seq} onClick={() => setOpenSeq(openSeq === event.seq ? null : event.seq)}>
+                <span className="w-10 text-fg-muted">#{event.seq}</span><span>{event.type}</span>
               </button>
-              {openSeq === event.seq ? <pre className="mb-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-2 font-mono text-[11px] leading-4">{JSON.stringify(event.payload ?? null, null, 2)}</pre> : null}
+              {openSeq === event.seq ? <pre className="mb-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-sunken p-2 font-mono text-2xs leading-4">{JSON.stringify(event.payload ?? null, null, 2)}</pre> : null}
             </div>)}</div>
           </div>
           {attachedRefs.length > 0 ? <div>
-            <h3 className="mb-2 text-sm font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
-            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-xs"><code>{row.reference.id}</code> <span className="text-muted-foreground">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
+            <h3 className="mb-2 text-ui font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
+            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-meta"><code>{row.reference.id}</code> <span className="text-fg-muted">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
           </div> : null}
-        </> : <p className="py-10 text-center text-sm text-muted-foreground">{t('runInspector.noRun')}</p>}
+        </> : <p className="py-10 text-center text-ui text-fg-muted">{t('runInspector.noRun')}</p>}
       </TabsContent>
 
       <TabsContent value="background" className="mt-0 space-y-2">
-        {background.length ? background.map((item) => <div key={item.id} className="rounded-lg border p-3 text-sm">
-          <div className="flex items-center justify-between"><div className="min-w-0"><div className="truncate font-medium">{item.id}</div><div className="text-xs text-muted-foreground">{item.status}</div></div><Button size="sm" variant="outline" disabled={busyId === item.id} onClick={() => void attach(item.id)}>{t('common.open')}</Button></div>
-        </div>) : <p className="py-10 text-center text-sm text-muted-foreground">{t('runInspector.noBackground')}</p>}
+        {background.length ? background.map((item) => <div key={item.id} className="rounded-lg border p-3 text-ui">
+          <div className="flex items-center justify-between"><div className="min-w-0"><div className="truncate font-medium" title={item.id}>{item.id}</div><div className="text-meta text-fg-muted">{item.status}</div></div><Button size="sm" variant="outline" disabled={busyId === item.id} onClick={() => void attach(item.id)}>{t('common.open')}</Button></div>
+        </div>) : <p className="py-10 text-center text-ui text-fg-muted">{t('runInspector.noBackground')}</p>}
       </TabsContent>
 
       <TabsContent value="children" className="mt-0 space-y-4">
         <details className="rounded-lg border p-3">
-          <summary className="cursor-pointer text-sm font-medium">{t('runInspector.workflows')}</summary>
+          <summary className="cursor-pointer text-ui font-medium">{t('runInspector.workflows')}</summary>
           <div className="mt-3 space-y-3">
             <Textarea
               aria-label={t('runInspector.workflowDescriptor')}
-              className="min-h-40 font-mono text-xs"
+              className="min-h-40 font-mono text-meta"
               value={workflowText}
               placeholder={t('runInspector.workflowDescriptorPlaceholder')}
               onChange={(event) => {
@@ -232,20 +232,20 @@ export function RunInspector() {
               {workflowItems.map((item) => <Button key={item.id} size="sm" variant={workflowState?.id === item.id ? 'secondary' : 'outline'} onClick={() => {
                 setWorkflowState(item); if (item.definition) setWorkflowText(JSON.stringify(item.definition, null, 2)); setWorkflowProposal(null); setProposalSource('');
               }}>{item.id.slice(0, 16)} · {item.status}</Button>)}
-            </div> : <p className="text-xs text-muted-foreground">{t('runInspector.noWorkflows')}</p>}
-            {workflowState ? <div className="space-y-2 rounded bg-muted/40 p-2 text-xs">
-              <div className="flex items-center justify-between gap-2"><code className="truncate">{workflowState.id}</code><Badge variant="outline">{workflowState.status}</Badge></div>
-              <p className="break-all text-muted-foreground">{t('runInspector.workflowProgram', { id: workflowState.program_id })}</p>
-              {workflowState.engine_status ? <p className="text-muted-foreground">{t('runInspector.workflowEngineStatus', { status: workflowState.engine_status })}</p> : null}
+            </div> : <p className="text-meta text-fg-muted">{t('runInspector.noWorkflows')}</p>}
+            {workflowState ? <div className="space-y-2 rounded bg-sunken p-2 text-meta">
+              <div className="flex items-center justify-between gap-2"><code className="truncate" title={workflowState.id}>{workflowState.id}</code><Badge variant="outline">{workflowState.status}</Badge></div>
+              <p className="break-all text-fg-muted">{t('runInspector.workflowProgram', { id: workflowState.program_id })}</p>
+              {workflowState.engine_status ? <p className="text-fg-muted">{t('runInspector.workflowEngineStatus', { status: workflowState.engine_status })}</p> : null}
               <h4 className="font-medium">{t('runInspector.workflowNodes')}</h4>
-              {workflowState.nodes.map((node) => <div key={node.key} className="flex items-start justify-between gap-2 rounded border bg-background p-2">
-                <div className="min-w-0"><code>{node.key}</code>{node.message ? <p className="mt-1 text-muted-foreground">{node.message}</p> : null}
+              {workflowState.nodes.map((node) => <div key={node.key} className="flex items-start justify-between gap-2 rounded border bg-surface p-2">
+                <div className="min-w-0"><code>{node.key}</code>{node.message ? <p className="mt-1 text-fg-muted">{node.message}</p> : null}
                   {node.child_run_id ? <Button className="mt-1 h-auto px-0 py-0" size="sm" variant="link" onClick={async () => { await openChild(node.child_run_id!); setTab('children'); }}>{t('runInspector.workflowOpenChild')}</Button> : null}
                 </div><Badge variant="outline">{node.status}</Badge>
               </div>)}
-              {workflowState.outputs && Object.keys(workflowState.outputs).length ? <div className="space-y-1 rounded border bg-background p-2">
+              {workflowState.outputs && Object.keys(workflowState.outputs).length ? <div className="space-y-1 rounded border bg-surface p-2">
                 <h4 className="font-medium">{t('runInspector.workflowOutputs')}</h4>
-                <pre className="whitespace-pre-wrap break-words text-muted-foreground">{JSON.stringify(workflowState.outputs, null, 2)}</pre>
+                <pre className="whitespace-pre-wrap break-words text-fg-muted">{JSON.stringify(workflowState.outputs, null, 2)}</pre>
               </div> : null}
               {active(workflowState.status) ? <Button size="sm" variant="destructive" disabled={workflowBusy} onClick={async () => {
                 setWorkflowBusy(true); setWorkflowError('');
@@ -284,32 +284,32 @@ export function RunInspector() {
             /* Keep the operation ID so retry remains idempotent. */
           }
         }}>
-          <div className="text-sm font-medium">{t('runInspector.startChild')}</div>
+          <div className="text-ui font-medium">{t('runInspector.startChild')}</div>
           <Input value={childText} onChange={(event) => setChildText(event.target.value)} placeholder={t('runInspector.delegatePlaceholder')} />
           {!continuable ? <Input value={policy} onChange={(event) => setPolicy(event.target.value)} placeholder={t('runInspector.policyPlaceholder')} /> : null}
           <Input value={tools} onChange={(event) => setTools(event.target.value)} placeholder={t('runInspector.toolsPlaceholder')} />
-          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={continuable} onChange={(event) => setContinuable(event.target.checked)} />{t('runInspector.childMode')}</label>
+          <label className="flex items-center gap-2 text-meta"><input type="checkbox" checked={continuable} onChange={(event) => setContinuable(event.target.checked)} />{t('runInspector.childMode')}</label>
           <Button type="submit" size="sm" disabled={!childText.trim() || busyId === 'create' || childActionBusyId === 'create'}>{t('common.start')}</Button>
         </form> : null}
 
-        {children.map((child) => <div key={child.id} className="rounded-lg border p-3 text-sm">
+        {children.map((child) => <div key={child.id} className="rounded-lg border p-3 text-ui">
           <button className="flex w-full items-center justify-between text-left" onClick={() => void openChild(child.id)}>
-            <span className="truncate">{'—'.repeat(Math.max(0, child.depth - 1))} {child.id}</span><Badge variant="outline">{child.status}</Badge>
+            <span className="truncate" title={child.id}>{'—'.repeat(Math.max(0, child.depth - 1))} {child.id}</span><Badge variant="outline">{child.status}</Badge>
           </button>
           {selectedChild?.id === child.id ? <div className="mt-3 border-t pt-3">
-            <p className="whitespace-pre-wrap text-xs text-muted-foreground">{selectedChild.result || selectedChild.error || t('runInspector.noResult')}</p>
+            <p className="whitespace-pre-wrap text-meta text-fg-muted">{selectedChild.result || selectedChild.error || t('runInspector.noResult')}</p>
             {selectedChild.child_mode === 'continuable' ? <>
-              <p className="mt-2 break-all text-xs text-muted-foreground">{t('runInspector.childSession', { id: selectedChild.session_id })}</p>
+              <p className="mt-2 break-all text-meta text-fg-muted">{t('runInspector.childSession', { id: selectedChild.session_id })}</p>
               <div className="mt-3">
-                <h4 className="mb-2 text-xs font-medium">{t('runInspector.childHistory')}</h4>
-                {childHistoryPhase === 'loading' ? <p className="text-xs text-muted-foreground">{t('common.loading')}</p> : null}
-                {childHistory.length ? <div className="max-h-40 space-y-2 overflow-auto rounded bg-muted/50 p-2">
-                  {childHistory.map((message) => <div key={message.id} className="text-xs"><span className="font-medium">{message.role}</span><p className="whitespace-pre-wrap">{message.content}</p></div>)}
-                </div> : childHistoryPhase !== 'loading' ? <p className="text-xs text-muted-foreground">{t('runInspector.noChildHistory')}</p> : null}
+                <h4 className="mb-2 text-meta font-medium">{t('runInspector.childHistory')}</h4>
+                {childHistoryPhase === 'loading' ? <p className="text-meta text-fg-muted">{t('common.loading')}</p> : null}
+                {childHistory.length ? <div className="max-h-[30vh] space-y-2 overflow-auto rounded bg-sunken p-2">
+                  {childHistory.map((message) => <div key={message.id} className="text-meta"><span className="font-medium">{message.role}</span><p className="whitespace-pre-wrap">{message.content}</p></div>)}
+                </div> : childHistoryPhase !== 'loading' ? <p className="text-meta text-fg-muted">{t('runInspector.noChildHistory')}</p> : null}
               </div>
               {childMailbox.length ? <div className="mt-3 space-y-2">
-                <h4 className="text-xs font-medium">{t('runInspector.pendingMessages')}</h4>
-                {childMailbox.map((message) => <p key={message.id} className="rounded bg-muted/50 p-2 text-xs">{message.text}</p>)}
+                <h4 className="text-meta font-medium">{t('runInspector.pendingMessages')}</h4>
+                {childMailbox.map((message) => <p key={message.id} className="rounded bg-sunken p-2 text-meta">{message.text}</p>)}
               </div> : null}
               {run?.status === 'active' ? <>
                 <form className="mt-3 flex gap-2" onSubmit={async (event) => {
@@ -348,15 +348,15 @@ export function RunInspector() {
                   <Input value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder={t('runInspector.messagePlaceholder')} />
                   <Button type="submit" size="sm" disabled={!messageText.trim() || busyId === selectedChild.session_id || childActionBusyId === selectedChild.session_id}>{t('runInspector.sendMessage')}</Button>
                 </form>
-                {messageAcknowledgement ? <p role="status" className="mt-1 text-xs text-muted-foreground">{messageAcknowledgement}</p> : null}
+                {messageAcknowledgement ? <p role="status" className="mt-1 text-meta text-fg-muted">{messageAcknowledgement}</p> : null}
           {attachedRefs.length > 0 ? <div>
-            <h3 className="mb-2 text-sm font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
-            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-xs"><code>{row.reference.id}</code> <span className="text-muted-foreground">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
+            <h3 className="mb-2 text-ui font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
+            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-meta"><code>{row.reference.id}</code> <span className="text-fg-muted">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
           </div> : null}
               </> : null}
           {attachedRefs.length > 0 ? <div>
-            <h3 className="mb-2 text-sm font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
-            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-xs"><code>{row.reference.id}</code> <span className="text-muted-foreground">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
+            <h3 className="mb-2 text-ui font-medium">{t('runInspector.references', { count: attachedRefs.length })}</h3>
+            <div className="space-y-1">{attachedRefs.map((row) => <div key={row.id} className="rounded border p-2 text-meta"><code>{row.reference.id}</code> <span className="text-fg-muted">{row.reference.source_session_id} · {row.reference.items.length} · {row.reference.origin}</span></div>)}</div>
           </div> : null}
             </> : null}
             {active(child.status) ? <div className="mt-2 flex gap-2">
@@ -375,13 +375,13 @@ export function RunInspector() {
             </div> : null}
           </div> : null}
         </div>)}
-        {!children.length ? <p className="py-8 text-center text-sm text-muted-foreground">{t('runInspector.noChildren')}</p> : null}
+        {!children.length ? <p className="py-8 text-center text-ui text-fg-muted">{t('runInspector.noChildren')}</p> : null}
       </TabsContent>
 
       <TabsContent value="review" className="mt-0 space-y-3">
-        {runReviews.length ? runReviews.map((review) => <ReviewCard key={review.id} review={review} busy={reviewBusyIds.includes(review.id)} onRespond={(response) => respondReview(review.id, response)} />) : <p className="py-10 text-center text-sm text-muted-foreground">{t('runInspector.noReviews')}</p>}
+        {runReviews.length ? runReviews.map((review) => <ReviewCard key={review.id} review={review} busy={reviewBusyIds.includes(review.id)} onRespond={(response) => respondReview(review.id, response)} />) : <p className="py-10 text-center text-ui text-fg-muted">{t('runInspector.noReviews')}</p>}
       </TabsContent>
-      {error || childActionError || workflowError ? <p className="mt-3 rounded bg-destructive/10 p-2 text-sm text-destructive">{childActionError || workflowError || error}</p> : null}
+      {error || childActionError || workflowError ? <p className="mt-3 rounded bg-danger-soft p-2 text-ui text-danger">{childActionError || workflowError || error}</p> : null}
     </div>
   </Tabs>;
 }

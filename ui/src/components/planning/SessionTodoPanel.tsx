@@ -24,10 +24,10 @@ export function TodoRow({
   const isInProgress = todo.status === 'in_progress';
 
   return (
-    <li className="group flex min-w-0 items-start gap-2.5 rounded-md px-1 py-1.5 transition-colors hover:bg-muted/40">
+    <li className="group flex min-w-0 items-start gap-2.5 rounded-md px-1 py-1.5 transition-colors hover:bg-sunken">
       <div className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center">
         {isInProgress && disabled ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-label={t('todos.status.in_progress')} />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" aria-label={t('todos.status.in_progress')} />
         ) : (
           <Checkbox
             checked={isCompleted}
@@ -41,16 +41,16 @@ export function TodoRow({
       <div className="min-w-0 flex-1">
         <div
           className={cn(
-            'truncate text-sm',
-            isCancelled && 'text-muted-foreground line-through',
-            isCompleted && 'text-muted-foreground',
+            'truncate text-ui',
+            isCancelled && 'text-fg-muted line-through',
+            isCompleted && 'text-fg-muted',
           )}
           title={todo.subject}
         >
           {todo.subject}
         </div>
         {activeForm && activeForm !== todo.subject ? (
-          <div className="truncate text-xs text-muted-foreground" title={activeForm}>{activeForm}</div>
+          <div className="truncate text-meta text-fg-muted" title={activeForm}>{activeForm}</div>
         ) : null}
         <span className="sr-only">{t(`todos.status.${todo.status}`)}</span>
       </div>
@@ -60,7 +60,7 @@ export function TodoRow({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-foreground disabled:opacity-40"
+            className="h-6 w-6 text-fg-muted hover:text-foreground disabled:opacity-40"
             disabled={disabled}
             title={disabled ? t('todos.runningLocked') : t('todos.markPending')}
             aria-label={t('todos.markPending')}
@@ -74,7 +74,7 @@ export function TodoRow({
             variant="ghost"
             size="icon"
             className={cn(
-              'h-6 w-6 text-muted-foreground hover:text-foreground transition-opacity disabled:opacity-0',
+              'h-6 w-6 text-fg-muted hover:text-foreground transition-opacity disabled:opacity-0',
               'opacity-0 group-hover:opacity-100 focus:opacity-100',
             )}
             disabled={disabled}
@@ -104,7 +104,7 @@ function TodoSection({
   if (!items.length) return null;
   return (
     <section className="space-y-1">
-      <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
+      <h3 className="text-meta font-medium text-fg-muted">{title}</h3>
       <ul className="m-0 list-none p-0">
         {items.map((todo) => (
           <TodoRow
@@ -142,15 +142,15 @@ export function SessionTodoPanel({ onClose }: { onClose?: () => void }) {
       <header className={cn('flex shrink-0 items-center gap-2 border-b px-4 py-3', onClose ? 'pr-4' : 'pr-12')}>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-sm font-semibold">{t('todos.panelTitle')}</h2>
+            <h2 className="truncate text-ui font-semibold">{t('todos.panelTitle')}</h2>
             {disabled ? (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground" title={t('todos.runningLocked')}>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-2xs text-fg-muted" title={t('todos.runningLocked')}>
                 {t('todos.runningLocked')}
               </span>
             ) : null}
           </div>
           {todos.length ? (
-            <p className="truncate text-xs text-muted-foreground">
+            <p className="truncate text-meta text-fg-muted">
               {t('todos.sectionCounts', { current: current.length, history: history.length })}
             </p>
           ) : null}
@@ -171,12 +171,12 @@ export function SessionTodoPanel({ onClose }: { onClose?: () => void }) {
             </div>
           ) : null}
           {showError ? (
-            <div className="space-y-3 text-sm">
-              <p className="text-destructive">{error || t('todos.loadFailed')}</p>
+            <div className="space-y-3 text-ui">
+              <p className="text-danger">{error || t('todos.loadFailed')}</p>
               <Button type="button" size="sm" variant="outline" onClick={() => void loadTodos()}>{t('common.retry')}</Button>
             </div>
           ) : null}
-          {showEmpty ? <p className="text-sm text-muted-foreground">{t('todos.empty')}</p> : null}
+          {showEmpty ? <p className="text-ui text-fg-muted">{t('todos.empty')}</p> : null}
           {!showSkeleton && !showError && !showEmpty ? (
             <>
               <TodoSection

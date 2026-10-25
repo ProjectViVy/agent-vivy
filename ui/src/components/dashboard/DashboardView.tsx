@@ -42,8 +42,8 @@ export function DashboardView() {
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-2xl font-bold">{t('dashboard.title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('dashboard.subtitle')}</p>
+        <h1 className="text-page font-semibold tracking-tight">{t('dashboard.title')}</h1>
+        <p className="mt-1 text-ui text-fg-muted">{t('dashboard.subtitle')}</p>
         <Tabs defaultValue="token" className="mt-6">
           <TabsList className="w-full justify-start overflow-x-auto">
             <TabsTrigger value="token">{t('dashboard.token')}</TabsTrigger>
@@ -86,22 +86,22 @@ export function DashboardView() {
                 </CardHeader>
                 <CardContent>
                   {counts ? (
-                    <div className="grid gap-4 text-sm sm:grid-cols-3">
+                    <div className="grid gap-4 text-ui sm:grid-cols-3">
                       <div>
-                        <p className="text-muted-foreground">{t('dashboard.sessions')}</p>
+                        <p className="text-fg-muted">{t('dashboard.sessions')}</p>
                         <p className="mt-1 text-lg font-semibold tabular-nums">{counts.sessions}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground">{t('dashboard.activeRuns')}</p>
+                        <p className="text-fg-muted">{t('dashboard.activeRuns')}</p>
                         <p className="mt-1 text-lg font-semibold tabular-nums">{counts.activeRuns}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground">{t('dashboard.pendingReviews')}</p>
+                        <p className="text-fg-muted">{t('dashboard.pendingReviews')}</p>
                         <p className="mt-1 text-lg font-semibold tabular-nums">{counts.pendingReviews}</p>
                       </div>
                     </div>
                   ) : (
-                    <div className="h-16 animate-pulse rounded-md bg-muted" />
+                    <div className="h-16 animate-pulse rounded-md bg-sunken" />
                   )}
                 </CardContent>
               </Card>

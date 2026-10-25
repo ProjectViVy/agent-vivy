@@ -50,13 +50,13 @@ const KIND_ICON: Record<TrajectoryRecord['kind'], typeof Settings> = {
 };
 
 const KIND_TAG_CLASS: Record<TrajectoryRecord['kind'], string> = {
-  system: 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
-  user: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  context: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  compacted: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-  message: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
-  tool: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-  subtool: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  system: 'bg-sunken text-fg-muted',
+  user: 'bg-info-soft text-info-fg',
+  context: 'bg-ok-soft text-ok-fg',
+  compacted: 'bg-brand-soft text-brand',
+  message: 'bg-brand-soft text-brand',
+  tool: 'bg-warn-soft text-warn-fg',
+  subtool: 'bg-warn-soft/60 text-warn-fg',
 };
 
 /** 渲染一条记录行。 */
@@ -106,7 +106,7 @@ function RecordRow({
         <div className="flex items-center gap-1.5">
           {isTurnStart && (
             <span
-              className="shrink-0 rounded border px-1 font-mono text-[10px] leading-4 text-muted-foreground"
+              className="shrink-0 rounded border px-1 font-mono text-2xs leading-4 text-fg-muted"
               aria-label={record.turn === null ? t('trajectory.session') : `${t('trajectory.turn')} ${record.turn}`}
             >
               {turnLabel(record.turn)}
@@ -115,7 +115,7 @@ function RecordRow({
           {requestNumber !== undefined && (
             <button
               type="button"
-              className="shrink-0 rounded border border-primary/40 px-1 font-mono text-[10px] leading-4 text-primary hover:bg-primary/10"
+              className="shrink-0 rounded border border-primary/40 px-1 font-mono text-2xs leading-4 text-primary hover:bg-primary/10"
               aria-label={`${t('trajectory.request')} ${requestNumber}`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -127,7 +127,7 @@ function RecordRow({
           )}
         </div>
         <div className={turnRail ? 'mt-1 border-l-2 border-primary/40 pl-1.5' : 'mt-1'}>
-          <span className={`inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px] leading-4 ${KIND_TAG_CLASS[record.kind]}`}>
+          <span className={`inline-flex items-center gap-1 rounded px-1 py-0.5 font-mono text-2xs leading-4 ${KIND_TAG_CLASS[record.kind]}`}>
             <Icon className="h-3 w-3" aria-hidden="true" />
             {TRAJECTORY_KIND_LABEL[record.kind]}
           </span>
@@ -139,11 +139,11 @@ function RecordRow({
             {record.text}
           </span>
           {record.result !== undefined && (
-            <span className={record.isError ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}>
+            <span className={record.isError ? 'text-danger' : 'text-fg-muted'}>
               {' '}
               <span aria-hidden="true">→</span>
               {' '}
-              <span className={record.isError ? 'font-medium text-red-600 dark:text-red-400' : ''}>{record.result}</span>
+              <span className={record.isError ? 'font-medium text-danger' : ''}>{record.result}</span>
             </span>
           )}
         </span>
@@ -175,7 +175,7 @@ function SummaryRow({
     >
       <td className="w-[210px] px-2 py-1.5" />
       <td className="px-2 py-1.5">
-        <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-2 text-xs text-fg-muted">
           <span aria-hidden="true">…</span>
           <span>
             {label}
@@ -209,7 +209,7 @@ export function TrajectoryLedger({
 
   if (displayRows.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center px-4 text-xs text-muted-foreground">
+      <div className="flex h-full items-center justify-center px-4 text-xs text-fg-muted">
         {t('trajectory.empty')}
       </div>
     );

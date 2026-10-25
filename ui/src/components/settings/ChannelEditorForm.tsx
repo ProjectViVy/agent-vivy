@@ -45,7 +45,7 @@ export function ChannelEditorForm({
     <div className="space-y-4">
       {onEnabledChange ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-          <span className="text-sm font-medium">{t('channels.enabled')}</span>
+          <span className="text-ui font-medium">{t('channels.enabled')}</span>
           <Switch
             checked={enabled}
             onCheckedChange={onEnabledChange}
@@ -63,7 +63,7 @@ export function ChannelEditorForm({
             placeholder={t('channels.allowFromPlaceholder')}
             onChange={(event) => onAllowFromTextChange(event.target.value)}
           />
-          <p className="text-xs text-muted-foreground">{t('channels.allowFromHint')}</p>
+          <p className="text-meta text-fg-muted">{t('channels.allowFromHint')}</p>
         </div>
       ) : null}
 
@@ -74,7 +74,7 @@ export function ChannelEditorForm({
             readOnly
             value={tokenEnv ?? ''}
             placeholder={t('channels.tokenEnvUnset')}
-            className="font-mono text-xs"
+            className="font-mono text-meta"
             aria-label={t('channels.tokenEnvLabel')}
           />
           <Badge variant={tokenEnv ? (tokenEnvSet ? 'default' : 'secondary') : 'secondary'}>
@@ -85,7 +85,7 @@ export function ChannelEditorForm({
               : t('channels.tokenEnvUnset')}
           </Badge>
         </div>
-        <p className="text-xs text-muted-foreground">{t('channels.tokenEnvNote')}</p>
+        <p className="text-meta text-fg-muted">{t('channels.tokenEnvNote')}</p>
       </div>
     </div>
   );

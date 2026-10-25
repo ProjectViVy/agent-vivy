@@ -24,13 +24,13 @@ const LANE_HEIGHT_PX = 14;
 const SPAN_HEIGHT_PX = 8;
 
 const SPAN_KIND_CLASS: Record<TrajectoryCellKind, string> = {
-  system: 'bg-slate-400',
-  user: 'bg-blue-500',
-  context: 'bg-emerald-500/80',
-  compacted: 'bg-slate-500',
+  system: 'bg-fg-subtle',
+  user: 'bg-info',
+  context: 'bg-ok/80',
+  compacted: 'bg-line-strong',
   message: '',
-  tool: 'bg-amber-500',
-  subtool: 'bg-amber-400',
+  tool: 'bg-warn',
+  subtool: 'bg-warn/70',
 };
 
 /** 助理条带解码段基色（近似 DSH 紫罗兰）。 */
@@ -237,7 +237,7 @@ export function TrajectoryTimeline({
         {(['Input', 'Model', 'Tools'] as const).map((label, lane) => (
           <span
             key={label}
-            className="absolute right-1 text-[10px] leading-none text-muted-foreground"
+            className="absolute right-1 text-2xs leading-none text-muted-foreground"
             style={{ top: `${7 + lane * LANE_HEIGHT_PX}px` }}
           >
             {label}
@@ -323,7 +323,7 @@ export function TrajectoryTimeline({
         {hoveredSpan !== null && hoveredRecord !== null && tooltipLines.length > 0 && (
           <div
             role="tooltip"
-            className="pointer-events-none absolute top-1 z-20 max-w-72 whitespace-pre-line rounded-md border bg-popover px-2 py-1.5 font-mono text-[10px] leading-4 text-popover-foreground shadow-md"
+            className="pointer-events-none absolute top-1 z-20 max-w-72 whitespace-pre-line rounded-md border bg-popover px-2 py-1.5 font-mono text-2xs leading-4 text-popover-foreground shadow-md"
             style={{ left: `${Math.min(hover.fraction * 100, 60)}%` }}
           >
             {tooltipLines.join('\n')}

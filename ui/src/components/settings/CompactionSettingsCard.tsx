@@ -174,7 +174,7 @@ export function CompactionSettingsCard() {
                 <span className="font-medium">{sessionContext.feed_tokens.toLocaleString(dateTimeLocale())} / {sessionContext.model_limit_tokens.toLocaleString(dateTimeLocale())} tokens</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div className={`h-full rounded-full transition-all ${wouldCompact ? 'bg-destructive' : pressure >= 60 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${pressure}%` }} />
+                <div className={`h-full rounded-full transition-all ${wouldCompact ? 'bg-danger' : pressure >= 60 ? 'bg-warn' : 'bg-brand'}`} style={{ width: `${pressure}%` }} />
               </div>
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                 <Badge variant={wouldCompact ? 'secondary' : 'outline'}>{t('settings.compaction.pressureBadge', { percent: pressure })}</Badge>
@@ -226,7 +226,7 @@ export function CompactionSettingsCard() {
             {compacting ? t('settings.compaction.compacting') : t('settings.compaction.run')}
           </Button>
           <Button type="button" variant="ghost" disabled={!activeSessionId} onClick={() => { void loadSessionContext(); void loadBackgroundRuns(); if (activeSessionId) void refreshHistory(activeSessionId); }}>{t('settings.compaction.refresh')}</Button>
-          {busy ? <span className="text-xs text-amber-600 dark:text-amber-400">{t('settings.compaction.busyHint')}</span> : null}
+          {busy ? <span className="text-meta text-warn">{t('settings.compaction.busyHint')}</span> : null}
         </div>
         {feedback ? (
           <p className="text-xs text-muted-foreground" aria-live="polite">

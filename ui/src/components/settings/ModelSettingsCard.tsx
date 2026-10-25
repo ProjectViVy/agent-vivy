@@ -113,23 +113,23 @@ function ProviderRow({
       </span>
       <span data-testid={`provider-row-${entry.vendor}-${entry.adapter}-name`} className="min-w-0 flex-1 truncate">{entry.displayName}</span>
       {showAdapter ? (
-        <span className="shrink-0 font-mono text-[10px] leading-none text-muted-foreground">{entry.adapter}</span>
+        <span className="shrink-0 font-mono text-2xs leading-none text-muted-foreground">{entry.adapter}</span>
       ) : null}
       {customBadge ? (
-        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-2xs font-medium leading-none text-muted-foreground">
           {customBadge}
         </span>
       ) : null}
       {capabilityBadge ? (
         <span
           data-testid={`provider-capability-${entry.vendor}-${entry.adapter}`}
-          className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-700 dark:text-amber-300"
+          className="shrink-0 rounded bg-warn-soft px-1.5 py-0.5 text-2xs font-medium leading-none text-warn-fg"
         >
           {capabilityBadge}
         </span>
       ) : null}
       {isCurrent ? (
-        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary">
+        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-2xs font-medium leading-none text-primary">
           {currentBadge}
         </span>
       ) : null}
@@ -693,7 +693,7 @@ export function ModelSettingsCard() {
                     >
                       <span className="font-medium">{savedModelVendorLabel(entry, providers, catalog)}</span>
                       <span className="text-muted-foreground"> · </span>
-                      <span className="font-mono text-[11px]">{entry.model}</span>
+                      <span className="font-mono text-2xs">{entry.model}</span>
                     </button>
                     <button
                       type="button"
@@ -712,7 +712,7 @@ export function ModelSettingsCard() {
             )}
           </div>
           {settings?.read_only ? (
-            <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-300">{t('settings.readOnlyNotice')}</p>
+            <p className="rounded bg-warn-soft p-3 text-ui text-warn-fg">{t('settings.readOnlyNotice')}</p>
           ) : null}
           <div className="grid gap-4 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
             <div className="space-y-2">
@@ -749,7 +749,7 @@ export function ModelSettingsCard() {
                       <p className="truncate text-xs text-muted-foreground">{selectedEntry.baseUrl || '—'}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
-                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-2xs leading-none text-muted-foreground">
                         {selectedEntry.adapter}
                       </span>
                       <button
@@ -767,7 +767,7 @@ export function ModelSettingsCard() {
                     <div className="flex items-center justify-between gap-2">
                       <Label htmlFor="panel-api-key" className="text-xs text-muted-foreground">{t('settingsModel.apiKey')}</Label>
                       {!!savedEntry && providerRowKey(selectedEntry) === providerRowKey(savedEntry) && customApiKeySetFor(providers, settings?.provider ?? '', settings?.base_url ?? '') ? (
-                        <span className="text-[11px] text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</span>
+                        <span className="text-2xs text-muted-foreground">{t('settingsModel.apiKeyConfigured')}</span>
                       ) : null}
                     </div>
                     <Input

@@ -326,7 +326,7 @@ export function TrajectoryPanel() {
         </Button>
         {loadingTrajectory && <span className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" aria-hidden />}
         {trajectory !== null && trajectory.hasOlderRuns && (
-          <span className="ml-auto text-[10px] text-muted-foreground">{t('trajectory.olderRuns')}</span>
+          <span className="ml-auto text-2xs text-muted-foreground">{t('trajectory.olderRuns')}</span>
         )}
       </div>
       {trajectory !== null && trajectory.runActivity.length > 0 && (
@@ -413,9 +413,9 @@ function RunActivityChip({ run }: { run: TrajectoryRunActivity }) {
   return (
     <span
       className={[
-        'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] leading-4',
+        'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-2xs leading-4',
         waiting
-          ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+          ? 'border-warn/40 bg-warn-soft text-warn-fg'
           : run.activityState === 'active' || run.activityState === 'queued'
             ? 'border-primary/40 bg-primary/10 text-primary'
             : 'border-border text-muted-foreground',

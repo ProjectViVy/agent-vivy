@@ -10,8 +10,8 @@ import { cn } from '@/lib/utils';
 const NUM_CELL = 'w-10 min-w-10 select-none pr-2 text-right align-top text-muted-foreground/60';
 
 function lineCellClass(type: ParsedDiff['hunks'][number]['lines'][number]['type']): string {
-  if (type === 'add') return 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-200';
-  if (type === 'del') return 'bg-rose-500/10 text-rose-800 dark:text-rose-200';
+  if (type === 'add') return 'bg-ok-soft text-ok-fg';
+  if (type === 'del') return 'bg-danger-soft text-danger-fg';
   return '';
 }
 
@@ -106,9 +106,9 @@ export function DiffView({ diff, className }: { diff: string; className?: string
     <div className={cn('min-w-0', className)}>
       <div className="flex items-center justify-between gap-2 pb-1.5">
         <span className="font-mono text-xs" aria-label={t('diff.statsLabel', { additions: parsed.additions, deletions: parsed.deletions })}>
-          <span className="text-emerald-600 dark:text-emerald-400">+{parsed.additions}</span>
+          <span className="text-ok">+{parsed.additions}</span>
           {' '}
-          <span className="text-rose-600 dark:text-rose-400">−{parsed.deletions}</span>
+          <span className="text-danger">−{parsed.deletions}</span>
         </span>
         <div className="flex items-center gap-0.5">
           {modeButton('unified', t('diff.unified'))}

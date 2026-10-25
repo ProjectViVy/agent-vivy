@@ -117,7 +117,7 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex gap-2">
         <div className="relative min-w-0 flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -130,7 +130,7 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
         </Button>
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-meta text-fg-muted">
         {debouncedQuery.trim().length < 2
           ? t('skills.marketplace.searchHint')
           : t('skills.marketplace.resultsHint', { count: results.length })}
@@ -139,8 +139,8 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
 
 	  {queryError && (
         <Card>
-          <CardContent className="flex items-center justify-between gap-3 py-3 text-sm">
-			<span className="min-w-0 break-all text-destructive">{queryError}</span>
+          <CardContent className="flex items-center justify-between gap-3 py-3 text-ui">
+			<span className="min-w-0 break-all text-danger">{queryError}</span>
             <Button variant="outline" size="sm" onClick={() => void (debouncedQuery.trim().length >= 2 ? search(debouncedQuery.trim()) : loadFeatured())}>
               {t('common.retry')}
             </Button>
@@ -151,12 +151,12 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
         {loading && entries.length === 0 ? (
           <div className="space-y-2">
             {[1, 2, 3].map((row) => (
-              <Card key={row}><CardContent className="py-4 text-sm text-muted-foreground">…</CardContent></Card>
+              <Card key={row}><CardContent className="py-4 text-ui text-fg-muted">…</CardContent></Card>
             ))}
           </div>
         ) : entries.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
+            <CardContent className="py-12 text-center text-fg-muted">
               <PackageOpen className="mx-auto mb-3 h-10 w-10 opacity-50" />
               {debouncedQuery.trim().length >= 2 ? t('skills.marketplace.noResults') : t('skills.marketplace.empty')}
             </CardContent>
@@ -177,9 +177,9 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
                         <span className="min-w-0 truncate font-medium">{entry.name}</span>
                         <Badge variant="secondary" className="shrink-0">{formatCount(entry.installs)}</Badge>
                       </div>
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{entry.source}</p>
-					  {operation?.error ? <p className="mt-1 text-xs text-destructive" role="alert">{operation.error}</p> : null}
-					  {operation?.message ? <p className="mt-1 text-xs text-muted-foreground">{operation.message}</p> : null}
+                      <p className="mt-0.5 truncate text-meta text-fg-muted">{entry.source}</p>
+					  {operation?.error ? <p className="mt-1 text-meta text-danger" role="alert">{operation.error}</p> : null}
+					  {operation?.message ? <p className="mt-1 text-meta text-fg-muted">{operation.message}</p> : null}
                     </div>
                     {!installed ? (
                       <Button size="sm" disabled={busy} onClick={() => void install(entry.id)}>
@@ -194,7 +194,7 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
                     ) : (
                       <div className="flex shrink-0 items-center gap-2">
                         {check?.status === 'up_to_date' ? <Badge variant="outline">{t('skills.marketplace.upToDate')}</Badge> : null}
-                        {check?.status === 'unmanaged' ? <span className="max-w-40 text-right text-xs text-muted-foreground">{t('skills.marketplace.unmanagedHint')}</span> : null}
+                        {check?.status === 'unmanaged' ? <span className="max-w-40 text-right text-meta text-fg-muted">{t('skills.marketplace.unmanagedHint')}</span> : null}
                         <Button variant="outline" size="sm" disabled={busy} onClick={() => void checkUpdate(entry.id)}>
                           {busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <SearchCheck className="mr-2 h-4 w-4" />}
                           {t('skills.marketplace.checkUpdate')}

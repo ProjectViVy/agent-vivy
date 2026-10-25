@@ -104,7 +104,7 @@ export function ToolsSettingsCard() {
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" disabled={locked || saving || !dirty} onClick={() => void save()}>{saving ? t('toolsSettings.saving') : t('toolsSettings.save')}</Button>
         <Button type="button" variant="outline" disabled={locked || saving} onClick={reset}>{t('toolsSettings.reset')}</Button>
-        {dirty ? <span className="text-sm text-amber-600 dark:text-amber-400">{t('toolsSettings.dirty')}</span> : null}
+        {dirty ? <span className="text-ui text-warn">{t('toolsSettings.dirty')}</span> : null}
       </div>
       {feedback ? (
         <p className="text-xs text-muted-foreground" aria-live="polite">

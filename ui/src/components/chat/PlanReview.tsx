@@ -32,13 +32,13 @@ export function PlanReview({ plan, busy, hasGoal, onDecide }: {
       ? t('workControl.reviewAccepted')
       : t('workControl.reviewRejected');
   return (
-    <section className="mt-2 rounded-xl border bg-background p-3">
+    <section className="mt-2 rounded-xl border bg-surface p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{t('workControl.planMarkdown')}</h3>
-        <span className="text-xs text-muted-foreground">{reviewLabel}</span>
+        <h3 className="text-ui font-semibold">{t('workControl.planMarkdown')}</h3>
+        <span className="text-meta text-fg-muted">{reviewLabel}</span>
       </div>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-xs leading-5">{plan.markdown}</pre>
-      {plan.feedback ? <p className="mt-2 text-xs text-muted-foreground">{plan.feedback}</p> : null}
+      <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-lg bg-sunken p-3 text-meta leading-5">{plan.markdown}</pre>
+      {plan.feedback ? <p className="mt-2 text-meta text-fg-muted">{plan.feedback}</p> : null}
       {pending ? (
         <div className="mt-3 space-y-2">
           {revising ? <Textarea value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder={t('workControl.revisePlaceholder')} disabled={busy} /> : null}
@@ -50,7 +50,7 @@ export function PlanReview({ plan, busy, hasGoal, onDecide }: {
               {t('workControl.executeOnce')}
             </Button>
           </div>
-          {!hasGoal ? <p className="text-xs text-muted-foreground">{t('composerCommands.handoffHint')}</p> : null}
+          {!hasGoal ? <p className="text-meta text-fg-muted">{t('composerCommands.handoffHint')}</p> : null}
         </div>
       ) : null}
     </section>
