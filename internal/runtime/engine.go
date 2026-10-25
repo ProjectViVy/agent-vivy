@@ -454,7 +454,8 @@ const modelMaxRetries = 1
 type ModelRetryDecider func(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage]
 
 // SetRetryDecider binds the model retry decider (nil decider = every model
-// error propagates as before). Called once by the service at wiring.
+// error propagates as before). The service calls it at wiring and on every
+// engine rebuild.
 func (e *Engine) SetRetryDecider(d ModelRetryDecider) {
 	if e == nil {
 		return

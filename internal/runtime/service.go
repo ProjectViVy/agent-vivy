@@ -513,7 +513,6 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		deps.PrimaryRuns, _ = deps.Runs.(storage.PrimaryRunStore)
 	}
 	svc := &Service{
-		engine:            eng,
 		deps:              deps,
 		provider:          provider,
 		modelID:           modelID,
@@ -554,12 +553,22 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		workGates:         make(map[domain.RunID]*sync.Mutex),
 		workBlockedCalls:  make(map[domain.RunID]map[string]struct{}),
 	}
+	svc.adoptEngine(eng)
+	return svc
+}
+
+// adoptEngine binds the model retry decider and publishes the engine. The
+// decider is bound before the swap so no run starts on an engine that cannot
+// retry.
+func (s *Service) adoptEngine(eng *Engine) {
 	if eng != nil {
 		// VCP-D2: bind the model retry deciders into the agent's
 		// ModelRetryConfig slot; nil-safe, one recovery per run per fault.
-		eng.SetRetryDecider(svc.modelRetryDecision)
+		eng.SetRetryDecider(s.modelRetryDecision)
 	}
-	return svc
+	s.mu.Lock()
+	s.engine = eng
+	s.mu.Unlock()
 }
 
 // sessionAdmission returns the process-local startup gate for one session.

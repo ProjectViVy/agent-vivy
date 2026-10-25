@@ -518,8 +518,6 @@ func (s *Service) applyPendingEngineReload(ctx context.Context, explicit *Engine
 		s.mu.Unlock()
 		return err
 	}
-	s.mu.Lock()
-	s.engine = eng
-	s.mu.Unlock()
+	s.adoptEngine(eng)
 	return nil
 }

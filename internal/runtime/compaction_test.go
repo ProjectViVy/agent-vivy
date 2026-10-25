@@ -747,6 +747,16 @@ func TestScheduleEngineReload(t *testing.T) {
 	if swaps.value() != 1 {
 		t.Fatalf("swaps = %d, want 1", swaps.value())
 	}
+	if svc.engine.retryDecider == nil {
+		t.Fatal("reloaded engine lost the model retry decider")
+	}
+	child, err := svc.engine.ChildView(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("child view after reload: %v", err)
+	}
+	if child.retryDecider == nil {
+		t.Fatal("child view of the reloaded engine lost the retry decider")
+	}
 
 	// Busy: deferred.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -780,6 +790,16 @@ func TestScheduleEngineReload(t *testing.T) {
 	}
 	if swaps.value() != 2 {
 		t.Fatalf("swaps = %d, want 2", swaps.value())
+	}
+	if svc.engine.retryDecider == nil {
+		t.Fatal("deferred reload lost the model retry decider")
+	}
+	child, err = svc.engine.ChildView(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("child view after deferred reload: %v", err)
+	}
+	if child.retryDecider == nil {
+		t.Fatal("child view of the deferred engine lost the retry decider")
 	}
 }
 
