@@ -13,7 +13,8 @@ import { ReasoningRow } from './ReasoningRow';
 import { DeliverableCard } from './DeliverableCard';
 import { ReferenceDetail } from './ReferenceDetail';
 import { ToolRow } from './ToolRow';
-import { ChatInput } from './ChatInput';
+import { ChatInput } from './composer/composer-root';
+import { HistoryPicker } from './HistoryPicker';
 import { TodoProgressStrip } from './TodoProgressStrip';
 import { WorkControlBar } from './WorkControlBar';
 import { SessionTodoPanel } from '@/components/planning/SessionTodoPanel';
@@ -37,6 +38,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const rewindSession = useVivyStore((state) => state.rewindSession);
   const forkSession = useVivyStore((state) => state.forkSession);
   const [draftPreset, setDraftPreset] = useState<{ sessionId: string; text: string; seq: number } | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const addDraftReference = useVivyStore((state) => state.addDraftReference);
   const viewEpoch = useRef(0);
   const [actionError, setActionError] = useState<unknown>(null);
 	const [historyAction, setHistoryAction] = useState(false);
@@ -53,6 +56,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     viewEpoch.current += 1;
     setDraftPreset(null);
+    setPickerOpen(false);
     setActionError(null);
     setHistoryAction(false);
     return () => { viewEpoch.current += 1; };
@@ -179,7 +183,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
         </div></ScrollArea>
         <WorkControlBar key={`work-${sessionId}`} sessionId={sessionId} />
         <TodoProgressStrip />
-        <ChatInput key={`composer-${sessionId}`} onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onSteer={(text, mode, attachments, thinking) => steer(text, mode, attachments, thinking)} onFollowUp={(text, mode, attachments, thinking) => followUp(text, mode, attachments, thinking)} onSendNow={(text, mode, attachments, thinking) => sendNow(text, mode, attachments, thinking)} onDequeue={dequeueQueuedTurn} onCancel={cancelRun} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset?.sessionId === sessionId ? draftPreset : null} />
+        <ChatInput key={`composer-${sessionId}`} onSend={submit} onQueue={(text, mode, attachments, thinking) => queue(text, mode, attachments, thinking)} onSteer={(text, mode, attachments, thinking) => steer(text, mode, attachments, thinking)} onFollowUp={(text, mode, attachments, thinking) => followUp(text, mode, attachments, thinking)} onSendNow={(text, mode, attachments, thinking) => sendNow(text, mode, attachments, thinking)} onDequeue={dequeueQueuedTurn} onCancel={cancelRun} onOpenHistory={() => setPickerOpen(true)} running={running} disabled={runBusy} context={sessionContext} draftPreset={draftPreset?.sessionId === sessionId ? draftPreset : null} />
+        <HistoryPicker destinationSessionId={sessionId} open={pickerOpen} onOpenChange={setPickerOpen} onAttach={addDraftReference} />
       </div>
       <aside className={cn('hidden min-h-0 shrink-0 overflow-hidden border-l bg-card md:flex', todoPanelOpen ? 'w-80' : 'w-0 border-l-0')}>
         {!mobile && todoPanelOpen ? <SessionTodoPanel onClose={() => setTodoPanelOpen(false)} /> : null}

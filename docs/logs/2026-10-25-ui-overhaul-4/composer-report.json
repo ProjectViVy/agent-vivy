@@ -1,0 +1,956 @@
+{
+  "idle-1280": {
+    "viewport": 1280,
+    "doc": {
+      "client": 1280,
+      "scroll": 1280
+    },
+    "transcriptWidth": 832,
+    "composerWidth": 830,
+    "toolbar": {
+      "client": 830,
+      "scroll": 830
+    },
+    "textarea": {
+      "clientHeight": 40,
+      "scrollHeight": 40,
+      "clientWidth": 830,
+      "scrollWidth": 830,
+      "maxHeight": "360px"
+    },
+    "offenderCount": 9,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "Streaming line 01 for the busy-composer evidence c",
+        "client": 232,
+        "scroll": 552,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm lg:inline",
+        "text": "DeepSeek",
+        "client": 59,
+        "scroll": 68,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm text-muted-foreground lg:inline",
+        "text": "deepseek-flash",
+        "client": 92,
+        "scroll": 106,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "paste-1280": {
+    "viewport": 1280,
+    "doc": {
+      "client": 1280,
+      "scroll": 1280
+    },
+    "transcriptWidth": 832,
+    "composerWidth": 830,
+    "toolbar": {
+      "client": 830,
+      "scroll": 830
+    },
+    "textarea": {
+      "clientHeight": 136,
+      "scrollHeight": 136,
+      "clientWidth": 830,
+      "scrollWidth": 830,
+      "maxHeight": "360px"
+    },
+    "offenderCount": 9,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "Streaming line 01 for the busy-composer evidence c",
+        "client": 232,
+        "scroll": 552,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm lg:inline",
+        "text": "DeepSeek",
+        "client": 59,
+        "scroll": 68,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm text-muted-foreground lg:inline",
+        "text": "deepseek-flash",
+        "client": 92,
+        "scroll": 106,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "pasteCap-1280": {
+    "viewport": 1280,
+    "doc": {
+      "client": 1280,
+      "scroll": 1280
+    },
+    "transcriptWidth": 832,
+    "composerWidth": 830,
+    "toolbar": {
+      "client": 830,
+      "scroll": 830
+    },
+    "textarea": {
+      "clientHeight": 360,
+      "scrollHeight": 496,
+      "clientWidth": 830,
+      "scrollWidth": 830,
+      "maxHeight": "360px"
+    },
+    "offenderCount": 9,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "Streaming line 01 for the busy-composer evidence c",
+        "client": 232,
+        "scroll": 552,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm lg:inline",
+        "text": "DeepSeek",
+        "client": 59,
+        "scroll": 68,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm text-muted-foreground lg:inline",
+        "text": "deepseek-flash",
+        "client": 92,
+        "scroll": 106,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "queue-1280": {
+    "viewport": 1280,
+    "doc": {
+      "client": 1280,
+      "scroll": 1280
+    },
+    "transcriptWidth": 832,
+    "composerWidth": 830,
+    "toolbar": {
+      "client": 830,
+      "scroll": 830
+    },
+    "textarea": {
+      "clientHeight": 40,
+      "scrollHeight": 40,
+      "clientWidth": 830,
+      "scrollWidth": 830,
+      "maxHeight": "360px"
+    },
+    "offenderCount": 9,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "Streaming line 01 for the busy-composer evidence c",
+        "client": 232,
+        "scroll": 552,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm lg:inline",
+        "text": "DeepSeek",
+        "client": 59,
+        "scroll": 68,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm text-muted-foreground lg:inline",
+        "text": "deepseek-flash",
+        "client": 92,
+        "scroll": 106,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "queueAfterRemove-1280": {
+    "viewport": 1280,
+    "doc": {
+      "client": 1280,
+      "scroll": 1280
+    },
+    "transcriptWidth": 832,
+    "composerWidth": 830,
+    "toolbar": {
+      "client": 830,
+      "scroll": 830
+    },
+    "textarea": {
+      "clientHeight": 40,
+      "scrollHeight": 40,
+      "clientWidth": 830,
+      "scrollWidth": 830,
+      "maxHeight": "360px"
+    },
+    "offenderCount": 9,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "Streaming line 01 for the busy-composer evidence c",
+        "client": 232,
+        "scroll": 552,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm lg:inline",
+        "text": "DeepSeek",
+        "client": 59,
+        "scroll": 68,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm text-muted-foreground lg:inline",
+        "text": "deepseek-flash",
+        "client": 92,
+        "scroll": 106,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "queueCleared-1280": {
+    "viewport": 1280,
+    "doc": {
+      "client": 1280,
+      "scroll": 1280
+    },
+    "transcriptWidth": 832,
+    "composerWidth": 830,
+    "toolbar": {
+      "client": 830,
+      "scroll": 830
+    },
+    "textarea": {
+      "clientHeight": 40,
+      "scrollHeight": 40,
+      "clientWidth": 830,
+      "scrollWidth": 830,
+      "maxHeight": "360px"
+    },
+    "offenderCount": 9,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "Streaming line 01 for the busy-composer evidence c",
+        "client": 232,
+        "scroll": 552,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm lg:inline",
+        "text": "DeepSeek",
+        "client": 59,
+        "scroll": 68,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm text-muted-foreground lg:inline",
+        "text": "deepseek-flash",
+        "client": 92,
+        "scroll": 106,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "approval-1280": {
+    "viewport": 1280,
+    "doc": {
+      "client": 1280,
+      "scroll": 1280
+    },
+    "transcriptWidth": 832,
+    "composerWidth": 830,
+    "toolbar": {
+      "client": 830,
+      "scroll": 830
+    },
+    "textarea": {
+      "clientHeight": 40,
+      "scrollHeight": 40,
+      "clientWidth": 830,
+      "scrollWidth": 830,
+      "maxHeight": "360px"
+    },
+    "offenderCount": 10,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "Streaming line 01 for the busy-composer evidence c",
+        "client": 232,
+        "scroll": 552,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "min-w-0 truncate group-hover:pr-14",
+        "text": "## Summary The transcript column must wrap every r",
+        "client": 232,
+        "scroll": 563,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm lg:inline",
+        "text": "DeepSeek",
+        "client": 59,
+        "scroll": 68,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "hidden min-w-0 truncate text-sm text-muted-foreground lg:inline",
+        "text": "deepseek-flash",
+        "client": 92,
+        "scroll": 106,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Awaiting approval",
+        "client": 1,
+        "scroll": 138,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "idle-390": {
+    "viewport": 390,
+    "doc": {
+      "client": 390,
+      "scroll": 390
+    },
+    "transcriptWidth": 390,
+    "composerWidth": 364,
+    "toolbar": {
+      "client": 364,
+      "scroll": 364
+    },
+    "textarea": {
+      "clientHeight": 64,
+      "scrollHeight": 64,
+      "clientWidth": 364,
+      "scrollWidth": 364,
+      "maxHeight": "337.6px"
+    },
+    "offenderCount": 2,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Failed",
+        "client": 1,
+        "scroll": 46,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "paste-390": {
+    "viewport": 390,
+    "doc": {
+      "client": 390,
+      "scroll": 390
+    },
+    "transcriptWidth": 390,
+    "composerWidth": 364,
+    "toolbar": {
+      "client": 364,
+      "scroll": 364
+    },
+    "textarea": {
+      "clientHeight": 160,
+      "scrollHeight": 160,
+      "clientWidth": 364,
+      "scrollWidth": 364,
+      "maxHeight": "337.6px"
+    },
+    "offenderCount": 2,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Failed",
+        "client": 1,
+        "scroll": 46,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "pasteCap-390": {
+    "viewport": 390,
+    "doc": {
+      "client": 390,
+      "scroll": 390
+    },
+    "transcriptWidth": 390,
+    "composerWidth": 364,
+    "toolbar": {
+      "client": 364,
+      "scroll": 364
+    },
+    "textarea": {
+      "clientHeight": 338,
+      "scrollHeight": 1168,
+      "clientWidth": 364,
+      "scrollWidth": 364,
+      "maxHeight": "337.6px"
+    },
+    "offenderCount": 2,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Failed",
+        "client": 1,
+        "scroll": 46,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "queue-390": {
+    "viewport": 390,
+    "doc": {
+      "client": 390,
+      "scroll": 390
+    },
+    "transcriptWidth": 390,
+    "composerWidth": 364,
+    "toolbar": {
+      "client": 364,
+      "scroll": 364
+    },
+    "textarea": {
+      "clientHeight": 64,
+      "scrollHeight": 64,
+      "clientWidth": 364,
+      "scrollWidth": 364,
+      "maxHeight": "337.6px"
+    },
+    "offenderCount": 2,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Failed",
+        "client": 1,
+        "scroll": 46,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "queueAfterRemove-390": {
+    "viewport": 390,
+    "doc": {
+      "client": 390,
+      "scroll": 390
+    },
+    "transcriptWidth": 390,
+    "composerWidth": 364,
+    "toolbar": {
+      "client": 364,
+      "scroll": 364
+    },
+    "textarea": {
+      "clientHeight": 64,
+      "scrollHeight": 64,
+      "clientWidth": 364,
+      "scrollWidth": 364,
+      "maxHeight": "337.6px"
+    },
+    "offenderCount": 2,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Failed",
+        "client": 1,
+        "scroll": 46,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "queueCleared-390": {
+    "viewport": 390,
+    "doc": {
+      "client": 390,
+      "scroll": 390
+    },
+    "transcriptWidth": 390,
+    "composerWidth": 364,
+    "toolbar": {
+      "client": 364,
+      "scroll": 364
+    },
+    "textarea": {
+      "clientHeight": 64,
+      "scrollHeight": 64,
+      "clientWidth": 364,
+      "scrollWidth": 364,
+      "maxHeight": "337.6px"
+    },
+    "offenderCount": 2,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Failed",
+        "client": 1,
+        "scroll": 46,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  },
+  "approval-390": {
+    "viewport": 390,
+    "doc": {
+      "client": 390,
+      "scroll": 390
+    },
+    "transcriptWidth": 390,
+    "composerWidth": 364,
+    "toolbar": {
+      "client": 364,
+      "scroll": 364
+    },
+    "textarea": {
+      "clientHeight": 64,
+      "scrollHeight": 64,
+      "clientWidth": 364,
+      "scrollWidth": 364,
+      "maxHeight": "337.6px"
+    },
+    "offenderCount": 3,
+    "offenders": [
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Failed",
+        "client": 1,
+        "scroll": 46,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Awaiting approval",
+        "client": 1,
+        "scroll": 138,
+        "overflowX": "hidden"
+      },
+      {
+        "tag": "span",
+        "cls": "sr-only",
+        "text": "Context usage",
+        "client": 1,
+        "scroll": 112,
+        "overflowX": "hidden"
+      }
+    ]
+  }
+}

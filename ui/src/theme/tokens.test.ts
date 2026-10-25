@@ -28,9 +28,8 @@ type Baseline = { count: number; files: string[] };
 const BASELINE: Record<Group, Record<Category, Baseline>> = {
   src: {
     palette: {
-      count: 154,
+      count: 148,
       files: [
-        'ui/src/components/chat/ChatInput.tsx',
         'ui/src/components/chat/ModelSwitcher.tsx',
         'ui/src/components/cron/CronTaskManagementView.tsx',
         'ui/src/components/demo/DemoBanner.tsx',
@@ -60,10 +59,8 @@ const BASELINE: Record<Group, Record<Category, Baseline>> = {
       ],
     },
     textSize: {
-      count: 55,
+      count: 52,
       files: [
-        'ui/src/components/chat/ChatInput.tsx',
-        'ui/src/components/chat/ContextReferenceChip.tsx',
         'ui/src/components/chat/ConversationSidebar.tsx',
         'ui/src/components/chat/ModelSwitcher.tsx',
         'ui/src/components/chat/ReferenceDetail.tsx',

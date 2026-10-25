@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hydrateLocale, resetLocaleForTests } from '@/i18n';
 import * as api from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
-import { ChatInput } from './ChatInput';
+import { ChatInput } from './composer/composer-root';
 
 vi.mock('./WorkspaceSelector', () => ({ WorkspaceSelector: () => null }));
 vi.mock('./HistoryPicker', () => ({ HistoryPicker: () => null }));

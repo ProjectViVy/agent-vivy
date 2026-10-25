@@ -181,24 +181,24 @@ export function ComposerCommandControls({ commands, disabled, focus }: {
   const busy = useVivyStore((state) => state.workBusy);
   const leavePlan = useVivyStore((state) => state.leavePlan);
   return <>
-    {commands.menuOpen ? <div className="absolute bottom-full left-0 right-0 z-30 mb-2 rounded-xl border bg-popover p-1 shadow-lg">
+    {commands.menuOpen ? <div className="absolute bottom-full left-0 right-0 z-30 mb-2 rounded-xl border border-line bg-raised p-1 shadow-lg">
       <div id={commands.menuId} role="listbox" aria-label={t(draft?.name === 'skill' ? 'composerCommands.skills' : 'composerCommands.commands')} className="max-h-56 overflow-y-auto">
-        {commands.options.map((option, index) => <button key={option.id} id={`${commands.menuId}-${index}`} type="button" role="option" aria-selected={commands.index === index} disabled={disabled} onMouseDown={(event) => event.preventDefault()} onClick={() => { commands.choose(index); focus(); }} className={cn('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm', commands.index === index ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60')}>
-          <option.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0"><span className="block font-medium">{option.label}</span><span className="block truncate text-xs text-muted-foreground">{option.description}</span></span>
+        {commands.options.map((option, index) => <button key={option.id} id={`${commands.menuId}-${index}`} type="button" role="option" aria-selected={commands.index === index} disabled={disabled} onMouseDown={(event) => event.preventDefault()} onClick={() => { commands.choose(index); focus(); }} className={cn('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-ui', commands.index === index ? 'bg-selected text-fg' : 'hover:bg-hover')}>
+          <option.icon className="h-4 w-4 shrink-0 text-fg-muted" />
+          <span className="min-w-0"><span className="block font-medium">{option.label}</span><span className="block truncate text-meta text-fg-muted">{option.description}</span></span>
         </button>)}
-        {!commands.options.length ? <p className="px-3 py-3 text-xs text-muted-foreground">{t(commands.skillsPhase === 'loading' ? 'composerCommands.loadingSkills' : commands.skillsPhase === 'error' ? 'composerCommands.skillsFailed' : 'composerCommands.noSkills')}</p> : null}
+        {!commands.options.length ? <p className="px-3 py-3 text-meta text-fg-muted">{t(commands.skillsPhase === 'loading' ? 'composerCommands.loadingSkills' : commands.skillsPhase === 'error' ? 'composerCommands.skillsFailed' : 'composerCommands.noSkills')}</p> : null}
       </div>
     </div> : null}
     {draft || work?.plan.active ? <div className="flex flex-wrap items-center gap-2 px-4 pt-2">
-      {draft ? <span data-command-tag className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 text-xs text-primary">
+      {draft ? <span data-command-tag className="inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand-soft px-2 py-1 text-meta text-brand">
         /{draft.name}{draft.skill ? ` · ${draft.skill.name}` : ''}
-        <button type="button" aria-label={t('composerCommands.remove')} disabled={disabled} onClick={() => { commands.clear(); focus(); }} className="rounded p-0.5 hover:bg-primary/10"><X className="h-3 w-3" /></button>
+        <button type="button" aria-label={t('composerCommands.remove')} disabled={disabled} onClick={() => { commands.clear(); focus(); }} className="rounded p-0.5 hover:bg-hover"><X className="h-3 w-3" /></button>
       </span> : null}
-      {draft?.name === 'goal' && !draft.goalRef ? <label className="flex items-center gap-2 text-xs text-muted-foreground">{t('workControl.maxRounds')}<Input type="number" min={1} max={1000} aria-label={t('workControl.maxRounds')} value={commands.rounds} onChange={(event) => commands.setRounds(event.target.value)} disabled={disabled} className="h-7 w-20" /></label> : null}
-      {draft?.name === 'plan' && disabled && !work?.plan.active ? <span role="status" className="text-xs text-muted-foreground">{t('workControl.stoppingForPlan')}</span> : null}
-      {work?.plan.active && draft?.name !== 'plan' ? <span data-plan-mode className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"><Settings2 className="h-3 w-3" />{t('chatInput.planMode')}<button type="button" aria-label={t('workControl.leavePlan')} disabled={disabled || busy} onClick={() => void leavePlan().catch(() => {})} className="rounded p-0.5 hover:bg-accent"><X className="h-3 w-3" /></button></span> : null}
+      {draft?.name === 'goal' && !draft.goalRef ? <label className="flex items-center gap-2 text-meta text-fg-muted">{t('workControl.maxRounds')}<Input type="number" min={1} max={1000} aria-label={t('workControl.maxRounds')} value={commands.rounds} onChange={(event) => commands.setRounds(event.target.value)} disabled={disabled} className="h-7 w-20" /></label> : null}
+      {draft?.name === 'plan' && disabled && !work?.plan.active ? <span role="status" className="text-meta text-fg-muted">{t('workControl.stoppingForPlan')}</span> : null}
+      {work?.plan.active && draft?.name !== 'plan' ? <span data-plan-mode className="inline-flex items-center gap-1 rounded-md bg-sunken px-2 py-1 text-meta text-fg-muted"><Settings2 className="h-3 w-3" />{t('chatInput.planMode')}<button type="button" aria-label={t('workControl.leavePlan')} disabled={disabled || busy} onClick={() => void leavePlan().catch(() => {})} className="rounded p-0.5 hover:bg-hover"><X className="h-3 w-3" /></button></span> : null}
     </div> : null}
-    {commands.error ? <p role="alert" className="px-4 pt-2 text-xs text-destructive">{commands.error}</p> : null}
+    {commands.error ? <p role="alert" className="px-4 pt-2 text-meta text-danger">{commands.error}</p> : null}
   </>;
 }
