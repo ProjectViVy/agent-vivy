@@ -197,8 +197,13 @@ func TestFailedModelCallRecordsContentFreeWireSummary(t *testing.T) {
 	mu.Lock()
 	sent := append([][]byte(nil), requests...)
 	mu.Unlock()
-	if len(sent) != 1 || !bytes.Contains(sent[0], []byte(nonce)) {
-		t.Fatalf("want one request carrying the nonce, got %d requests", len(sent))
+	// A bare 2013 on a first request is replayed exactly once, so the wire
+	// capture must hold two identical requests; the run still fails honestly.
+	if len(sent) != 2 {
+		t.Fatalf("want one request plus its identical replay, got %d requests", len(sent))
+	}
+	if !bytes.Contains(sent[0], []byte(nonce)) || !bytes.Equal(sent[0], sent[1]) {
+		t.Fatalf("replayed request is not the identical rejected request")
 	}
 
 	var sawRequest, sawWire bool

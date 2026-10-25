@@ -781,3 +781,31 @@ func TestBuildRunContextProjectsSteerAfterToolResults(t *testing.T) {
 		t.Fatalf("tail messages = %q/%q, want steer/next", agenticMessageText(msgs[5]), agenticMessageText(msgs[6]))
 	}
 }
+
+// An assistant call that never got a result must not reach the wire: the
+// OpenAI protocol has no way to express a dangling call, so the projection
+// drops it instead of inventing a result the model never produced.
+func TestBuildRunContextNeverSendsDanglingToolCall(t *testing.T) {
+	stored := []domain.Message{
+		{Role: domain.RoleUser, Content: "start"},
+		{Role: domain.RoleAssistant, ToolCallID: "unfinished", ToolName: "bash", ToolArgs: []byte(`{}`)},
+	}
+	msgs, _, err := buildRunContext(ContextPolicy{}, "preamble", stored, "next")
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if err := validateModelInput(msgs); err != nil {
+		t.Fatalf("projected context violates the wire contract: %v", err)
+	}
+	if last := msgs[len(msgs)-1]; agenticMessageText(last) != "next" {
+		t.Fatalf("tail message = %q, want next", agenticMessageText(last))
+	}
+	for i, msg := range msgs {
+		if calls := agenticToolCalls(msg); len(calls) != 0 {
+			t.Fatalf("message %d carries tool calls %+v, want none", i, calls)
+		}
+		if results := agenticToolResults(msg); len(results) != 0 {
+			t.Fatalf("message %d carries tool results %+v, want none", i, results)
+		}
+	}
+}

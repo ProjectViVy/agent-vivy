@@ -245,7 +245,7 @@ func TestToolResultOrderRetryFingerprintIdentity(t *testing.T) {
 		t.Fatalf("retry not granted for a valid tool turn: %+v", decision)
 	}
 	want := modelRequestFingerprint(input)
-	state, ok := svc.toolOrderRetries["run-fingerprint"]
+	state, ok := svc.modelRetries["run-fingerprint"]
 	if !ok || state.fingerprint != want || state.attempt != 1 {
 		t.Fatalf("stored retry state = %+v, want fingerprint %q", state, want)
 	}
@@ -272,7 +272,7 @@ func TestToolResultOrderRetryFingerprintIdentity(t *testing.T) {
 
 func newDecisionService() *Service {
 	return &Service{
-		toolOrderRetries:  map[domain.RunID]toolOrderRetryState{},
+		modelRetries:      map[domain.RunID]modelRetryState{},
 		autoRetryAwaiting: map[domain.RunID]int{},
 	}
 }

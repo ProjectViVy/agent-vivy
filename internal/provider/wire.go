@@ -8,6 +8,9 @@ package provider
 //
 // Capture never changes behavior: the request body is replayed byte-for-byte,
 // capture errors are ignored, and nothing is recorded for a 2xx response.
+// Outbound payload normalization (outbound.go) runs above this transport, so a
+// summary always describes the bytes actually sent, not the pre-normalized
+// ACL conversion.
 
 import (
 	"bytes"

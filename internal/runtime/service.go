@@ -345,13 +345,14 @@ type Service struct {
 	// overflowRecovered marks runs that already spent their single
 	// compact-and-retry recovery (VCP-D2); entries die in cleanupRunState.
 	overflowRecovered map[domain.RunID]bool
-	// toolOrderRetries marks runs that already spent their single
-	// tool-result-order retry and records the rejected input's structural
-	// fingerprint; entries die in cleanupRunState. The budget is separate from
-	// overflowRecovered because the two recoveries diagnose different faults,
-	// but both draw from the same modelMaxRetries budget, so whichever decider
-	// grants a retry first physically consumes it.
-	toolOrderRetries map[domain.RunID]toolOrderRetryState
+	// modelRetries marks runs that already spent their single model-call retry
+	// and records the rejected input's structural fingerprint plus the reason
+	// the grant was made (tool-result order or a bare provider 2013); entries
+	// die in cleanupRunState. The budget is separate from overflowRecovered
+	// because the recoveries diagnose different faults, but both draw from the
+	// same modelMaxRetries budget, so whichever decider grants a retry first
+	// physically consumes it.
+	modelRetries map[domain.RunID]modelRetryState
 	// autoRetryAwaiting records a dispatched recovery attempt (run → attempt)
 	// whose auto_retry.finished the consume loop still owes the journal:
 	// cleared on the first event after the retried call resolves, or on the
@@ -546,7 +547,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		contextViews:      make(map[domain.RunID]string),
 		lastCompaction:    make(map[domain.SessionID]*LastCompaction),
 		overflowRecovered: make(map[domain.RunID]bool),
-		toolOrderRetries:  make(map[domain.RunID]toolOrderRetryState),
+		modelRetries:      make(map[domain.RunID]modelRetryState),
 		autoRetryAwaiting: make(map[domain.RunID]int),
 		humanPending:      make(map[domain.SessionID]int),
 		workFenced:        make(map[domain.RunID]struct{}),
@@ -5343,19 +5344,19 @@ func isToolResultOrderFailure(err error) bool {
 	return false
 }
 
-// toolOrderRetryState is the per-run proof of one granted retry: the
-// content-free fingerprint of the rejected input, so a second rejection can
-// report whether the provider saw the identical shape again.
-type toolOrderRetryState struct {
+// modelRetryState is the per-run proof of one granted retry: the content-free
+// fingerprint of the rejected input and the evidence that justified the grant.
+type modelRetryState struct {
 	fingerprint string
 	attempt     int
+	reason      string
 }
 
 // modelRetryDecision is the single decider bound into the engine's
 // ModelRetryConfig slot. Overflow recovery is consulted first because it is the
-// only one that rewrites the call input; the tool-result-order retry replays
-// the identical payload. Both draw from the same modelMaxRetries budget, so
-// whichever grants a retry first physically consumes it.
+// only one that rewrites the call input; the other two replay the identical
+// payload. All draw from the same modelMaxRetries budget, so whichever grants a
+// retry first physically consumes it.
 func (s *Service) modelRetryDecision(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
 	// The ADK asks once more after the final attempt; a "retry" granted there
 	// never happens, so declining keeps auto_retry.started truthful.
@@ -5368,6 +5369,9 @@ func (s *Service) modelRetryDecision(ctx context.Context, rc *adk.TypedRetryCont
 		return nil
 	}
 	if decision := s.overflowRetryDecision(ctx, rc); decision != nil {
+		return decision
+	}
+	if decision := s.provider2013RetryDecision(ctx, rc); decision != nil {
 		return decision
 	}
 	return s.toolResultOrderRetryDecision(ctx, rc)
@@ -5396,34 +5400,136 @@ func (s *Service) toolResultOrderRetryDecision(ctx context.Context, rc *adk.Type
 			"run", string(runID), "violation", err.Error())
 		return nil
 	}
+	return s.grantModelRetry(ctx, rc, toolResultOrderReason, errorChainText(rc.Err, 256))
+}
+
+// grantModelRetry records and announces one identical-replay grant. Callers
+// have already proved the fault; this owns the one-retry-per-run rule and the
+// shared budget bookkeeping.
+func (s *Service) grantModelRetry(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage], reason, detail string) *adk.TypedRetryDecision[*schema.AgenticMessage] {
+	runID := contextRunID(ctx)
+	if runID == "" {
+		return nil
+	}
 	fingerprint := modelRequestFingerprint(rc.InputMessages)
 	s.mu.Lock()
-	if previous, seen := s.toolOrderRetries[runID]; seen {
+	if previous, seen := s.modelRetries[runID]; seen {
 		s.mu.Unlock()
 		// One recovery per run: a second rejection fails honestly instead of
 		// replaying the same payload in a loop.
-		slog.Warn("tool-result-order retry already spent; declining",
-			"run", string(runID),
+		slog.Warn("model retry already spent; declining",
+			"run", string(runID), "reason", reason, "previous_reason", previous.reason,
 			"identical", previous.fingerprint == fingerprint,
 			"first_attempt", previous.attempt, "attempt", rc.RetryAttempt)
 		return nil
 	}
-	s.toolOrderRetries[runID] = toolOrderRetryState{fingerprint: fingerprint, attempt: rc.RetryAttempt}
+	s.modelRetries[runID] = modelRetryState{fingerprint: fingerprint, attempt: rc.RetryAttempt, reason: reason}
 	s.autoRetryAwaiting[runID] = rc.RetryAttempt
 	s.mu.Unlock()
 
-	slog.Error("provider rejected the tool result order; retrying the identical call once",
-		"run", string(runID), "attempt", rc.RetryAttempt,
-		"fingerprint", clampFingerprint(fingerprint), "err", errorChainText(rc.Err, 4096))
+	slog.Error("provider rejected the model call; retrying the identical call once",
+		"run", string(runID), "reason", reason, "attempt", rc.RetryAttempt,
+		"fingerprint", clampFingerprint(fingerprint), "detail", detail)
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type:    domain.EventAutoRetryStarted,
 		Attempt: rc.RetryAttempt,
-		Reason:  toolResultOrderReason + ": fingerprint=" + clampFingerprint(fingerprint) + "; " + errorChainText(rc.Err, 256),
+		Reason:  reason + ": fingerprint=" + clampFingerprint(fingerprint) + "; " + detail,
 	})
 	return &adk.TypedRetryDecision[*schema.AgenticMessage]{
 		Retry:        true,
-		RejectReason: toolResultOrderReason,
+		RejectReason: reason,
 	}
+}
+
+// provider2013Reason tags a retry granted for a bare MiniMax 2013. It names the
+// evidence, not the conclusion: only the replay can show the rejection was
+// transient.
+const provider2013Reason = "provider_2013_first_request"
+
+// provider2013Token matches MiniMax's generic parameter-error code as a code
+// token, so a larger number in a message cannot trigger the retry.
+var provider2013Token = regexp.MustCompile(`(?:^|[^0-9])2013(?:[^0-9]|$)`)
+
+// deterministic2013Phrases name rejections that describe our own payload. They
+// must never be replayed identically: the retry would repeat the same defect.
+var deterministic2013Phrases = []string{
+	"invalid function arguments json string",
+	"context window exceeds",
+	"context_length_exceeded",
+	"maximum context length",
+	"reduce the length",
+}
+
+// isBareProvider2013 reports an HTTP 400 carrying MiniMax's generic 2013 code
+// with no phrase that names a payload defect.
+func isBareProvider2013(err error) bool {
+	if err == nil {
+		return false
+	}
+	status, ok := providerStatus(err)
+	if !ok || status != http.StatusBadRequest {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	if !provider2013Token.MatchString(message) {
+		return false
+	}
+	for _, phrase := range toolResultOrderPhrases {
+		if strings.Contains(message, phrase) {
+			return false
+		}
+	}
+	for _, phrase := range deterministic2013Phrases {
+		if strings.Contains(message, phrase) {
+			return false
+		}
+	}
+	return true
+}
+
+// isUnambiguousFirstRequest reports an input that carries no history shape at
+// all: system and user rows only, no assistant turn, no tool call or result,
+// and a feed that passes our wire invariants. Only such a request can be
+// replayed without risking a deterministic rejection.
+func isUnambiguousFirstRequest(msgs []*schema.AgenticMessage) bool {
+	users := 0
+	for _, msg := range msgs {
+		if msg == nil {
+			return false
+		}
+		if len(agenticToolCalls(msg)) > 0 || agenticIsToolResult(msg) {
+			return false
+		}
+		switch msg.Role {
+		case schema.AgenticRoleTypeSystem:
+		case schema.AgenticRoleTypeUser:
+			users++
+		default:
+			return false
+		}
+	}
+	if users == 0 {
+		return false
+	}
+	return validateModelInput(msgs) == nil
+}
+
+// provider2013RetryDecision replays a first call once when MiniMax rejects it
+// with a bare 2013. The 2026-10-25 evidence: identical child first calls were
+// rejected at about 9% while a sibling in the same minute succeeded, and the
+// payloads carried no assistant or tool row that could explain a deterministic
+// rejection. A call that does carry history is refused here so a real pairing
+// defect stays visible.
+func (s *Service) provider2013RetryDecision(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
+	if rc == nil || !isBareProvider2013(rc.Err) {
+		return nil
+	}
+	if !isUnambiguousFirstRequest(rc.InputMessages) {
+		slog.Warn("bare provider 2013 without a provably unambiguous first request; not retrying",
+			"run", string(contextRunID(ctx)), "err", errorChainText(rc.Err, 256))
+		return nil
+	}
+	return s.grantModelRetry(ctx, rc, provider2013Reason, "code=2013")
 }
 
 // providerHTTPFailure splits provider failures by HTTP status so the user is
@@ -5727,7 +5833,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
 	delete(s.overflowRecovered, runID)
-	delete(s.toolOrderRetries, runID)
+	delete(s.modelRetries, runID)
 	delete(s.autoRetryAwaiting, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)

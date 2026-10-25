@@ -63,7 +63,10 @@ func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.AgenticMod
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: construct openai model %q: %w", r.Name(), modelID, err)
 	}
-	return cm, nil
+	// The ACL conversion serializes text blocks as content arrays; the wrapper
+	// installs the Eino payload modifier that canonicalizes the body before it
+	// reaches the recorder and the provider.
+	return newOutboundNormalizedModel(cm), nil
 }
 
 // ModelInfo reports the metadata the embedded data declares for modelID.

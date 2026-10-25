@@ -4,8 +4,9 @@ package provider
 // (eino-ext/libs/acl/openai agenticMessagesToMessages) emits, because that
 // mapping is unexported and is the only place the provider wire contract is
 // decided. They are characterization tests: a failure means the wire changed,
-// not that the new shape is wrong. The assistant content-array case is named
-// as the suspect shape from the 2026-10-25 MiniMax (2013) failure.
+// not that the new shape is wrong. The provider wrapper normalizes text-only
+// content arrays to strings after that conversion, so these tests describe the
+// bytes that actually leave the process.
 
 import (
 	"context"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -133,7 +135,7 @@ func decodeWireBody(t *testing.T, body []byte) wireJSONBody {
 	return decoded
 }
 
-func TestWireGoldenSystemStringUserContentArray(t *testing.T) {
+func TestWireGoldenSystemStringUserContentString(t *testing.T) {
 	server, capture := newWireCaptureServer(t, 0, openAITestReply)
 	chatModel := wireTestModel(t, server.URL)
 
@@ -155,17 +157,15 @@ func TestWireGoldenSystemStringUserContentArray(t *testing.T) {
 	if got := string(body.Messages[0].Content); got != `"sys"` {
 		t.Fatalf("system content = %s, want a JSON string", got)
 	}
-	if got := string(body.Messages[1].Content); got != `[{"type":"text","text":"hello"}]` {
-		t.Fatalf("user content = %s, want the content array form", got)
+	if got := string(body.Messages[1].Content); got != `"hello"` {
+		t.Fatalf("user content = %s, want a JSON string", got)
 	}
 }
 
-// TestWireGoldenAssistantTextIsContentArray characterizes the current fork's
-// assistant wire shape. AssistantGenText is projected onto
-// AssistantGenMultiContent and therefore serializes as a content array. This is
-// the prime suspect for the MiniMax (2013) rejection, but it is recorded as
-// observed behavior, not blessed here.
-func TestWireGoldenAssistantTextIsContentArray(t *testing.T) {
+// TestWireGoldenAssistantTextIsContentString pins the normalized assistant
+// shape: the ACL conversion produces a content array, and the provider wrapper
+// collapses a text-only array to the plain string MiniMax's own harness sends.
+func TestWireGoldenAssistantTextIsContentString(t *testing.T) {
 	server, capture := newWireCaptureServer(t, 0, openAITestReply)
 	chatModel := wireTestModel(t, server.URL)
 
@@ -182,8 +182,8 @@ func TestWireGoldenAssistantTextIsContentArray(t *testing.T) {
 	if assistant.Role != "assistant" {
 		t.Fatalf("assistant role = %q", assistant.Role)
 	}
-	if got := string(assistant.Content); got != `[{"type":"text","text":"answer"}]` {
-		t.Fatalf("assistant content = %s, want the content array form", got)
+	if got := string(assistant.Content); got != `"answer"` {
+		t.Fatalf("assistant content = %s, want a JSON string", got)
 	}
 }
 
@@ -332,6 +332,9 @@ func TestWireSummaryMatchesCapturedRequestWithoutContent(t *testing.T) {
 			t.Fatalf("summary role[%d] = %q, want %q", i, summary.Roles[i], message.Role)
 		}
 	}
+	if summary.ContentForms[1] != "string" {
+		t.Fatalf("summary user content form = %q, want the normalized string", summary.ContentForms[1])
+	}
 	if len(summary.CallIDs) != 1 || summary.CallIDs[0] != "call_nonce" {
 		t.Fatalf("summary call ids = %v", summary.CallIDs)
 	}
@@ -350,5 +353,27 @@ func TestWireSummaryMatchesCapturedRequestWithoutContent(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), nonce) {
 		t.Fatalf("wire summary leaked message content: %s", encoded)
+	}
+}
+
+// TestWireGoldenInvalidUTF8IsReplaced pins the encoding guarantee behind the
+// "no surrogate sanitizer" decision: encoding/json never emits a lone surrogate
+// or raw invalid UTF-8, so the body stays decodable at the provider.
+func TestWireGoldenInvalidUTF8IsReplaced(t *testing.T) {
+	server, capture := newWireCaptureServer(t, 0, openAITestReply)
+	chatModel := wireTestModel(t, server.URL)
+
+	if _, err := chatModel.Generate(context.Background(), []*schema.AgenticMessage{
+		testUser("bad: " + string([]byte{0xff, 0xfe})),
+	}); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	body := capture.captured(t)
+	if !utf8.Valid(body) {
+		t.Fatalf("wire body is not valid UTF-8: %q", body)
+	}
+	decoded := decodeWireBody(t, body)
+	if got := string(decoded.Messages[0].Content); !strings.Contains(got, "\uFFFD") {
+		t.Fatalf("invalid bytes were not replaced: %s", got)
 	}
 }
