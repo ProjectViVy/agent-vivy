@@ -338,7 +338,10 @@ func TestIsContextOverflowClassifier(t *testing.T) {
 		want bool
 	}{
 		{"maximum context length is 8192 tokens", true},
+		{"maximum context length reached", true},
 		{"context_length_exceeded", true},
+		{"context window exceeds 128000 tokens", true},
+		{"reduce the length", true},
 		{"prompt is too long", true},
 		{"request_too_large", true},
 		{"rate limit exceeded: 60 rpm", false},

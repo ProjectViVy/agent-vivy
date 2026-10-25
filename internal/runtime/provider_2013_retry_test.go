@@ -108,6 +108,12 @@ func TestBare2013NamedVariantDoesNotRetry(t *testing.T) {
 	for _, message := range []string{
 		"invalid function arguments json string, tool_call_id: call-a (2013)",
 		"context window exceeds limit (2013)",
+		"context window exceeds (2013)",
+		"maximum context length (2013)",
+		"reduce the length (2013)",
+		"prompt is too long (2013)",
+		"400 request_too_large (2013)",
+		"too many tokens (2013)",
 		"tool call result does not follow tool call (2013)",
 		"400 request validation failed: context_length_exceeded (2013)",
 	} {

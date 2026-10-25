@@ -5469,18 +5469,14 @@ const provider2013Reason = "provider_2013_first_request"
 // token, so a larger number in a message cannot trigger the retry.
 var provider2013Token = regexp.MustCompile(`(?:^|[^0-9])2013(?:[^0-9]|$)`)
 
-// deterministic2013Phrases name rejections that describe our own payload. They
-// must never be replayed identically: the retry would repeat the same defect.
-var deterministic2013Phrases = []string{
-	"invalid function arguments json string",
-	"context window exceeds",
-	"context_length_exceeded",
-	"maximum context length",
-	"reduce the length",
-}
+// invalidToolArgs2013Phrase names a payload defect the provider reports under
+// its generic 2013 code. Such a rejection must never be replayed identically:
+// the retry would repeat the same defect.
+const invalidToolArgs2013Phrase = "invalid function arguments json string"
 
 // isBareProvider2013 reports an HTTP 400 carrying MiniMax's generic 2013 code
-// with no phrase that names a payload defect.
+// with no phrase that classifies the rejection as a context overflow or a
+// payload defect.
 func isBareProvider2013(err error) bool {
 	if err == nil {
 		return false
@@ -5498,12 +5494,10 @@ func isBareProvider2013(err error) bool {
 			return false
 		}
 	}
-	for _, phrase := range deterministic2013Phrases {
-		if strings.Contains(message, phrase) {
-			return false
-		}
+	if strings.Contains(message, invalidToolArgs2013Phrase) {
+		return false
 	}
-	return true
+	return !isContextOverflow(err)
 }
 
 // isUnambiguousFirstRequest reports an input that carries no history shape at
