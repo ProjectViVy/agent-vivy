@@ -87,7 +87,7 @@ func TestLoadValid(t *testing.T) {
 		t.Error("tui.debug = false, want true")
 	}
 	if cfg.Runtime.StreamBuffer != 16 || cfg.Runtime.MaxEventPayloadBytes != 1024 ||
-		cfg.Runtime.MaxContextBytes != 256<<10 || cfg.Runtime.MaxHistoryMessages != 64 ||
+		cfg.Runtime.MaxContextBytes != 1<<20 || cfg.Runtime.MaxHistoryMessages != 64 ||
 		cfg.Runtime.MaxToolResultBytes != 32<<10 || cfg.Runtime.MaxRunEvents != 100000 ||
 		cfg.Runtime.MaxModelCalls != 10000 || cfg.Runtime.MaxRunToolCalls != 20000 ||
 		cfg.Runtime.MaxToolTurns != 10000 ||

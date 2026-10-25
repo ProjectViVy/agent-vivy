@@ -146,7 +146,13 @@ func userDataRoot() string {
 }
 
 const (
-	defaultMaxContextBytes    = 256 << 10
+	// defaultMaxContextBytes bounds one run's transient context. The runtime
+	// estimates tokens as bytes/4, so this is about 262K tokens: a 128K- or
+	// 256K-token model window stays governed by its own compaction trigger
+	// rather than by this ceiling. The previous 256 KiB value admitted only
+	// ~65K tokens — half of a 128K window, a quarter of a 256K one — which cut
+	// real delegated tasks off well below what the model accepts.
+	defaultMaxContextBytes    = 1 << 20
 	defaultMaxHistoryMessages = 64
 	// Shared run-tree breakers are last-resort circuit breakers, not everyday
 	// limits: they must not preempt the per-agent turn ceiling above.

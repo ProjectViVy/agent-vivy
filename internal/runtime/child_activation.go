@@ -15,8 +15,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-const maxChildActivationContextBytes = 128 << 10
-
 type childActivationDrive struct {
 	binding  domain.ChildSessionBinding
 	task     string
@@ -300,19 +298,22 @@ func (s *Service) runMessagesForChild(ctx context.Context, task string, pending 
 	if err != nil {
 		return nil, selection, ContextStats{}, nil, err
 	}
-	limit := maxChildActivationContextBytes
-	if eng.cfg.MaxContextBytes > 0 && eng.cfg.MaxContextBytes < limit {
-		limit = eng.cfg.MaxContextBytes
+	// The activation feed is bounded by the run's own context budget, exactly
+	// like a primary run's feed. A separate child ceiling here made the
+	// effective child context smaller than the parent's without saying so.
+	limit := eng.cfg.MaxContextBytes
+	exceeds := func(msgs []*schema.AgenticMessage) bool {
+		return limit > 0 && projectedContextBytes(msgs)+reservedPromptBytes > limit
 	}
 	messages := []*schema.AgenticMessage{agenticUserMessage(task)}
-	if projectedContextBytes(messages)+reservedPromptBytes > limit {
+	if exceeds(messages) {
 		return nil, selection, ContextStats{}, nil, fmt.Errorf("%w: child task and instruction require more than %d bytes", ErrContextBudgetExceeded, limit)
 	}
 	included := make([]domain.ChildMailboxMessage, 0, len(pending))
 	for _, item := range pending {
 		content := fmt.Sprintf("Direct message from parent (%s):\n%s", item.ID, string(item.Body))
 		candidate := append(append([]*schema.AgenticMessage(nil), messages...), agenticUserMessage(content))
-		if projectedContextBytes(candidate)+reservedPromptBytes > limit {
+		if exceeds(candidate) {
 			break
 		}
 		messages = candidate

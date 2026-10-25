@@ -52,8 +52,11 @@ runtime:
   # Max buffered stream chunks / event payload size bounds (NFR: bounded).
   stream_buffer: 256
   max_event_payload_bytes: 65536
-  # Bounds the transient current-session context sent to the model.
-  max_context_bytes: 262144
+  # Bounds the transient current-session context sent to the model, for the
+  # parent and every delegated child alike. Tokens are estimated as bytes/4,
+  # so 1 MiB is about 262K tokens; a 128K- or 256K-token model window is then
+  # governed by its own compaction trigger rather than by this ceiling.
+  max_context_bytes: 1048576
   max_history_messages: 64
   max_tool_result_bytes: 32768
   # Tool-call turns per agent (the parent and each delegated child). The
