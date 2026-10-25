@@ -1227,6 +1227,7 @@ refreshModels: '刷新模型列表',
     themesDescription: '选择界面皮肤，立即生效并保存在当前浏览器。',
     themesGroupAria: '界面主题',
     themeSelected: '已选中',
+    themeSwatchSample: '字',
     executeTimeoutTitle: '执行超时上限',
     executeTimeoutDescription: 'execute / commandline 单次运行的最长等待。真实设置，保存后下次启动生效。',
     executeTimeoutLabel: '最长等待(秒)',
@@ -1412,20 +1413,32 @@ refreshModels: '刷新模型列表',
   },
   themes: {
     default: {
-      label: 'Vivy 蓝',
-      description: '默认的浅色蓝白界面。',
-    },
-    pink: {
-      label: '简约粉白',
-      description: '白底细粉线的轻量界面，移植自 Agent-Diva。',
+      label: 'Vivy 浅色',
+      description: '青蓝点亮的浅色仪表盘，默认外观。',
     },
     dark: {
-      label: '深蓝夜色',
-      description: '低亮度蓝黑的深色界面。',
+      label: 'Vivy 深色',
+      description: '同一块面板入夜后的形态，青蓝主色保持点亮。',
+    },
+    pink: {
+      label: 'Diva',
+      description: '白底玫瑰色，移植自 Agent-Diva，并加深以提高可读性。',
     },
     miku: {
-      label: 'Miku 青',
-      description: '青绿应援色的深色界面，移植自 Agent-Diva。',
+      label: '初音未来',
+      description: '石墨底应援青，移植自 Agent-Diva，并加深以提高可读性。',
+    },
+    rice: {
+      label: '宣纸朱砂',
+      description: '暖纸底配朱砂，适合长时间阅读。',
+    },
+    fluor: {
+      label: '石墨荧光',
+      description: '石墨灰底配酸性荧光绿。',
+    },
+    indigo: {
+      label: '夜蓝靛',
+      description: '低彩度靛蓝底配长春花蓝。',
     },
   },
   language: {

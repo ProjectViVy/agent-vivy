@@ -40,9 +40,22 @@
   .row-sweep { animation: none; opacity: 0; }
 }
 
-/* 皮肤套数：:root 即 default 主题；每套皮肤一个 [data-theme] 完整令牌块。
-   .dark 类只驱动 dark: 变体（深色皮肤由 applyThemeToDOM 同步挂上），
-   不再承载令牌值。预览色板字面量在 src/hooks/use-theme.ts。 */
+/* ── Theme architecture ────────────────────────────────────────────────────
+   This file is the only authored token source. `index.html` keeps two neutral
+   pre-paint colour pairs and nothing else; `hooks/use-theme.ts` owns the family
+   registry and persistence but no colour values.
+
+   1. One neutral ramp per appearance: `:root` for light, `[data-appearance=
+      "dark"]` for dark. The ramp reads its temperature from `--tint-h` /
+      `--tint-c`, so a family changes hue and chroma without restating twenty
+      lightness values.
+   2. A family block overrides only `--tint-*` and the brand ramp.
+   3. `[data-theme-preview="…"]` is the same family block scoped to a preview
+      tile that also sets `data-appearance`, so the settings preview renders
+      real tokens instead of a hand-maintained gradient.
+   4. Kernel theme switching writes attributes only. Module themes
+      (`plugins/presentation-host.tsx`) still win by writing inline properties
+      on the root element; never move that mechanism into this file. */
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -53,180 +66,267 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
+
+  /* Surfaces */
+  --color-canvas: var(--bg-app);
+  --color-surface: var(--bg-surface);
+  --color-raised: var(--bg-raised);
+  --color-sunken: var(--bg-sunken);
+  --color-hover: var(--bg-hover);
+  --color-selected: var(--bg-selected);
+  --color-scrim: var(--scrim);
+  /* Text */
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-disabled: var(--fg-disabled);
+  /* Lines and action */
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-fg: var(--brand-fg);
+  /* Status */
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-ok-fg: var(--ok-fg);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-fg: var(--warn-fg);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-fg: var(--info-fg);
+
+  /* Type scale: 11 / 12 / 13 / 14 / 16 / 20. Density comes from gaps. */
+  --text-2xs: var(--type-2xs);
+  --text-2xs--line-height: var(--leading-tight);
+  --text-meta: var(--type-meta);
+  --text-meta--line-height: var(--leading-ui);
+  --text-ui: var(--type-ui);
+  --text-ui--line-height: var(--leading-ui);
+  --text-read: var(--type-read);
+  --text-read--line-height: var(--leading-read);
+  --text-title: var(--type-title);
+  --text-title--line-height: var(--leading-tight);
+  --text-page: var(--type-page);
+  --text-page--line-height: var(--leading-tight);
+
+  /* Geometry */
+  --container-content: var(--content-max);
+
+  /* shadcn aliases — derived, never authored. Every call site still on
+     `bg-background` / `text-muted-foreground` resolves through the semantic
+     set above; blocks 2-6 migrate call sites and delete entries here. */
+  --color-background: var(--bg-app);
+  --color-foreground: var(--fg);
+  --color-card: var(--bg-raised);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--bg-raised);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--brand);
+  --color-primary-foreground: var(--brand-fg);
+  --color-secondary: var(--bg-sunken);
+  --color-secondary-foreground: var(--fg);
+  --color-muted: var(--bg-sunken);
+  --color-muted-foreground: var(--fg-muted);
+  --color-accent: var(--bg-selected);
+  --color-accent-foreground: var(--fg);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--danger-fg);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
   --color-ring: var(--ring);
-  --color-ring-offset-background: var(--background);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-ring-offset-background: var(--bg-app);
+  --color-chart-1: var(--brand);
+  --color-chart-2: var(--ok);
+  --color-chart-3: var(--warn);
+  --color-chart-4: var(--danger);
+  --color-chart-5: var(--info);
+  --color-sidebar: var(--bg-sunken);
+  --color-sidebar-foreground: var(--fg);
+  --color-sidebar-primary: var(--brand);
+  --color-sidebar-primary-foreground: var(--brand-fg);
+  --color-sidebar-accent: var(--bg-selected);
+  --color-sidebar-accent-foreground: var(--fg);
+  --color-sidebar-border: var(--line);
+  --color-sidebar-ring: var(--ring);
   --font-sans: var(--font-sans);
 }
 
+/* Geometry and type scale are appearance- and family-independent. */
 :root {
   --radius: 0.75rem;
   --font-sans: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --background: oklch(0.975 0.012 220);
-  --foreground: oklch(0.3 0.04 220);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.3 0.04 220);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.3 0.04 220);
-  --primary: oklch(0.58 0.2 220);
-  --primary-foreground: oklch(0.99 0.005 220);
-  --secondary: oklch(0.95 0.025 220);
-  --secondary-foreground: oklch(0.45 0.09 220);
-  --muted: oklch(0.95 0.018 220);
-  --muted-foreground: oklch(0.53 0.04 220);
-  --accent: oklch(0.92 0.055 220);
-  --accent-foreground: oklch(0.4 0.12 220);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.91 0.025 220);
-  --input: oklch(0.91 0.025 220);
-  --ring: oklch(0.58 0.2 220);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.95 0.025 220);
-  --sidebar-foreground: oklch(0.36 0.055 220);
-  --sidebar-primary: oklch(0.58 0.2 220);
-  --sidebar-primary-foreground: oklch(0.99 0.005 220);
-  --sidebar-accent: oklch(0.9 0.065 220);
-  --sidebar-accent-foreground: oklch(0.4 0.13 220);
-  --sidebar-border: oklch(0.91 0.025 220);
-  --sidebar-ring: oklch(0.58 0.2 220);
+  --type-2xs: 0.6875rem;
+  --type-meta: 0.75rem;
+  --type-ui: 0.8125rem;
+  --type-read: 0.875rem;
+  --type-title: 1rem;
+  --type-page: 1.25rem;
+  --leading-tight: 1.25;
+  --leading-ui: 1.5;
+  --leading-read: 1.7;
+  --control-sm: 1.75rem;
+  --control-md: 2rem;
+  --control-lg: 2.5rem;
+  --hit-target: 2.75rem;
+  --row: 2rem;
+  --content-max: 52rem;
+  --sidebar-w: 18rem;
+  /* Fallbacks so an element outside every family block still resolves. */
+  --tint-h: 228;
+  --tint-c: 0.011;
+  color-scheme: light;
 }
 
-/* 深蓝夜色（default 的深色版） */
-[data-theme="dark"] {
-  --background: oklch(0.2 0.025 220);
-  --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.225 0.03 220);
-  --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.225 0.035 220);
-  --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.68 0.18 220);
-  --primary-foreground: oklch(0.99 0.005 220);
-  --secondary: oklch(0.285 0.05 220);
-  --secondary-foreground: oklch(0.984 0.003 247.858);
-  --muted: oklch(0.275 0.04 220);
-  --muted-foreground: oklch(0.804 0.008 220);
-  --accent: oklch(0.31 0.065 220);
-  --accent-foreground: oklch(0.984 0.003 247.858);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.68 0.18 220);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.215 0.04 220);
-  --sidebar-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-primary: oklch(0.68 0.18 220);
-  --sidebar-primary-foreground: oklch(0.99 0.005 220);
-  --sidebar-accent: oklch(0.31 0.065 220);
-  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.68 0.18 220);
+/* Light ramp. Values are expressed per appearance once; families only move
+   the tint. Shared aliases recompute per element, so a preview tile that
+   re-declares the family stays correct. */
+:root,
+[data-theme-preview] {
+  --bg-app: oklch(0.975 var(--tint-c) var(--tint-h));
+  --bg-surface: oklch(0.985 calc(var(--tint-c) * 0.6) var(--tint-h));
+  --bg-raised: oklch(1 0 var(--tint-h));
+  --bg-sunken: oklch(0.955 calc(var(--tint-c) * 1.2) var(--tint-h));
+  --bg-hover: oklch(0.945 calc(var(--tint-c) * 1.9) var(--tint-h));
+  --bg-selected: oklch(0.925 calc(var(--tint-c) * 2.8) var(--tint-h));
+  --scrim: oklch(0.22 0.02 var(--tint-h) / 55%);
+  --fg: oklch(0.3 calc(var(--tint-c) * 1.6) var(--tint-h));
+  --fg-muted: oklch(0.44 calc(var(--tint-c) * 1.3) var(--tint-h));
+  --fg-subtle: oklch(0.49 calc(var(--tint-c) * 1.1) var(--tint-h));
+  --fg-disabled: oklch(0.72 calc(var(--tint-c) * 0.8) var(--tint-h));
+  --line: oklch(0.9 calc(var(--tint-c) * 1.8) var(--tint-h));
+  --line-strong: oklch(0.84 calc(var(--tint-c) * 2.2) var(--tint-h));
+  --ring: var(--brand);
+  --ok: oklch(0.46 0.11 152);
+  --ok-soft: oklch(0.95 0.035 152);
+  --ok-fg: oklch(1 0 0);
+  --warn: oklch(0.44 0.085 72);
+  --warn-soft: oklch(0.95 0.035 82);
+  --warn-fg: oklch(1 0 0);
+  --danger: oklch(0.47 0.17 27);
+  --danger-soft: oklch(0.945 0.024 27);
+  --danger-fg: oklch(1 0 0);
+  --info: oklch(0.46 0.12 255);
+  --info-soft: oklch(0.945 0.024 255);
+  --info-fg: oklch(1 0 0);
 }
 
-/* 简约粉白（浅色，移植自 Agent-Diva default 主题） */
-[data-theme="pink"] {
-  --background: #ffffff;
-  --foreground: #6b2737;
-  --card: #ffffff;
-  --card-foreground: #6b2737;
-  --popover: #ffffff;
-  --popover-foreground: #6b2737;
-  --primary: #ec4899;
-  --primary-foreground: #ffffff;
-  --secondary: #fdf2f7;
-  --secondary-foreground: #9d174d;
-  --muted: #fdf2f7;
-  --muted-foreground: #9b5a6a;
-  --accent: #fbe9f2;
-  --accent-foreground: #be185d;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
-  --border: #fbdaeb;
-  --input: #fad1e6;
-  --ring: #ec4899;
-  --sidebar: #fff5f7;
-  --sidebar-foreground: #6b2737;
-  --sidebar-primary: #ec4899;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #fbe9f2;
-  --sidebar-accent-foreground: #be185d;
-  --sidebar-border: #fbdaeb;
-  --sidebar-ring: #ec4899;
+/* Dark ramp. Later than the light ramp so it wins on the same element. */
+[data-appearance="dark"] {
+  color-scheme: dark;
+  --bg-app: oklch(0.185 calc(var(--tint-c) * 1.2) var(--tint-h));
+  --bg-surface: oklch(0.215 calc(var(--tint-c) * 1.3) var(--tint-h));
+  --bg-raised: oklch(0.245 calc(var(--tint-c) * 1.4) var(--tint-h));
+  --bg-sunken: oklch(0.165 var(--tint-c) var(--tint-h));
+  --bg-hover: oklch(0.265 calc(var(--tint-c) * 2.2) var(--tint-h));
+  --bg-selected: oklch(0.3 calc(var(--tint-c) * 3) var(--tint-h));
+  --scrim: oklch(0.1 0.01 var(--tint-h) / 70%);
+  --fg: oklch(0.96 calc(var(--tint-c) * 0.7) var(--tint-h));
+  --fg-muted: oklch(0.8 calc(var(--tint-c) * 0.9) var(--tint-h));
+  --fg-subtle: oklch(0.7 calc(var(--tint-c) * 0.8) var(--tint-h));
+  --fg-disabled: oklch(0.52 var(--tint-c) var(--tint-h));
+  --line: oklch(1 0 var(--tint-h) / 10%);
+  --line-strong: oklch(1 0 var(--tint-h) / 16%);
+  --ring: var(--brand);
+  --ok: oklch(0.8 0.13 152);
+  --ok-soft: oklch(0.28 0.05 152);
+  --ok-fg: oklch(0.17 0.02 152);
+  --warn: oklch(0.84 0.13 85);
+  --warn-soft: oklch(0.29 0.05 82);
+  --warn-fg: oklch(0.17 0.02 82);
+  --danger: oklch(0.74 0.135 25);
+  --danger-soft: oklch(0.29 0.06 25);
+  --danger-fg: oklch(0.17 0.02 25);
+  --info: oklch(0.78 0.1 250);
+  --info-soft: oklch(0.28 0.045 250);
+  --info-fg: oklch(0.17 0.02 250);
 }
 
-/* Miku 青（深色，移植自 Agent-Diva miku 主题；GitHub Dark 底 + 应援青） */
-[data-theme="miku"] {
-  --background: #0d1117;
-  --foreground: #e6edf3;
-  --card: #161b22;
-  --card-foreground: #e6edf3;
-  --popover: #161b22;
-  --popover-foreground: #e6edf3;
-  --primary: #39c5bb;
-  --primary-foreground: #042f2e;
-  --secondary: #21262d;
-  --secondary-foreground: #e6edf3;
-  --muted: #161b22;
-  --muted-foreground: #7d8590;
-  --accent: #12272b;
-  --accent-foreground: #39c5bb;
-  --destructive: #f85149;
-  --destructive-foreground: #ffffff;
-  --border: #0b2f32;
-  --input: #0b393a;
-  --ring: #39c5bb;
-  --chart-1: #58a6ff;
-  --chart-2: #3fb950;
-  --chart-3: #d29922;
-  --chart-4: #f85149;
-  --chart-5: #bc8cff;
-  --sidebar: #161b22;
-  --sidebar-foreground: #e6edf3;
-  --sidebar-primary: #39c5bb;
-  --sidebar-primary-foreground: #042f2e;
-  --sidebar-accent: #12272b;
-  --sidebar-accent-foreground: #39c5bb;
-  --sidebar-border: #0b2f32;
-  --sidebar-ring: #39c5bb;
+/* ── Families ────────────────────────────────────────────────────────────
+   Storage ids stay `default|dark|pink|miku` for zero-migration; product names
+   are Vivy light/dark, Diva, Miku, plus three oil-ui families. `dark` is
+   Vivy's dark appearance rather than a separate skin. */
+
+/* Vivy light — cyan-lit instrument panel. */
+[data-theme="default"],
+[data-theme-preview="default"] {
+  --tint-h: 228;
+  --tint-c: 0.011;
+  --brand: oklch(0.49 0.095 228);
+  --brand-hover: oklch(0.44 0.1 226);
+  --brand-soft: oklch(0.94 0.032 228);
+  --brand-fg: oklch(0.99 0.004 228);
+}
+
+/* Vivy dark. */
+[data-theme="dark"],
+[data-theme-preview="dark"] {
+  --tint-h: 228;
+  --tint-c: 0.012;
+  --brand: oklch(0.8 0.11 220);
+  --brand-hover: oklch(0.86 0.1 220);
+  --brand-soft: oklch(0.3 0.055 222);
+  --brand-fg: oklch(0.18 0.03 228);
+}
+
+/* Diva — rose on white. */
+[data-theme="pink"],
+[data-theme-preview="pink"] {
+  --tint-h: 352;
+  --tint-c: 0.01;
+  --brand: oklch(0.49 0.15 358);
+  --brand-hover: oklch(0.44 0.155 358);
+  --brand-soft: oklch(0.94 0.028 355);
+  --brand-fg: oklch(0.99 0.004 355);
+}
+
+/* Miku — teal on graphite. */
+[data-theme="miku"],
+[data-theme-preview="miku"] {
+  --tint-h: 190;
+  --tint-c: 0.01;
+  --brand: oklch(0.8 0.105 185);
+  --brand-hover: oklch(0.86 0.095 185);
+  --brand-soft: oklch(0.29 0.045 188);
+  --brand-fg: oklch(0.18 0.02 190);
+}
+
+/* Rice & Vermilion — warm paper, editorial reading. */
+[data-theme="rice"],
+[data-theme-preview="rice"] {
+  --tint-h: 78;
+  --tint-c: 0.014;
+  --brand: oklch(0.48 0.16 32);
+  --brand-hover: oklch(0.43 0.165 32);
+  --brand-soft: oklch(0.94 0.024 40);
+  --brand-fg: oklch(0.99 0.004 40);
+}
+
+/* Graphite & Fluor — graphite neutral, acid-lime accent. */
+[data-theme="fluor"],
+[data-theme-preview="fluor"] {
+  --tint-h: 265;
+  --tint-c: 0.004;
+  --brand: oklch(0.85 0.16 122);
+  --brand-hover: oklch(0.9 0.15 122);
+  --brand-soft: oklch(0.29 0.05 130);
+  --brand-fg: oklch(0.18 0.03 130);
+}
+
+/* Night Indigo — indigo ramp, periwinkle accent. */
+[data-theme="indigo"],
+[data-theme-preview="indigo"] {
+  --tint-h: 278;
+  --tint-c: 0.022;
+  --brand: oklch(0.78 0.1 285);
+  --brand-hover: oklch(0.84 0.09 285);
+  --brand-soft: oklch(0.3 0.06 285);
+  --brand-fg: oklch(0.18 0.02 285);
 }
 
 @layer base {

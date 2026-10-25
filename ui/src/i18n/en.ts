@@ -1229,6 +1229,7 @@ refreshModels: 'Refresh model list',
     themesDescription: 'Pick the interface skin; it applies immediately and is saved in this browser.',
     themesGroupAria: 'Interface theme',
     themeSelected: 'Selected',
+    themeSwatchSample: 'Aa',
     executeTimeoutTitle: 'Execute timeout ceiling',
     executeTimeoutDescription: 'Longest single wait for execute / commandline runs. Real setting; applies after the next launch.',
     executeTimeoutLabel: 'Max wait (seconds)',
@@ -1414,20 +1415,32 @@ refreshModels: 'Refresh model list',
   },
   themes: {
     default: {
-      label: 'Vivy Blue',
-      description: 'The default light blue-and-white interface.',
-    },
-    pink: {
-      label: 'Minimal Pink',
-      description: 'A light interface of white and fine pink lines, ported from Agent-Diva.',
+      label: 'Vivy Light',
+      description: 'Cyan-lit instrument panel: the default light appearance.',
     },
     dark: {
-      label: 'Deep Blue Night',
-      description: 'A dark interface in low-luminance blue-black.',
+      label: 'Vivy Dark',
+      description: 'The same panel after dark, with the cyan accent still lit.',
+    },
+    pink: {
+      label: 'Diva',
+      description: 'Rose on white, ported from Agent-Diva and deepened for legibility.',
     },
     miku: {
-      label: 'Miku Teal',
-      description: 'A dark interface in teal, ported from Agent-Diva.',
+      label: 'Miku',
+      description: 'Teal on graphite, ported from Agent-Diva and deepened for legibility.',
+    },
+    rice: {
+      label: 'Rice & Vermilion',
+      description: 'Warm paper and vermilion ink for long reading sessions.',
+    },
+    fluor: {
+      label: 'Graphite & Fluor',
+      description: 'Graphite surfaces with an acid-lime accent.',
+    },
+    indigo: {
+      label: 'Night Indigo',
+      description: 'Low-chroma indigo surfaces with a periwinkle accent.',
     },
   },
   language: {

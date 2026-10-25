@@ -1,54 +1,41 @@
 import { useSyncExternalStore } from 'react';
 
 // 界面皮肤单一入口：主题注册表、data-theme 应用、localStorage 持久化。
-// 主题色值本体在 ./../styles.css 的 [data-theme="..."] 块中，本文件只持有
-// 选择卡所需的结构数据；选择卡展示文案经 i18n 词条 themes.<id>.* 解析
-// （预览色板为字面量：选择卡需同时展示所有皮肤，不能跟随当前主题 token）。
-export const THEME_IDS = ['default', 'pink', 'dark', 'miku'] as const;
+// 色值本体只在 ../styles.css；本文件不持有任何颜色字面量。选择卡展示文案经
+// i18n 词条 themes.<id>.* 解析，预览色块由 [data-theme-preview] 真实令牌渲染。
+//
+// 存储 id 保持 default|dark|pink|miku 以零迁移兼容旧安装；对外名称是
+// Vivy 浅色/深色、Diva、Miku，以及三条新家族 rice/fluor/indigo。
+export const THEME_IDS = ['default', 'dark', 'pink', 'miku', 'rice', 'fluor', 'indigo'] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 export type ThemeAppearance = 'light' | 'dark';
 
 export type VivyTheme = {
   id: ThemeId;
   appearance: ThemeAppearance;
-  /** 选择卡预览背景（CSS background 字面量） */
-  preview: string;
-  /** 选择卡强调色（CSS color 字面量） */
-  accent: string;
 };
 
 export const THEMES: readonly VivyTheme[] = [
-  {
-    id: 'default',
-    appearance: 'light',
-    preview: 'linear-gradient(135deg, #f4f8fa 0%, #dfeff4 55%, #cce6ef 100%)',
-    accent: '#008fca',
-  },
-  {
-    id: 'pink',
-    appearance: 'light',
-    preview: 'linear-gradient(135deg, #ffffff 0%, #fff5f7 45%, #ffe4ef 100%)',
-    accent: '#ec4899',
-  },
-  {
-    id: 'dark',
-    appearance: 'dark',
-    preview: 'linear-gradient(135deg, #001d25 0%, #002d3a 55%, #003c4b 100%)',
-    accent: '#00aee4',
-  },
-  {
-    id: 'miku',
-    appearance: 'dark',
-    preview: 'linear-gradient(135deg, #0d1117 0%, #122129 45%, #123b39 100%)',
-    accent: '#39c5bb',
-  },
+  { id: 'default', appearance: 'light' },
+  { id: 'dark', appearance: 'dark' },
+  { id: 'pink', appearance: 'light' },
+  { id: 'miku', appearance: 'dark' },
+  { id: 'rice', appearance: 'light' },
+  { id: 'fluor', appearance: 'dark' },
+  { id: 'indigo', appearance: 'dark' },
 ];
 
 export const DEFAULT_THEME_ID: ThemeId = 'default';
 const STORAGE_KEY = 'vivy.theme';
+// 预绘制脚本（index.html）只读外观，不认识任何主题 id；setTheme 会同步写入。
+export const APPEARANCE_STORAGE_KEY = 'vivy.appearance';
 
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === 'string' && (THEME_IDS as readonly string[]).includes(value);
+}
+
+export function themeAppearance(id: ThemeId): ThemeAppearance {
+  return THEMES.find((item) => item.id === id)?.appearance ?? 'light';
 }
 
 export function readStoredTheme(): ThemeId {
@@ -60,19 +47,32 @@ export function readStoredTheme(): ThemeId {
   }
 }
 
+/** 把主题写成根元素上的两个属性；不写内联样式，避免与模块主题互相覆盖。 */
 export function applyThemeToDOM(id: ThemeId): void {
   if (typeof document === 'undefined') return;
-  const theme = THEMES.find((item) => item.id === id);
+  const appearance = themeAppearance(id);
   const root = document.documentElement;
   root.setAttribute('data-theme', id);
-  // .dark 类只负责驱动 Tailwind 的 dark: 变体；token 值由 [data-theme] 块提供。
-  root.classList.toggle('dark', theme?.appearance === 'dark');
+  root.setAttribute('data-appearance', appearance);
+  // .dark 只驱动 Tailwind dark: 变体；令牌值由 [data-appearance] 块提供。
+  root.classList.toggle('dark', appearance === 'dark');
+}
+
+function persistTheme(id: ThemeId): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, id);
+    window.localStorage.setItem(APPEARANCE_STORAGE_KEY, themeAppearance(id));
+  } catch {
+    /* storage 不可用（测试/隐私模式）时主题仍已应用 */
+  }
 }
 
 let currentTheme: ThemeId = readStoredTheme();
 const listeners = new Set<() => void>();
 
 applyThemeToDOM(currentTheme);
+// 旧安装只有 vivy.theme；在首次加载时补写外观，后续硬刷新才能走无闪烁的预绘制路径。
+persistTheme(currentTheme);
 
 function emit(): void {
   for (const listener of listeners) listener();
@@ -83,11 +83,7 @@ export function setTheme(value: string): void {
   if (!isThemeId(value) || value === currentTheme) return;
   currentTheme = value;
   applyThemeToDOM(value);
-  try {
-    window.localStorage.setItem(STORAGE_KEY, value);
-  } catch {
-    /* storage 不可用（测试/隐私模式）时主题仍已应用 */
-  }
+  persistTheme(value);
   emit();
 }
 

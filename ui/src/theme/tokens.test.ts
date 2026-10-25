@@ -95,8 +95,8 @@ const BASELINE: Record<Group, Record<Category, Baseline>> = {
       ],
     },
     hex: {
-      count: 21,
-      files: ['ui/src/components/ui/chart.tsx', 'ui/src/hooks/use-theme.ts'],
+      count: 5,
+      files: ['ui/src/components/ui/chart.tsx'],
     },
   },
   plugins: {

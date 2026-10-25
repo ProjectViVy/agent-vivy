@@ -15,7 +15,8 @@
     "pretest": "node scripts/stage-ui-assembly.mjs",
     "test": "vitest run",
     "e2e": "playwright test",
-    "audit": "node scripts/audit/screenshots.mjs"
+    "audit": "node scripts/audit/screenshots.mjs",
+    "audit:contrast": "node scripts/audit/contrast.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

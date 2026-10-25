@@ -10,6 +10,7 @@
 //
 // Output: ui/.audit/<timestamp>/<theme>-<width>/<surface>.png plus manifest.json.
 
+import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,18 +19,22 @@ import { chromium } from '@playwright/test';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI_ROOT = path.resolve(HERE, '..', '..');
 
-const THEMES = [
-  { id: 'default', appearance: 'light' },
-  { id: 'pink', appearance: 'light' },
-  { id: 'dark', appearance: 'dark' },
-  { id: 'miku', appearance: 'dark' },
-];
+// Families come from the registry, so the audit never photographs a stale list.
+function readThemes() {
+  const source = readFileSync(path.join(UI_ROOT, 'src', 'hooks', 'use-theme.ts'), 'utf8');
+  const entries = [...source.matchAll(/\{\s*id:\s*'([a-z0-9-]+)',\s*appearance:\s*'(light|dark)'/gi)];
+  if (entries.length === 0) throw new Error('no themes found in src/hooks/use-theme.ts');
+  return entries.map(([, id, appearance]) => ({ id, appearance }));
+}
+
+const THEMES = readThemes();
 
 const WELCOME_KEY = 'vivy.ui.welcome.completed';
 
 const SURFACES = [
   { name: 'chat-empty', path: '/' },
   { name: 'settings', path: '/settings' },
+  { name: 'theme-picker', path: '/settings', scrollTo: '[data-testid="theme-picker"]' },
   { name: 'dashboard', path: '/dashboard' },
   { name: 'approvals', path: '/approvals' },
   { name: 'mcp', path: '/mcp' },
@@ -122,16 +127,19 @@ async function main() {
           reducedMotion: 'reduce',
         });
         await context.addInitScript(
-          ({ themeId, welcomeKey, welcome }) => {
+          ({ themeId, appearance, welcomeKey, welcome }) => {
             try {
+              // Both keys mirror a returning user, so the pre-paint script in index.html
+              // has everything it needs and the shot cannot hide a theme flash.
               localStorage.setItem('vivy.theme', themeId);
+              localStorage.setItem('vivy.appearance', appearance);
               if (welcome === 'open') localStorage.removeItem(welcomeKey);
               else localStorage.setItem(welcomeKey, '1');
             } catch {
               /* storage unavailable: audit still captures the default surface */
             }
           },
-          { themeId: theme.id, welcomeKey: WELCOME_KEY, welcome: 'closed' },
+          { themeId: theme.id, appearance: theme.appearance, welcomeKey: WELCOME_KEY, welcome: 'closed' },
         );
         const page = await context.newPage();
         for (const surface of surfaces) {
@@ -147,6 +155,10 @@ async function main() {
             if (surface.clickHeader) {
               await page.locator('header button').first().click();
               await page.waitForTimeout(400);
+            }
+            if (surface.scrollTo) {
+              await page.locator(surface.scrollTo).first().scrollIntoViewIfNeeded();
+              await page.waitForTimeout(250);
             }
             await mkdir(path.dirname(shot), { recursive: true });
             await page.screenshot({ path: shot, animations: 'disabled' });

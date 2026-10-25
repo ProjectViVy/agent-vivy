@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  APPEARANCE_STORAGE_KEY,
   DEFAULT_THEME_ID,
   THEMES,
   THEME_IDS,
@@ -9,6 +10,7 @@ import {
   readStoredTheme,
   resetThemeForTests,
   setTheme,
+  themeAppearance,
 } from './use-theme';
 
 type DocumentStub = {
@@ -59,9 +61,17 @@ describe('theme registry', () => {
     expect(DEFAULT_THEME_ID).toBe('default');
     for (const theme of THEMES) {
       expect(['light', 'dark']).toContain(theme.appearance);
-      expect(theme.preview).toMatch(/linear-gradient/);
-      expect(theme.accent).toMatch(/^#/);
+      // Colour values live in styles.css only; the registry stays structural.
+      expect(Object.keys(theme).sort()).toEqual(['appearance', 'id']);
     }
+  });
+
+  it('keeps the legacy storage ids so existing installs do not migrate', () => {
+    for (const id of ['default', 'dark', 'pink', 'miku']) expect(isThemeId(id)).toBe(true);
+    expect(themeAppearance('dark')).toBe('dark');
+    expect(themeAppearance('miku')).toBe('dark');
+    expect(themeAppearance('default')).toBe('light');
+    expect(themeAppearance('rice')).toBe('light');
   });
 
   it('provides a display label and description for every theme through i18n', async () => {
@@ -112,21 +122,29 @@ describe('theme application', () => {
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('sets data-theme and toggles the dark class by appearance', () => {
+  it('sets data-theme and data-appearance and toggles the dark class', () => {
     applyThemeToDOM('pink');
     expect(doc.attributes.get('data-theme')).toBe('pink');
+    expect(doc.attributes.get('data-appearance')).toBe('light');
     expect(doc.classes.has('dark')).toBe(false);
 
     applyThemeToDOM('miku');
     expect(doc.attributes.get('data-theme')).toBe('miku');
+    expect(doc.attributes.get('data-appearance')).toBe('dark');
     expect(doc.classes.has('dark')).toBe(true);
 
     applyThemeToDOM('default');
     expect(doc.attributes.get('data-theme')).toBe('default');
+    expect(doc.attributes.get('data-appearance')).toBe('light');
     expect(doc.classes.has('dark')).toBe(false);
   });
 
-  it('setTheme applies to the DOM and persists', () => {
+  it('never writes inline style properties on the root element', () => {
+    const root = doc.documentElement as unknown as { style?: { setProperty?: () => void } };
+    expect(root.style).toBeUndefined();
+  });
+
+  it('setTheme applies to the DOM and persists theme plus appearance', () => {
     const values = new Map<string, string>();
     stubWindowWithStorage(values);
 
@@ -134,11 +152,13 @@ describe('theme application', () => {
     expect(doc.attributes.get('data-theme')).toBe('miku');
     expect(doc.classes.has('dark')).toBe(true);
     expect(values.get('vivy.theme')).toBe('miku');
+    expect(values.get(APPEARANCE_STORAGE_KEY)).toBe('dark');
 
     setTheme('pink');
     expect(doc.attributes.get('data-theme')).toBe('pink');
     expect(doc.classes.has('dark')).toBe(false);
     expect(values.get('vivy.theme')).toBe('pink');
+    expect(values.get(APPEARANCE_STORAGE_KEY)).toBe('light');
   });
 
   it('setTheme ignores invalid values and repeated values', () => {
