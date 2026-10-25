@@ -47,8 +47,21 @@ in the shapes MiniMax's own harness sends.
   `toolOrderRetries` became `modelRetryState` / `modelRetries`, shared by
   `grantModelRetry`, because overflow, tool-order and `2013` retries consume the
   same `modelMaxRetries` budget and the same per-run cleanup entry.
-- **Regression coverage**. New `internal/provider/outbound_test.go` and
-  `internal/runtime/provider_2013_retry_test.go`; `wire_golden_test.go` now
+- **Child engines carry the decider** (`internal/runtime/engine.go`,
+  `service.go`, follow-up commit). A child run executes on its own
+  `Engine` from `ChildView`/`OneShotView`, which builds a fresh
+  `ChatModelAgent` and therefore a fresh `ModelRetryConfig` closure. The
+  service bound the decider only on the primary engine, so a **child's** model
+  call was never retried at all — including the first child call this delivery
+  exists for. `Engine` now retains the bound decider and every derived view
+  re-binds it; the per-run budget stays keyed by run id, so parent and child do
+  not share a grant. Overflow recovery is the one exception: it folds durable
+  session history, a child view runs with compaction disabled inside the
+  parent session, so the decider skips it for child execution
+  (`isChildTerminal(ctx)`) and keeps it on the primary run.
+- **Regression coverage**. New `internal/provider/outbound_test.go`,
+  `internal/runtime/provider_2013_retry_test.go` and
+  `internal/runtime/child_retry_binding_test.go`; `wire_golden_test.go` now
   expects string content for user and assistant rows, pins that invalid UTF-8
   reaches the wire as U+FFFD, and `context_test.go` pins that an unanswered
   assistant tool call never reaches the projected context.

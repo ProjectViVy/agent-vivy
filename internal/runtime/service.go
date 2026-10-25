@@ -5368,8 +5368,14 @@ func (s *Service) modelRetryDecision(ctx context.Context, rc *adk.TypedRetryCont
 	if errors.Is(rc.Err, errModelRequestInvalid) {
 		return nil
 	}
-	if decision := s.overflowRetryDecision(ctx, rc); decision != nil {
-		return decision
+	// A child view runs with compaction disabled and, if it folded at all,
+	// would fold the parent session's history into a delegated task. Overflow
+	// recovery therefore stays on the primary run; the identical-replay
+	// decisions below apply to both.
+	if !isChildTerminal(ctx) {
+		if decision := s.overflowRetryDecision(ctx, rc); decision != nil {
+			return decision
+		}
 	}
 	if decision := s.provider2013RetryDecision(ctx, rc); decision != nil {
 		return decision

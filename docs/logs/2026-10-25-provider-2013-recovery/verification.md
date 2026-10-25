@@ -31,6 +31,26 @@ assertion (run fails, one v5 `model.request`, a content-free `wire` summary on
 the failed finish). The fact that the replay is byte-identical is the property
 the journal's fingerprint relies on, so the test now proves it end to end.
 
+## Follow-up: child engines carried no retry decider
+
+Found after the first commit while answering how a sub-agent executes: a child
+run uses its own `Engine` from `ChildView`/`OneShotView`, which builds a new
+`ChatModelAgent` and a new `ModelRetryConfig` closure, while the service bound
+the decider only on the primary engine. No child model call was retried, so the
+delivery's headline case (a child's first call) was still unprotected. The
+outbound normalizer did apply, because a child view reuses the same wrapped
+`model.AgenticModel`.
+
+Fix and re-verification:
+
+| Command | Result |
+|---|---|
+| `go test ./internal/runtime/ -run 'TestChildEngineInheritsModelRetryDecider\|TestChildModelRetry' -count=1` | 3 tests pass |
+| `gofmt -l internal/provider internal/runtime internal/app` | empty |
+| `go vet ./internal/provider/... ./internal/runtime/...` | pass |
+| `go test ./internal/runtime/... ./internal/app/... ./internal/provider/... -count=1` | `runtime 70.574s`, `runtime/compaction 0.269s`, `app 19.750s`, `app/settings 1.064s`, `provider 0.708s` — all pass |
+| `go build ./cmd/...` | pass |
+
 ## Not run
 
 - `just ci` / `just wiring-ci` / `just kernel-ci`: not applicable to this

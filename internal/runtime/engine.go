@@ -153,6 +153,10 @@ type Engine struct {
 	// setRetryDecider fills the late-bound VCP-D2 decider slot captured by
 	// the agent's ModelRetryConfig.ShouldRetry closure.
 	setRetryDecider func(ModelRetryDecider)
+	// retryDecider is the bound decider itself. A derived child view builds a
+	// fresh agent and must re-bind it, or a child model call would never run
+	// the retry decisions the primary call does.
+	retryDecider ModelRetryDecider
 }
 
 // EngineFactory pins the production LoopDriver to the typed agentic Eino ADK
@@ -452,7 +456,11 @@ type ModelRetryDecider func(ctx context.Context, rc *adk.TypedRetryContext[*sche
 // SetRetryDecider binds the model retry decider (nil decider = every model
 // error propagates as before). Called once by the service at wiring.
 func (e *Engine) SetRetryDecider(d ModelRetryDecider) {
-	if e != nil && e.setRetryDecider != nil {
+	if e == nil {
+		return
+	}
+	e.retryDecider = d
+	if e.setRetryDecider != nil {
 		e.setRetryDecider(d)
 	}
 }
@@ -520,7 +528,16 @@ func (e *Engine) restrictedView(ctx context.Context, names []string, readOnlyOnl
 	// the same room as any other run, and the shared run-tree budget already
 	// bounds parent plus children together. A separate child-only ceiling made
 	// runtime.max_tool_turns non-authoritative for delegated work.
-	return NewEngine(ctx, e.chatModel, selected, cfg)
+	child, err := NewEngine(ctx, e.chatModel, selected, cfg)
+	if err != nil {
+		return nil, err
+	}
+	// The derived agent has its own ModelRetryConfig closure, so the decider
+	// must be re-bound or a child model call would never be retried. The
+	// service keys the per-run budget by run id, so parent and child do not
+	// share a grant.
+	child.SetRetryDecider(e.retryDecider)
+	return child, nil
 }
 
 // PrepareProposal asks an effectful tool for a bounded review plan before the
