@@ -175,7 +175,7 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
       </div>
       <ScrollArea className="min-h-0 flex-1">
         {sessionsPhase === 'loading' && sessions.length === 0 ? <div className="space-y-2 p-2"><Skeleton className="h-10" /><Skeleton className="h-10" /></div> : null}
-        {sessionsPhase === 'ready' && sessions.length === 0 ? <p className="p-3 text-sm text-muted-foreground">{t('historyPicker.noSessions')}</p> : null}
+        {sessionsPhase === 'ready' && sessions.length === 0 ? <p className="p-3 text-ui text-fg-muted">{t('historyPicker.noSessions')}</p> : null}
         <div className="divide-y divide-border">
           {sessions.map((session) => (
             <SessionRow
@@ -213,7 +213,7 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
         <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" aria-label={t('historyPicker.search')} disabled={!sourceId || itemsPhase === 'loading'} onClick={() => sourceId && void loadItems(sourceId, recordQuery, kindFilter, '')}>
           <Search className="h-4 w-4" />
         </Button>
-        <div className="flex items-center gap-1 text-xs" role="group" aria-label={t('historyPicker.filters')}>
+        <div className="flex items-center gap-1 text-meta" role="group" aria-label={t('historyPicker.filters')}>
           {(['message', 'tool', 'file'] as const).map((kind) => (
             <Button key={kind} type="button" variant={kindFilter === kind ? 'secondary' : 'ghost'} size="sm" className="h-7 px-2" onClick={() => setKindFilter(kind)}>
               {t(`historyPicker.kind.${kind}`)}
@@ -222,10 +222,10 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
         </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        {!sourceId ? <p className="p-4 text-sm text-muted-foreground">{t('historyPicker.chooseSession')}</p> : null}
+        {!sourceId ? <p className="p-4 text-ui text-fg-muted">{t('historyPicker.chooseSession')}</p> : null}
         {itemsPhase === 'loading' && items.length === 0 ? <div className="space-y-2 p-3"><Skeleton className="h-8" /><Skeleton className="h-8" /></div> : null}
-        {itemsPhase === 'error' ? <p className="p-4 text-sm text-destructive">{t(itemsError === 'narrow_scope' ? 'historyPicker.narrowSearch' : 'historyPicker.loadFailed')}</p> : null}
-        {itemsPhase === 'ready' && items.length === 0 ? <p className="p-4 text-sm text-muted-foreground">{t('historyPicker.noRecords')}</p> : null}
+        {itemsPhase === 'error' ? <p className="p-4 text-ui text-danger">{t(itemsError === 'narrow_scope' ? 'historyPicker.narrowSearch' : 'historyPicker.loadFailed')}</p> : null}
+        {itemsPhase === 'ready' && items.length === 0 ? <p className="p-4 text-ui text-fg-muted">{t('historyPicker.noRecords')}</p> : null}
         {items.map((item) => (
           <label key={itemKey(item)} className="flex items-start gap-2 border-b px-3 py-2 hover:bg-accent">
             <Checkbox
@@ -235,8 +235,8 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
               className="mt-0.5"
             />
             <span className="min-w-0 flex-1">
-              <span className="text-xs text-muted-foreground">{item.author} · {item.ref.kind}{item.truncated ? ` · ${t('historyPicker.truncated')}` : ''}</span>
-              <span className="block break-all text-sm">{item.text}</span>
+              <span className="text-meta text-fg-muted">{item.author} · {item.ref.kind}{item.truncated ? ` · ${t('historyPicker.truncated')}` : ''}</span>
+              <span className="block break-all text-ui">{item.text}</span>
             </span>
           </label>
         ))}
@@ -245,17 +245,17 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
             {itemsPhase === 'loading' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}{t('historyPicker.loadMore')}
           </Button>
         ) : null}
-        {itemsPhase === 'ready' && itemsStatus === 'partial' ? <p className="p-2 text-xs text-muted-foreground">{t('historyPicker.moreRemain')}</p> : null}
+        {itemsPhase === 'ready' && itemsStatus === 'partial' ? <p className="p-2 text-meta text-fg-muted">{t('historyPicker.moreRemain')}</p> : null}
       </ScrollArea>
     </div>
   );
 
   const footer = (
     <div className="flex flex-wrap items-center gap-3 border-t p-3">
-      <span className="text-xs text-muted-foreground" aria-live="polite">
+      <span className="text-meta text-fg-muted" aria-live="polite">
         {t('historyPicker.selectedCount', { count: selected.size, bytes: selectedBytes })}
       </span>
-      <label className="flex items-center gap-2 text-xs">
+      <label className="flex items-center gap-2 text-meta">
         <Checkbox checked={allowFurther} onCheckedChange={(checked) => setAllowFurther(checked === true)} aria-label={t('historyPicker.allowFurther')} />
         {t('historyPicker.allowFurther')}
       </label>
@@ -268,25 +268,25 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
       </div>
       {previewPhase === 'ready' && preview ? (
         <div className="w-full space-y-1" role="status">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-meta text-fg-muted">
             {t('historyPicker.previewMeta', { count: preview.items.length, bytes: preview.byte_count, status: preview.source_status })}
           </p>
-          {preview.source_status !== 'ok' ? <p className="text-xs text-destructive">{t('historyPicker.narrowing')}</p> : null}
+          {preview.source_status !== 'ok' ? <p className="text-meta text-danger">{t('historyPicker.narrowing')}</p> : null}
           <ScrollArea className="max-h-32 rounded border p-2">
             {preview.items.map((item) => (
-              <p key={`preview-${itemKey(item)}`} className="break-all text-xs"><span className="text-muted-foreground">{item.author}:</span> {item.text}</p>
+              <p key={`preview-${itemKey(item)}`} className="break-all text-meta"><span className="text-fg-muted">{item.author}:</span> {item.text}</p>
             ))}
           </ScrollArea>
         </div>
       ) : null}
-      {previewPhase === 'error' ? <p className="w-full text-xs text-destructive">{t('historyPicker.previewFailed')}</p> : null}
+      {previewPhase === 'error' ? <p className="w-full text-meta text-danger">{t('historyPicker.previewFailed')}</p> : null}
     </div>
   );
 
   if (mobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="bottom" className="flex h-[100dvh] w-full flex-col p-0">
+        <SheetContent side="bottom" className="bottom-2 h-[calc(100dvh-2.5rem)] w-full rounded-t-2xl">
           <SheetHeader className="border-b px-4 py-3 text-left">
             <SheetTitle>{t('historyPicker.title')}</SheetTitle>
             <SheetDescription className="sr-only">{t('historyPicker.description')}</SheetDescription>
@@ -299,7 +299,7 @@ export function HistoryPicker({ destinationSessionId, open, onOpenChange, onAtta
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[80dvh] w-[min(960px,calc(100vw-2rem))] max-w-none flex-col p-0" aria-describedby={undefined}>
+      <DialogContent size="sheet" className="flex flex-col" aria-describedby={undefined}>
         <DialogHeader className="border-b px-4 py-3 text-left">
           <DialogTitle className="flex items-center gap-2"><History className="h-4 w-4" />{t('historyPicker.title')}</DialogTitle>
           <DialogDescription className="sr-only">{t('historyPicker.description')}</DialogDescription>

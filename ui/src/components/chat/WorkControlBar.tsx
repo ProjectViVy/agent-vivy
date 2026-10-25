@@ -40,18 +40,18 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
   const handlePlanDecision = async (submissionId: string, action: PlanAction, feedback?: string, objective?: string, maxRounds?: number) => {
     await decidePlan(action, feedback, objective, maxRounds, submissionId);
   };
-  if (phase === 'error' && !work) return <section aria-label={t('workControl.title')} className="flex items-center gap-2 border-b px-4 py-2 text-xs"><span role="alert" className="text-destructive">{t('workControl.error', { error: error ?? t('workControl.unavailable') })}</span><Button type="button" size="sm" variant="outline" onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></section>;
+  if (phase === 'error' && !work) return <section aria-label={t('workControl.title')} className="flex items-center gap-2 border-b px-4 py-2 text-meta"><span role="alert" className="text-danger">{t('workControl.error', { error: error ?? t('workControl.unavailable') })}</span><Button type="button" size="sm" variant="outline" onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></section>;
   if (!work || (!goal && !(plan?.active && plan.submission_id) && !error)) return null;
   return (
-    <div className="shrink-0 px-3 pt-2 sm:px-4"><section aria-label={t('workControl.title')} data-work-dock className="mx-auto max-h-[40vh] max-w-3xl overflow-auto rounded-xl border bg-card/60 px-3 py-2">
-      <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold">{t(goal ? 'workControl.goal' : plan?.active ? 'workControl.plan' : 'workControl.title')}</span>
+    <div className="shrink-0 px-3 pt-2 sm:px-4"><section aria-label={t('workControl.title')} data-work-dock className="mx-auto max-h-[40vh] max-w-content overflow-auto rounded-xl border border-line bg-surface px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-meta font-semibold">{t(goal ? 'workControl.goal' : plan?.active ? 'workControl.plan' : 'workControl.title')}</span>
         {goal ? (
-          <span className="max-w-full truncate text-xs text-muted-foreground" title={goal.objective}>
+          <span className="line-clamp-2 min-w-0 max-w-full break-words text-meta text-fg-muted" title={goal.objective}>
             {goal.objective} · {t('workControl.' + goal.phase)} · {t('workControl.rounds', { started: goal.rounds_started, max: goal.max_rounds })}
           </span>
         ) : null}
-        {goal ? <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{t('workControl.' + work.activation)}</span> : null}
+        {goal ? <span className="rounded-full border border-line px-2 py-0.5 text-2xs text-fg-muted">{t('workControl.' + work.activation)}</span> : null}
         <div className="ml-auto flex flex-wrap gap-1">
           {goal && !editDraft ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setEditDraft({ ref: { id: goal.id, revision: goal.revision }, objective: goal.objective, maxRounds: String(goal.max_rounds) })}>{t('workControl.editGoal')}</Button> : null}
           {goal && goalIsActive && work.activation === 'armed' ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void runAction(pauseGoal)}>{t('workControl.pauseGoal')}</Button> : null}
@@ -59,9 +59,9 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
           {work.plan.active ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void runAction(leavePlan)}>{t('workControl.leavePlan')}</Button> : null}
         </div>
       </div>
-      {goal && (goal.phase === 'paused' || (goalIsActive && work.activation === 'disarmed')) ? <p className="mx-auto mt-1 max-w-4xl text-xs text-muted-foreground">{t('composerCommands.resumeHint')}</p> : null}
+      {goal && (goal.phase === 'paused' || (goalIsActive && work.activation === 'disarmed')) ? <p className="mt-1 text-meta text-fg-muted">{t('composerCommands.resumeHint')}</p> : null}
       {editDraft ? (
-        <div className="mx-auto mt-2 flex max-w-4xl flex-col gap-2 sm:flex-row">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <Textarea value={editDraft.objective} onChange={(event) => setEditDraft({ ...editDraft, objective: event.target.value })} aria-label={t('workControl.editObjective')} disabled={busy} className="min-h-9 flex-1" />
           <Input value={editDraft.maxRounds} onChange={(event) => setEditDraft({ ...editDraft, maxRounds: event.target.value })} aria-label={t('workControl.editRounds')} type="number" min={goal?.rounds_started || 1} max={1000} disabled={busy} className="w-24" />
           <Button type="button" disabled={busy || !editDraft.objective.trim() || !Number.isInteger(Number(editDraft.maxRounds)) || Number(editDraft.maxRounds) <= 0 || Number(editDraft.maxRounds) > 1000 || Boolean(goal && Number(editDraft.maxRounds) < goal.rounds_started)} onClick={() => void saveEdit()}>{t('workControl.saveGoal')}</Button>
@@ -69,13 +69,13 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
         </div>
       ) : null}
       {goal && (goal.reason || goal.evidence_run_id) ? (
-        <div className="mx-auto mt-1 flex max-w-4xl flex-wrap gap-x-3 text-[11px] text-muted-foreground">
+        <div className="mt-1 flex flex-wrap gap-x-3 text-meta text-fg-muted">
           {goal.reason ? <span>{t('workControl.reason')}: {goal.reason === 'round-limit' || goal.reason === 'round_limit' ? t('workControl.roundLimitReached') : goal.reason}</span> : null}
-          {goal.evidence_run_id ? <span>{t('workControl.evidence')}: {goal.evidence_run_id}</span> : null}
+          {goal.evidence_run_id ? <span className="break-all">{t('workControl.evidence')}: {goal.evidence_run_id}</span> : null}
         </div>
       ) : null}
       {plan?.active ? <PlanReview key={plan.submission_id ?? 'no-submission'} plan={plan} busy={busy} hasGoal={Boolean(goal)} onDecide={handlePlanDecision} /> : null}
-      {error ? <div className="mx-auto mt-2 flex max-w-4xl items-center gap-2 text-xs text-destructive"><span role="alert">{t('workControl.error', { error })}</span><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></div> : null}
+      {error ? <div className="mt-2 flex flex-wrap items-center gap-2 text-meta text-danger"><span role="alert">{t('workControl.error', { error })}</span><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></div> : null}
     </section></div>
   );
 }

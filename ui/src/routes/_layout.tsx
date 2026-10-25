@@ -95,11 +95,11 @@ function Layout() {
 
   return (
     <div className="flex h-dvh bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
-      <div className={cn('hidden h-full shrink-0 overflow-hidden transition-[width] duration-200 md:block', desktopCollapsed ? 'w-0' : 'w-72')}>
+      <div className={cn('hidden h-full shrink-0 overflow-hidden transition-[width] duration-200 md:block', desktopCollapsed ? 'w-0' : 'w-sidebar')}>
         {sidebar}
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-1 border-b bg-card px-2 sm:gap-2 sm:px-4">
+        <header className="flex h-14 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 sm:gap-2 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <Button
               variant="ghost"
@@ -111,15 +111,15 @@ function Layout() {
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex min-w-0 items-center gap-2 max-[359px]:hidden">
-              <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-lg sm:flex">😊</div>
+              <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-selected text-lg sm:flex">😊</div>
               <div className="min-w-0 max-[359px]:hidden">
-                <div className="truncate text-sm font-semibold leading-tight">Vivy</div>
-                <div className="hidden truncate text-xs leading-tight text-muted-foreground sm:block">{run ? run.status : t('layout.idleMood')}</div>
+                <div className="truncate text-title font-semibold leading-tight">Vivy</div>
+                <div className="hidden truncate text-meta leading-tight text-fg-muted sm:block">{run ? run.status : t('layout.idleMood')}</div>
               </div>
               <span
                 className={cn(
-                  'ml-1 hidden sm:flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs',
-                  connected ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600',
+                  'ml-1 hidden sm:flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-meta',
+                  connected ? 'bg-ok-soft text-ok-fg' : 'bg-warn-soft text-warn-fg',
                 )}
                 title={connected ? t('layout.online') : connection}
               >
@@ -176,7 +176,7 @@ function Layout() {
       </div>
       {mobile ? (
         <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-          <SheetContent side="left" className="w-72 max-w-full [&>button]:hidden">
+          <SheetContent side="left" className="w-sidebar max-w-full [&>button]:hidden">
             {sidebar}
           </SheetContent>
         </Sheet>

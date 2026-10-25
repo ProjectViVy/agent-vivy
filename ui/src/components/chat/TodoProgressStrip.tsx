@@ -28,17 +28,17 @@ export function TodoProgressStrip() {
       <button
         type="button"
         className={cn(
-          'mx-auto flex h-9 w-full max-w-3xl cursor-pointer items-center gap-2.5 rounded-xl border bg-card px-3 text-left shadow-sm',
-          'hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+          'mx-auto flex min-h-9 w-full max-w-content cursor-pointer items-center gap-2.5 rounded-xl border border-line bg-surface px-3 text-left shadow-sm',
+          'hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
         )}
         aria-expanded={open}
         aria-controls="session-todo-panel"
         onClick={() => setOpen(!open)}
       >
-        <ListTodo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="shrink-0 text-[13px] font-medium leading-6">{t('todos.title')}</span>
-        {label ? <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-muted-foreground" title={label}>{label}</span> : <span className="min-w-0 flex-1" />}
-        {progress ? <span className="min-w-0 shrink truncate text-[13px] leading-5 text-muted-foreground">{progress}</span> : null}
+        <ListTodo className="h-3.5 w-3.5 shrink-0 text-fg-muted" aria-hidden />
+        <span className="shrink-0 text-ui font-medium leading-6">{t('todos.title')}</span>
+        {label ? <span className="line-clamp-1 min-w-0 flex-1 break-words text-ui leading-5 text-fg-muted" title={label}>{label}</span> : <span className="min-w-0 flex-1" />}
+        {progress ? <span className="min-w-0 shrink truncate text-ui leading-5 text-fg-muted" title={progress}>{progress}</span> : null}
       </button>
     </div>
   );

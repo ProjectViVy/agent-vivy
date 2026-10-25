@@ -138,6 +138,7 @@
 
   /* Geometry */
   --container-content: var(--content-max);
+  --container-sidebar: var(--sidebar-w);
 
   /* shadcn aliases — derived, never authored. Every call site still on
      `bg-background` / `text-muted-foreground` resolves through the semantic

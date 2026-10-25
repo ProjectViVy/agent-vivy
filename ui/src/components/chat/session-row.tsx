@@ -32,7 +32,7 @@ interface Props {
 export function SessionRow({ title, untitled, subtitle, active, busy, onSelect, rename, onDelete }: Props) {
   const { t } = useTranslation();
   const shell = cn(
-    'group relative flex min-h-8 rounded-lg text-sm transition-colors',
+    'group relative flex min-h-8 rounded-lg text-ui transition-colors',
     active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-sidebar-accent/50',
     busy && 'opacity-60',
   );
@@ -48,7 +48,7 @@ export function SessionRow({ title, untitled, subtitle, active, busy, onSelect, 
             if (event.key === 'Enter') rename.onSave();
             if (event.key === 'Escape') rename.onCancel();
           }}
-          className="min-w-0 flex-1 rounded border bg-background px-2 py-0.5 text-sm outline-none focus:border-primary"
+          className="min-w-0 flex-1 rounded border bg-surface px-2 py-0.5 text-ui outline-none focus:border-brand"
         />
         <button type="button" onClick={rename.onSave} title={t('common.save')} aria-label={t('common.save')} className="rounded p-0.5 hover:bg-sidebar-accent">
           <Check className="h-3.5 w-3.5" />
@@ -65,11 +65,11 @@ export function SessionRow({ title, untitled, subtitle, active, busy, onSelect, 
       <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-2.5 py-1.5 text-left">
         <span
           title={title}
-          className={cn('min-w-0 truncate', (rename || onDelete) && 'group-hover:pr-14', untitled && 'text-muted-foreground')}
+          className={cn('line-clamp-2 min-w-0 break-words', (rename || onDelete) && 'group-hover:pr-14', untitled && 'text-fg-muted')}
         >
           {title}
         </span>
-        {subtitle ? <span className="min-w-0 truncate text-xs text-muted-foreground">{subtitle}</span> : null}
+        {subtitle ? <span className="min-w-0 truncate text-meta text-fg-muted">{subtitle}</span> : null}
       </button>
       {rename || onDelete ? (
         <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
@@ -79,7 +79,7 @@ export function SessionRow({ title, untitled, subtitle, active, busy, onSelect, 
             </button>
           ) : null}
           {onDelete ? (
-            <button type="button" onClick={onDelete} title={t('common.delete')} aria-label={t('common.delete')} className="rounded p-1 text-destructive hover:bg-destructive/10">
+            <button type="button" onClick={onDelete} title={t('common.delete')} aria-label={t('common.delete')} className="rounded p-1 text-danger hover:bg-danger-soft">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           ) : null}

@@ -69,11 +69,11 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
 
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
-      <div className="mx-auto max-w-4xl">
-        <h1 className="text-2xl font-bold">{t('settings.title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('settings.subtitle')}</p>
+      <div className="mx-auto max-w-content">
+        <h1 className="text-page font-bold">{t('settings.title')}</h1>
+        <p className="mt-1 text-ui text-fg-muted">{t('settings.subtitle')}</p>
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)} className="mt-6">
-          <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
             <TabsTrigger value="general">{t('settings.tabs.general')}</TabsTrigger>
             <TabsTrigger value="model">{t('settings.tabs.model')}</TabsTrigger>
             <TabsTrigger value="tools">{t('settings.tabs.tools')}</TabsTrigger>
@@ -85,7 +85,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             {DIVA_ADDITIONAL_SECTIONS.map((section) => (
               <TabsTrigger key={section} value={section}>
                 {t(`settings.tabs.${section === 'self-evolution' ? 'selfEvolution' : section}`)}
-                <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">{t('divaPreview.previewBadge')}</span>
+                <span className="ml-1.5 rounded bg-sunken px-1.5 py-0.5 text-2xs font-medium leading-none text-fg-muted">{t('divaPreview.previewBadge')}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -98,27 +98,27 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
                   <div className="space-y-2">
                     <Label htmlFor="execute-max-timeout">{t('settings.executeTimeoutLabel')}</Label>
                     <Input id="execute-max-timeout" type="number" min={0} max={600} step={1} value={form.execute_max_timeout} onChange={(event) => setForm({ ...form, execute_max_timeout: event.target.value })} placeholder={String(settings?.config_execute_max_timeout_seconds ?? 30)} disabled={locked} />
-                    <p className="text-xs text-muted-foreground">{t('settings.executeTimeoutHint')}</p>
+                    <p className="text-meta text-fg-muted">{t('settings.executeTimeoutHint')}</p>
                   </div>
-                  {settings?.read_only ? <p className="rounded bg-amber-500/10 p-3 text-sm text-amber-700">{t('settings.readOnlyNotice')}</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? t('settings.saving') : t('settings.saveGeneral')}</Button>}
-                  {formError ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{formError}</p> : null}
-                  {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+                  {settings?.read_only ? <p className="rounded bg-warn-soft p-3 text-ui text-warn-fg">{t('settings.readOnlyNotice')}</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? t('settings.saving') : t('settings.saveGeneral')}</Button>}
+                  {formError ? <p className="rounded bg-danger-soft p-3 text-ui text-danger-fg">{formError}</p> : null}
+                  {error ? <p className="rounded bg-danger-soft p-3 text-ui text-danger-fg">{error}</p> : null}
                 </form>
               </CardContent>
             </Card>
             <Card>
               <CardHeader><CardTitle>{t('settings.appInfoTitle')}</CardTitle><CardDescription>{t('settings.appInfoDescription')}</CardDescription></CardHeader>
               <CardContent className="grid gap-4 text-sm sm:grid-cols-2">
-                <div><p className="text-muted-foreground">{t('settings.app')}</p><p className="mt-1 font-medium">Vivy</p></div>
-                <div><p className="text-muted-foreground">{t('settings.version')}</p><p className="mt-1 font-medium">1.0.0</p></div>
-                <div><p className="text-muted-foreground">{t('settings.connection')}</p><p className="mt-1 font-medium">{connection}</p></div>
-                <div><p className="text-muted-foreground">{t('settings.demoContent')}</p><p className="mt-1 font-medium">{t('settings.demoContentValue')}</p></div>
+                <div><p className="text-fg-muted">{t('settings.app')}</p><p className="mt-1 font-medium">Vivy</p></div>
+                <div><p className="text-fg-muted">{t('settings.version')}</p><p className="mt-1 font-medium">1.0.0</p></div>
+                <div><p className="text-fg-muted">{t('settings.connection')}</p><p className="mt-1 font-medium">{connection}</p></div>
+                <div><p className="text-fg-muted">{t('settings.demoContent')}</p><p className="mt-1 font-medium">{t('settings.demoContentValue')}</p></div>
               </CardContent>
             </Card>
             <ThemePicker />
             <Card>
               <CardHeader>
-                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
                 <CardTitle>{t('welcome.rerunTitle')}</CardTitle>
                 <CardDescription>{t('welcome.rerunDescription')}</CardDescription>
               </CardHeader>
@@ -134,7 +134,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           <TabsContent value="model" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Cpu className="h-5 w-5" aria-hidden="true" /></div>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Cpu className="h-5 w-5" aria-hidden="true" /></div>
                 <CardTitle>{t('settings.modelConfigTitle')}</CardTitle>
                 <CardDescription>{t('settings.modelConfigDescription')}</CardDescription>
               </CardHeader>
@@ -145,7 +145,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           <TabsContent value="tools" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
                 <CardTitle>{t('settings.toolsTitle')}</CardTitle>
                 <CardDescription>{t('settings.toolsDescription')}</CardDescription>
               </CardHeader>
@@ -154,8 +154,8 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           </TabsContent>
 
           <TabsContent value="vivy" className="space-y-4">
-            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.lifecycleTitle')}</CardTitle><CardDescription>{t('settings.lifecycleDescription')}</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">{t('settings.openLifecycle')}<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
-            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.runInspectorTitle')}</CardTitle><CardDescription>{t('settings.runInspectorDescription')}</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] overflow-hidden p-0"><RunInspector /></CardContent></Card>
+            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.lifecycleTitle')}</CardTitle><CardDescription>{t('settings.lifecycleDescription')}</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">{t('settings.openLifecycle')}<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
+            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.runInspectorTitle')}</CardTitle><CardDescription>{t('settings.runInspectorDescription')}</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] min-h-[20rem] overflow-auto p-0"><RunInspector /></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="language" className="space-y-4">
