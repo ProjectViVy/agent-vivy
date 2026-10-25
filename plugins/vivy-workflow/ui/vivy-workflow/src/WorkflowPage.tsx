@@ -77,12 +77,12 @@ function Page({ host, client, t }: { host: FullUIHost; client: WorkflowClient; t
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <TabsList className="h-8">
-            <TabsTrigger value="editor" className="text-xs">{t('plugin.vivy/workflow-ui.tab.editor')}</TabsTrigger>
-            <TabsTrigger value="workflows" className="text-xs">{t('plugin.vivy/workflow-ui.tab.workflows')}</TabsTrigger>
-            <TabsTrigger value="runs" className="text-xs">{t('plugin.vivy/workflow-ui.tab.runs')}</TabsTrigger>
+            <TabsTrigger value="editor" className="text-meta">{t('plugin.vivy/workflow-ui.tab.editor')}</TabsTrigger>
+            <TabsTrigger value="workflows" className="text-meta">{t('plugin.vivy/workflow-ui.tab.workflows')}</TabsTrigger>
+            <TabsTrigger value="runs" className="text-meta">{t('plugin.vivy/workflow-ui.tab.runs')}</TabsTrigger>
           </TabsList>
           {catalogError ? (
-            <span className="ml-auto text-[11px] text-destructive">{catalogError}</span>
+            <span className="ml-auto text-2xs text-danger">{catalogError}</span>
           ) : null}
         </div>
         <TabsContent value="editor" className="mt-0 min-h-0 flex-1">

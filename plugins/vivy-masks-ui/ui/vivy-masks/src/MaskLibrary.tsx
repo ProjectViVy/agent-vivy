@@ -45,10 +45,10 @@ export function MaskLibrary({
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">
+          <h2 className="text-title font-semibold">
             {t('plugin.vivy/masks-ui.catalogTitle')}
           </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-meta text-fg-muted">
             {t('plugin.vivy/masks-ui.libraryHint')}
           </p>
         </div>
@@ -57,14 +57,14 @@ export function MaskLibrary({
           {t('plugin.vivy/masks-ui.new')}
         </Button>
       </div>
-      <label className="mb-4 flex items-center gap-2 rounded-xl border bg-card px-3 py-2.5">
-        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <label className="mb-4 flex items-center gap-2 rounded-xl border bg-raised px-3 py-2.5">
+        <Search className="h-4 w-4 shrink-0 text-fg-muted" />
         <input
           aria-label={t('plugin.vivy/masks-ui.search')}
           placeholder={t('plugin.vivy/masks-ui.search')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          className="min-w-0 flex-1 bg-transparent text-ui outline-none"
         />
       </label>
       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
@@ -72,12 +72,12 @@ export function MaskLibrary({
           <Card
             key={mask.id}
             data-mask-id={mask.id}
-            className={`min-w-0 gap-0 overflow-hidden rounded-2xl py-0 ${selection.known && selection.id === mask.id ? 'border-primary/30 bg-primary/5' : openedId === mask.id ? 'border-primary/50' : 'bg-card'}`}
+            className={`min-w-0 gap-0 overflow-hidden rounded-2xl py-0 ${selection.known && selection.id === mask.id ? 'border-brand/30 bg-brand/5' : openedId === mask.id ? 'border-brand/50' : 'bg-raised'}`}
           >
             <button
               type="button"
               aria-pressed={openedId === mask.id}
-              className="flex w-full cursor-pointer flex-col gap-3 p-4 text-left transition-colors hover:bg-accent/30"
+              className="flex w-full cursor-pointer flex-col gap-3 p-4 text-left transition-colors hover:bg-hover/30"
               onClick={() => {
                 onView(mask.id);
               }}
@@ -85,20 +85,20 @@ export function MaskLibrary({
               <span className="flex w-full min-w-0 items-center gap-3">
                 <MaskIdentity id={mask.id} />
                 <span className="min-w-0 flex-1">
-                  <span className="block break-words text-sm font-semibold">
+                  <span className="block break-words text-ui font-semibold">
                     {mask.name}
                   </span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                  <span className="mt-0.5 block text-meta text-fg-muted">
                     {maskKind(t, mask)}
                   </span>
                 </span>
                 {selection.known && selection.id === mask.id ? (
-                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+                  <Badge variant="secondary" className="shrink-0 text-2xs">
                     {t('plugin.vivy/masks-ui.currentBadge')}
                   </Badge>
                 ) : null}
               </span>
-              <span className="block min-h-10 break-words text-sm leading-relaxed text-muted-foreground">
+              <span className="block min-h-10 break-words text-ui leading-relaxed text-fg-muted">
                 {mask.description}
               </span>
             </button>
@@ -106,7 +106,7 @@ export function MaskLibrary({
               <Button
                 variant="link"
                 size="sm"
-                className="h-8 px-0 text-xs"
+                className="h-8 px-0 text-meta"
                 onClick={() => {
                   onView(mask.id);
                 }}
@@ -141,16 +141,16 @@ export function MaskLibrary({
         ))}
       </div>
       {catalogPending ? (
-        <p className="mt-4 text-sm text-muted-foreground">
+        <p className="mt-4 text-ui text-fg-muted">
           {t('plugin.vivy/masks-ui.loading')}
         </p>
       ) : !catalogError && choices.length === 1 ? (
-        <p className="mt-4 text-sm text-muted-foreground">
+        <p className="mt-4 text-ui text-fg-muted">
           {t('plugin.vivy/masks-ui.empty')}
         </p>
       ) : null}
       {!filtered.length ? (
-        <p className="mt-4 text-sm text-muted-foreground">
+        <p className="mt-4 text-ui text-fg-muted">
           {t('plugin.vivy/masks-ui.noMatches')}
         </p>
       ) : null}

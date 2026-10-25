@@ -128,7 +128,7 @@ export function MemoryView() {
   if (!host || !client) {
     return (
       <div className="h-full overflow-auto p-6">
-        <p className="text-sm text-muted-foreground">{t('plugin.vivy/memory.unavailable')}</p>
+        <p className="text-ui text-fg-muted">{t('plugin.vivy/memory.unavailable')}</p>
       </div>
     );
   }
@@ -138,12 +138,12 @@ export function MemoryView() {
       <Tabs value={tab} onValueChange={(value) => setTab(value as typeof tab)} className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <TabsList className="h-8">
-            <TabsTrigger value="records" className="text-xs">{t('plugin.vivy/memory.tabRecords')}</TabsTrigger>
-            <TabsTrigger value="rules" className="text-xs">{t('plugin.vivy/memory.tabRules')}</TabsTrigger>
+            <TabsTrigger value="records" className="text-meta">{t('plugin.vivy/memory.tabRecords')}</TabsTrigger>
+            <TabsTrigger value="rules" className="text-meta">{t('plugin.vivy/memory.tabRules')}</TabsTrigger>
           </TabsList>
           <div className="ml-auto flex items-center gap-2">
             {status ? (
-              <span className="hidden text-xs text-muted-foreground sm:inline">
+              <span className="hidden text-meta text-fg-muted sm:inline">
                 {t('plugin.vivy/memory.statusLine', { revision: status.startup_revision ?? 0 })}
                 {status.database_present ? '' : ` · ${t('plugin.vivy/memory.noDatabase')}`}
               </span>
@@ -159,7 +159,7 @@ export function MemoryView() {
           {error ? (
             <div className="h-full overflow-auto p-6">
               <div className="mx-auto max-w-xl">
-                <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
+                <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-ui text-danger" role="alert">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
                     <strong>{t('plugin.vivy/memory.loadFailed')}</strong>
@@ -174,34 +174,34 @@ export function MemoryView() {
               selected={selectedId !== null}
               onBack={() => setSelectedId(null)}
               master={
-                <section className="flex h-full min-h-0 flex-col border-b bg-sidebar md:border-b-0 md:border-r">
+                <section className="flex h-full min-h-0 flex-col border-b bg-sunken md:border-b-0 md:border-r">
                   <div className="border-b p-3">
                     <div className="relative">
-                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-fg-muted" />
                       <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('plugin.vivy/memory.searchPlaceholder')} className="pl-9" />
                     </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-auto p-2">
                     {loading ? (
                       <div className="space-y-2 p-2">
-                        <div className="h-16 animate-pulse rounded-lg bg-muted" />
-                        <div className="h-16 animate-pulse rounded-lg bg-muted" />
+                        <div className="h-16 animate-pulse rounded-lg bg-sunken" />
+                        <div className="h-16 animate-pulse rounded-lg bg-sunken" />
                       </div>
                     ) : memories.length ? memories.map((item) => (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => setSelectedId(item.id)}
-                        className={`mb-1 w-full rounded-lg p-3 text-left ${selectedId === item.id ? 'bg-sidebar-accent' : 'hover:bg-sidebar-accent/50'}`}
+                        className={`mb-1 w-full rounded-lg p-3 text-left ${selectedId === item.id ? 'bg-selected' : 'hover:bg-hover/50'}`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-medium">{firstLine(item.content)}</span>
+                          <span className="truncate text-ui font-medium">{firstLine(item.content)}</span>
                           <Badge variant="outline">{trustLabel(t, item.trust)}</Badge>
                         </div>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">{formatDateTime(item.updated_at)}</p>
+                        <p className="mt-1 truncate text-meta text-fg-muted">{formatDateTime(item.updated_at)}</p>
                       </button>
                     )) : (
-                      <p className="px-3 py-10 text-center text-sm text-muted-foreground">{query ? t('plugin.vivy/memory.noMatch') : t('plugin.vivy/memory.empty')}</p>
+                      <p className="px-3 py-10 text-center text-ui text-fg-muted">{query ? t('plugin.vivy/memory.noMatch') : t('plugin.vivy/memory.empty')}</p>
                     )}
                   </div>
                 </section>
@@ -212,7 +212,7 @@ export function MemoryView() {
                     <Card className="mx-auto max-w-3xl">
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                          <Brain className="h-5 w-5 shrink-0 text-primary" />
+                          <Brain className="h-5 w-5 shrink-0 text-brand" />
                           <span className="min-w-0 truncate">{firstLine(selected.content)}</span>
                           <span className="ml-auto flex shrink-0 gap-2">
                             <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'edit', entry: selected })}>{t('common.edit')}</Button>
@@ -232,11 +232,11 @@ export function MemoryView() {
                         {selected.evidence_refs.length ? (
                           <>
                             <Separator className="my-4" />
-                            <p className="text-xs font-medium text-muted-foreground">{t('plugin.vivy/memory.evidence')}</p>
+                            <p className="text-meta font-medium text-fg-muted">{t('plugin.vivy/memory.evidence')}</p>
                             <ul className="mt-2 space-y-1.5">
                               {selected.evidence_refs.map((ref) => (
-                                <li key={ref.id} className="text-xs text-muted-foreground">
-                                  <span className="font-medium text-foreground">{ref.source}</span>{' '}
+                                <li key={ref.id} className="text-meta text-fg-muted">
+                                  <span className="font-medium text-fg">{ref.source}</span>{' '}
                                   <span className="break-all">{ref.uri}</span>
                                   {ref.excerpt ? <span className="block break-words">{ref.excerpt}</span> : null}
                                 </li>
@@ -245,10 +245,10 @@ export function MemoryView() {
                           </>
                         ) : null}
                         <Separator className="my-4" />
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-meta text-fg-muted">
                           <span className="break-all font-mono">{selected.id}</span>
                         </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-1 text-meta text-fg-muted">
                           {t('plugin.vivy/memory.updatedAt', { date: formatDateTime(selected.updated_at) })}
                           {' · '}
                           {t('plugin.vivy/memory.createdAt', { date: formatDateTime(selected.created_at) })}
@@ -259,7 +259,7 @@ export function MemoryView() {
                     </Card>
                   </div>
                 ) : (
-                  <div className="flex h-full items-center justify-center p-6 text-muted-foreground">{t('plugin.vivy/memory.selectHint')}</div>
+                  <div className="flex h-full items-center justify-center p-6 text-fg-muted">{t('plugin.vivy/memory.selectHint')}</div>
                 )
               }
             />

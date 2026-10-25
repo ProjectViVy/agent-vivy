@@ -69,7 +69,7 @@ export function MaskEditor({
           </SheetDescription>
         </SheetHeader>
         <SheetBody className="space-y-6 p-6" data-mask-editor>
-          <div className="flex min-w-0 items-center gap-3 rounded-xl border bg-muted/35 p-4">
+          <div className="flex min-w-0 items-center gap-3 rounded-xl border bg-sunken/35 p-4">
             <MaskIdentity id={draft?.id ?? 'custom/draft'} />
             <div className="min-w-0">
               <p className="break-words font-medium">
@@ -82,7 +82,7 @@ export function MaskEditor({
           </div>
           {error ? (
             <div
-              className="space-y-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+              className="space-y-2 rounded-xl border border-danger/30 bg-danger/5 p-3 text-ui text-danger"
               role="alert"
             >
               {error}
@@ -94,11 +94,11 @@ export function MaskEditor({
             </div>
           ) : null}
           {retrying && !saving ? (
-            <p className="rounded-xl bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+            <p className="rounded-xl bg-warn-soft p-3 text-ui text-warn-fg">
               {t('plugin.vivy/masks-ui.retryCreate')}
             </p>
           ) : null}
-          <div className="space-y-2 text-sm">
+          <div className="space-y-2 text-ui">
             <label htmlFor={`${fieldId}-name`} className="block font-medium">
               {t('plugin.vivy/masks-ui.name')}
             </label>
@@ -106,13 +106,13 @@ export function MaskEditor({
               id={`${fieldId}-name`}
               autoFocus
               readOnly={saving || retrying}
-              className="w-full rounded-lg border bg-card px-3 py-2.5"
+              className="w-full rounded-lg border bg-raised px-3 py-2.5"
               value={draft?.name ?? ''}
               placeholder={t('plugin.vivy/masks-ui.namePlaceholder')}
               onChange={(e) => onChange('name', e.target.value)}
             />
           </div>
-          <div className="space-y-2 text-sm">
+          <div className="space-y-2 text-ui">
             <label
               htmlFor={`${fieldId}-description`}
               className="block font-medium"
@@ -122,26 +122,26 @@ export function MaskEditor({
             <input
               id={`${fieldId}-description`}
               readOnly={saving || retrying}
-              className="w-full rounded-lg border bg-card px-3 py-2.5"
+              className="w-full rounded-lg border bg-raised px-3 py-2.5"
               value={draft?.description ?? ''}
               placeholder={t('plugin.vivy/masks-ui.descriptionPlaceholder')}
               onChange={(e) => onChange('description', e.target.value)}
             />
           </div>
-          <div className="space-y-2 text-sm">
+          <div className="space-y-2 text-ui">
             <label htmlFor={`${fieldId}-body`} className="block font-medium">
               {t('plugin.vivy/masks-ui.body')}
             </label>
             <textarea
               id={`${fieldId}-body`}
               readOnly={saving || retrying}
-              className="min-h-56 w-full resize-y rounded-lg border bg-card px-3 py-3 text-sm leading-relaxed"
+              className="min-h-56 w-full resize-y rounded-lg border bg-raised px-3 py-3 text-ui leading-relaxed"
               value={draft?.body ?? ''}
               placeholder={t('plugin.vivy/masks-ui.bodyPlaceholder')}
               onChange={(e) => onChange('body', e.target.value)}
             />
           </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-meta leading-relaxed text-fg-muted">
             {t('plugin.vivy/masks-ui.roleHint')}
           </p>
         </SheetBody>

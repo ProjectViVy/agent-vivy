@@ -35,27 +35,27 @@ export function MaskDetails({
       aria-label={t('plugin.vivy/masks-ui.editorTitle')}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-meta font-medium text-fg-muted">
           {t('plugin.vivy/masks-ui.editorTitle')}
         </span>
         <Badge variant="secondary">{maskKind(t, mask)}</Badge>
       </div>
       <MaskIdentity id={mask.id} large />
       <div>
-        <h2 className="break-words text-2xl font-semibold tracking-tight">
+        <h2 className="break-words text-page font-semibold tracking-tight">
           {mask.name}
         </h2>
-        <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">
+        <p className="mt-2 break-words text-ui leading-relaxed text-fg-muted">
           {mask.description}
         </p>
       </div>
       <div className="space-y-3 border-t pt-5">
-        <h3 className="text-sm font-medium">
+        <h3 className="text-ui font-medium">
           {t(`plugin.vivy/masks-ui.${mask.id ? 'body' : 'defaultIdentity'}`)}
         </h3>
         <div
           data-mask-instructions
-          className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/45 p-4 text-sm leading-relaxed text-muted-foreground"
+          className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-sunken/45 p-4 text-ui leading-relaxed text-fg-muted"
         >
           {mask.id
             ? pending
@@ -63,7 +63,7 @@ export function MaskDetails({
               : draft?.body || t('plugin.vivy/masks-ui.detailsUnavailable')
             : t('plugin.vivy/masks-ui.defaultBody')}
         </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">
+        <p className="text-meta leading-relaxed text-fg-muted">
           {t(
             `plugin.vivy/masks-ui.${mask.id ? (mask.built_in ? 'builtInHint' : 'customHint') : 'defaultHint'}`,
           )}
@@ -97,7 +97,7 @@ export function MaskDetails({
           {!mask.built_in ? (
             <Button
               variant="ghost"
-              className="text-destructive hover:text-destructive"
+              className="text-danger hover:text-danger"
               disabled={pending || !draft}
               onClick={onDelete}
             >

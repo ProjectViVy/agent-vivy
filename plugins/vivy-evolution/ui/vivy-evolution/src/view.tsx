@@ -54,7 +54,7 @@ function formatDateTime(iso: string | null | undefined, placeholder: string) {
 
 function masterListShell(children: React.ReactNode) {
   return (
-    <ScrollArea className="h-full min-h-0 rounded-xl border bg-card">
+    <ScrollArea className="h-full min-h-0 rounded-xl border bg-raised">
       <div className="space-y-1 p-2">{children}</div>
     </ScrollArea>
   );
@@ -62,7 +62,7 @@ function masterListShell(children: React.ReactNode) {
 
 function selectHintShell(icon: React.ReactNode, text: string) {
   return (
-    <div className="flex h-full min-h-64 items-center justify-center rounded-xl border bg-card p-6 text-center text-muted-foreground">
+    <div className="flex h-full min-h-64 items-center justify-center rounded-xl border bg-raised p-6 text-center text-fg-muted">
       <div>
         <div className="mx-auto mb-3 h-10 w-10 opacity-50">{icon}</div>
         {text}
@@ -100,11 +100,11 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
   };
 
   return (
-    <article className="h-full overflow-auto rounded-xl border bg-card p-4 sm:p-6">
+    <article className="h-full overflow-auto rounded-xl border bg-raised p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-xl font-semibold">{summary?.name ?? doc.slug}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{doc.description || doc.slug}</p>
+          <h2 className="text-title font-semibold">{summary?.name ?? doc.slug}</h2>
+          <p className="mt-1 text-ui text-fg-muted">{doc.description || doc.slug}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline">{doc.source === 'builtin' ? t('skills.builtin') : t('skills.user')}</Badge>
@@ -115,8 +115,8 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
         </div>
       </div>
 
-      <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-        <p className="text-xs text-muted-foreground">{t('skills.updatedAt')}{new Date(doc.updated_at).toLocaleString(dateTimeLocale())}</p>
+      <div className="mb-5 grid gap-3 text-ui sm:grid-cols-2">
+        <p className="text-meta text-fg-muted">{t('skills.updatedAt')}{new Date(doc.updated_at).toLocaleString(dateTimeLocale())}</p>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -162,16 +162,16 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
         </AlertDialog>
       </div>
 
-      <div className="rounded-lg bg-muted p-4">
+      <div className="rounded-lg bg-sunken p-4">
         {editing ? (
           <Textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            className="min-h-72 font-mono text-sm"
+            className="min-h-72 font-mono text-ui"
             aria-label={t('common.edit')}
           />
         ) : (
-          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{doc.markdown}</pre>
+          <pre className="whitespace-pre-wrap break-words font-sans text-ui leading-6">{doc.markdown}</pre>
         )}
       </div>
 
@@ -182,22 +182,22 @@ function SkillDetailPane({ doc, summary, history, historyPreview, isBusy, onSave
       {historyOpen ? (
         <div className="mt-2 space-y-2">
           {history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('plugin.vivy/evolution.skills.historyEmpty')}</p>
+            <p className="text-ui text-fg-muted">{t('plugin.vivy/evolution.skills.historyEmpty')}</p>
           ) : (
             history.map((entry) => (
               <div key={entry.revision} className="rounded-lg border p-3">
-                <Button variant="ghost" size="sm" className="h-auto justify-start py-1 font-mono text-xs" onClick={() => void onPreviewHistory(doc.slug, entry.revision)}>
+                <Button variant="ghost" size="sm" className="h-auto justify-start py-1 font-mono text-meta" onClick={() => void onPreviewHistory(doc.slug, entry.revision)}>
                   #{entry.revision} · {new Date(entry.updated_at).toLocaleString(dateTimeLocale())}
                 </Button>
               </div>
             ))
           )}
           {historyPreview ? (
-            <div className="rounded-lg bg-muted p-4">
-              <p className="mb-2 text-xs font-medium text-muted-foreground">
+            <div className="rounded-lg bg-sunken p-4">
+              <p className="mb-2 text-meta font-medium text-fg-muted">
                 {t('plugin.vivy/evolution.skills.historyPreview', { revision: historyPreview.revision })}
               </p>
-              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{historyPreview.markdown}</pre>
+              <pre className="whitespace-pre-wrap break-words font-sans text-ui leading-6">{historyPreview.markdown}</pre>
             </div>
           ) : null}
         </div>
@@ -247,7 +247,7 @@ function CreateRequestPanel({ skills, busy, onSubmit, onCancel }: CreateRequestP
   return (
     <Card className="mb-4">
       <CardHeader>
-        <CardTitle className="text-base">{t('plugin.vivy/evolution.requests.create')}</CardTitle>
+        <CardTitle className="text-title">{t('plugin.vivy/evolution.requests.create')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -279,10 +279,10 @@ function CreateRequestPanel({ skills, busy, onSubmit, onCancel }: CreateRequestP
             id="evolution-create-markdown"
             value={markdown}
             onChange={(event) => setMarkdown(event.target.value)}
-            className="min-h-48 font-mono text-sm"
+            className="min-h-48 font-mono text-ui"
           />
         </div>
-        {validationError ? <p className="text-sm text-destructive">{validationError}</p> : null}
+        {validationError ? <p className="text-ui text-danger">{validationError}</p> : null}
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" disabled={busy} onClick={onCancel}>
             {t('common.cancel')}
@@ -310,11 +310,11 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
   const busy = isBusy(`accept:${request.id}`) || isBusy(`reject:${request.id}`);
 
   return (
-    <article className="h-full overflow-auto rounded-xl border bg-card p-4 sm:p-6">
+    <article className="h-full overflow-auto rounded-xl border bg-raised p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-xl font-semibold">{request.title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{request.slug} · {request.reason}</p>
+          <h2 className="text-title font-semibold">{request.title}</h2>
+          <p className="mt-1 text-ui text-fg-muted">{request.slug} · {request.reason}</p>
         </div>
         <Badge variant={REQUEST_STATUS_VARIANT[request.status]}>
           {t(`skills.status.${request.status}`)}
@@ -345,35 +345,35 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
       </div>
 
       {request.status === 'stale' ? (
-        <p className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+        <p className="mb-4 rounded-lg border border-danger/50 bg-danger/10 p-3 text-ui text-danger">
           {t('plugin.vivy/evolution.requests.staleNotice')}
         </p>
       ) : null}
       {request.status === 'accepted' || request.status === 'rejected' ? (
-        <p className="mb-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">{t('plugin.vivy/evolution.requests.handledNotice')}</p>
+        <p className="mb-4 rounded-lg bg-sunken p-3 text-ui text-fg-muted">{t('plugin.vivy/evolution.requests.handledNotice')}</p>
       ) : null}
 
-      <div className="mb-5 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
+      <div className="mb-5 grid gap-3 text-meta text-fg-muted sm:grid-cols-2">
         <p>{t('plugin.vivy/evolution.requests.createdAt', { time: new Date(request.created_at).toLocaleString(dateTimeLocale()) })}</p>
       </div>
 
-      <div className="rounded-lg bg-muted p-4">
-        <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{request.proposed_markdown}</pre>
+      <div className="rounded-lg bg-sunken p-4">
+        <pre className="whitespace-pre-wrap break-words font-sans text-ui leading-6">{request.proposed_markdown}</pre>
       </div>
 
       <Card className="mt-5">
         <CardHeader>
-          <CardTitle className="text-sm">{t('plugin.vivy/evolution.requests.evidence')}</CardTitle>
+          <CardTitle className="text-ui">{t('plugin.vivy/evolution.requests.evidence')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {request.attestation ? (
-            <p className="text-sm">{t('plugin.vivy/evolution.requests.attestation', { text: request.attestation })}</p>
+            <p className="text-ui">{t('plugin.vivy/evolution.requests.attestation', { text: request.attestation })}</p>
           ) : null}
           {request.evidence.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('plugin.vivy/evolution.requests.evidenceEmpty')}</p>
+            <p className="text-ui text-fg-muted">{t('plugin.vivy/evolution.requests.evidenceEmpty')}</p>
           ) : (
             request.evidence.map((item, index) => (
-              <pre key={index} className="overflow-auto rounded-lg border bg-muted p-3 font-mono text-xs">
+              <pre key={index} className="overflow-auto rounded-lg border bg-sunken p-3 font-mono text-meta">
                 {JSON.stringify(item, null, 2)}
               </pre>
             ))
@@ -401,28 +401,28 @@ function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
   const noValue = t('plugin.vivy/evolution.autodream.noValue');
 
   return (
-    <article className="h-full overflow-auto rounded-xl border bg-card p-4 sm:p-6">
+    <article className="h-full overflow-auto rounded-xl border bg-raised p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="break-all font-mono text-lg font-semibold">{run.id}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{run.summary ?? 'AutoDream'}</p>
+          <h2 className="break-all font-mono text-title font-semibold">{run.id}</h2>
+          <p className="mt-1 text-ui text-fg-muted">{run.summary ?? 'AutoDream'}</p>
         </div>
         <Badge variant={RUN_STATE_VARIANT[run.state]}>{t(`plugin.vivy/evolution.autodream.states.${run.state}`)}</Badge>
       </div>
 
-      <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.trigger', { value: run.trigger })}</p>
-        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.phase', { value: phaseLabel })}</p>
-        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.startedAt', { time: formatDateTime(run.started_at, noValue) })}</p>
-        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.completedAt', { time: formatDateTime(run.completed_at, noValue) })}</p>
-        <p className="text-muted-foreground">{t('plugin.vivy/evolution.autodream.attempt', { count: run.orchestration?.attempt ?? 0 })}</p>
+      <div className="mb-5 grid gap-3 text-ui sm:grid-cols-2">
+        <p className="text-fg-muted">{t('plugin.vivy/evolution.autodream.trigger', { value: run.trigger })}</p>
+        <p className="text-fg-muted">{t('plugin.vivy/evolution.autodream.phase', { value: phaseLabel })}</p>
+        <p className="text-fg-muted">{t('plugin.vivy/evolution.autodream.startedAt', { time: formatDateTime(run.started_at, noValue) })}</p>
+        <p className="text-fg-muted">{t('plugin.vivy/evolution.autodream.completedAt', { time: formatDateTime(run.completed_at, noValue) })}</p>
+        <p className="text-fg-muted">{t('plugin.vivy/evolution.autodream.attempt', { count: run.orchestration?.attempt ?? 0 })}</p>
         {run.error ? (
-          <p className="text-destructive">{t('plugin.vivy/evolution.autodream.failure', { reason: run.error })}</p>
+          <p className="text-danger">{t('plugin.vivy/evolution.autodream.failure', { reason: run.error })}</p>
         ) : null}
       </div>
 
       {run.input_summary ? (
-        <p className="mb-5 text-sm text-muted-foreground">
+        <p className="mb-5 text-ui text-fg-muted">
           {t('plugin.vivy/evolution.autodream.inputs', { items: run.input_summary.total_items, bytes: run.input_summary.total_bytes })}
         </p>
       ) : null}
@@ -435,18 +435,18 @@ function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">{t('plugin.vivy/evolution.autodream.events')}</CardTitle>
+          <CardTitle className="text-ui">{t('plugin.vivy/evolution.autodream.events')}</CardTitle>
         </CardHeader>
         <CardContent>
           {events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('plugin.vivy/evolution.autodream.eventsEmpty')}</p>
+            <p className="text-ui text-fg-muted">{t('plugin.vivy/evolution.autodream.eventsEmpty')}</p>
           ) : (
             <ol className="space-y-2">
               {events.map((event) => (
-                <li key={event.id} className="grid gap-1 rounded-lg border p-3 text-xs sm:grid-cols-[10rem_8rem_minmax(0,1fr)] sm:items-baseline sm:gap-3">
-                  <time className="text-muted-foreground">{new Date(event.created_at).toLocaleString(dateTimeLocale())}</time>
-                  <span className="font-mono font-semibold text-primary">{event.kind}</span>
-                  <span className="text-muted-foreground">{event.message}</span>
+                <li key={event.id} className="grid gap-1 rounded-lg border p-3 text-meta sm:grid-cols-[10rem_8rem_minmax(0,1fr)] sm:items-baseline sm:gap-3">
+                  <time className="text-fg-muted">{new Date(event.created_at).toLocaleString(dateTimeLocale())}</time>
+                  <span className="font-mono font-semibold text-brand">{event.kind}</span>
+                  <span className="text-fg-muted">{event.message}</span>
                 </li>
               ))}
             </ol>
@@ -500,7 +500,7 @@ export function EvolutionView() {
   const noData = evolutionSkills.length === 0 && requests.length === 0 && runs.length === 0;
 
   if (isLoading && noData) {
-    return <div className="p-6 text-sm text-muted-foreground">{t('plugin.vivy/evolution.loading')}</div>;
+    return <div className="p-6 text-ui text-fg-muted">{t('plugin.vivy/evolution.loading')}</div>;
   }
 
   if (error && noData) {
@@ -548,12 +548,12 @@ export function EvolutionView() {
         </div>
       </div>
 
-      {error && !noData ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {error && !noData ? <p className="mb-4 text-ui text-danger">{error}</p> : null}
 
       <TabsContent value="skills" className="mt-0 min-h-0 flex-1">
         {evolutionSkills.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
+            <CardContent className="py-12 text-center text-fg-muted">
               <Dna className="mx-auto mb-3 h-10 w-10 opacity-50" />
               {t('plugin.vivy/evolution.skills.empty')}
             </CardContent>
@@ -569,16 +569,16 @@ export function EvolutionView() {
                   key={skill.slug}
                   type="button"
                   onClick={() => void selectSkill(skill.slug)}
-                  className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-accent ${
-                    selectedSkill?.slug === skill.slug ? 'bg-accent' : ''
+                  className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-hover ${
+                    selectedSkill?.slug === skill.slug ? 'bg-selected' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="min-w-0 font-medium">{skill.name}</span>
                     <Badge variant="outline">{skill.source === 'builtin' ? t('skills.builtin') : t('skills.user')}</Badge>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
-                  <p className={`mt-2 text-xs ${skill.enabled ? 'text-muted-foreground' : 'text-muted-foreground line-through'}`}>
+                  <p className="mt-1 line-clamp-2 text-ui text-fg-muted">{skill.description}</p>
+                  <p className={`mt-2 text-meta ${skill.enabled ? 'text-fg-muted' : 'text-fg-muted line-through'}`}>
                     {skill.enabled ? t('common.enabled') : t('common.disabled')}
                     {skill.always ? ` · ${t('skills.alwaysLoaded')}` : ''}
                   </p>
@@ -626,7 +626,7 @@ export function EvolutionView() {
         ) : null}
         {requests.length === 0 && !createOpen ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
+            <CardContent className="py-12 text-center text-fg-muted">
               <ShieldCheck className="mx-auto mb-3 h-10 w-10 opacity-50" />
               {t('plugin.vivy/evolution.requests.empty')}
             </CardContent>
@@ -642,8 +642,8 @@ export function EvolutionView() {
                   key={request.id}
                   type="button"
                   onClick={() => selectRequest(request.id)}
-                  className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-accent ${
-                    selectedRequest?.id === request.id ? 'bg-accent' : ''
+                  className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-hover ${
+                    selectedRequest?.id === request.id ? 'bg-selected' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -652,8 +652,8 @@ export function EvolutionView() {
                       {t(`skills.status.${request.status}`)}
                     </Badge>
                   </div>
-                  <p className="mt-1 truncate text-sm text-muted-foreground">{request.slug} · {request.source}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{new Date(request.updated_at).toLocaleString(dateTimeLocale())}</p>
+                  <p className="mt-1 truncate text-ui text-fg-muted">{request.slug} · {request.source}</p>
+                  <p className="mt-2 text-meta text-fg-muted">{new Date(request.updated_at).toLocaleString(dateTimeLocale())}</p>
                 </button>
               )),
             )}
@@ -671,7 +671,7 @@ export function EvolutionView() {
       <TabsContent value="autodream" className="mt-0 min-h-0 flex-1">
         {runs.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
+            <CardContent className="py-12 text-center text-fg-muted">
               <GitBranch className="mx-auto mb-3 h-10 w-10 opacity-50" />
               {t('plugin.vivy/evolution.autodream.empty')}
             </CardContent>
@@ -687,16 +687,16 @@ export function EvolutionView() {
                   key={run.id}
                   type="button"
                   onClick={() => void selectRun(run.id)}
-                  className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-accent ${
-                    selectedRun?.id === run.id ? 'bg-accent' : ''
+                  className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-hover ${
+                    selectedRun?.id === run.id ? 'bg-selected' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0 break-all font-mono text-sm font-medium">{run.id}</span>
+                    <span className="min-w-0 break-all font-mono text-ui font-medium">{run.id}</span>
                     <Badge variant={RUN_STATE_VARIANT[run.state]}>{t(`plugin.vivy/evolution.autodream.states.${run.state}`)}</Badge>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{run.summary ?? run.trigger}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{new Date(run.started_at).toLocaleString(dateTimeLocale())}</p>
+                  <p className="mt-1 line-clamp-2 text-ui text-fg-muted">{run.summary ?? run.trigger}</p>
+                  <p className="mt-2 text-meta text-fg-muted">{new Date(run.started_at).toLocaleString(dateTimeLocale())}</p>
                 </button>
               )),
             )}

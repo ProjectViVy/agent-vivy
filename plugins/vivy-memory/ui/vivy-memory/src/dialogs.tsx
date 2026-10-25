@@ -84,14 +84,14 @@ export function MemoryContentDialog({ mode, entry, client, t, onClose, onApplied
             aria-label={t('plugin.vivy/memory.contentPlaceholder')}
           />
           {conflict ? (
-            <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 text-destructive p-3 text-sm" role="alert">
+            <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 text-danger p-3 text-ui" role="alert">
               <p className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{t('plugin.vivy/memory.conflict')}</p>
               <Button className="mt-2" size="sm" variant="outline" onClick={() => entry && onRebase(entry.id)}>
                 {t('common.refresh')}
               </Button>
             </div>
           ) : error ? (
-            <p className="mt-3 text-sm text-destructive" role="alert">{error}</p>
+            <p className="mt-3 text-ui text-danger" role="alert">{error}</p>
           ) : null}
         </DialogBody>
         <DialogFooter>
@@ -152,7 +152,7 @@ export function MemoryDeleteDialog({ entry, client, t, onClose, onApplied, onReb
           <DialogTitle>{t('plugin.vivy/memory.deleteTitle')}</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <p className="text-sm text-muted-foreground">{t('plugin.vivy/memory.deleteHint')}</p>
+          <p className="text-ui text-fg-muted">{t('plugin.vivy/memory.deleteHint')}</p>
           <Input
             className="mt-3"
             value={reason}
@@ -161,14 +161,14 @@ export function MemoryDeleteDialog({ entry, client, t, onClose, onApplied, onReb
             aria-label={t('plugin.vivy/memory.reasonPlaceholder')}
           />
           {conflict ? (
-            <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 text-destructive p-3 text-sm" role="alert">
+            <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 text-danger p-3 text-ui" role="alert">
               <p className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{t('plugin.vivy/memory.conflict')}</p>
               <Button className="mt-2" size="sm" variant="outline" onClick={() => onRebase(entry.id)}>
                 {t('common.refresh')}
               </Button>
             </div>
           ) : error ? (
-            <p className="mt-3 text-sm text-destructive" role="alert">{error}</p>
+            <p className="mt-3 text-ui text-danger" role="alert">{error}</p>
           ) : null}
         </DialogBody>
         <DialogFooter>

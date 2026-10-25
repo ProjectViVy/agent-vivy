@@ -80,8 +80,8 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
   if (loading && !view) {
     return (
       <div className="space-y-2 p-6">
-        <div className="h-16 animate-pulse rounded-lg bg-muted" />
-        <div className="h-16 animate-pulse rounded-lg bg-muted" />
+        <div className="h-16 animate-pulse rounded-lg bg-sunken" />
+        <div className="h-16 animate-pulse rounded-lg bg-sunken" />
       </div>
     );
   }
@@ -89,7 +89,7 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
   if (error && !view) {
     return (
       <div className="p-6">
-        <div className="mx-auto max-w-xl rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
+        <div className="mx-auto max-w-xl rounded-xl border border-danger/30 bg-danger/10 p-4 text-ui text-danger" role="alert">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4" />
             <strong>{t('plugin.vivy/memory.loadFailed')}</strong>
@@ -109,8 +109,8 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
     <div className="h-full overflow-auto p-4 sm:p-6">
       <div className="mx-auto max-w-3xl space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">MEMRULES</span>
+          <div className="flex items-center gap-2 text-ui text-fg-muted">
+            <span className="font-medium text-fg">MEMRULES</span>
             <Badge variant="outline">{rulesSourceLabel(t, view.source)}</Badge>
           </div>
           {editing ? (
@@ -125,22 +125,22 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
           )}
         </div>
         {conflict ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          <div className="rounded-md border border-danger/30 bg-danger/10 p-3 text-ui text-danger" role="alert">
             <p className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{t('plugin.vivy/memory.conflict')}</p>
             <Button className="mt-2" size="sm" variant="outline" onClick={() => { setDraft(null); void load(); }}>{t('common.refresh')}</Button>
           </div>
         ) : error ? (
-          <p className="text-sm text-destructive" role="alert">{error}</p>
+          <p className="text-ui text-danger" role="alert">{error}</p>
         ) : null}
         {editing ? (
           <Textarea
-            className="min-h-[50vh] font-mono text-sm"
+            className="min-h-[50vh] font-mono text-ui"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             aria-label="MEMRULES"
           />
         ) : (
-          <pre className="whitespace-pre-wrap break-words rounded-lg border bg-muted/40 p-4 text-sm leading-7">{view.content}</pre>
+          <pre className="whitespace-pre-wrap break-words rounded-lg border bg-sunken/40 p-4 text-ui leading-7">{view.content}</pre>
         )}
       </div>
     </div>

@@ -42,29 +42,12 @@ const BASELINE: Record<Group, Record<Category, Baseline>> = {
   },
   plugins: {
     palette: {
-      count: 29,
-      files: [
-        'plugins/vivy-masks-ui/ui/vivy-masks/src/MaskEditor.tsx',
-        'plugins/vivy-masks-ui/ui/vivy-masks/src/MaskHeader.tsx',
-        'plugins/vivy-masks-ui/ui/vivy-masks/src/MaskIdentity.tsx',
-        'plugins/vivy-masks-ui/ui/vivy-masks/src/MaskPage.tsx',
-        'plugins/vivy-persona/ui/vivy-persona/src/view.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/editor/EditorPane.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/panes/RunsPane.tsx',
-      ],
+      count: 0,
+      files: [],
     },
     textSize: {
-      count: 45,
-      files: [
-        'plugins/vivy-masks-ui/ui/vivy-masks/src/MaskLibrary.tsx',
-        'plugins/vivy-persona/ui/vivy-persona/src/view.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/WorkflowPage.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/editor/EditorPane.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/editor/NodePanel.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/editor/WorkflowNode.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/panes/RunsPane.tsx',
-        'plugins/vivy-workflow/ui/vivy-workflow/src/panes/WorkflowsPane.tsx',
-      ],
+      count: 0,
+      files: [],
     },
     hex: { count: 0, files: [] },
   },
