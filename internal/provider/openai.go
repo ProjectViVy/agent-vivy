@@ -56,6 +56,9 @@ func (r *openaiRef) Model(ctx context.Context, spec ModelSpec) (model.AgenticMod
 		APIKey:  key,
 		BaseURL: baseURL,
 		Model:   modelID,
+		// The wire recorder must sit under every provider request: a rejected
+		// call is the only evidence of what the provider actually received.
+		HTTPClient: wireHTTPClient(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: construct openai model %q: %w", r.Name(), modelID, err)

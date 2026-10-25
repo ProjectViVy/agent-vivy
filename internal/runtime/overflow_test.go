@@ -29,6 +29,7 @@ type overflowScriptedModel struct {
 	failCount   int
 	inputs      [][]*schema.AgenticMessage
 	response    *schema.AgenticMessage
+	responses   map[int]*schema.AgenticMessage
 	errText     string
 	errByCall   map[int]string
 	lengthStop  bool
@@ -45,6 +46,7 @@ func (m *overflowScriptedModel) Stream(_ context.Context, input []*schema.Agenti
 	lengthStop := m.lengthStop
 	resp := m.response
 	override, hasOverride := m.errByCall[n]
+	callResp, hasCallResp := m.responses[n]
 	m.mu.Unlock()
 	if hasOverride {
 		return nil, errors.New(override)
@@ -54,6 +56,9 @@ func (m *overflowScriptedModel) Stream(_ context.Context, input []*schema.Agenti
 			errText = "maximum context length is 4096 tokens, but the prompt has 9000"
 		}
 		return nil, errors.New(errText)
+	}
+	if hasCallResp {
+		return oneShot(callResp), nil
 	}
 	if lengthStop && n > skipFirst && n <= skipFirst+1 {
 		return oneShot(testLengthStop("")), nil
@@ -98,6 +103,15 @@ func (m *overflowScriptedModel) inputTexts(call int) []string {
 		}
 	}
 	return out
+}
+
+func (m *overflowScriptedModel) inputFingerprint(call int) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if call < 1 || call > len(m.inputs) {
+		return ""
+	}
+	return modelRequestFingerprint(m.inputs[call-1])
 }
 
 var _ model.AgenticModel = (*overflowScriptedModel)(nil)

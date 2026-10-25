@@ -5,33 +5,28 @@ import (
 )
 
 func describeModelRequest(msgs []*schema.AgenticMessage, selectedTools []string) payloadModelRequest {
+	return payloadRequestFromShape(describeModelShape(msgs), selectedTools)
+}
+
+// payloadRequestFromShape projects one shape traversal onto the v1-v5 message
+// rows shared by every request envelope.
+func payloadRequestFromShape(shape modelShape, selectedTools []string) payloadModelRequest {
 	if selectedTools == nil {
 		selectedTools = []string{}
 	}
 	out := payloadModelRequest{
 		SelectedTools: append([]string{}, selectedTools...),
-		Messages:      make([]payloadModelRequestMessage, 0, len(msgs)),
+		PreambleBytes: shape.PreambleBytes,
+		Messages:      make([]payloadModelRequestMessage, 0, len(shape.Messages)),
 	}
-	for i, msg := range msgs {
-		if msg == nil {
-			continue
-		}
-		content := modelRequestText(msg)
-		row := payloadModelRequestMessage{
-			Role:    agenticRoleName(msg),
-			ByteLen: len(content),
-		}
-		if results := agenticToolResults(msg); len(results) > 0 {
-			row.ToolCallID = results[0].CallID
-		}
-		if calls := agenticToolCalls(msg); len(calls) > 0 {
-			row.ToolName = calls[0].Name
-			row.ToolCallID = calls[0].CallID
-		}
-		if i == 0 && msg.Role == schema.AgenticRoleTypeSystem {
-			out.PreambleBytes = row.ByteLen
-		}
-		out.Messages = append(out.Messages, row)
+	for _, row := range shape.Messages {
+		out.Messages = append(out.Messages, payloadModelRequestMessage{
+			Role:       row.Role,
+			ToolName:   row.ToolName,
+			ToolCallID: row.ToolCallID,
+			ByteLen:    row.ByteLen,
+			Blocks:     row.Blocks,
+		})
 	}
 	return out
 }

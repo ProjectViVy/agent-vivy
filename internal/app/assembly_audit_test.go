@@ -81,7 +81,7 @@ func TestToolResultReachesSecondModelRequest(t *testing.T) {
 	finished := 0
 	for _, event := range events {
 		if event.Type == domain.EventModelRequest {
-			if event.PayloadVersion != 4 || bytes.Contains(event.Payload, []byte("sha256")) || bytes.Contains(event.Payload, []byte(nonce)) {
+			if event.PayloadVersion != 5 || bytes.Contains(event.Payload, []byte("sha256")) || bytes.Contains(event.Payload, []byte(nonce)) {
 				t.Fatalf("request observation leaks content/digest or has old version: %s", event.Payload)
 			}
 		}
@@ -149,6 +149,107 @@ func TestToolResultReachesSecondModelRequest(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "vivy audit event") || strings.Contains(logs.String(), "payload_sha256") {
 		t.Fatal("App still emits the retired digest-only audit stream")
+	}
+}
+
+// A rejected provider call must record the wire shape that was actually sent,
+// without carrying any prompt content into the journal.
+func TestFailedModelCallRecordsContentFreeWireSummary(t *testing.T) {
+	nonce := rand.Text()
+	var mu sync.Mutex
+	var requests [][]byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, body)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"invalid params, 400 (2013)","type":"invalid_request_error"}}`)
+	}))
+	t.Cleanup(server.Close)
+	planGoalTestProvider(t, server.URL)
+	cfg, workspace := planGoalTestConfig(t, []string{})
+	a := openPlanGoalTestApp(t, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := a.DialControl(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	session := callControl(t, client, "session/create", map[string]any{"title": "wire summary", "workspace_path": workspace})
+	sessionID := session["id"].(string)
+	turn := callControl(t, client, "turn/start", map[string]any{"session_id": sessionID, "text": "Please answer with the token " + nonce})
+	runID := domain.RunID(turn["run_id"].(string))
+	waitFor(t, 15*time.Second, func() bool {
+		status := callControl(t, client, "run/get", map[string]any{"run_id": runID})["status"]
+		return status == "failed" || status == "completed" || status == "cancelled"
+	})
+	if status := callControl(t, client, "run/get", map[string]any{"run_id": runID})["status"]; status != "failed" {
+		t.Fatalf("run status = %v, want failed", status)
+	}
+
+	mu.Lock()
+	sent := append([][]byte(nil), requests...)
+	mu.Unlock()
+	if len(sent) != 1 || !bytes.Contains(sent[0], []byte(nonce)) {
+		t.Fatalf("want one request carrying the nonce, got %d requests", len(sent))
+	}
+
+	var sawRequest, sawWire bool
+	for _, event := range replayEvents(t, a.backend, runID) {
+		switch event.Type {
+		case domain.EventModelRequest:
+			sawRequest = true
+			if event.PayloadVersion != 5 || bytes.Contains(event.Payload, []byte("sha256")) || bytes.Contains(event.Payload, []byte(nonce)) {
+				t.Fatalf("request observation leaks content/digest or has old version: %s", event.Payload)
+			}
+		case domain.EventModelCallFinished:
+			var finish struct {
+				Status string `json:"status"`
+				Error  *struct {
+					Name string `json:"name"`
+				} `json:"error"`
+				Wire *struct {
+					Status       int      `json:"status"`
+					Messages     int      `json:"messages"`
+					Roles        []string `json:"roles"`
+					ContentForms []string `json:"content_forms"`
+					BodyBytes    int      `json:"body_bytes"`
+				} `json:"wire"`
+			}
+			if err := json.Unmarshal(event.Payload, &finish); err != nil {
+				t.Fatal(err)
+			}
+			if finish.Status != "failed" || finish.Error == nil || finish.Wire == nil {
+				t.Fatalf("failed finish = %s", event.Payload)
+			}
+			sawWire = true
+			if finish.Wire.Status != http.StatusBadRequest || finish.Wire.Messages != len(finish.Wire.Roles) ||
+				finish.Wire.Messages != len(finish.Wire.ContentForms) || finish.Wire.BodyBytes == 0 {
+				t.Fatalf("wire summary = %+v", finish.Wire)
+			}
+			foundUser := false
+			for _, role := range finish.Wire.Roles {
+				if role == "user" {
+					foundUser = true
+				}
+			}
+			if !foundUser {
+				t.Fatalf("wire roles = %v, want a user turn", finish.Wire.Roles)
+			}
+			if bytes.Contains(event.Payload, []byte(nonce)) {
+				t.Fatalf("wire summary leaked prompt content: %s", event.Payload)
+			}
+		}
+	}
+	if !sawRequest || !sawWire {
+		t.Fatalf("journal missing request=%v or wire finish=%v", sawRequest, sawWire)
 	}
 }
 

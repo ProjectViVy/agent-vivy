@@ -345,12 +345,13 @@ type Service struct {
 	// overflowRecovered marks runs that already spent their single
 	// compact-and-retry recovery (VCP-D2); entries die in cleanupRunState.
 	overflowRecovered map[domain.RunID]bool
-	// toolOrderRetried marks runs that already spent their single
-	// tool-result-order retry; entries die in cleanupRunState. The budget is
-	// separate from overflowRecovered because the two recoveries diagnose
-	// different faults, but both draw from the same modelMaxRetries budget, so
-	// whichever decider grants a retry first physically consumes it.
-	toolOrderRetried map[domain.RunID]bool
+	// toolOrderRetries marks runs that already spent their single
+	// tool-result-order retry and records the rejected input's structural
+	// fingerprint; entries die in cleanupRunState. The budget is separate from
+	// overflowRecovered because the two recoveries diagnose different faults,
+	// but both draw from the same modelMaxRetries budget, so whichever decider
+	// grants a retry first physically consumes it.
+	toolOrderRetries map[domain.RunID]toolOrderRetryState
 	// autoRetryAwaiting records a dispatched recovery attempt (run → attempt)
 	// whose auto_retry.finished the consume loop still owes the journal:
 	// cleared on the first event after the retried call resolves, or on the
@@ -545,7 +546,7 @@ func NewService(eng *Engine, provider, modelID string, deps ServiceDeps) *Servic
 		contextViews:      make(map[domain.RunID]string),
 		lastCompaction:    make(map[domain.SessionID]*LastCompaction),
 		overflowRecovered: make(map[domain.RunID]bool),
-		toolOrderRetried:  make(map[domain.RunID]bool),
+		toolOrderRetries:  make(map[domain.RunID]toolOrderRetryState),
 		autoRetryAwaiting: make(map[domain.RunID]int),
 		humanPending:      make(map[domain.SessionID]int),
 		workFenced:        make(map[domain.RunID]struct{}),
@@ -3161,7 +3162,7 @@ func (s *Service) withLiveModelStreamObserver(ctx context.Context, m *eventMappe
 }
 
 // runModelCallObserver is the Journal-bound modelCallObserver (OBS-02):
-// Begin persists the v3 model.request and charges the model-call budget
+// Begin persists the v5 model.request shape and charges the model-call budget
 // before the provider runs; Chunk emits deduplicated cumulative v2 usage
 // samples (chat streams also persist their deltas here); End persists
 // the settlement sample and model.call.finished through the bounded
@@ -3200,25 +3201,30 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if o.source != modelCallSourceSummary && o.source != modelCallSourceMaintenance {
 		meta.ContextViewID = o.m.contextViewID
 	}
-	request := describeModelRequest(in.Messages, toolInfoNames(in.Tools))
+	request := describeModelRequestV5(in.Messages, in.Tools)
+	request.CallID = meta.CallID
+	request.Mode = in.Mode
+	request.Provider = o.provider
+	request.Model = o.model
+	request.Source = o.source
 	if meta.ContextViewID != "" {
 		request.ContextView = meta.ContextViewID
 	}
-	event := o.m.build(domain.EventModelRequest, payloadModelRequestV4{
-		payloadModelRequest: request,
-		CallID:              meta.CallID,
-		Mode:                in.Mode,
-		Provider:            o.provider,
-		Model:               o.model,
-		Source:              o.source,
-	})
-	// The v4 request consumes the event quota and carries the run's
+	// The v5 request is persisted even when the input is refused: the pair
+	// request + model.call.finished is the OBS-02 lifecycle invariant, and a
+	// refusal must leave the same audit trail as a provider failure.
+	violation := validateModelInput(in.Messages)
+	event := o.m.build(domain.EventModelRequest, request)
+	// The v5 request consumes the event quota and carries the run's
 	// model-call charge up front; the mapped model.completed/
 	// tool.requested batch for this call consumes the accounting credit
-	// noteObservedCallStart leaves behind.
+	// noteObservedCallStart leaves behind. A refused call never reaches the
+	// provider and therefore never charges a model call.
 	if o.ledger != nil {
-		if err := o.ledger.ReserveModelCall(); err != nil {
-			return meta, err
+		if violation == nil {
+			if err := o.ledger.ReserveModelCall(); err != nil {
+				return meta, err
+			}
 		}
 		if err := o.ledger.ReserveEvent(); err != nil {
 			return meta, err
@@ -3227,6 +3233,9 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	if err := o.persist(ctx, event); err != nil {
 		return meta, fmt.Errorf("runtime: model request event could not be journaled: %w", err)
 	}
+	if violation != nil {
+		return o.refuseModelCall(ctx, meta, in.Mode, violation)
+	}
 	if o.source != modelCallSourceMaintenance {
 		o.m.noteObservedCallStart()
 	}
@@ -3234,6 +3243,31 @@ func (o *runModelCallObserver) Begin(ctx context.Context, in modelCallInput) (mo
 	o.calls[meta.CallID] = &observedModelCall{mode: in.Mode}
 	o.mu.Unlock()
 	return meta, nil
+}
+
+// refuseModelCall closes the lifecycle of a call refused by the pre-send
+// invariant check. The provider is never invoked and no model-call budget is
+// charged; the paired finished row keeps OBS-02 honest.
+func (o *runModelCallObserver) refuseModelCall(ctx context.Context, meta modelCallMeta, mode string, violation error) (modelCallMeta, error) {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistTimeout)
+	defer cancel()
+	finish := payloadModelCallFinished{
+		CallID:   meta.CallID,
+		Mode:     mode,
+		Provider: meta.Provider,
+		Model:    meta.Model,
+		Source:   meta.Source,
+		Status:   "failed",
+		Error: &payloadModelCallError{
+			Name:    "ModelRequestInvalid",
+			Message: truncateText(violation.Error(), 512),
+		},
+	}
+	if err := o.persist(persistCtx, o.m.build(domain.EventModelCallFinished, finish)); err != nil {
+		return meta, errors.Join(errModelCallAdmission, errModelRequestInvalid, violation,
+			modelObservationError(fmt.Errorf("runtime: model call refusal could not be journaled: %w", err)))
+	}
+	return meta, errors.Join(errModelCallAdmission, errModelRequestInvalid, violation)
 }
 
 func (o *runModelCallObserver) StreamOpened(meta modelCallMeta) {
@@ -3339,6 +3373,7 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 			Name:    clampEscapedText(fmt.Sprintf("%T", result.Err), 128),
 			Message: clampEscapedText(result.Err.Error(), 512),
 		}
+		finish.Wire = wirePayload(result.Wire)
 	}
 	if usage != nil {
 		if sample, ok := usage.sample(); ok {
@@ -3366,6 +3401,33 @@ func (o *runModelCallObserver) End(ctx context.Context, meta modelCallMeta, resu
 		}
 	}
 	return nil
+}
+
+// wirePayload converts the provider's bounded, content-free wire summary for
+// the finish record. The provider clamps every list (64 entries) and string
+// (128 chars) before the summary reaches here; the payload schema declares the
+// same bounds.
+func wirePayload(summary *provider.WireSummary) *payloadModelCallWire {
+	if summary == nil {
+		return nil
+	}
+	return &payloadModelCallWire{
+		Status:       summary.Status,
+		Model:        summary.Model,
+		Stream:       summary.Stream,
+		Messages:     summary.Messages,
+		Roles:        summary.Roles,
+		ContentForms: summary.ContentForms,
+		CallIDs:      summary.CallIDs,
+		ResultIDs:    summary.ResultIDs,
+		ToolCount:    summary.ToolCount,
+		ToolNames:    summary.ToolNames,
+		ToolChoice:   summary.ToolChoice,
+		ExtraKeys:    summary.ExtraKeys,
+		BodyBytes:    summary.BodyBytes,
+		Truncated:    summary.Truncated,
+		ParseError:   summary.ParseError,
+	}
 }
 
 func (o *runModelCallObserver) call(callID string) *observedModelCall {
@@ -5248,16 +5310,42 @@ func providerStatus(err error) (int, bool) {
 // auto_retry.* projection to a rejected tool-result order.
 const toolResultOrderReason = "tool_result_order"
 
-// toolResultOrderMarker is the provider-side code for "tool call result does
-// not follow tool call". It only ever appears inside an HTTP 400 body.
-const toolResultOrderMarker = "(2013)"
+// toolResultOrderPhrases are the provider sentences that explicitly name a
+// rejected tool-result ordering. A bare "(2013)" is not evidence: MiniMax
+// uses that generic invalid-params code for invalid roles, empty content and
+// malformed tool arguments as well.
+var toolResultOrderPhrases = []string{
+	"tool call result does not follow tool call",
+	"tool_calls must be followed by tool messages",
+	"messages with role 'tool' must be a response to a preceding message with 'tool_calls'",
+}
 
-// isToolResultOrderFailure reports a provider HTTP 400 whose body carries the
-// 2013 tool-result-order code. It reuses providerStatus; there is no second
-// status parser.
+// isToolResultOrderFailure reports a provider HTTP 400 whose text names the
+// tool-result ordering. It reuses providerStatus; there is no second status
+// parser.
 func isToolResultOrderFailure(err error) bool {
+	if err == nil {
+		return false
+	}
 	status, ok := providerStatus(err)
-	return ok && status == http.StatusBadRequest && strings.Contains(err.Error(), toolResultOrderMarker)
+	if !ok || status != http.StatusBadRequest {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, phrase := range toolResultOrderPhrases {
+		if strings.Contains(message, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// toolOrderRetryState is the per-run proof of one granted retry: the
+// content-free fingerprint of the rejected input, so a second rejection can
+// report whether the provider saw the identical shape again.
+type toolOrderRetryState struct {
+	fingerprint string
+	attempt     int
 }
 
 // modelRetryDecision is the single decider bound into the engine's
@@ -5271,6 +5359,11 @@ func (s *Service) modelRetryDecision(ctx context.Context, rc *adk.TypedRetryCont
 	if rc == nil || rc.RetryAttempt > modelMaxRetries {
 		return nil
 	}
+	// A refused input never reached the provider; replaying it would only
+	// repeat the refusal.
+	if errors.Is(rc.Err, errModelRequestInvalid) {
+		return nil
+	}
 	if decision := s.overflowRetryDecision(ctx, rc); decision != nil {
 		return decision
 	}
@@ -5278,9 +5371,10 @@ func (s *Service) modelRetryDecision(ctx context.Context, rc *adk.TypedRetryCont
 }
 
 // toolResultOrderRetryDecision replays an identical model call once after the
-// provider rejected the tool-result order. The rejection is intermittent and a
-// manual retry recovers, so the payload is not rewritten — but a masked
-// ordering bug must stay diagnosable, hence the full error text in the log.
+// provider named the tool-result order. The grant requires all three pieces of
+// evidence: a semantic order phrase, a real tool turn in the input, and an
+// input that passes our own wire invariants. The fingerprint proves the replay
+// identity in the journal rather than in auxiliary state alone.
 func (s *Service) toolResultOrderRetryDecision(ctx context.Context, rc *adk.TypedRetryContext[*schema.AgenticMessage]) *adk.TypedRetryDecision[*schema.AgenticMessage] {
 	if rc == nil || !isToolResultOrderFailure(rc.Err) {
 		return nil
@@ -5289,23 +5383,39 @@ func (s *Service) toolResultOrderRetryDecision(ctx context.Context, rc *adk.Type
 	if runID == "" {
 		return nil
 	}
-	s.mu.Lock()
-	if s.toolOrderRetried[runID] {
-		// One recovery per run: a second rejection fails honestly instead of
-		// replaying the same payload in a loop.
-		s.mu.Unlock()
+	if !hasToolTurns(rc.InputMessages) {
+		slog.Warn("tool-result-order rejection without a tool turn; not retrying",
+			"run", string(runID), "err", errorChainText(rc.Err, 1024))
 		return nil
 	}
-	s.toolOrderRetried[runID] = true
+	if err := validateModelInput(rc.InputMessages); err != nil {
+		slog.Warn("tool-result-order rejection on an input that fails wire invariants; not retrying",
+			"run", string(runID), "violation", err.Error())
+		return nil
+	}
+	fingerprint := modelRequestFingerprint(rc.InputMessages)
+	s.mu.Lock()
+	if previous, seen := s.toolOrderRetries[runID]; seen {
+		s.mu.Unlock()
+		// One recovery per run: a second rejection fails honestly instead of
+		// replaying the same payload in a loop.
+		slog.Warn("tool-result-order retry already spent; declining",
+			"run", string(runID),
+			"identical", previous.fingerprint == fingerprint,
+			"first_attempt", previous.attempt, "attempt", rc.RetryAttempt)
+		return nil
+	}
+	s.toolOrderRetries[runID] = toolOrderRetryState{fingerprint: fingerprint, attempt: rc.RetryAttempt}
 	s.autoRetryAwaiting[runID] = rc.RetryAttempt
 	s.mu.Unlock()
 
 	slog.Error("provider rejected the tool result order; retrying the identical call once",
-		"run", string(runID), "attempt", rc.RetryAttempt, "err", errorChainText(rc.Err, 4096))
+		"run", string(runID), "attempt", rc.RetryAttempt,
+		"fingerprint", clampFingerprint(fingerprint), "err", errorChainText(rc.Err, 4096))
 	emitGovernanceEvent(ctx, GovernanceEvent{
 		Type:    domain.EventAutoRetryStarted,
 		Attempt: rc.RetryAttempt,
-		Reason:  toolResultOrderReason + ": " + errorChainText(rc.Err, 256),
+		Reason:  toolResultOrderReason + ": fingerprint=" + clampFingerprint(fingerprint) + "; " + errorChainText(rc.Err, 256),
 	})
 	return &adk.TypedRetryDecision[*schema.AgenticMessage]{
 		Retry:        true,
@@ -5614,7 +5724,7 @@ func (s *Service) cleanupRunState(runID domain.RunID) {
 	delete(s.goalRunSessions, runID)
 	delete(s.contextViews, runID)
 	delete(s.overflowRecovered, runID)
-	delete(s.toolOrderRetried, runID)
+	delete(s.toolOrderRetries, runID)
 	delete(s.autoRetryAwaiting, runID)
 	s.mu.Unlock()
 	s.deleteShellState(shellStateRefToDelete)

@@ -365,6 +365,8 @@ func (s *Service) projectRunTrajectory(ctx context.Context, run domain.Run, turn
 				}
 			}
 		case domain.EventModelRequest:
+			// v5 embeds the v4 envelope, so the trajectory view decodes every
+			// observed-call version through the same struct.
 			var v3 payloadModelRequestV4
 			_ = json.Unmarshal(event.Payload, &v3)
 			maintenance := v3.Source == modelCallSourceMaintenance

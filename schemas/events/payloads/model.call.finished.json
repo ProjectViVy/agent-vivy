@@ -8,7 +8,7 @@
     "call_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Identity shared with the call's v4 model.request and v2 model.usage samples."
+      "description": "Identity shared with the call's v5 model.request and v2 model.usage samples."
     },
     "mode": {
       "type": "string",
@@ -51,6 +51,53 @@
     "response_complete": {
       "type": "boolean",
       "description": "True only when the model produced a complete response (normal stream EOF or Generate success)."
+    },
+    "wire": {
+      "type": "object",
+      "description": "Content-free description of the rejected HTTP request the provider actually received. Present only for a failed call whose transport observed a non-2xx response. Records shapes and identifiers, never message text.",
+      "properties": {
+        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "model": { "type": "string", "maxLength": 128 },
+        "stream": { "type": "boolean" },
+        "messages": { "type": "integer", "minimum": 0 },
+        "roles": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "content_forms": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "enum": ["string", "array", "empty", "other"] }
+        },
+        "call_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "result_call_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "tool_count": { "type": "integer", "minimum": 0 },
+        "tool_names": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "tool_choice": { "type": "string", "maxLength": 128 },
+        "extra_keys": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "body_bytes": { "type": "integer", "minimum": 0, "maximum": 8388608 },
+        "truncated": { "type": "boolean" },
+        "parse_error": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["status", "stream", "messages", "tool_count", "body_bytes"],
+      "additionalProperties": false
     }
   },
   "required": ["call_id", "mode", "provider", "model", "source", "status", "response_complete"],

@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+
+	"agent-vivy/internal/provider"
 )
 
 // Model call lifecycle observation (OBS-02 / D2). Every runtime-owned
@@ -44,6 +47,40 @@ type modelCallResult struct {
 	Err              error
 	Usage            *schema.TokenUsage
 	ResponseComplete bool
+	// Wire is the content-free summary of the HTTP request the provider
+	// rejected. The provider transport fills it only for a non-2xx response;
+	// End journals it only alongside an error.
+	Wire *provider.WireSummary
+}
+
+// wireCapture receives at most one summary per observed call. The provider
+// transport records synchronously inside Generate/Stream (or, for a stream
+// setup failure, on the caller's goroutine), and End snapshots after the
+// error is final, so a mutex is the whole synchronization needed.
+type wireCapture struct {
+	mu      sync.Mutex
+	summary *provider.WireSummary
+}
+
+func (c *wireCapture) record(summary provider.WireSummary) {
+	c.mu.Lock()
+	c.summary = &summary
+	c.mu.Unlock()
+}
+
+// snapshot returns the recorded summary, or nil when the call did not fail or
+// the provider never reported a rejected request.
+func (c *wireCapture) snapshot(err error) *provider.WireSummary {
+	if err == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.summary == nil {
+		return nil
+	}
+	copied := *c.summary
+	return &copied
 }
 
 // modelCallRoute names which model boundary a wrapper serves. Source ""
@@ -159,6 +196,8 @@ func mergeToolInfos(base, extra []*schema.ToolInfo) []*schema.ToolInfo {
 // observeGenerate runs one observed non-streaming invocation: Begin,
 // inner Generate, the returned message observed once, then End.
 func observeGenerate(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.AgenticMessage], input []*schema.AgenticMessage, opts ...model.Option) (*schema.AgenticMessage, error) {
+	capture := &wireCapture{}
+	ctx = provider.WithWireSink(ctx, capture.record)
 	obs, meta, err := core.begin(ctx, "generate", input, opts)
 	if err != nil {
 		return nil, err
@@ -172,9 +211,11 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 		obs.StreamOpened(meta)
 		chunkErr = obs.Chunk(ctx, meta, msg)
 	}
+	callResult := errors.Join(callErr, chunkErr)
 	endErr := obs.End(ctx, meta, modelCallResult{
-		Err: errors.Join(callErr, chunkErr), Usage: agenticUsage(msg),
-		ResponseComplete: callErr == nil && chunkErr == nil,
+		Err: callResult, Usage: agenticUsage(msg),
+		ResponseComplete: callResult == nil,
+		Wire:             capture.snapshot(callResult),
 	})
 	if err := errors.Join(callErr, modelObservationError(chunkErr), modelObservationError(endErr)); err != nil {
 		return nil, err
@@ -197,6 +238,8 @@ func observeGenerate(ctx context.Context, core *observedModelCallCore, inner mod
 // the tool-settled barrier. Revisit if Eino adds a producer-path Recv hook
 // with those semantics.
 func observeStream(ctx context.Context, core *observedModelCallCore, inner model.BaseModel[*schema.AgenticMessage], input []*schema.AgenticMessage, opts ...model.Option) (*schema.StreamReader[*schema.AgenticMessage], error) {
+	capture := &wireCapture{}
+	ctx = provider.WithWireSink(ctx, capture.record)
 	obs, meta, err := core.begin(ctx, "stream", input, opts)
 	if err != nil {
 		return nil, err
@@ -206,7 +249,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 	}
 	upstream, err := inner.Stream(ctx, input, opts...)
 	if err != nil {
-		endErr := obs.End(ctx, meta, modelCallResult{Err: err})
+		endErr := obs.End(ctx, meta, modelCallResult{Err: err, Wire: capture.snapshot(err)})
 		return nil, errors.Join(err, modelObservationError(endErr))
 	}
 	// Mark the call before exposing the tee to Eino. Starting the marker
@@ -223,6 +266,7 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 		// run terminal can never overtake the call's finish record.
 		finish := func() {
 			result.Usage = lastUsage
+			result.Wire = capture.snapshot(result.Err)
 			if err := obs.End(ctx, meta, result); err != nil {
 				writer.Send(nil, modelObservationError(err))
 			}
@@ -233,6 +277,8 @@ func observeStream(ctx context.Context, core *observedModelCallCore, inner model
 		// budget breaker) must never overtake the mandatory closure.
 		fail := func(err error) {
 			result.Usage = lastUsage
+			result.Err = err
+			result.Wire = capture.snapshot(err)
 			endErr := obs.End(ctx, meta, result)
 			writer.Send(nil, errors.Join(err, modelObservationError(endErr)))
 			writer.Close()

@@ -264,7 +264,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 	}
 
 	// Seq is monotonic 1..K with no gaps. Observed calls emit model.request
-	// v3 and model.usage v2; model.completed and the terminal Observer
+	// v5 and model.usage v2; model.completed and the terminal Observer
 	// projection use v2; the remaining events retain their existing
 	// versions when no Context View is selected.
 	for i, ev := range events {
@@ -278,7 +278,7 @@ func TestServiceRunHappyPath(t *testing.T) {
 		case domain.EventModelCompleted:
 			wantVersion = 3
 		case domain.EventModelRequest:
-			wantVersion = 4
+			wantVersion = 5
 		}
 		if ev.PayloadVersion != wantVersion {
 			t.Fatalf("event %d (%s) payload version = %d, want %d", i, ev.Type, ev.PayloadVersion, wantVersion)

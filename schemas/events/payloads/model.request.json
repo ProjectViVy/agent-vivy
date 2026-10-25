@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-vivy.local/schemas/events/payloads/model.request.json",
   "title": "model.request payload",
-  "description": "Model request v4 observation: byte counts, selected tools and call lifecycle identity. No prompt content or content digest is published.",
+  "description": "Model request v5 observation: call lifecycle identity, byte counts, ordered structural shape and the bound tool declarations. No prompt content and no content digest is published. Historical v1-v4 rows remain valid because every v5 field is optional.",
   "type": "object",
   "properties": {
     "selected_tools": {
@@ -40,6 +40,68 @@
           "byte_len": {
             "type": "integer",
             "minimum": 0
+          },
+          "blocks": {
+            "type": "array",
+            "maxItems": 256,
+            "description": "Ordered structural block shape (v5).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "reasoning",
+                    "user_input_text",
+                    "user_input_image",
+                    "user_input_audio",
+                    "user_input_video",
+                    "user_input_file",
+                    "tool_search_result",
+                    "assistant_gen_text",
+                    "assistant_gen_image",
+                    "assistant_gen_audio",
+                    "assistant_gen_video",
+                    "function_tool_call",
+                    "function_tool_result",
+                    "server_tool_call",
+                    "server_tool_result",
+                    "mcp_tool_call",
+                    "mcp_tool_result",
+                    "mcp_list_tools_result",
+                    "mcp_tool_approval_request",
+                    "mcp_tool_approval_response",
+                    "unknown"
+                  ],
+                  "description": "Eino agentic content block type; \"unknown\" marks a block the runtime could not identify."
+                },
+                "byte_len": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "call_id": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                "content_kinds": {
+                  "type": "array",
+                  "maxItems": 16,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                }
+              },
+              "required": [
+                "kind",
+                "byte_len"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -86,6 +148,120 @@
         "maintenance"
       ],
       "description": "Route attribution: main, child, compaction summary, or paid maintenance call (v4)."
+    },
+    "call_ids": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "maxLength": 128
+      },
+      "description": "Tool call ids in input order (v5)."
+    },
+    "result_call_ids": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "maxLength": 128
+      },
+      "description": "Tool result call ids in input order (v5)."
+    },
+    "tool_declarations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "parameters": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "type": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Bound tool contract: names, ordered parameter names and scalar types (v5)."
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_results": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "system": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "user": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assistant": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "messages",
+        "blocks",
+        "tool_calls",
+        "tool_results",
+        "system",
+        "user",
+        "assistant",
+        "tool"
+      ],
+      "additionalProperties": false,
+      "description": "Complete counts of the model input (v5); not truncated by the block cap."
+    },
+    "shape_truncated": {
+      "type": "boolean",
+      "description": "True when the ordered block lists stopped at the shape cap (v5)."
     }
   },
   "required": [

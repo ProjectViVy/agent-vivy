@@ -138,6 +138,43 @@ type payloadModelRequestMessage struct {
 	ToolName   string `json:"tool_name,omitempty"`
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	ByteLen    int    `json:"byte_len"`
+	// Blocks is the ordered structural shape of this message (v5). It carries
+	// block kinds, byte counts and tool identifiers, never content.
+	Blocks []payloadRequestBlock `json:"blocks,omitempty"`
+}
+
+// payloadRequestBlock describes one content block without publishing its text.
+type payloadRequestBlock struct {
+	Kind         string   `json:"kind"`
+	ByteLen      int      `json:"byte_len"`
+	CallID       string   `json:"call_id,omitempty"`
+	Name         string   `json:"name,omitempty"`
+	ContentKinds []string `json:"content_kinds,omitempty"`
+}
+
+// payloadRequestCounts is the complete count summary of one model input.
+// Unlike the ordered lists it is not truncated by modelShapeBlockCap.
+type payloadRequestCounts struct {
+	Messages    int `json:"messages"`
+	Blocks      int `json:"blocks"`
+	ToolCalls   int `json:"tool_calls"`
+	ToolResults int `json:"tool_results"`
+	System      int `json:"system"`
+	User        int `json:"user"`
+	Assistant   int `json:"assistant"`
+	Tool        int `json:"tool"`
+}
+
+// payloadToolDeclaration is the content-free tool contract bound to the call.
+type payloadToolDeclaration struct {
+	Name       string             `json:"name"`
+	Parameters []payloadToolParam `json:"parameters,omitempty"`
+}
+
+type payloadToolParam struct {
+	Name     string `json:"name"`
+	Type     string `json:"type,omitempty"`
+	Required bool   `json:"required,omitempty"`
 }
 
 // payloadModelRequestV4 is the per-invocation request record: private
@@ -150,6 +187,18 @@ type payloadModelRequestV4 struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	Source   string `json:"source"`
+}
+
+// payloadModelRequestV5 adds the ordered structural shape, the bound tool
+// declarations and complete counts to the v4 call identity. It stays
+// content-free: kinds, byte counts, identifiers and parameter names only.
+type payloadModelRequestV5 struct {
+	payloadModelRequestV4
+	CallIDs          []string                 `json:"call_ids,omitempty"`
+	ResultCallIDs    []string                 `json:"result_call_ids,omitempty"`
+	ToolDeclarations []payloadToolDeclaration `json:"tool_declarations,omitempty"`
+	Counts           payloadRequestCounts     `json:"counts"`
+	ShapeTruncated   bool                     `json:"shape_truncated,omitempty"`
 }
 
 // payloadModelUsageV2 attributes a cumulative usage sample to one model
@@ -209,6 +258,27 @@ type payloadModelCallError struct {
 	Message string `json:"message"`
 }
 
+// payloadModelCallWire is the content-free description of the HTTP request the
+// provider actually received, captured only for a failed call. It records
+// shapes and identifiers, never message text.
+type payloadModelCallWire struct {
+	Status       int      `json:"status"`
+	Model        string   `json:"model,omitempty"`
+	Stream       bool     `json:"stream"`
+	Messages     int      `json:"messages"`
+	Roles        []string `json:"roles,omitempty"`
+	ContentForms []string `json:"content_forms,omitempty"`
+	CallIDs      []string `json:"call_ids,omitempty"`
+	ResultIDs    []string `json:"result_call_ids,omitempty"`
+	ToolCount    int      `json:"tool_count"`
+	ToolNames    []string `json:"tool_names,omitempty"`
+	ToolChoice   string   `json:"tool_choice,omitempty"`
+	ExtraKeys    []string `json:"extra_keys,omitempty"`
+	BodyBytes    int      `json:"body_bytes"`
+	Truncated    bool     `json:"truncated,omitempty"`
+	ParseError   string   `json:"parse_error,omitempty"`
+}
+
 // payloadModelCallFinished is the mandatory closure record of one
 // observed model call (OBS-02/D2). It is exempt from the MaxEvents
 // budget: every observed call must close or the call's usage evidence
@@ -223,6 +293,7 @@ type payloadModelCallFinished struct {
 	Error            *payloadModelCallError `json:"error,omitempty"`
 	Usage            *payloadModelCallUsage `json:"usage,omitempty"`
 	ResponseComplete bool                   `json:"response_complete"`
+	Wire             *payloadModelCallWire  `json:"wire,omitempty"`
 }
 
 type payloadToolRequested struct {
