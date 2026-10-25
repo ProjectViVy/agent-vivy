@@ -2,7 +2,7 @@
 
 Date: 2026-10-25
 
-Status: Research checkpoint with an accepted Prime-anchored automatic evolution direction and Vivy persona extension; no implementation authorized by this report.
+Status: Research checkpoint with an accepted hybrid architecture, Prime-anchored automatic evolution and Vivy persona extension; no implementation authorized by this report.
 
 Scope: Preserve this conversation's findings and latest direction in both repositories.
 
@@ -27,8 +27,9 @@ every capability into Python:
   when needed instead of injecting all tool schemas into every model request.
 - The workbench is preparation for the owner's PEN system. PEN's meaning,
   contracts, and requirements have not yet been explained. Do not invent them.
-- The owner explicitly asked to save today's research before continuing.
-  Do not start implementation from this report while that next idea is pending.
+- The owner asked to preserve the research and subsequently accepted a miniature
+  architecture diagram. Section 16 records the documentation/review checkpoint;
+  runtime implementation requires a subsequent implementation task.
 - Latest evolution decision: use Prime's concrete continual-harness formats and
   refinement lifecycle as the anchor, with automatic evolution and a focused
   Vivy persona-evolution addition. Section 15 supersedes earlier suggestions of
@@ -648,3 +649,57 @@ The owner requested a durable decision record, not implementation in this turn.
 Verification for this documentation update: inspect the source-backed claims,
 review the diff, compare both saved copies, and run Git whitespace checks. No
 runtime behavior or new automatic-evolution capability is delivered here.
+
+## 16. Accepted diagram and architecture review checkpoint
+
+The owner approved documenting the miniature architecture and requested a final
+review focused on hidden architectural risk and low-value code growth. The
+implementation authority is `vivy-test/docs/DESIGN.md`, section "Hybrid architecture
+and first-stage boundary". The original sketch is preserved in vivy-test at
+`docs/research/assets/2026-10-25-owner-architecture.png`. This mirrored research
+report records the decision; it is not a second specification to keep synchronized.
+
+The accepted shape is one recipe-built Rig host with direct coding tools and the
+existing optional Python worker. Rust retains the main model/gateway path, sessions,
+terminal, context and refinement commits. Python supplies deferred MCP/data work
+and future consumers when specified. Rig skills remain file-backed; Prime-shaped
+harness state owns learned entries. ACTMEM is a view of local working state, not
+another memory service. Python variables are ephemeral. External memory and PEN
+remain unspecified and are not prerequisites for this experiment.
+
+Three useful slices set the boundary: preserve/verify the Pi-style coding core;
+deliver one deferred MCP task with lifecycle and correlated evidence; then add
+bounded automatic Prime-shaped refinement and persona growth. The full Pi inventory
+remains in `vivy-test/docs/PI-BASELINE.md`. A postponed capability is a gap, not
+parity. There is no new SDK, Port catalog, custom TUI, daemon, generic RPC platform,
+automatic package installer, model training or complete Prime port in these slices.
+
+The review inspected the current workbench seam: `worker.py` cancels remaining
+asyncio tasks after each cell. Persistent MCP clients therefore need deliberate
+lifecycle ownership. The design also requires branch/reset handling, host callback
+dispatch while awaiting Python, bounded context and artifacts, and a single writer
+with crash reconciliation for harness state/history. Arbitrary Python I/O is not
+a sandboxed or completely traced managed effect. These are design constraints,
+not runtime fixes delivered by this document update.
+
+Fresh independent review found two gaps, resolved in the design: local learned
+state must follow the conversation branch (compatible revision or explicit reset),
+and refinement bookkeeping must remember considered evidence, including no-change
+outcomes, to prevent duplicate consumption after resume. Shared profile learning
+persists across rewind and uses explicit rollback. The pinned Rig log reports write
+failure without stopping effects; the new Python/MCP bridge needs an acknowledged
+record-before-dispatch seam. This is not a claim of global fail-closed native tools,
+nor a mandate to replace Rig's persistence with a second Journal.
+
+Every new owned layer must deliver a concrete behavior that direct Rig/SDK reuse
+cannot supply. Review owned-code/dependency changes and remove superseded owners;
+do not set a line-count quota or reward additional infrastructure. Known remaining
+implementation choices include the Rig append hook, minimal bridge frames and the
+state/history commit procedure. Verify those with actual API and failure-path
+evidence before claiming the corresponding slice complete.
+
+Verification for this checkpoint: fresh read-only architecture review, document
+consistency and local-link checks, original sketch byte comparison, identical
+research copies and `git diff --check`. No runtime code, original-Vivy product
+contract or repair-lane behavior changes. No runtime CI is needed for this
+documentation-only checkpoint; implementation claims still require real-path tests.
