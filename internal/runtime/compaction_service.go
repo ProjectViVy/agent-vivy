@@ -156,9 +156,9 @@ func (s *Service) CompactSession(ctx context.Context, sessionID domain.SessionID
 	if s.engine.cfg.Compaction == nil || !s.engine.cfg.Compaction.Enabled {
 		return CompactionResult{}, ErrCompactionNotNeeded
 	}
-	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	stored, err := s.parentFeed(ctx, sessionID)
 	if err != nil {
-		return CompactionResult{}, fmt.Errorf("runtime: list session messages: %w", err)
+		return CompactionResult{}, err
 	}
 	feed := feedableMessages(stored)
 	if len(feed) == 0 {

@@ -195,3 +195,87 @@ func TestRunFeedExcludesChildTranscripts(t *testing.T) {
 		t.Fatalf("parent history missing from the model input:\n%s", got)
 	}
 }
+
+func newChildCompactionService(t *testing.T, backend *sqlite.Backend, rec *recordingModel) *Service {
+	t.Helper()
+	ctx := context.Background()
+	eng, err := NewEngine(ctx, rec, nil, EngineConfig{
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, MaxContextBytes: 1 << 20,
+		Compaction: &CompactionPolicy{Enabled: true, MaxTokens: 10, TriggerPercent: 50, KeepRecent: 1},
+	})
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	return NewService(eng, "test", "test-model", ServiceDeps{
+		Journal: backend, Runs: backend, Messages: backend, Notes: backend,
+		Sessions: backend, Sink: newTestSink(), Compactions: backend,
+	})
+}
+
+func assertSummaryExcludesChildMarkers(t *testing.T, rec *recordingModel) {
+	t.Helper()
+	inputs := rec.snapshot()
+	if len(inputs) == 0 {
+		t.Fatal("summarizer was never called")
+	}
+	for _, input := range inputs {
+		text := joinContent(input)
+		if strings.Contains(text, "child-answer-marker") || strings.Contains(text, "child-transcript-marker") {
+			t.Fatalf("child transcript reached the summarizer:\n%s", text)
+		}
+	}
+}
+
+// A session compaction summaries the parent feed only; a child's delegated
+// transcript stays in the store behind the agent tool card.
+func TestCompactSessionExcludesChildTranscript(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "child-feed-compact.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	sessionID := domain.SessionID("sess-child-feed-compact")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "child feed compact", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	seedChildTranscript(t, ctx, backend, sessionID)
+	rec := &recordingModel{inner: NewScriptedModel(testAssistant("summary text."))}
+	svc := newChildCompactionService(t, backend, rec)
+
+	result, err := svc.CompactSession(ctx, sessionID, CompactOptions{})
+	if err != nil {
+		t.Fatalf("compact session: %v", err)
+	}
+	if result.Skipped || result.Folded != 2 {
+		t.Fatalf("compaction result = %+v, want 2 folded parent rows", result)
+	}
+	assertSummaryExcludesChildMarkers(t, rec)
+}
+
+// Overflow recovery folds pre-run history through the same parent feed, so a
+// child transcript can never become durable session history.
+func TestCompactForOverflowExcludesChildTranscript(t *testing.T) {
+	ctx := context.Background()
+	backend, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "child-feed-overflow.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	sessionID := domain.SessionID("sess-child-feed-overflow")
+	if err := backend.CreateSession(ctx, domain.Session{ID: sessionID, Title: "child feed overflow", CreatedAt: 1}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	seedChildTranscript(t, ctx, backend, sessionID)
+	rec := &recordingModel{inner: NewScriptedModel(testAssistant("summary text."))}
+	svc := newChildCompactionService(t, backend, rec)
+
+	comp, _, err := svc.compactForOverflow(ctx, sessionID, "run-live")
+	if err != nil {
+		t.Fatalf("compact for overflow: %v", err)
+	}
+	if comp == nil || comp.DroppedCount != 2 {
+		t.Fatalf("overflow compaction = %+v, want 2 folded parent rows", comp)
+	}
+	assertSummaryExcludesChildMarkers(t, rec)
+}

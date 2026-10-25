@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -190,9 +189,9 @@ func (s *Service) compactForOverflow(ctx context.Context, sessionID domain.Sessi
 	if s.deps.Messages == nil || s.deps.Compactions == nil {
 		return nil, nil, ErrCompactionNotWired
 	}
-	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	stored, err := s.parentFeed(ctx, sessionID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("runtime: list session messages: %w", err)
+		return nil, nil, err
 	}
 	var preRun, pending []domain.Message
 	for _, msg := range stored {

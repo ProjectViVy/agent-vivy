@@ -234,6 +234,16 @@ func (s *Service) ReconcileSessionMessages(ctx context.Context, sessionID domain
 	return s.reconcileSessionMessageProjection(ctx, sessionID)
 }
 
+// parentFeed lists a session's messages and drops child-run transcripts,
+// exactly like the run feed.
+func (s *Service) parentFeed(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error) {
+	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: list session messages: %w", err)
+	}
+	return s.parentFeedMessages(ctx, sessionID, stored), nil
+}
+
 // parentFeedMessages drops child-run transcripts from the history that becomes
 // the parent's model input. Child columns stay in the session store because
 // they are the durable transcript behind the `agent` tool card, but a child's
