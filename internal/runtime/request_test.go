@@ -13,7 +13,7 @@ func TestDescribeModelRequestMetadataAndTools(t *testing.T) {
 		testToolCalls(testCall("c1", "echo_info", `{"text":"x"}`)),
 		testToolResult("c1", "", "x"),
 	}
-	got := describeModelRequest(msgs, []string{"echo_info"})
+	got := describeModelRequestV5(msgs, []*schema.ToolInfo{{Name: "echo_info"}})
 	if got.PreambleBytes != len("preamble") {
 		t.Fatalf("preamble metadata = %+v", got)
 	}
@@ -34,7 +34,7 @@ func TestDescribeModelRequestIncludesTextMultiContent(t *testing.T) {
 		agenticTextBlock("\n\n[project file: main.go]\npackage main"),
 	})
 	want := []byte("inspect\n\n[project file: main.go]\npackage main")
-	got := describeModelRequest([]*schema.AgenticMessage{msg}, nil)
+	got := describeModelRequestV5([]*schema.AgenticMessage{msg}, nil)
 	if got.SelectedTools == nil {
 		t.Fatal("empty selected_tools must remain an array")
 	}

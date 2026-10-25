@@ -4,10 +4,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-func describeModelRequest(msgs []*schema.AgenticMessage, selectedTools []string) payloadModelRequest {
-	return payloadRequestFromShape(describeModelShape(msgs), selectedTools)
-}
-
 // payloadRequestFromShape projects one shape traversal onto the v1-v5 message
 // rows shared by every request envelope.
 func payloadRequestFromShape(shape modelShape, selectedTools []string) payloadModelRequest {

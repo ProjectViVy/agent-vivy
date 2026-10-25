@@ -2042,7 +2042,7 @@ func TestServiceFeedsToolTraceAndRequestMetadata(t *testing.T) {
 	// preamble/history rows. The feed itself is asserted above; request metadata
 	// must preserve roles, byte counts and tool-call correlation without content.
 	gotBody := stripSystemRequestRows(req.Messages)
-	wantBody := stripSystemRequestRows(describeModelRequest(feed, nil).Messages)
+	wantBody := stripSystemRequestRows(describeModelRequestV5(feed, nil).Messages)
 	if len(gotBody) != len(wantBody) {
 		t.Fatalf("model.request body = %+v, want %+v", gotBody, wantBody)
 	}
