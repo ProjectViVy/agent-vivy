@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "pretest": "node scripts/stage-ui-assembly.mjs",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "audit": "node scripts/audit/screenshots.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
