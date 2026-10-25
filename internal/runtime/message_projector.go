@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"agent-vivy/internal/domain"
@@ -231,4 +232,42 @@ func (s *Service) reconcileSessionMessageProjection(ctx context.Context, session
 // between Journal commit and projection cannot leave a completed turn hidden.
 func (s *Service) ReconcileSessionMessages(ctx context.Context, sessionID domain.SessionID) error {
 	return s.reconcileSessionMessageProjection(ctx, sessionID)
+}
+
+// parentFeedMessages drops child-run transcripts from the history that becomes
+// the parent's model input. Child columns stay in the session store because
+// they are the durable transcript behind the `agent` tool card, but a child's
+// answer already reaches the parent as that tool's result. Feeding the child's
+// whole turn as well doubles it: one sub-agent transcript can exceed the
+// entire history byte budget and leave no room for the parent's own turns.
+//
+// A run row we cannot see is treated as non-child: legacy rows have no run id
+// and must stay in the feed.
+func (s *Service) parentFeedMessages(ctx context.Context, sessionID domain.SessionID, stored []domain.Message) []domain.Message {
+	if len(stored) == 0 || s.deps.Runs == nil {
+		return stored
+	}
+	runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+	if err != nil {
+		slog.Warn("child transcript filter skipped; listing runs failed",
+			"session", string(sessionID), "err", err)
+		return stored
+	}
+	child := make(map[domain.RunID]struct{})
+	for _, run := range runs {
+		if run.Kind == domain.RunKindChild {
+			child[run.ID] = struct{}{}
+		}
+	}
+	if len(child) == 0 {
+		return stored
+	}
+	kept := make([]domain.Message, 0, len(stored))
+	for _, msg := range stored {
+		if _, isChild := child[msg.RunID]; isChild {
+			continue
+		}
+		kept = append(kept, msg)
+	}
+	return kept
 }

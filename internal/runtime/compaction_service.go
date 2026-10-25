@@ -95,7 +95,9 @@ func (s *Service) ContextStatus(ctx context.Context, sessionID domain.SessionID)
 		return out, fmt.Errorf("runtime: list session messages: %w", err)
 	}
 	out.TotalMessages = len(stored)
-	folded, foldedOK := s.foldSessionHistory(ctx, sessionID, stored)
+	// The meter must describe what the next run would actually feed, so it
+	// drops child transcripts exactly like the run path does.
+	folded, foldedOK := s.foldSessionHistory(ctx, sessionID, s.parentFeedMessages(ctx, sessionID, stored))
 	feed := feedableMessages(folded)
 	out.FeedMessages = len(feed)
 	out.FeedBytes, out.FeedTokens = historyBytesTokens(feed)

@@ -3542,6 +3542,9 @@ func (s *Service) runMessagesForRunWithCollaboration(ctx context.Context, sessio
 		slog.Warn("history rebuild failed; running without session context", "session", string(sessionID), "err", err)
 		stored = nil
 	}
+	// A child run's answer reaches this run as its `agent` tool result; its
+	// transcript is UI evidence, not parent history.
+	stored = s.parentFeedMessages(ctx, sessionID, stored)
 	// Rewind cutoff first (JOURNAL-REWIND-AND-FORK): the truncation winnows
 	// the raw rows, then compaction folds what remains.
 	stored, err = s.effectiveSessionMessages(ctx, sessionID, stored)
