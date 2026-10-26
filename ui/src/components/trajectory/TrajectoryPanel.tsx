@@ -415,9 +415,9 @@ function RunActivityChip({ run }: { run: TrajectoryRunActivity }) {
       className={[
         'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-2xs leading-4',
         waiting
-          ? 'border-warn/40 bg-warn-soft text-warn-fg'
+          ? 'border-warn/40 bg-warn-soft text-warn'
           : run.activityState === 'active' || run.activityState === 'queued'
-            ? 'border-primary/40 bg-primary/10 text-primary'
+            ? 'border-primary/40 bg-primary/10 text-brand-ink'
             : 'border-border text-muted-foreground',
       ].join(' ')}
       title={`${t('trajectory.run')} ${run.runId} · ${run.status}`}

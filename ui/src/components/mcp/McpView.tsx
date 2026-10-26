@@ -319,8 +319,8 @@ export function McpView() {
         }
       />
 
-      {readOnly ? <p className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn-fg">{t('mcp.readOnly')}</p> : null}
-      {importWarning ? <p role="status" className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn-fg">{importWarning}</p> : null}
+      {readOnly ? <p className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn">{t('mcp.readOnly')}</p> : null}
+      {importWarning ? <p role="status" className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn">{importWarning}</p> : null}
       {error ? <div role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-ui text-danger">{error}</div> : null}
 
       <Card>
@@ -490,7 +490,7 @@ export function McpView() {
                     <Input id="mcp-cwd" value={formData.cwd} onChange={(event) => setFormData((current) => ({ ...current, cwd: event.target.value }))} placeholder="." />
                     <p className="text-meta text-fg-muted">{t('mcp.cwdHint')}</p>
                   </div>
-                  <p className="rounded-md bg-warn-soft px-3 py-2 text-meta text-warn-fg">{t('mcp.stdioWarning')}</p>
+                  <p className="rounded-md bg-warn-soft px-3 py-2 text-meta text-warn">{t('mcp.stdioWarning')}</p>
                 </>
               )}
               <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">

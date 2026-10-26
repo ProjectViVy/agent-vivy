@@ -40,7 +40,7 @@ export function ThemePicker() {
               >
                 <div className="flex items-center justify-between">
                   <span className="h-2.5 w-2.5 rounded-full bg-brand" aria-hidden="true" />
-                  <span className="rounded-full bg-brand px-2 py-0.5 text-2xs font-semibold tracking-wide text-brand-fg">
+                  <span className="rounded-full bg-brand-fill px-2 py-0.5 text-2xs font-semibold tracking-wide text-brand-fg">
                     {t('settings.themeSwatchSample')}
                   </span>
                 </div>

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Screenshot audit for the UI overhaul. Expects the split dev pair to be running
 // (`just run` + `cd ui && pnpm dev`); it never starts servers itself, so the
-// evidence is always of the app a human can open.
+// evidence is always of the app a human can open. Every surface is also measured
+// for rendered text contrast, so a light-on-light or dark-on-dark pair fails the
+// audit instead of shipping.
 //
 // Usage:
 //   pnpm run audit
@@ -92,6 +94,105 @@ async function launchBrowser() {
   }
 }
 
+// Rendered ink check. Runs in the page: for every visible text node, resolve
+// the effective background (compositing translucent ancestors) and measure the
+// WCAG ratio. A screenshot cannot tell a light-on-light pair from a deliberate
+// tint, so the pair is measured where it renders. Called through
+// page.evaluate, so it must stay self-contained.
+function sweepInk() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const cache = new Map();
+
+  const toRgba = (value) => {
+    if (cache.has(value)) return cache.get(value);
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = '#000';
+    ctx.fillStyle = value;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    const out = { r, g, b, a: a / 255 };
+    cache.set(value, out);
+    return out;
+  };
+  const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = ({ r, g, b }) => 0.2126 * lin(r / 255) + 0.7152 * lin(g / 255) + 0.0722 * lin(b / 255);
+  const over = (fg, bg) => ({
+    r: fg.r * fg.a + bg.r * (1 - fg.a),
+    g: fg.g * fg.a + bg.g * (1 - fg.a),
+    b: fg.b * fg.a + bg.b * (1 - fg.a),
+    a: 1,
+  });
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const hex = ({ r, g, b }) => '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+
+  const visible = (el) => {
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 1 && rect.height > 1;
+  };
+
+  // Gradients, images and backdrop filters have no single background colour to
+  // measure against; those nodes are skipped rather than guessed.
+  const background = (el) => {
+    const stack = [];
+    for (let node = el; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.backgroundImage !== 'none') return null;
+      const colour = toRgba(style.backgroundColor);
+      if (colour.a > 0) {
+        stack.push(colour);
+        if (colour.a >= 1) break;
+      }
+    }
+    let base = { r: 255, g: 255, b: 255, a: 1 };
+    for (let i = stack.length - 1; i >= 0; i -= 1) base = over(stack[i], base);
+    return base;
+  };
+
+  const findings = [];
+  const seen = new Set();
+  let scanned = 0;
+  for (const el of document.querySelectorAll('*')) {
+    const text = [...el.childNodes]
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent.trim())
+      .join(' ')
+      .trim();
+    if (!text) continue;
+    if (!visible(el)) continue;
+    const bg = background(el);
+    if (!bg) continue;
+    scanned += 1;
+    const style = getComputedStyle(el);
+    const fg = over(toRgba(style.color), bg);
+    const value = ratio(fg, bg);
+    const size = Number.parseFloat(style.fontSize);
+    const weight = Number(style.fontWeight) || 400;
+    const minimum = size >= 24 || (size >= 18.66 && weight >= 700) ? 3 : 4.5;
+    if (value + 0.005 >= minimum) continue;
+    const key = `${hex(fg)}|${hex(bg)}|${style.fontSize}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    findings.push({
+      text: text.slice(0, 48),
+      ratio: Number(value.toFixed(2)),
+      minimum,
+      fg: hex(fg),
+      bg: hex(bg),
+      size: style.fontSize,
+      className: String(el.getAttribute('class') || '').slice(0, 120),
+    });
+  }
+  return { scanned, findings };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const wantedThemes = args.themes ? new Set(args.themes.split(',')) : null;
@@ -115,7 +216,8 @@ async function main() {
   if (response.status >= 500) throw new Error(`${args.baseUrl} answered ${response.status}`);
 
   const browser = await launchBrowser();
-  const manifest = { baseUrl: args.baseUrl, startedAt: new Date().toISOString(), shots: [], failures: [] };
+  const manifest = { baseUrl: args.baseUrl, startedAt: new Date().toISOString(), shots: [], failures: [], ink: [] };
+  let scannedText = 0;
 
   try {
     for (const theme of themes) {
@@ -160,6 +262,11 @@ async function main() {
               await page.locator(surface.scrollTo).first().scrollIntoViewIfNeeded();
               await page.waitForTimeout(250);
             }
+            const ink = await page.evaluate(sweepInk);
+            scannedText += ink.scanned;
+            for (const finding of ink.findings) {
+              manifest.ink.push({ theme: theme.id, width, surface: surface.name, ...finding });
+            }
             await mkdir(path.dirname(shot), { recursive: true });
             await page.screenshot({ path: shot, animations: 'disabled' });
             manifest.shots.push(entry);
@@ -176,9 +283,17 @@ async function main() {
     await writeFile(path.join(outRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   }
 
-  console.info(`audit: ${manifest.shots.length} screenshots, ${manifest.failures.length} failures -> ${outRoot}`);
+  console.info(
+    `audit: ${manifest.shots.length} screenshots, ${manifest.failures.length} failures, ` +
+      `${manifest.ink.length} ink pairs below AA (${scannedText} text nodes measured) -> ${outRoot}`,
+  );
   for (const failure of manifest.failures) console.error(`audit failure: ${failure.surface} @ ${failure.theme}/${failure.width}: ${failure.error}`);
-  if (manifest.failures.length) process.exitCode = 1;
+  for (const pair of manifest.ink) {
+    console.error(
+      `ink: ${pair.theme}/${pair.width} ${pair.surface} ${pair.fg} on ${pair.bg} = ${pair.ratio} (min ${pair.minimum}) ${pair.size} "${pair.text}" ${pair.className}`,
+    );
+  }
+  if (manifest.failures.length || manifest.ink.length) process.exitCode = 1;
 }
 
 await main();

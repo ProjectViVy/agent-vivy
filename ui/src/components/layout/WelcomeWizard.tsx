@@ -311,7 +311,7 @@ export function WelcomeWizard() {
                     className={cn(
                       'flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors',
                       index === step
-                        ? 'border-brand bg-brand text-brand-fg shadow-sm'
+                        ? 'border-brand bg-brand-fill text-brand-fg shadow-sm'
                         : index < step
                           ? 'border-brand/30 bg-brand-soft text-brand-ink'
                           : 'border-line bg-surface text-fg-muted',

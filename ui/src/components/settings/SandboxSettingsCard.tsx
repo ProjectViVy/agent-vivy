@@ -70,7 +70,7 @@ export function SandboxSettingsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-brand-ink">
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('sandboxSettings.title')}</CardTitle>
@@ -134,7 +134,7 @@ export function SandboxSettingsCard() {
           </Button>
           {savedFlash ? (
             <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+              <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
               {t('sandboxSettings.saved')}
             </span>
           ) : null}

@@ -199,7 +199,7 @@ function RequestDetails({
                 {request.usageEvidence.partial && (
                   <div className="flex justify-between gap-3">
                     <dt className="text-muted-foreground">{t('trajectory.usagePartial')}</dt>
-                    <dd className="text-warn-fg">{t('trajectory.usagePartialHint')}</dd>
+                    <dd className="text-warn">{t('trajectory.usagePartialHint')}</dd>
                   </div>
                 )}
               </>
@@ -338,7 +338,7 @@ export function TrajectoryDetailPanel({
                 record!.kind === 'message'
                   ? 'bg-brand-soft text-brand-ink'
                   : record!.kind === 'tool' || record!.kind === 'subtool'
-                    ? 'bg-warn-soft text-warn-fg'
+                    ? 'bg-warn-soft text-warn'
                     : 'bg-sunken text-fg-muted',
               ].join(' ')}
             >

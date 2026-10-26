@@ -10,8 +10,8 @@ import { cn } from '@/lib/utils';
 const NUM_CELL = 'w-10 min-w-10 select-none pr-2 text-right align-top text-muted-foreground/60';
 
 function lineCellClass(type: ParsedDiff['hunks'][number]['lines'][number]['type']): string {
-  if (type === 'add') return 'bg-ok-soft text-ok-fg';
-  if (type === 'del') return 'bg-danger-soft text-danger-fg';
+  if (type === 'add') return 'bg-ok-soft text-ok';
+  if (type === 'del') return 'bg-danger-soft text-danger';
   return '';
 }
 

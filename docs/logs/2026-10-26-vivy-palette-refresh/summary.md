@@ -1,79 +1,89 @@
-# Vivy palette refresh — the original azure, back under AA
+# Vivy palette refresh — fresh azure chrome, white ink on the fill
 
-Owner feedback on the Block 0–9 overhaul: "配色方面还是太重，看看能不能回到原来的
-清新配色中。vivy 的主配色。" The overhaul had moved the Vivy families to a
-desaturated teal (`hue 228`, accent chroma 0.095), so the ice-blue chrome read as
-grey-teal and the user-message bubbles were a dark slab. This delivery restores
-the original identity without dropping the accessibility gate the overhaul
-introduced.
+Owner feedback on the Block 0–9 overhaul, in two rounds: "配色还是太重，回到原来的
+清新配色，vivy 的主配色", then "你有一些蓝底黑字。这样的类型还有很多，全面排查".
+This delivery restores the original ice-blue chrome and azure accent, and fixes
+the whole ink/surface contract underneath it: every coloured surface now takes
+the ink that belongs to it.
 
-## What changed
+## The two defects
 
-**Hue and tint (both Vivy families).** `--tint-h` 228 → 220 and the neutral tint
-chroma 0.011 → 0.0165 (light) / 0.012 → 0.018 (dark). The original palette used
-`hue 220` with roughly twice the tint chroma the overhaul kept, which is why the
-selected row and sidebar had gone grey. At `0.975 / 0.0165 / 220` the canvas is
-`#ebfaff` against the original `#eef9fc`; the selected row is `#c5eefc` against
-`#aee9fc`.
+1. **Dark ink on the brand fill.** The first cut of this refresh restored the
+   bright identity azure but had to put near-black ink on it to reach 4.5:1. That
+   reads as a black-text highlight, not as the original blue bubble.
+2. **`-fg` ink used on `-soft` tints.** About thirty call sites paired
+   `bg-ok-soft` / `bg-warn-soft` / `bg-danger-soft` / `bg-info-soft` with
+   `text-*-fg`, where `-fg` is the ink for the *solid* tone. In light that is
+   white on a pale tint; in dark it is near-black on a dark tint — about 1.2:1
+   in both. Status badges, read-only notices, MCP warnings, the trajectory
+   ledger, the connection chip and the mask status labels were effectively
+   unreadable. Three more sites used a white `-fg` with no coloured surface at
+   all, and `text-primary` was used as text while `primary` resolved to the
+   bright accent.
 
-**The accent is the original colour again.** Light `--brand` is
-`oklch(0.615 0.132 236)` = `#028fc9`, i.e. the original `oklch(0.58 0.2 220)`
-after the browser's gamut clamp (the original token was out of sRGB and rendered
-`#008fca`). Dark `--brand` is the original dark primary, `#00aee4`.
+The colour audit did not catch (2) because it checks tokens, not pairings; the
+screenshots did not catch it either because "invisible" and "deliberately
+subtle" look alike at thumbnail size.
 
-**Why a fill/ink split.** The original accent measures 3.40 (canvas), 3.64
-(raised) and 3.21 (`brand-soft`) — fine for a fill or an icon (WCAG 1.4.11, 3:1)
-but not for 11–14 px text. Rather than darken the identity colour a second time,
-the accent now has one more role:
+## The ink roles
 
-- `--brand` — fills, bubbles, rings, icons (≥ 3:1)
-- `--brand-fg` — ink drawn *on* the fill; in light this is now near-black
-  (`oklch(0.16 0.025 236)`, 5.33:1) because the fill is bright again
-- `--brand-ink` — brand-coloured text and glyphs on neutral surfaces
-  (`oklch(0.528 0.117 238)` = `#0073a6`, 4.89 / 5.23 / 4.62 on canvas / raised /
-  soft)
-
-`--brand-ink` defaults to `var(--brand)` in the shared ramp, so the five other
-families declare nothing and keep their current accents; only Vivy light
-overrides it. 46 `text-brand` call sites in 28 files became `text-brand-ink`.
-
-**Audit.** `ui/scripts/audit/contrast.mjs` now splits the brand pairs by role:
-`brand on canvas / raised / brand-soft` at 3:1 (graphic) and
-`brand-ink on canvas / raised / brand-soft` at 4.5 (text). 7 families, 168 pairs.
-
-**Pre-paint.** `ui/index.html` carries the new `--bg-app` / `--fg` pairs
-(`#ebfaff` / `#1e3137` light, `#071519` / `#e9f4f8` dark) and
-`ui/src/theme/sources.test.ts` asserts that exact set.
-
-## Scope
-
-Vivy light and Vivy dark only. Diva, Miku, Rice, Fluor and Indigo keep their
-accents and their ink is the fill (their accents already pass 4.5:1), so they get
-the same code path without a colour change. No layout, spacing, typography,
-component or backend change. The Studio shell skin is untouched — Block 8 owns
-it.
-
-## Measured (1280 light chat, same session)
-
-| surface | original `stable` | overhaul before | after |
+| token | role | light | dark |
 | --- | --- | --- | --- |
-| canvas | `#eef9fc` | `#f0f8fd` | `#ebfaff` |
-| sidebar | `#ddf3fa` | `#e7f2f7` | `#e2f4f9` |
-| selected row | `#aee9fc` | `#d2ebf7` | `#c5eefc` |
-| user bubble | `#eef9fc`¹ | `#026a8b` | `#018fc9` |
+| `--brand` | accent marks: icons, rings, borders, dots, progress, caret (≥ 3:1) | `#028fc9` | `#00aee4` |
+| `--brand-fill` | brand surface that carries ink (bubbles, send button, filled chips) | `#057bac` | `#057bac` |
+| `--brand-fg` | ink drawn on `--brand-fill` | `#f8fdfe` (4.62) | `#f8fcfe` (4.63) |
+| `--brand-ink` | brand-coloured text/glyphs on neutral surfaces | `#0073a6` (4.89) | `#00aee4` (7.25 canvas) |
+| `--brand-soft` | pale tint; ink is `--brand-ink` | unchanged | unchanged |
 
-¹ the original Block 0 baseline is an empty chat; the stable bubble token was
-`#008fca` with white text (3.6:1, below AA).
+`--brand-fill` defaults to `var(--brand)` in the shared ramp, so the five other
+families keep one accent and their current ink. Only Vivy splits the roles.
+`--color-primary` / `--sidebar-primary` now alias `--brand-fill`, so the
+vendored shadcn button, badge, checkbox and switch carry white ink on the
+deeper fill instead of on the bright mark.
+
+Status tones keep `-fg` strictly for the solid tone (`bg-ok` + `text-ok-fg`,
+`bg-danger` + `text-danger-fg`); a soft tint takes the tone itself
+(`bg-warn-soft` + `text-warn`).
+
+## Call sites
+
+- 7 `bg-brand` + `text-brand-fg` surfaces → `bg-brand-fill` (bubble, send/steer,
+  V wordmark, theme badge, welcome platform card, two channel platform chips).
+- 30 pairs across 18 files: soft tint + `-fg` → soft tint + tone.
+- 11 files: `text-primary` → `text-brand-ink` (it was text, not an icon, and in
+  dark the fill value is not legible as text).
+- Message-bubble action icons `text-brand-fg/70` → `/85` (2.96 → 3.7:1, the
+  graphic threshold); a platform caption `text-brand-fg/90` → full ink.
+
+## Ratchets
+
+- `ui/scripts/audit/contrast.mjs`: 7 families, **182 pairs**, including
+  `brand-fg on brand-fill` at 4.5, `brand-fill` on both neutral surfaces at 3,
+  and the four `tone on tone-soft` pairs at 4.5.
+- `ui/src/theme/tokens.test.ts`: new source rule — a soft tint may never be
+  paired with the same tone's `-fg`, and `text-brand-fg` may never sit on
+  `bg-brand` (it must be `bg-brand-fill`).
+- `ui/scripts/audit/screenshots.mjs`: now measures **rendered** contrast on
+  every audited surface (effective background with translucent ancestors
+  composited, WCAG 1.4.3 / 1.4.11), so a wrong pairing fails the audit rather
+  than surviving to a screenshot.
+
+## Measured
+
+Light bubble is `#057bac` with `#f8fdfe` ink (4.62:1); the marks and the
+selection row keep the original azure (`#028fc9`) and ice-blue tint. Status
+chips now render dark green on pale green (5.91), dark amber on pale amber
+(6.82) and dark red on pale red (6.30).
 
 ## Explicitly not done
 
-- The light accent cannot be both `#008fca` and a text colour at 4.5:1; the split
-  is the resolution. Reverting to one token is a one-block change if the owner
-  prefers the deeper solid accent.
-- Bubble text is now dark ink on bright azure rather than white on azure. White
-  on the original accent is 3.6:1 and cannot be restored without failing AA.
-- `UI-VITEST-NODE25`, `I18N-CHECK-RED` and the other open board rows are
-  untouched.
+- The light accent cannot also be small text at 4.5:1; `--brand` stays the mark
+  and `--brand-ink` carries text. Reverting to one token means a darker accent.
+- The three dark families with a light accent (Miku, Fluor, Indigo) still draw
+  dark ink on their bright accent, as does Diva-style contrast in reverse; their
+  accents are their identity and white would not reach 3:1 on them.
+- No layout, typography, component or Studio-shell change; only tokens, the
+  ink/surface pairings, the audit and the two ratchets.
 
 ## Record
 

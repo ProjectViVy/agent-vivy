@@ -119,7 +119,7 @@ function Layout() {
               <span
                 className={cn(
                   'ml-1 hidden sm:flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-meta',
-                  connected ? 'bg-ok-soft text-ok-fg' : 'bg-warn-soft text-warn-fg',
+                  connected ? 'bg-ok-soft text-ok' : 'bg-warn-soft text-warn',
                 )}
                 title={connected ? t('layout.online') : connection}
               >

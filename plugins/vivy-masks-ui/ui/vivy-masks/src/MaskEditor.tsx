@@ -94,7 +94,7 @@ export function MaskEditor({
             </div>
           ) : null}
           {retrying && !saving ? (
-            <p className="rounded-xl bg-warn-soft p-3 text-ui text-warn-fg">
+            <p className="rounded-xl bg-warn-soft p-3 text-ui text-warn">
               {t('plugin.vivy/masks-ui.retryCreate')}
             </p>
           ) : null}

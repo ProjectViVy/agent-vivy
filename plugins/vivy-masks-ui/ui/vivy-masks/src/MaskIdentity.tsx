@@ -9,11 +9,11 @@ import { cn } from '@/lib/utils';
 const identities = {
   'builtin/programmer': {
     Icon: Code2,
-    color: 'bg-info-soft text-info-fg',
+    color: 'bg-info-soft text-info',
   },
   'builtin/researcher': {
     Icon: BookOpenCheck,
-    color: 'bg-ok-soft text-ok-fg',
+    color: 'bg-ok-soft text-ok',
   },
   'builtin/writer': {
     Icon: PenLine,
@@ -21,7 +21,7 @@ const identities = {
   },
   '': {
     Icon: Star,
-    color: 'bg-warn-soft text-warn-fg',
+    color: 'bg-warn-soft text-warn',
   },
 };
 export function MaskIdentity({

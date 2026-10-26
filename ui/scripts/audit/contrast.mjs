@@ -31,18 +31,23 @@ const PAIRS = [
   ['brand on canvas', 'brand', 'bg-app', AA_GRAPHIC],
   ['brand on raised', 'brand', 'bg-raised', AA_GRAPHIC],
   ['brand on brand-soft', 'brand', 'brand-soft', AA_GRAPHIC],
-  ['brand-fg on brand', 'brand-fg', 'brand', AA_BODY],
+  ['brand-fill on canvas', 'brand-fill', 'bg-app', AA_GRAPHIC],
+  ['brand-fill on raised', 'brand-fill', 'bg-raised', AA_GRAPHIC],
+  ['brand-fg on brand-fill', 'brand-fg', 'brand-fill', AA_BODY],
   ['brand-ink on canvas', 'brand-ink', 'bg-app', AA_BODY],
   ['brand-ink on raised', 'brand-ink', 'bg-raised', AA_BODY],
   ['brand-ink on brand-soft', 'brand-ink', 'brand-soft', AA_BODY],
-  ['ok on canvas', 'ok', 'bg-app', AA_BODY],
-  ['warn on canvas', 'warn', 'bg-app', AA_BODY],
-  ['danger on canvas', 'danger', 'bg-app', AA_BODY],
-  ['info on canvas', 'info', 'bg-app', AA_BODY],
+  // Ink on a soft tint must be the tone itself, never `-fg` (which is the ink
+  // for the solid tone). The source ratchet in theme/tokens.test.ts enforces
+  // that pairing; these pairs prove the tone-on-soft value is legible.
   ['ok on ok-soft', 'ok', 'ok-soft', AA_BODY],
   ['warn on warn-soft', 'warn', 'warn-soft', AA_BODY],
   ['danger on danger-soft', 'danger', 'danger-soft', AA_BODY],
   ['info on info-soft', 'info', 'info-soft', AA_BODY],
+  ['ok on canvas', 'ok', 'bg-app', AA_BODY],
+  ['warn on canvas', 'warn', 'bg-app', AA_BODY],
+  ['danger on canvas', 'danger', 'bg-app', AA_BODY],
+  ['info on canvas', 'info', 'bg-app', AA_BODY],
   ['ok-fg on ok', 'ok-fg', 'ok', AA_BODY],
   ['warn-fg on warn', 'warn-fg', 'warn', AA_BODY],
   ['danger-fg on danger', 'danger-fg', 'danger', AA_BODY],
@@ -281,7 +286,7 @@ for (const family of registry) {
     row.pairs.push({ label, ratio: rounded, minimum });
     if (rounded < minimum) failures.push(`${family.id}: ${label} = ${rounded.toFixed(2)} (needs ${minimum})`);
   }
-  row.swatches = ['bg-app', 'bg-raised', 'fg', 'fg-muted', 'brand', 'brand-ink', 'brand-fg', 'ok', 'warn', 'danger']
+  row.swatches = ['bg-app', 'bg-raised', 'fg', 'fg-muted', 'brand', 'brand-fill', 'brand-ink', 'brand-fg', 'ok', 'warn', 'danger']
     .map((name) => `${name} ${toHex(parseColor(read(name)))}`).join('  ');
   rows.push(row);
 }

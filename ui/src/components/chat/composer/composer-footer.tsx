@@ -128,11 +128,11 @@ export function ComposerFooter({ context, draftBytes, workspacePath, notice, onN
           <>
             <button type="button" onClick={() => void onSend('send_now')} disabled={disabled || !canSend} className="rounded-full border border-line p-2.5 text-warn transition-colors hover:bg-hover disabled:opacity-40" title={t('chatInput.sendNow')} aria-label={t('chatInput.sendNow')}><Zap className="h-4 w-4" /></button>
             <button type="button" onClick={() => void onSend('follow_up')} disabled={disabled || !canSend} className="rounded-full border border-line p-2.5 text-fg-muted transition-colors hover:bg-hover hover:text-fg disabled:opacity-40" title={t('chatInput.sendAsFollowUp')} aria-label={t('chatInput.sendAsFollowUp')}><Clock className="h-4 w-4" /></button>
-            <button type="button" onClick={() => void onSend('steer')} disabled={disabled || !canSend} className="rounded-full bg-brand p-2.5 text-brand-fg transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.steer')} aria-label={t('chatInput.steer')}><Send className="h-4 w-4" /></button>
+            <button type="button" onClick={() => void onSend('steer')} disabled={disabled || !canSend} className="rounded-full bg-brand-fill p-2.5 text-brand-fg transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.steer')} aria-label={t('chatInput.steer')}><Send className="h-4 w-4" /></button>
             <Button size="icon" variant="destructive" className="rounded-full" onClick={totalQueued ? onClearQueue : () => void onCancel?.()} disabled={disabled} title={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')} aria-label={totalQueued ? t('chatInput.clearQueue') : t('chatInput.cancelRun')}><Square className="h-4 w-4" /></Button>
           </>
         ) : (
-          <button type="button" onClick={() => void onSend('send')} disabled={disabled || !canSend} className="rounded-full bg-brand p-2.5 text-brand-fg transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>
+          <button type="button" onClick={() => void onSend('send')} disabled={disabled || !canSend} className="rounded-full bg-brand-fill p-2.5 text-brand-fg transition-opacity hover:opacity-90 disabled:opacity-40" title={t('chatInput.send')} aria-label={t('chatInput.send')}><Send className="h-4 w-4" /></button>
         )}
       </div>
     </div>

@@ -136,7 +136,7 @@ export function CompactionSettingsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-brand-ink"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
         <CardTitle>{t('settings.compaction.title')}</CardTitle>
         <CardDescription>{t('settings.compaction.description')}</CardDescription>
       </CardHeader>

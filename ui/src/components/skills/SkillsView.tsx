@@ -187,7 +187,7 @@ export function SkillsView() {
                   </div>
 
                   {selected.warnings.length > 0 && (
-                    <ul className="mb-5 list-inside list-disc rounded-lg border border-warn/30 bg-warn-soft p-3 text-meta text-warn-fg">
+                    <ul className="mb-5 list-inside list-disc rounded-lg border border-warn/30 bg-warn-soft p-3 text-meta text-warn">
                       {selected.warnings.map((warning) => (
                         <li key={warning}>{warning}</li>
                       ))}

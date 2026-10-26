@@ -116,9 +116,9 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
             </button>
           </DropdownMenuItem>
         )) : <p className="px-2 py-1.5 text-meta text-fg-muted">{t('modelSwitcher.noSavedModels')}</p>}
-        {settings.frozen ? <p className="px-2 pb-1 pt-2 text-meta text-warn-fg">{t('settingsModel.frozenNotice')}</p> : settings.read_only ? <p className="px-2 pb-1 pt-2 text-meta text-warn-fg">{t('modelSwitcher.readOnlyHint')}</p> : null}
+        {settings.frozen ? <p className="px-2 pb-1 pt-2 text-meta text-warn">{t('settingsModel.frozenNotice')}</p> : settings.read_only ? <p className="px-2 pb-1 pt-2 text-meta text-warn">{t('modelSwitcher.readOnlyHint')}</p> : null}
       </> : <DropdownMenuItem disabled className="cursor-default">{t('modelSwitcher.readingConfig')}</DropdownMenuItem>}
-      {error ? <p className="mx-2 mt-2 rounded-md bg-danger-soft px-2.5 py-2 text-meta text-danger-fg">{error}</p> : null}
+      {error ? <p className="mx-2 mt-2 rounded-md bg-danger-soft px-2.5 py-2 text-meta text-danger">{error}</p> : null}
       <DropdownMenuSeparator className="my-2" />
       <DropdownMenuItem className="cursor-pointer gap-2 rounded-lg px-2.5 py-2 text-fg-muted" onSelect={() => void navigate({ to: '/settings', search: { tab: 'model' } })}>
         <Settings2 className="h-4 w-4" />

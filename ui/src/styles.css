@@ -108,9 +108,10 @@
   --color-brand-hover: var(--brand-hover);
   --color-brand-soft: var(--brand-soft);
   --color-brand-fg: var(--brand-fg);
-  /* Brand-coloured ink for text and glyphs drawn on the neutral surfaces.
-     `brand` is the fill/mark colour: it only owes 3:1 (WCAG 1.4.11), so it can
-     stay the bright identity azure, while anything legible uses this ink. */
+  /* The accent at its identity brightness, used for marks, rings, borders and
+     decorative fills: it only owes 3:1 (WCAG 1.4.11). */
+  --color-brand-fill: var(--brand-fill);
+  /* Brand-coloured ink for text and glyphs drawn on the neutral surfaces. */
   --color-brand-ink: var(--brand-ink);
   /* Status */
   --color-ok: var(--ok);
@@ -156,7 +157,7 @@
   --color-card-foreground: var(--fg);
   --color-popover: var(--bg-raised);
   --color-popover-foreground: var(--fg);
-  --color-primary: var(--brand);
+  --color-primary: var(--brand-fill);
   --color-primary-foreground: var(--brand-fg);
   --color-secondary: var(--bg-sunken);
   --color-secondary-foreground: var(--fg);
@@ -177,7 +178,7 @@
   --color-chart-5: var(--info);
   --color-sidebar: var(--bg-sunken);
   --color-sidebar-foreground: var(--fg);
-  --color-sidebar-primary: var(--brand);
+  --color-sidebar-primary: var(--brand-fill);
   --color-sidebar-primary-foreground: var(--brand-fg);
   --color-sidebar-accent: var(--bg-selected);
   --color-sidebar-accent-foreground: var(--fg);
@@ -231,6 +232,8 @@
   --line: oklch(0.9 calc(var(--tint-c) * 1.8) var(--tint-h));
   --line-strong: oklch(0.84 calc(var(--tint-c) * 2.2) var(--tint-h));
   --ring: var(--brand);
+  /* A family that does not split the roles uses one accent for both. */
+  --brand-fill: var(--brand);
   /* Ink defaults to the fill; a family overrides it only when its bright fill
      cannot carry small text. Resolving `var(--brand)` here keeps one value. */
   --brand-ink: var(--brand);
@@ -284,10 +287,11 @@
    are Vivy light/dark, Diva, Miku, plus three oil-ui families. `dark` is
    Vivy's dark appearance rather than a separate skin. */
 
-/* Vivy light — the original ice-blue chrome and azure accent. The accent is the
-   identity colour at its original lightness, so it is a fill: bubbles, buttons
-   and icons take it (with dark ink on top), while `--brand-ink` is the same
-   azure deepened to hold 4.5:1 for small text on the pale surfaces. */
+/* Vivy light — the original ice-blue chrome and azure accent. `--brand` keeps
+   the identity colour for marks, rings and decorations; `--brand-fill` is the
+   same azure one step deeper so near-white ink on bubbles, buttons and filled
+   chips holds 4.5:1 instead of turning the ink black; `--brand-ink` is the
+   deeper azure for small text on the pale surfaces. */
 [data-theme="default"],
 [data-theme-preview="default"] {
   --tint-h: 220;
@@ -295,12 +299,14 @@
   --brand: oklch(0.615 0.132 236);
   --brand-hover: oklch(0.575 0.122 236);
   --brand-soft: oklch(0.955 0.03 220);
-  --brand-fg: oklch(0.16 0.025 236);
+  --brand-fill: oklch(0.55 0.117 236);
+  --brand-fg: oklch(0.99 0.005 220);
   --brand-ink: oklch(0.528 0.117 238);
 }
 
-/* Vivy dark — deep sea panels; the accent is the original dark identity colour,
-   which already reads as ink, so no separate ink override is needed. */
+/* Vivy dark — deep sea panels. The accent stays the original bright azure for
+   marks and text; the ink-bearing fill is the same deeper azure as light, so a
+   bubble carries white text here too instead of dark ink on bright cyan. */
 [data-theme="dark"],
 [data-theme-preview="dark"] {
   --tint-h: 220;
@@ -308,7 +314,9 @@
   --brand: oklch(0.703 0.139 229);
   --brand-hover: oklch(0.755 0.126 229);
   --brand-soft: oklch(0.31 0.058 225);
-  --brand-fg: oklch(0.17 0.03 229);
+  --brand-fill: oklch(0.55 0.117 236);
+  --brand-fg: oklch(0.99 0.005 229);
+  --brand-ink: oklch(0.703 0.139 229);
 }
 
 /* Diva — rose on white. */

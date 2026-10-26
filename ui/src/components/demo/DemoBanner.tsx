@@ -4,7 +4,7 @@ import { useTranslation } from '@/i18n';
 
 export function DemoBanner() {
   const { t } = useTranslation();
-  return <div className="flex items-center gap-2 border-b border-warn/30 bg-warn-soft px-4 py-2 text-meta text-warn-fg"><FlaskConical className="h-3.5 w-3.5"/><strong>{t('demo.bannerTitle')}</strong><span>{t('demo.bannerBody')}</span></div>;
+  return <div className="flex items-center gap-2 border-b border-warn/30 bg-warn-soft px-4 py-2 text-meta text-warn"><FlaskConical className="h-3.5 w-3.5"/><strong>{t('demo.bannerTitle')}</strong><span>{t('demo.bannerBody')}</span></div>;
 }
 
 export function DemoLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {

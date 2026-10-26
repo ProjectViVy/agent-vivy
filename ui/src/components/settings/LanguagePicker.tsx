@@ -18,7 +18,7 @@ export function LanguagePicker() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-brand-ink">
           <Languages className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('language.title')}</CardTitle>
@@ -39,7 +39,7 @@ export function LanguagePicker() {
                 <span className="font-medium">{option.nativeLabel}</span>
                 <span className="flex items-center gap-2">
                   <span className="rounded bg-muted px-2 py-1 text-xs font-semibold">{option.code}</span>
-                  {selectedLocale === option.id ? <CheckCircle2 className="h-4 w-4 text-primary" aria-label={t('settings.themeSelected')} /> : null}
+                  {selectedLocale === option.id ? <CheckCircle2 className="h-4 w-4 text-brand-ink" aria-label={t('settings.themeSelected')} /> : null}
                 </span>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">

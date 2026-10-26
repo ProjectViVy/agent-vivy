@@ -74,7 +74,7 @@ export function WizardStepModel(props: WizardStepModelProps) {
         </p>
       ) : catalogFailed ? (
         <div className="space-y-2 rounded-lg bg-danger-soft p-3" role="alert">
-          <p className="text-ui text-danger-fg">
+          <p className="text-ui text-danger">
             {t('welcome.catalogFailed', { error: providersError ?? '' })}
           </p>
           <Button type="button" variant="outline" size="sm" onClick={onRetryCatalog}>
@@ -185,12 +185,12 @@ export function WizardStepModel(props: WizardStepModelProps) {
         </div>
       )}
       {readOnly ? (
-        <p className="rounded-lg bg-warn-soft p-3 text-meta leading-relaxed text-warn-fg">
+        <p className="rounded-lg bg-warn-soft p-3 text-meta leading-relaxed text-warn">
           {frozen ? t('welcome.frozenNotice') : t('welcome.readOnlyNotice')}
         </p>
       ) : null}
       {error ? (
-        <p className="rounded-lg bg-danger-soft p-3 text-ui text-danger-fg" role="alert">{error}</p>
+        <p className="rounded-lg bg-danger-soft p-3 text-ui text-danger" role="alert">{error}</p>
       ) : null}
     </form>
   );

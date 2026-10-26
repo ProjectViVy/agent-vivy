@@ -100,9 +100,9 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
                     <Input id="execute-max-timeout" type="number" min={0} max={600} step={1} value={form.execute_max_timeout} onChange={(event) => setForm({ ...form, execute_max_timeout: event.target.value })} placeholder={String(settings?.config_execute_max_timeout_seconds ?? 30)} disabled={locked} />
                     <p className="text-meta text-fg-muted">{t('settings.executeTimeoutHint')}</p>
                   </div>
-                  {settings?.read_only ? <p className="rounded bg-warn-soft p-3 text-ui text-warn-fg">{t('settings.readOnlyNotice')}</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? t('settings.saving') : t('settings.saveGeneral')}</Button>}
-                  {formError ? <p className="rounded bg-danger-soft p-3 text-ui text-danger-fg">{formError}</p> : null}
-                  {error ? <p className="rounded bg-danger-soft p-3 text-ui text-danger-fg">{error}</p> : null}
+                  {settings?.read_only ? <p className="rounded bg-warn-soft p-3 text-ui text-warn">{t('settings.readOnlyNotice')}</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? t('settings.saving') : t('settings.saveGeneral')}</Button>}
+                  {formError ? <p className="rounded bg-danger-soft p-3 text-ui text-danger">{formError}</p> : null}
+                  {error ? <p className="rounded bg-danger-soft p-3 text-ui text-danger">{error}</p> : null}
                 </form>
               </CardContent>
             </Card>

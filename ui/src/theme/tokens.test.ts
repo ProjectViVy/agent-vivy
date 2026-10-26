@@ -119,4 +119,31 @@ describe('token ratchet', () => {
       }
     });
   }
+
+  // Ink roles: `-fg` is the ink for a *solid* tone; a soft tint takes the tone
+  // itself. `brand` is the accent mark, so an inked brand surface is
+  // `brand-fill`, never `brand`. Both pairings render text at ~1.2:1 when
+  // mistaken, so they fail here instead of surviving to a screenshot.
+  const SOFT_WITH_SOLID_INK = /\bbg-(ok|warn|danger|info|brand)-soft\b/;
+  const SOLID_INK = /\btext-(ok|warn|danger|info|brand)-fg\b/;
+  const BRAND_MARK = /\bbg-brand(?![-\w])/;
+
+  for (const group of Object.keys(GROUPS) as Group[]) {
+    it(`${group}: ink matches the surface it is drawn on`, () => {
+      const offenders: string[] = [];
+      for (const file of GROUPS[group]) {
+        readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+          const soft = line.match(SOFT_WITH_SOLID_INK);
+          const ink = line.match(SOLID_INK);
+          if (soft && ink && soft[1] === ink[1]) {
+            offenders.push(`${relative(REPO_ROOT, file)}:${index + 1} ${soft[0]} + ${ink[0]}`);
+          }
+          if (BRAND_MARK.test(line) && line.includes('text-brand-fg')) {
+            offenders.push(`${relative(REPO_ROOT, file)}:${index + 1} bg-brand + text-brand-fg (use bg-brand-fill)`);
+          }
+        });
+      }
+      expect(offenders).toEqual([]);
+    });
+  }
 });

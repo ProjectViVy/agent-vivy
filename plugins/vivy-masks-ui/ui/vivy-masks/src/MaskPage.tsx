@@ -400,7 +400,7 @@ export function MaskPage({
         {notice ? (
           <p
             role="status"
-            className="rounded-xl bg-ok-soft px-4 py-3 text-ui text-ok-fg"
+            className="rounded-xl bg-ok-soft px-4 py-3 text-ui text-ok"
           >
             {notice}
           </p>

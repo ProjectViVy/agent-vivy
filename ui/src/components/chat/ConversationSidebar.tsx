@@ -274,7 +274,7 @@ export function ConversationSidebar({
   </>;
 
   return <aside className="flex h-full flex-col bg-sidebar">
-    <div className="flex items-center gap-2.5 px-4 py-4"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand"><span className="text-ui font-bold text-brand-fg">V</span></div><span className="text-title font-semibold text-fg">Vivy</span></div>
+    <div className="flex items-center gap-2.5 px-4 py-4"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-fill"><span className="text-ui font-bold text-brand-fg">V</span></div><span className="text-title font-semibold text-fg">Vivy</span></div>
     <div className="flex min-h-0 flex-1 flex-col">{view === 'toolbox' ? <>{renderDrillHeader('wrench', t('nav.toolbox'))}<nav className="space-y-0.5 px-2 py-1">{TOOLBOX_ITEMS.map(renderNavLink)}</nav></> : view === 'vivy' ? <>{renderDrillHeader('sparkles', t('nav.vivy'))}<nav className="space-y-0.5 px-2 py-1">{vivyItems.map(renderNavLink)}</nav></> : rootBody}</div>
     <div className="border-t border-sidebar-border p-2">{renderNavLink({ to: '/settings', icon: 'settings', labelKey: 'nav.settings' })}</div>
     <WorkspaceFolderDialog

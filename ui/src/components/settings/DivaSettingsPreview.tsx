@@ -40,7 +40,7 @@ function usePreviewFeedback() {
 function PreviewNotice() {
   const { t } = useTranslation();
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn-soft p-3 text-meta text-warn-fg">
+    <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn-soft p-3 text-meta text-warn">
       <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span><strong>{t('divaPreview.noticeTitle')}</strong> · {t('divaPreview.noticeBody')}</span>
     </div>
@@ -50,7 +50,7 @@ function PreviewNotice() {
 function PreviewHeader({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-brand-ink">
         <Icon className="h-5 w-5" aria-hidden="true" />
       </div>
       <div>

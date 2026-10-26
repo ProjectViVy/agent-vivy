@@ -104,7 +104,7 @@ export function NetworkToolsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-brand-ink">
           <Globe2 className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('networkTools.title')}</CardTitle>
@@ -130,7 +130,7 @@ export function NetworkToolsCard() {
             </Button>
             {savedFlash ? (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
                 {t('networkTools.saved')}
               </span>
             ) : null}
@@ -204,7 +204,7 @@ export function NetworkToolsCard() {
             </Button>
             {httpSavedFlash ? (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
                 {t('networkTools.saved')}
               </span>
             ) : null}

@@ -92,7 +92,7 @@ function ChannelWizardModal({
                 <div
                   className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-meta font-semibold transition-colors ${
                     index < stepIndex
-                      ? 'border-brand bg-brand text-brand-fg'
+                      ? 'border-brand bg-brand-fill text-brand-fg'
                       : s.key === step
                         ? 'border-brand text-brand-ink'
                         : 'border-line text-fg-muted'
@@ -121,7 +121,7 @@ function ChannelWizardModal({
                           key={name}
                           type="button"
                           className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border p-4 transition-all hover:-translate-y-0.5 ${
-                            platform === name ? 'border-brand bg-brand text-brand-fg' : 'bg-raised hover:border-brand'
+                            platform === name ? 'border-brand bg-brand-fill text-brand-fg' : 'bg-raised hover:border-brand'
                           }`}
                           onClick={() => setPlatform(name)}
                         >
@@ -133,7 +133,7 @@ function ChannelWizardModal({
                             </span>
                           )}
                           <span className="text-ui font-semibold">{displayName}</span>
-                          <span className={`text-center text-meta ${platform === name ? 'text-brand-fg/90' : 'text-fg-muted'}`}>
+                          <span className={`text-center text-meta ${platform === name ? 'text-brand-fg' : 'text-fg-muted'}`}>
                             {PLATFORM_DESCRIPTIONS[name] ?? name}
                           </span>
                         </button>

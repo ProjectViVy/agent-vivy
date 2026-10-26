@@ -42,7 +42,7 @@ export function MessageUserBubble({
     <article data-message-id={message.id} className="group my-4 flex min-w-0 justify-end">
       <div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-end">
         {origin ? <div className="mb-0.5 px-1 text-2xs text-fg-muted">{origin}</div> : null}
-        <div className="w-fit max-w-full min-w-0 rounded-2xl bg-brand px-4 py-3 text-read text-brand-fg shadow-sm">
+        <div className="w-fit max-w-full min-w-0 rounded-2xl bg-brand-fill px-4 py-3 text-read text-brand-fg shadow-sm">
           {message.attachments?.length ? (
             <div className="mb-2 flex flex-wrap justify-end gap-1.5">
               {message.attachments.map((item, index) => (
@@ -67,7 +67,7 @@ export function MessageUserBubble({
               <div className="flex justify-end gap-1">
                 <button
                   type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-brand-fg/70 transition-colors hover:bg-brand-fg/15 hover:text-brand-fg disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-brand-fg/85 transition-colors hover:bg-brand-fg/15 hover:text-brand-fg disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={!draft.trim() || !onEditConfirm || pending}
                   aria-label={t('chat.editSave')}
                   title={t('chat.editSave')}
@@ -89,7 +89,7 @@ export function MessageUserBubble({
                 </button>
                 <button
                   type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-brand-fg/70 transition-colors hover:bg-brand-fg/15 hover:text-brand-fg disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-brand-fg/85 transition-colors hover:bg-brand-fg/15 hover:text-brand-fg disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={pending}
                   aria-label={t('chat.editCancel')}
                   title={t('chat.editCancel')}

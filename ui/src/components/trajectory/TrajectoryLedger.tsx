@@ -51,12 +51,12 @@ const KIND_ICON: Record<TrajectoryRecord['kind'], typeof Settings> = {
 
 const KIND_TAG_CLASS: Record<TrajectoryRecord['kind'], string> = {
   system: 'bg-sunken text-fg-muted',
-  user: 'bg-info-soft text-info-fg',
-  context: 'bg-ok-soft text-ok-fg',
+  user: 'bg-info-soft text-info',
+  context: 'bg-ok-soft text-ok',
   compacted: 'bg-brand-soft text-brand-ink',
   message: 'bg-brand-soft text-brand-ink',
-  tool: 'bg-warn-soft text-warn-fg',
-  subtool: 'bg-warn-soft/60 text-warn-fg',
+  tool: 'bg-warn-soft text-warn',
+  subtool: 'bg-warn-soft/60 text-warn',
 };
 
 /** 渲染一条记录行。 */
@@ -115,7 +115,7 @@ function RecordRow({
           {requestNumber !== undefined && (
             <button
               type="button"
-              className="shrink-0 rounded border border-primary/40 px-1 font-mono text-2xs leading-4 text-primary hover:bg-primary/10"
+              className="shrink-0 rounded border border-primary/40 px-1 font-mono text-2xs leading-4 text-brand-ink hover:bg-primary/10"
               aria-label={`${t('trajectory.request')} ${requestNumber}`}
               onClick={(event) => {
                 event.stopPropagation();
