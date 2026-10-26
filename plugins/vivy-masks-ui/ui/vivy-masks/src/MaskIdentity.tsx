@@ -17,7 +17,7 @@ const identities = {
   },
   'builtin/writer': {
     Icon: PenLine,
-    color: 'bg-brand-soft text-brand',
+    color: 'bg-brand-soft text-brand-ink',
   },
   '': {
     Icon: Star,
@@ -35,7 +35,7 @@ export function MaskIdentity({
 }) {
   const { Icon, color } = identities[id as keyof typeof identities] ?? {
     Icon: VenetianMask,
-    color: 'bg-brand-soft text-brand',
+    color: 'bg-brand-soft text-brand-ink',
   };
   return (
     <span

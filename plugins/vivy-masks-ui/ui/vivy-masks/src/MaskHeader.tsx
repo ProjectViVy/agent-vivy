@@ -135,7 +135,7 @@ export function MaskHeader({
           </span>
         </span>
         {maskId === mask.id && state.selection ? (
-          <Check className="h-4 w-4 shrink-0 text-brand" />
+          <Check className="h-4 w-4 shrink-0 text-brand-ink" />
         ) : null}
       </>
     );

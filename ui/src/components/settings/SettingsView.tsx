@@ -118,7 +118,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             <ThemePicker />
             <Card>
               <CardHeader>
-                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
                 <CardTitle>{t('welcome.rerunTitle')}</CardTitle>
                 <CardDescription>{t('welcome.rerunDescription')}</CardDescription>
               </CardHeader>
@@ -134,7 +134,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           <TabsContent value="model" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Cpu className="h-5 w-5" aria-hidden="true" /></div>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink"><Cpu className="h-5 w-5" aria-hidden="true" /></div>
                 <CardTitle>{t('settings.modelConfigTitle')}</CardTitle>
                 <CardDescription>{t('settings.modelConfigDescription')}</CardDescription>
               </CardHeader>
@@ -145,7 +145,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           <TabsContent value="tools" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
+                <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink"><Sparkles className="h-5 w-5" aria-hidden="true" /></div>
                 <CardTitle>{t('settings.toolsTitle')}</CardTitle>
                 <CardDescription>{t('settings.toolsDescription')}</CardDescription>
               </CardHeader>
@@ -154,8 +154,8 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
           </TabsContent>
 
           <TabsContent value="vivy" className="space-y-4">
-            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.lifecycleTitle')}</CardTitle><CardDescription>{t('settings.lifecycleDescription')}</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">{t('settings.openLifecycle')}<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
-            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.runInspectorTitle')}</CardTitle><CardDescription>{t('settings.runInspectorDescription')}</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] min-h-[20rem] overflow-auto p-0"><RunInspector /></CardContent></Card>
+            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink"><GitBranch className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.lifecycleTitle')}</CardTitle><CardDescription>{t('settings.lifecycleDescription')}</CardDescription></CardHeader><CardContent><Button asChild variant="outline"><Link to="/lifecycle">{t('settings.openLifecycle')}<ArrowRight className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>
+            <Card><CardHeader><div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink"><Activity className="h-5 w-5" aria-hidden="true" /></div><CardTitle>{t('settings.runInspectorTitle')}</CardTitle><CardDescription>{t('settings.runInspectorDescription')}</CardDescription></CardHeader><CardContent className="h-[min(36rem,calc(100dvh-12rem))] min-h-[20rem] overflow-auto p-0"><RunInspector /></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="language" className="space-y-4">

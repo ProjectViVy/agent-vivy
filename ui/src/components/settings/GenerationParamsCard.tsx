@@ -76,7 +76,7 @@ export function GenerationParamsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
           <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('settings.advancedFeaturesTitle')}</CardTitle>
@@ -145,7 +145,7 @@ export function GenerationParamsCard() {
                   </Button>
                   {genStatus === 'saved' ? (
                     <span className="inline-flex items-center gap-1.5 text-ui text-fg-muted">
-                      <Check className="h-4 w-4 text-brand" aria-hidden="true" />
+                      <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
                       {t('settings.savedLocally')}
                     </span>
                   ) : null}

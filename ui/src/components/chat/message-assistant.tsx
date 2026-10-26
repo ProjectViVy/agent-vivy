@@ -56,7 +56,7 @@ export function MessageAssistantBubble({
           <div className="mt-1.5 flex items-center gap-0.5 px-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <span className="mr-0.5 text-2xs text-fg-subtle">{formatTime(message.created_at)}</span>
             <MessageAction label={copied ? t('chat.copied') : t('chat.copy')} onClick={() => void copy()}>
-              {copied ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? <Check className="h-3.5 w-3.5 text-brand-ink" /> : <Copy className="h-3.5 w-3.5" />}
             </MessageAction>
             <MessageAction
               label={t('chat.regenerate')}

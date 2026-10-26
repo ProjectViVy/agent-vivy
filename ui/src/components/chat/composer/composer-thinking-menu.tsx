@@ -44,7 +44,7 @@ export function ComposerThinkingMenu({ value, onChange }: { value: ThinkingMode;
               ? <mode.icon className="size-4 shrink-0" fill="currentColor" />
               : <mode.icon className="size-4 shrink-0" />}
             <span className="flex-1">{mode.label.startsWith('chatInput.') ? t(mode.label) : mode.label}</span>
-            {value === mode.value ? <Check className="size-4 shrink-0 text-brand" /> : null}
+            {value === mode.value ? <Check className="size-4 shrink-0 text-brand-ink" /> : null}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

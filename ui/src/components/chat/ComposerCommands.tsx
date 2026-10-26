@@ -191,7 +191,7 @@ export function ComposerCommandControls({ commands, disabled, focus }: {
       </div>
     </div> : null}
     {draft || work?.plan.active ? <div className="flex flex-wrap items-center gap-2 px-4 pt-2">
-      {draft ? <span data-command-tag className="inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand-soft px-2 py-1 text-meta text-brand">
+      {draft ? <span data-command-tag className="inline-flex items-center gap-1 rounded-md border border-brand/40 bg-brand-soft px-2 py-1 text-meta text-brand-ink">
         /{draft.name}{draft.skill ? ` · ${draft.skill.name}` : ''}
         <button type="button" aria-label={t('composerCommands.remove')} disabled={disabled} onClick={() => { commands.clear(); focus(); }} className="rounded p-0.5 hover:bg-hover"><X className="h-3 w-3" /></button>
       </span> : null}

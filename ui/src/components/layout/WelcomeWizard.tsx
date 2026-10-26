@@ -274,7 +274,7 @@ export function WelcomeWizard() {
         {/* 品牌头 */}
         <div className="border-b border-line px-7 pb-5 pt-6 text-center">
           <div className="mb-3 flex items-center justify-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand shadow-sm">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-ink shadow-sm">
               <Bot className="h-6 w-6" aria-hidden="true" />
             </div>
             <div className="text-left">
@@ -313,7 +313,7 @@ export function WelcomeWizard() {
                       index === step
                         ? 'border-brand bg-brand text-brand-fg shadow-sm'
                         : index < step
-                          ? 'border-brand/30 bg-brand-soft text-brand'
+                          ? 'border-brand/30 bg-brand-soft text-brand-ink'
                           : 'border-line bg-surface text-fg-muted',
                     )}
                   >

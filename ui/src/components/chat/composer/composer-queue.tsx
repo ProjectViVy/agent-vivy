@@ -30,7 +30,7 @@ export function ComposerQueue({ kernel, local, onRemoveKernel, onRemoveLocal, on
       <div className="flex min-w-0 flex-1 flex-wrap gap-1.5" aria-live="polite">
         {kernel.map(({ item, lane }) => (
           <span key={item.id} title={item.text} className="flex max-w-full items-start gap-1 rounded-lg bg-sunken px-2 py-0.5">
-            <span className={cn('mt-0.5 shrink-0 rounded px-1 text-2xs font-semibold', lane === 'steer' ? 'bg-brand-soft text-brand' : 'bg-selected text-fg-muted')}>
+            <span className={cn('mt-0.5 shrink-0 rounded px-1 text-2xs font-semibold', lane === 'steer' ? 'bg-brand-soft text-brand-ink' : 'bg-selected text-fg-muted')}>
               {t(lane === 'steer' ? 'chatInput.queueLaneSteer' : 'chatInput.queueLaneFollowUp')}
             </span>
             <span className="line-clamp-2 min-w-0 break-words">{item.text}</span>

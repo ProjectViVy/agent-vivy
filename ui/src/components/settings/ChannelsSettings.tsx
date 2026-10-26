@@ -344,7 +344,7 @@ export function ChannelsSettings() {
                         {(() => {
                           const Icon = PLATFORM_ICONS[selected] ?? MessageSquare;
                           return (
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand-ink">
                               <Icon className="h-5 w-5" />
                             </div>
                           );

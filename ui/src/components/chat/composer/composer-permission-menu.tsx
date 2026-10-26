@@ -61,7 +61,7 @@ export function ComposerPermissionMenu({ preset, locked, running, onApply }: Com
                 <span className="block text-ui font-semibold">{t(mode.label)}</span>
                 <span className="block text-meta text-fg-muted">{t(mode.desc)}</span>
               </span>
-              {preset === mode.value ? <Check className="size-4 shrink-0 text-brand" /> : null}
+              {preset === mode.value ? <Check className="size-4 shrink-0 text-brand-ink" /> : null}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

@@ -171,7 +171,7 @@ export function NotebookView() {
         selectedReport ? (
           <div className="mx-auto max-w-3xl p-4 sm:p-6">
             <div className="flex items-center gap-2">
-              <BookOpen className="h-5 w-5 shrink-0 text-brand" />
+              <BookOpen className="h-5 w-5 shrink-0 text-brand-ink" />
               <h1 className="min-w-0 text-page font-semibold tracking-tight">{selectedReport.title}</h1>
             </div>
             <div className="my-4 flex flex-wrap gap-2">

@@ -53,8 +53,8 @@ const KIND_TAG_CLASS: Record<TrajectoryRecord['kind'], string> = {
   system: 'bg-sunken text-fg-muted',
   user: 'bg-info-soft text-info-fg',
   context: 'bg-ok-soft text-ok-fg',
-  compacted: 'bg-brand-soft text-brand',
-  message: 'bg-brand-soft text-brand',
+  compacted: 'bg-brand-soft text-brand-ink',
+  message: 'bg-brand-soft text-brand-ink',
   tool: 'bg-warn-soft text-warn-fg',
   subtool: 'bg-warn-soft/60 text-warn-fg',
 };

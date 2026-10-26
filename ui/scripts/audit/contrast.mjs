@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Contrast audit for the authored token layer. Reads ui/src/styles.css, resolves
 // each family at its declared appearance, converts oklch/hex to sRGB and checks
-// the text pairs the UI actually renders. Exit code 1 when a pair misses AA.
+// the text and non-text pairs the UI actually renders (WCAG 1.4.3 / 1.4.11).
+// Exit code 1 when a pair misses its minimum.
 //
 // Usage: pnpm run audit:contrast   (or node scripts/audit/contrast.mjs)
 //
@@ -17,7 +18,9 @@ const UI_ROOT = path.resolve(HERE, '..', '..');
 const CSS_PATH = path.join(UI_ROOT, 'src', 'styles.css');
 const REGISTRY_PATH = path.join(UI_ROOT, 'src', 'hooks', 'use-theme.ts');
 
+// WCAG 1.4.3 for text; 1.4.11 for non-text marks (fills, icons, focus rings).
 const AA_BODY = 4.5;
+const AA_GRAPHIC = 3;
 
 const PAIRS = [
   ['fg on canvas', 'fg', 'bg-app', AA_BODY],
@@ -25,10 +28,13 @@ const PAIRS = [
   ['subtle on canvas', 'fg-subtle', 'bg-app', AA_BODY],
   ['fg on raised', 'fg', 'bg-raised', AA_BODY],
   ['muted on surface', 'fg-muted', 'bg-surface', AA_BODY],
-  ['brand on canvas', 'brand', 'bg-app', AA_BODY],
-  ['brand on raised', 'brand', 'bg-raised', AA_BODY],
+  ['brand on canvas', 'brand', 'bg-app', AA_GRAPHIC],
+  ['brand on raised', 'brand', 'bg-raised', AA_GRAPHIC],
+  ['brand on brand-soft', 'brand', 'brand-soft', AA_GRAPHIC],
   ['brand-fg on brand', 'brand-fg', 'brand', AA_BODY],
-  ['brand on brand-soft', 'brand', 'brand-soft', AA_BODY],
+  ['brand-ink on canvas', 'brand-ink', 'bg-app', AA_BODY],
+  ['brand-ink on raised', 'brand-ink', 'bg-raised', AA_BODY],
+  ['brand-ink on brand-soft', 'brand-ink', 'brand-soft', AA_BODY],
   ['ok on canvas', 'ok', 'bg-app', AA_BODY],
   ['warn on canvas', 'warn', 'bg-app', AA_BODY],
   ['danger on canvas', 'danger', 'bg-app', AA_BODY],
@@ -275,7 +281,7 @@ for (const family of registry) {
     row.pairs.push({ label, ratio: rounded, minimum });
     if (rounded < minimum) failures.push(`${family.id}: ${label} = ${rounded.toFixed(2)} (needs ${minimum})`);
   }
-  row.swatches = ['bg-app', 'bg-raised', 'fg', 'fg-muted', 'brand', 'brand-fg', 'ok', 'warn', 'danger']
+  row.swatches = ['bg-app', 'bg-raised', 'fg', 'fg-muted', 'brand', 'brand-ink', 'brand-fg', 'ok', 'warn', 'danger']
     .map((name) => `${name} ${toHex(parseColor(read(name)))}`).join('  ');
   rows.push(row);
 }

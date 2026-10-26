@@ -49,7 +49,7 @@ export function ComposerFooter({ context, draftBytes, workspacePath, notice, onN
   const ratio = Math.min(1, usedTokens / Math.max(1, limitTokens));
   const percent = Math.round(ratio * 100);
   const wouldCompact = context?.compaction_enabled ? usedTokens > (context.trigger_tokens ?? 0) : false;
-  const color = wouldCompact || percent >= 80 ? 'text-danger' : percent >= 60 ? 'text-warn' : 'text-brand';
+  const color = wouldCompact || percent >= 80 ? 'text-danger' : percent >= 60 ? 'text-warn' : 'text-brand-ink';
   const title = () => {
     const base = t('chatInput.contextTitle', { percent, used: usedTokens.toLocaleString(dateTimeLocale()), limit: limitTokens.toLocaleString(dateTimeLocale()) });
     if (!context) return base;

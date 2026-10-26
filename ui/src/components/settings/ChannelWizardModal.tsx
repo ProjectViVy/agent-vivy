@@ -94,7 +94,7 @@ function ChannelWizardModal({
                     index < stepIndex
                       ? 'border-brand bg-brand text-brand-fg'
                       : s.key === step
-                        ? 'border-brand text-brand'
+                        ? 'border-brand text-brand-ink'
                         : 'border-line text-fg-muted'
                   }`}
                 >
@@ -154,7 +154,7 @@ function ChannelWizardModal({
                 {platformInfo ? (
                   <div className="rounded-lg border border-info/30 bg-info-soft p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <Lightbulb className="h-4 w-4 text-brand" />
+                      <Lightbulb className="h-4 w-4 text-brand-ink" />
                       <h4 className="text-ui font-semibold">
                         {t('channels.quickGuideTitle', { platform: platformInfo.displayName })}
                       </h4>

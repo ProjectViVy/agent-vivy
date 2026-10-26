@@ -56,7 +56,7 @@ export function WizardStepModel(props: WizardStepModelProps) {
       onSubmit={(event) => { event.preventDefault(); if (!saving) onSubmit(); }}
     >
       <div className="flex gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
           <Bot className="h-6 w-6" aria-hidden="true" />
         </div>
         <div className="min-w-0">

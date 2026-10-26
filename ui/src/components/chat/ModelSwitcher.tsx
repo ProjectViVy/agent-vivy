@@ -71,7 +71,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   return <DropdownMenu open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setError(null); }}>
     <DropdownMenuTrigger asChild>
       <Button variant="ghost" className="h-9 min-w-0 gap-1.5 rounded-xl px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={t('modelSwitcher.switchModelAria', { provider: providerLabel, model: currentModel || t('modelSwitcher.defaultModel') })} title={`${providerLabel} | ${currentModel || t('modelSwitcher.defaultModel')}`}>
-        {saving ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-brand" /> : <CircleDot className="h-4 w-4 shrink-0 text-fg" />}
+        {saving ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-brand-ink" /> : <CircleDot className="h-4 w-4 shrink-0 text-fg" />}
         <span className="hidden min-w-0 flex-col items-start lg:flex">
           <span className="line-clamp-1 max-w-[14rem] text-ui leading-tight">{providerLabel}</span>
           <span className="line-clamp-1 max-w-[14rem] text-meta leading-tight text-fg-muted">{currentModel || t('modelSwitcher.defaultModel')}</span>
@@ -89,7 +89,7 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
             <span className="block break-words text-ui font-medium leading-snug" title={`${providerLabel} | ${currentModel || t('modelSwitcher.defaultModel')}`}>{providerLabel} <span className="font-normal text-fg-muted">| {currentModel || t('modelSwitcher.defaultModel')}</span></span>
             <span className="block line-clamp-1 text-meta text-fg-muted" title={t('modelSwitcher.currentRuntimeConfig')}>{t('modelSwitcher.currentRuntimeConfig')}</span>
           </span>
-          <Check className="h-4 w-4 shrink-0 text-brand" />
+          <Check className="h-4 w-4 shrink-0 text-brand-ink" />
         </DropdownMenuItem>
         <DropdownMenuSeparator className="my-2" />
         <DropdownMenuLabel className="px-2 pb-1 pt-2 text-2xs font-medium uppercase tracking-wide text-fg-muted">{t('modelSwitcher.savedModels')}</DropdownMenuLabel>

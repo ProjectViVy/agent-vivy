@@ -68,7 +68,7 @@ function RequestDetails({
             className={[
               'rounded px-2 py-1 text-xs',
               tab === item.id
-                ? 'bg-primary/10 text-brand'
+                ? 'bg-primary/10 text-brand-ink'
                 : 'text-muted-foreground hover:bg-muted/60',
             ].join(' ')}
           >
@@ -81,7 +81,7 @@ function RequestDetails({
           <dl className="space-y-2.5 px-3 py-3 text-xs">
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">{t('trajectory.status')}</dt>
-              <dd className={request.status === 'error' ? 'text-danger' : request.status === 'active' ? 'text-brand' : undefined}>
+              <dd className={request.status === 'error' ? 'text-danger' : request.status === 'active' ? 'text-brand-ink' : undefined}>
                 {request.status === 'error' ? t('trajectory.statusError')
                   : request.status === 'active' ? t('trajectory.callStatus.active')
                     : request.status === 'cancelled' ? t('trajectory.callStatus.cancelled')
@@ -93,7 +93,7 @@ function RequestDetails({
                 <dt className="text-muted-foreground">{t('trajectory.callStatusLabel')}</dt>
                 <dd className={request.callStatus === 'failed' || request.callStatus === 'interrupted'
                   ? 'text-danger'
-                  : request.callStatus === 'active' ? 'text-brand' : undefined}
+                  : request.callStatus === 'active' ? 'text-brand-ink' : undefined}
                 >
                   {TRAJECTORY_CALL_STATUS_LABEL[request.callStatus]}
                 </dd>
@@ -279,7 +279,7 @@ function RecordDetails({
             className={[
               'rounded px-2 py-1 text-xs',
               tab === item.id
-                ? 'bg-primary/10 text-brand'
+                ? 'bg-primary/10 text-brand-ink'
                 : 'text-muted-foreground hover:bg-muted/60',
             ].join(' ')}
           >
@@ -336,7 +336,7 @@ export function TrajectoryDetailPanel({
               className={[
                 'shrink-0 rounded px-1 py-0.5 font-mono text-2xs',
                 record!.kind === 'message'
-                  ? 'bg-brand-soft text-brand'
+                  ? 'bg-brand-soft text-brand-ink'
                   : record!.kind === 'tool' || record!.kind === 'subtool'
                     ? 'bg-warn-soft text-warn-fg'
                     : 'bg-sunken text-fg-muted',

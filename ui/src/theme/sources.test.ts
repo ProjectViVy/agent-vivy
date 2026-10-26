@@ -19,7 +19,7 @@ const REGISTRY = readFileSync(resolve(THIS_DIR, '..', 'hooks', 'use-theme.ts'), 
 describe('pre-paint theme in index.html', () => {
   it('carries exactly two neutral colour pairs', () => {
     const hexes = HTML.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
-    expect(hexes.sort()).toEqual(['#0c1418', '#253035', '#ecf3f6', '#f0f8fd']);
+    expect(hexes.sort()).toEqual(['#071519', '#1e3137', '#e9f4f8', '#ebfaff']);
   });
 
   it('knows appearances but no theme ids', () => {

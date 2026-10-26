@@ -445,7 +445,7 @@ function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
               {events.map((event) => (
                 <li key={event.id} className="grid gap-1 rounded-lg border p-3 text-meta sm:grid-cols-[10rem_8rem_minmax(0,1fr)] sm:items-baseline sm:gap-3">
                   <time className="text-fg-muted">{new Date(event.created_at).toLocaleString(dateTimeLocale())}</time>
-                  <span className="font-mono font-semibold text-brand">{event.kind}</span>
+                  <span className="font-mono font-semibold text-brand-ink">{event.kind}</span>
                   <span className="text-fg-muted">{event.message}</span>
                 </li>
               ))}

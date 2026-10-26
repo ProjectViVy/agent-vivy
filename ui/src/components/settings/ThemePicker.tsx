@@ -15,7 +15,7 @@ export function ThemePicker() {
   return (
     <Card data-testid="theme-picker">
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
           <Palette className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('settings.themesTitle')}</CardTitle>
@@ -62,7 +62,7 @@ export function ThemePicker() {
                   <p className="mt-1 text-meta text-fg-muted">{t(`themes.${item.id}.description`)}</p>
                 </div>
                 {theme === item.id ? (
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-label={t('settings.themeSelected')} />
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-ink" aria-label={t('settings.themeSelected')} />
                 ) : null}
               </div>
             </button>

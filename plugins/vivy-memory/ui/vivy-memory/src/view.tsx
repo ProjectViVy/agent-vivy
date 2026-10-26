@@ -212,7 +212,7 @@ export function MemoryView() {
                     <Card className="mx-auto max-w-3xl">
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                          <Brain className="h-5 w-5 shrink-0 text-brand" />
+                          <Brain className="h-5 w-5 shrink-0 text-brand-ink" />
                           <span className="min-w-0 truncate">{firstLine(selected.content)}</span>
                           <span className="ml-auto flex shrink-0 gap-2">
                             <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'edit', entry: selected })}>{t('common.edit')}</Button>

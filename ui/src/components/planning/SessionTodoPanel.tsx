@@ -27,7 +27,7 @@ export function TodoRow({
     <li className="group flex min-w-0 items-start gap-2.5 rounded-md px-1 py-1.5 transition-colors hover:bg-sunken">
       <div className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center">
         {isInProgress && disabled ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" aria-label={t('todos.status.in_progress')} />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-ink" aria-label={t('todos.status.in_progress')} />
         ) : (
           <Checkbox
             checked={isCompleted}

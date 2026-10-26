@@ -71,7 +71,7 @@ function ChannelCard({
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex h-12 w-12 items-center justify-center rounded-md bg-brand/10 text-brand">
+        <div className="flex h-12 w-12 items-center justify-center rounded-md bg-brand/10 text-brand-ink">
           <Icon className="h-6 w-6" />
         </div>
         <div className="flex flex-col items-end gap-1">
