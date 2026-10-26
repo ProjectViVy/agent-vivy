@@ -2,6 +2,7 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react
 import { GripVertical, X } from 'lucide-react';
 import type { ReviewItem } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { useTranslation } from '@/i18n';
 
 /** Card placement relative to its default anchor (above the composer, right aligned). */
@@ -165,7 +166,7 @@ export function ApprovalQuickCard({
             {risk ? <p className="text-meta text-danger">{t('approvals.risk')}: {risk}</p> : null}
           </>
         )}
-        {error ? <p className="text-meta text-danger" role="alert">{error}</p> : null}
+        {error ? <FailureNotice variant="inline" title={t('feedback.operation.approvalAction')} error={error} /> : null}
       </div>
       <div className="flex items-center gap-2 border-t border-line/60 px-3 py-2">
         {review?.kind === 'approval' ? (

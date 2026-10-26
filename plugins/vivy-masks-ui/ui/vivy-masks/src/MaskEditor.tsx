@@ -2,6 +2,7 @@ import type { UITranslator } from '@vivy/ui-sdk';
 import { useId } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import {
   Sheet,
   SheetBody,
@@ -81,17 +82,13 @@ export function MaskEditor({
             </div>
           </div>
           {error ? (
-            <div
-              className="space-y-2 rounded-xl border border-danger/30 bg-danger/5 p-3 text-ui text-danger"
-              role="alert"
-            >
-              {error}
-              {onReload ? (
-                <Button variant="outline" size="sm" onClick={onReload}>
-                  {t('plugin.vivy/masks-ui.reloadLatest')}
-                </Button>
-              ) : null}
-            </div>
+            <FailureNotice
+              variant="compact"
+              title={t('plugin.vivy/masks-ui.connectionError')}
+              error={error}
+              onRetry={onReload}
+              retryLabel={t('plugin.vivy/masks-ui.reloadLatest')}
+            />
           ) : null}
           {retrying && !saving ? (
             <p className="rounded-xl bg-warn-soft p-3 text-ui text-warn">

@@ -45,6 +45,7 @@ const SURFACES = [
   { name: 'lifecycle', path: '/lifecycle' },
   { name: 'welcome', path: '/', welcome: 'open' },
   { name: 'nav-toggle', path: '/', clickHeader: true },
+  { name: 'toast', path: '/', seedToasts: true },
 ];
 
 function parseArgs(argv) {
@@ -261,6 +262,27 @@ async function main() {
             if (surface.scrollTo) {
               await page.locator(surface.scrollTo).first().scrollIntoViewIfNeeded();
               await page.waitForTimeout(250);
+            }
+            if (surface.seedToasts) {
+              // Dev-pair only: import the live toast store so the shot measures the
+              // real component. A production build has no /src module graph, so a
+              // failed import must not count as an audit failure.
+              await page.evaluate(async () => {
+                try {
+                  const { notify } = await import('/src/lib/toasts.ts');
+                  notify({
+                    tone: 'danger',
+                    title: '保存设置失败',
+                    detail: '操作没有完成。请稍后重试；如果持续失败，展开详情复制诊断。',
+                    technical: 'rpc error: code = Unavailable desc = connection closed\n    at /app/src/lib/rpc.ts:1:1',
+                  });
+                  notify({ tone: 'warn', title: '正在重新连接控制面', detail: '等待后端响应，界面仍可使用。' });
+                  notify({ tone: 'ok', title: '已复制诊断' });
+                } catch (error) {
+                  console.warn('toast seeding skipped:', error);
+                }
+              });
+              await page.waitForTimeout(300);
             }
             const ink = await page.evaluate(sweepInk);
             scannedText += ink.scanned;

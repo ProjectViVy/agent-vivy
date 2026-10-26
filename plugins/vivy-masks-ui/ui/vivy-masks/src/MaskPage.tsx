@@ -17,6 +17,7 @@ import { useNavigationGuard } from '@/hooks/use-navigation-guard';
 import { CircleHelp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import {
   Dialog,
   DialogContent,
@@ -372,25 +373,16 @@ export function MaskPage({
     <main className="h-full overflow-auto bg-sunken/15" data-testid="mask-page">
       <div className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
         {shared.error ? (
-          <div
-            role="alert"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/30 bg-danger/5 p-4 text-ui text-danger"
-          >
-            <span>
-              {t('plugin.vivy/masks-ui.connectionError')} ·{' '}
-              {maskErrorText(t, shared.error)}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void session?.refreshCatalog();
-                void session?.refreshSelection();
-              }}
-            >
-              {t('plugin.vivy/masks-ui.retry')}
-            </Button>
-          </div>
+          <FailureNotice
+            variant="compact"
+            title={t('plugin.vivy/masks-ui.connectionError')}
+            detail={maskErrorText(t, shared.error)}
+            onRetry={() => {
+              void session?.refreshCatalog();
+              void session?.refreshSelection();
+            }}
+            retryLabel={t('plugin.vivy/masks-ui.retry')}
+          />
         ) : null}
         {editorError && !editorOpen && !deleteOpen ? (
           <p role="alert" className="text-ui text-danger">

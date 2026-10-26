@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Pencil } from 'lucide-react';
+import { Pencil } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Textarea } from '@/components/ui/textarea';
 import type { UITranslator } from '@vivy/ui-sdk';
 import { MEMORY_REASONS, type MemoryClient } from './memory-client';
@@ -89,13 +90,8 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
   if (error && !view) {
     return (
       <div className="p-6">
-        <div className="mx-auto max-w-xl rounded-xl border border-danger/30 bg-danger/10 p-4 text-ui text-danger" role="alert">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4" />
-            <strong>{t('plugin.vivy/memory.loadFailed')}</strong>
-          </div>
-          <p className="mt-1">{error}</p>
-          <Button className="mt-3" size="sm" variant="outline" onClick={() => void load()}>{t('common.retry')}</Button>
+        <div className="mx-auto max-w-xl">
+          <FailureNotice variant="compact" title={t('plugin.vivy/memory.loadFailed')} error={error} onRetry={() => void load()} />
         </div>
       </div>
     );
@@ -125,12 +121,9 @@ export function MemoryRulesPanel({ client, t }: RulesPanelProps) {
           )}
         </div>
         {conflict ? (
-          <div className="rounded-md border border-danger/30 bg-danger/10 p-3 text-ui text-danger" role="alert">
-            <p className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{t('plugin.vivy/memory.conflict')}</p>
-            <Button className="mt-2" size="sm" variant="outline" onClick={() => { setDraft(null); void load(); }}>{t('common.refresh')}</Button>
-          </div>
+          <FailureNotice variant="compact" title={t('plugin.vivy/memory.conflict')} onRetry={() => { setDraft(null); void load(); }} retryLabel={t('common.refresh')} />
         ) : error ? (
-          <p className="text-ui text-danger" role="alert">{error}</p>
+          <FailureNotice variant="compact" title={t('errors.genericTitle')} error={error} />
         ) : null}
         {editing ? (
           <Textarea

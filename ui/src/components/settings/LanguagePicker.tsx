@@ -10,7 +10,6 @@ export function LanguagePicker() {
   const { t, locales } = useTranslation();
   const settings = useVivyStore((state) => state.settings);
   const phase = useVivyStore((state) => state.settingsPhase);
-  const error = useVivyStore((state) => state.settingsError);
   const saveLocale = useVivyStore((state) => state.saveLocale);
   const selectedLocale = settings?.locale;
   const disabled = !settings || phase === 'loading' || phase === 'processing' || settings.locale_read_only;
@@ -49,7 +48,6 @@ export function LanguagePicker() {
           ))}
         </div>
         <p className="mt-4 text-xs text-muted-foreground">{t('language.switchHint')}</p>
-        {error ? <p className="mt-4 rounded bg-destructive/10 p-3 text-sm text-destructive" role="alert">{t('settingsModel.errors.saveFailed')}: {error}</p> : null}
       </CardContent>
     </Card>
   );

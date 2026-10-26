@@ -26,7 +26,6 @@ function parseHosts(value: string): string[] {
 export function NetworkToolsCard() {
   const { t } = useTranslation();
   const settings = useVivyStore((state) => state.settings);
-  const error = useVivyStore((state) => state.settingsError);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
 
@@ -111,8 +110,6 @@ export function NetworkToolsCard() {
         <CardDescription>{t('networkTools.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
-
         <div className="space-y-2">
           <Label htmlFor="network-tools-provider">{t('networkTools.preferredProvider')}</Label>
           <div className="flex flex-wrap items-center gap-3">

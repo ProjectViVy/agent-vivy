@@ -7,6 +7,8 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { useTranslation } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
+import { notifyFailure } from '@/lib/toasts';
 import { useVivyStore } from '@/lib/store';
 import { BookOpen, RefreshCw, Zap } from 'lucide-react';
 import * as api from '@/lib/api';
@@ -59,7 +61,7 @@ export function SkillsView() {
       );
     } catch (err) {
       // A 409 here means the SKILL.md changed under us; re-read the catalog.
-      setError(err instanceof Error ? err.message : t('skills.errors.toggleFailed'));
+      notifyFailure(err, { title: t('feedback.operation.skillAction') });
       void loadSkills();
     } finally {
       setToggling(false);
@@ -75,15 +77,7 @@ export function SkillsView() {
   if (error && skills.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle>{t('skills.loadFailed')}</CardTitle>
-            <CardDescription>{error}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => void loadSkills()}>{t('common.retry')}</Button>
-          </CardContent>
-        </Card>
+        <FailureNotice className="w-full max-w-md" variant="full" title={t('skills.loadFailed')} error={error} onRetry={() => void loadSkills()} />
       </div>
     );
   }
@@ -106,7 +100,7 @@ export function SkillsView() {
         </Button>
       </div>
 
-      {error && <p className="mb-4 min-w-0 break-all text-ui text-danger">{error}</p>}
+      {error ? <FailureNotice className="mb-4" variant="compact" title={t('skills.loadFailed')} error={error} /> : null}
 
       <TabsContent value="skills" className="mt-0 min-h-0 flex-1">
         {skills.length === 0 ? (

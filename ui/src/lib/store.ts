@@ -9,6 +9,7 @@ import { isTaskToolName } from './todos';
 import { recentRunIds } from './run-rows';
 import { checkDeliverable, DeliverableTransferError, downloadDeliverable, readDeliveryPreview } from './deliverable-download';
 import { hydrateLocale, t } from '@/i18n';
+import { notifyFailure } from './toasts';
 
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -750,14 +751,14 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   renameSession: async (id, title) => {
     set({ sessionBusyId: id, sessionsError: null });
     try { const renamed = await api.renameSession(id, title); set((state) => ({ sessions: state.sessions.map((item) => item.id === id ? renamed : item) })); }
-    catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
+    catch (error) { notifyFailure(error, { title: t('feedback.operation.sessionAction') }); throw error; } finally { set({ sessionBusyId: null }); }
   },
   setSessionPermission: async (id, preset) => {
     set({ sessionBusyId: id, sessionsError: null });
     try {
       const updated = await api.setSessionPermission(id, preset);
       set((state) => ({ sessions: state.sessions.map((item) => item.id === id ? { ...item, ...updated } : item) }));
-    } catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
+    } catch (error) { notifyFailure(error, { title: t('feedback.operation.sessionAction') }); throw error; } finally { set({ sessionBusyId: null }); }
   },
   deleteSession: async (id) => {
     set({ sessionBusyId: id, sessionsError: null });
@@ -772,7 +773,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
-    } catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
+    } catch (error) { notifyFailure(error, { title: t('feedback.operation.sessionAction') }); throw error; } finally { set({ sessionBusyId: null }); }
   },
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;

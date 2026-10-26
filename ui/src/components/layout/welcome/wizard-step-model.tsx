@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { useTranslation } from '@/i18n';
 import type { ProviderCatalogRow } from '@/components/settings/provider-catalog';
 import type { WelcomeModelDraft, WelcomeVendorGroup } from '../welcome-model';
@@ -189,9 +190,7 @@ export function WizardStepModel(props: WizardStepModelProps) {
           {frozen ? t('welcome.frozenNotice') : t('welcome.readOnlyNotice')}
         </p>
       ) : null}
-      {error ? (
-        <p className="rounded-lg bg-danger-soft p-3 text-ui text-danger" role="alert">{error}</p>
-      ) : null}
+      {error ? <FailureNotice variant="compact" title={t('errors.genericTitle')} error={error} /> : null}
     </form>
   );
 }

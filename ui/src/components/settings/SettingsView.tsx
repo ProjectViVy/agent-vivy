@@ -10,6 +10,7 @@ import { settingsUpdateFrom } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { RunInspector } from '@/components/chat/RunInspector';
 import { openWelcome } from '@/hooks/use-welcome';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { useTranslation } from '@/i18n';
 import { DIVA_ADDITIONAL_SECTIONS, type DivaAdditionalSection, type DivaPreviewSection } from './diva-preview-data';
 import { DivaSettingsPreview } from './DivaSettingsPreview';
@@ -72,6 +73,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
       <div className="mx-auto max-w-content">
         <h1 className="text-page font-bold">{t('settings.title')}</h1>
         <p className="mt-1 text-ui text-fg-muted">{t('settings.subtitle')}</p>
+        {error ? <FailureNotice className="mt-4" variant="compact" title={t(settings ? 'feedback.operation.saveSettings' : 'feedback.operation.loadSettings')} error={error} /> : null}
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)} className="mt-6">
           <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
             <TabsTrigger value="general">{t('settings.tabs.general')}</TabsTrigger>
@@ -102,7 +104,6 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
                   </div>
                   {settings?.read_only ? <p className="rounded bg-warn-soft p-3 text-ui text-warn">{t('settings.readOnlyNotice')}</p> : <Button type="submit" disabled={phase === 'processing'}>{phase === 'processing' ? t('settings.saving') : t('settings.saveGeneral')}</Button>}
                   {formError ? <p className="rounded bg-danger-soft p-3 text-ui text-danger">{formError}</p> : null}
-                  {error ? <p className="rounded bg-danger-soft p-3 text-ui text-danger">{error}</p> : null}
                 </form>
               </CardContent>
             </Card>

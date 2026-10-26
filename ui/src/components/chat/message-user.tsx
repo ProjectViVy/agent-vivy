@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, Pencil, X } from 'lucide-react';
 import type { Message } from '@/lib/api';
 import { useTranslation } from '@/i18n';
+import { notify } from '@/lib/toasts';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { Textarea } from '@/components/ui/textarea';
 import { MarkdownBody } from './markdown-block';
@@ -23,12 +24,14 @@ export function MessageUserBubble({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const copyTimer = useRef<number | null>(null);
   useEffect(() => () => { if (copyTimer.current !== null) window.clearTimeout(copyTimer.current); }, []);
 
   const copy = async () => {
-    if (!(await copyTextToClipboard(message.content))) return;
+    if (!(await copyTextToClipboard(message.content))) {
+      notify({ tone: 'danger', title: t('feedback.operation.copy') });
+      return;
+    }
     setCopied(true);
     if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
     copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
@@ -74,12 +77,11 @@ export function MessageUserBubble({
                   onClick={async () => {
                     if (!onEditConfirm) return;
                     setPending(true);
-                    setActionError(null);
                     try {
                       await onEditConfirm(draft);
                       setEditing(false);
-                    } catch (error) {
-                      setActionError(error instanceof Error ? error.message : String(error));
+                    } catch {
+                      // ChatView reports edit failures once as a chatAction toast.
                     } finally {
                       setPending(false);
                     }
@@ -98,7 +100,6 @@ export function MessageUserBubble({
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              {actionError ? <p className="rounded bg-danger px-1.5 py-0.5 text-2xs text-danger-fg" role="alert">{actionError}</p> : null}
             </div>
           ) : (
             <MarkdownBody content={message.content} streaming={streaming} className="prose-inherit" />

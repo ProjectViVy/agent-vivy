@@ -17,6 +17,7 @@ import {
 import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { WorkflowClient } from './client';
 import { FaceBridge } from './face-bridge';
 import { EditorPane, type EditTarget } from './editor/EditorPane';
@@ -82,7 +83,9 @@ function Page({ host, client, t }: { host: FullUIHost; client: WorkflowClient; t
             <TabsTrigger value="runs" className="text-meta">{t('plugin.vivy/workflow-ui.tab.runs')}</TabsTrigger>
           </TabsList>
           {catalogError ? (
-            <span className="ml-auto text-2xs text-danger">{catalogError}</span>
+            <div className="ml-auto max-w-sm">
+              <FailureNotice variant="inline" title={t('plugin.vivy/workflow-ui.tab.workflows')} detail={catalogError} />
+            </div>
           ) : null}
         </div>
         <TabsContent value="editor" className="mt-0 min-h-0 flex-1">

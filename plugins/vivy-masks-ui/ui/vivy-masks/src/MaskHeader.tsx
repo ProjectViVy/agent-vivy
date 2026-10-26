@@ -10,6 +10,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -96,23 +97,22 @@ export function MaskHeader({
   const warnings = (
     <>
       {state.selection?.inactive_reason ? (
-        <p role="alert" className="px-2 py-2 text-meta text-danger">
-          {t('plugin.vivy/masks-ui.errors.unavailable')}
-        </p>
+        <div className="px-2 py-2">
+          <FailureNotice variant="inline" title={t('plugin.vivy/masks-ui.errors.unavailable')} />
+        </div>
       ) : null}
       {state.error ? (
-        <div role="alert" className="px-2 py-2 text-meta text-danger">
-          {maskErrorText(t, state.error)}
-          <button
-            type="button"
-            className="ml-2 underline"
-            onClick={() => {
+        <div className="px-2 py-2">
+          <FailureNotice
+            variant="inline"
+            title={t('plugin.vivy/masks-ui.connectionError')}
+            detail={maskErrorText(t, state.error)}
+            onRetry={() => {
               void session.refreshCatalog();
               void session.refreshSelection();
             }}
-          >
-            {t('plugin.vivy/masks-ui.retry')}
-          </button>
+            retryLabel={t('plugin.vivy/masks-ui.retry')}
+          />
         </div>
       ) : null}
       {state.catalogPending ? (

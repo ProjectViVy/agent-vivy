@@ -5,6 +5,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { UITranslator } from '@vivy/ui-sdk';
@@ -185,7 +186,7 @@ function RunDetailView({ client, t, runId, refreshKey }: { client: WorkflowClien
           </Button>
         </div>
       </div>
-      {error ? <div className="border-b bg-danger/10 px-3 py-1.5 text-meta text-danger" role="alert">{error}</div> : null}
+      {error ? <div className="border-b px-3 py-1.5"><FailureNotice variant="inline" title={t('errors.genericTitle')} detail={error} /></div> : null}
       {detail?.waits && detail.waits.length > 0 ? (
         <div className="border-b bg-warn-soft px-3 py-1.5">
           <p className="text-2xs font-medium">{t('plugin.vivy/workflow-ui.runs.waits', { count: detail.waits.length })}</p>
@@ -294,7 +295,7 @@ export function RunsPane({ client, t, focusRunId, onFocusHandled }: RunsPaneProp
           <RefreshCw className="h-3 w-3" />
         </Button>
       </div>
-      {error ? <div className="border-b bg-danger/10 px-3 py-1.5 text-meta text-danger" role="alert">{error}</div> : null}
+      {error ? <div className="border-b px-3 py-1.5"><FailureNotice variant="inline" title={t('errors.genericTitle')} detail={error} onRetry={() => setRefreshKey((k) => k + 1)} /></div> : null}
       <ScrollArea className="min-h-0 flex-1">
         {items === null ? (
           <p className="p-3 text-2xs text-fg-muted">{t('common.loading')}</p>

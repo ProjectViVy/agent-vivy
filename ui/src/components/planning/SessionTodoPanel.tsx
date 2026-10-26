@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTranslation } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { runActive, useVivyStore } from '@/lib/store';
 import { partitionTodos } from '@/lib/todos';
 import { cn } from '@/lib/utils';
@@ -171,10 +172,7 @@ export function SessionTodoPanel({ onClose }: { onClose?: () => void }) {
             </div>
           ) : null}
           {showError ? (
-            <div className="space-y-3 text-ui">
-              <p className="text-danger">{error || t('todos.loadFailed')}</p>
-              <Button type="button" size="sm" variant="outline" onClick={() => void loadTodos()}>{t('common.retry')}</Button>
-            </div>
+            <FailureNotice variant="inline" title={t('todos.loadFailed')} error={error ?? undefined} onRetry={() => void loadTodos()} />
           ) : null}
           {showEmpty ? <p className="text-ui text-fg-muted">{t('todos.empty')}</p> : null}
           {!showSkeleton && !showError && !showEmpty ? (

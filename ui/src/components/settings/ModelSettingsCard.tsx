@@ -329,7 +329,6 @@ function CustomProviderDialog({
 export function ModelSettingsCard() {
   const settings = useVivyStore((state) => state.settings);
   const phase = useVivyStore((state) => state.settingsPhase);
-  const error = useVivyStore((state) => state.settingsError);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
   const providers = useVivyStore((state) => state.providers);
@@ -885,7 +884,6 @@ export function ModelSettingsCard() {
               )}
             </div>
           </div>
-          {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
           {providersError ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{providersError}</p> : null}
         </div>
       )}

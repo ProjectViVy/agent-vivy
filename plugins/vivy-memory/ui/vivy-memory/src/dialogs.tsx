@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -84,14 +84,13 @@ export function MemoryContentDialog({ mode, entry, client, t, onClose, onApplied
             aria-label={t('plugin.vivy/memory.contentPlaceholder')}
           />
           {conflict ? (
-            <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 text-danger p-3 text-ui" role="alert">
-              <p className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{t('plugin.vivy/memory.conflict')}</p>
-              <Button className="mt-2" size="sm" variant="outline" onClick={() => entry && onRebase(entry.id)}>
-                {t('common.refresh')}
-              </Button>
+            <div className="mt-3">
+              <FailureNotice variant="inline" title={t('plugin.vivy/memory.conflict')} onRetry={() => entry && onRebase(entry.id)} retryLabel={t('common.refresh')} />
             </div>
           ) : error ? (
-            <p className="mt-3 text-ui text-danger" role="alert">{error}</p>
+            <div className="mt-3">
+              <FailureNotice variant="inline" title={t('errors.genericTitle')} error={error} />
+            </div>
           ) : null}
         </DialogBody>
         <DialogFooter>
@@ -161,14 +160,13 @@ export function MemoryDeleteDialog({ entry, client, t, onClose, onApplied, onReb
             aria-label={t('plugin.vivy/memory.reasonPlaceholder')}
           />
           {conflict ? (
-            <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 text-danger p-3 text-ui" role="alert">
-              <p className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{t('plugin.vivy/memory.conflict')}</p>
-              <Button className="mt-2" size="sm" variant="outline" onClick={() => onRebase(entry.id)}>
-                {t('common.refresh')}
-              </Button>
+            <div className="mt-3">
+              <FailureNotice variant="inline" title={t('plugin.vivy/memory.conflict')} onRetry={() => onRebase(entry.id)} retryLabel={t('common.refresh')} />
             </div>
           ) : error ? (
-            <p className="mt-3 text-ui text-danger" role="alert">{error}</p>
+            <div className="mt-3">
+              <FailureNotice variant="inline" title={t('errors.genericTitle')} error={error} />
+            </div>
           ) : null}
         </DialogBody>
         <DialogFooter>

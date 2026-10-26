@@ -21,7 +21,6 @@ export function SandboxSettingsCard() {
   const { t } = useTranslation();
   const settings = useVivyStore((state) => state.settings);
   const phase = useVivyStore((state) => state.settingsPhase);
-  const error = useVivyStore((state) => state.settingsError);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
 
@@ -77,8 +76,6 @@ export function SandboxSettingsCard() {
         <CardDescription>{t('sandboxSettings.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
-
         <div className="space-y-2">
           <Label htmlFor="sandbox-default-preset">{t('sandboxSettings.defaultPreset')}</Label>
           <Select value={preset} disabled={locked} onValueChange={(value: Exclude<PermissionPreset, 'custom'>) => setPreset(value)}>

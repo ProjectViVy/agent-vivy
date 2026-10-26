@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { AlertTriangle, Check, Code2, Eye, GitPullRequest, Loader2, RefreshCw, Save, X } from 'lucide-react';
+import { Check, Code2, Eye, GitPullRequest, Loader2, RefreshCw, Save, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -370,9 +371,8 @@ export function PersonaMemoryView() {
           </div>
 
           {error ? (
-            <div className="mx-4 mt-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-ui text-danger" role="alert">
-              <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /><span>{error}</span></div>
-              <Button className="mt-2" size="sm" variant="outline" onClick={refresh} disabled={loading || operationBusy}>{t('common.retry')}</Button>
+            <div className="mx-4 mt-3">
+              <FailureNotice variant="compact" title={t('errors.genericTitle')} error={error} onRetry={refresh} retryBusy={loading || operationBusy} />
             </div>
           ) : null}
           {notice ? <p className="mx-4 mt-3 text-ui text-ok" role="status">{notice}</p> : null}
@@ -437,7 +437,7 @@ function Unavailable({
     <div className="flex h-full items-center justify-center overflow-auto p-6 text-center">
       <div className="max-w-md space-y-3">
         <p className="text-ui text-fg-muted">{message}</p>
-        {error ? <p className="text-ui text-danger" role="alert">{error}</p> : null}
+        {error ? <FailureNotice variant="inline" detail={error} /> : null}
         {actionLabel && onAction ? (
           <Button onClick={onAction} disabled={actionBusy}>
             {actionBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -472,7 +472,7 @@ function InitializationPanel({
           <p className="text-ui text-fg-muted">{t('plugin.vivy/persona.initialize.description')}</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {error ? <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-ui text-danger" role="alert">{error}</div> : null}
+          {error ? <FailureNotice variant="inline" detail={error} /> : null}
           {REQUIRED_KINDS.map((kind) => (
             <label key={kind} className="block space-y-1.5">
               <span className="text-ui font-medium">{t(`plugin.vivy/persona.initialize.fields.${kind}`)} <span className="text-danger">*</span></span>

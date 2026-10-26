@@ -29,6 +29,8 @@ import { CHANNEL_PLATFORMS } from '@/components/settings/channel-platforms';
 import { useVivyStore } from '@/lib/store';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { useTranslation, dateTimeLocale, t } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
+import { notifyFailure } from '@/lib/toasts';
 
 const HOUR_MS = 60 * 60 * 1000;
 /** 面板打开期间的轻轮询，刷新 nextRun/isRunning/lastStatus。 */
@@ -251,7 +253,7 @@ export function CronTaskManagementView() {
       const updated = (await updateCronJob(job.id, input)).job;
       setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('cron.errors.toggleFailed'));
+      notifyFailure(cause, { title: t('feedback.operation.cronAction') });
     } finally { setBusyId(''); }
   };
 
@@ -261,7 +263,7 @@ export function CronTaskManagementView() {
       const result = (await triggerCronJob(job.id)).job;
       setJobs((current) => current.map((item) => (item.id === result.id ? result : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('cron.errors.triggerFailed'));
+      notifyFailure(cause, { title: t('feedback.operation.cronAction') });
     } finally { setBusyId(''); }
   };
 
@@ -273,7 +275,7 @@ export function CronTaskManagementView() {
       const remaining = jobs.filter((job) => job.id !== selectedJob.id);
       setJobs(remaining); setSelectedId(null); setShowDelete(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('cron.errors.deleteFailed'));
+      notifyFailure(cause, { title: t('feedback.operation.cronAction') });
     } finally { setBusyId(''); }
   };
 
@@ -293,10 +295,7 @@ export function CronTaskManagementView() {
     return (
       <PageShell>
         <PageHeader icon={<CalendarClock className="h-5 w-5" />} title={t('cron.title')} description={t('cron.subtitle')} />
-        <div role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-ui text-danger">
-          <p>{error}</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={() => void loadJobs()}>{t('common.retry')}</Button>
-        </div>
+        <FailureNotice variant="full" title={t('cron.errors.loadFailed')} error={error} onRetry={() => void loadJobs()} />
       </PageShell>
     );
   }
@@ -312,7 +311,7 @@ export function CronTaskManagementView() {
           actions={<Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />{t('cron.create')}</Button>}
         />
 
-        {error ? <div role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-ui text-danger">{error}</div> : null}
+        {error ? <FailureNotice variant="compact" title={t('cron.errors.loadFailed')} error={error} /> : null}
 
         <MasterDetail
           className="min-h-0 flex-1"

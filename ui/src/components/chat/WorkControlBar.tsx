@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { PlanReview } from './PlanReview';
 
 export function WorkControlBar({ sessionId }: { sessionId: string }) {
@@ -40,7 +41,7 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
   const handlePlanDecision = async (submissionId: string, action: PlanAction, feedback?: string, objective?: string, maxRounds?: number) => {
     await decidePlan(action, feedback, objective, maxRounds, submissionId);
   };
-  if (phase === 'error' && !work) return <section aria-label={t('workControl.title')} className="flex items-center gap-2 border-b px-4 py-2 text-meta"><span role="alert" className="text-danger">{t('workControl.error', { error: error ?? t('workControl.unavailable') })}</span><Button type="button" size="sm" variant="outline" onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></section>;
+  if (phase === 'error' && !work) return <section aria-label={t('workControl.title')} className="border-b px-4 py-2"><FailureNotice variant="inline" title={t('feedback.operation.workRefresh')} error={error ?? t('workControl.unavailable')} onRetry={() => void loadWork(sessionId)} retryBusy={busy} /></section>;
   if (!work || (!goal && !(plan?.active && plan.submission_id) && !error)) return null;
   return (
     <div className="shrink-0 px-3 pt-2 sm:px-4"><section aria-label={t('workControl.title')} data-work-dock className="mx-auto max-h-[40vh] max-w-content overflow-auto rounded-xl border border-line bg-surface px-3 py-2">
@@ -75,7 +76,7 @@ export function WorkControlBar({ sessionId }: { sessionId: string }) {
         </div>
       ) : null}
       {plan?.active ? <PlanReview key={plan.submission_id ?? 'no-submission'} plan={plan} busy={busy} hasGoal={Boolean(goal)} onDecide={handlePlanDecision} /> : null}
-      {error ? <div className="mt-2 flex flex-wrap items-center gap-2 text-meta text-danger"><span role="alert">{t('workControl.error', { error })}</span><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void loadWork(sessionId)}>{t('workControl.refresh')}</Button></div> : null}
+      {error ? <FailureNotice className="mt-2" variant="inline" title={t('feedback.operation.workRefresh')} error={error} onRetry={() => void loadWork(sessionId)} retryBusy={busy} /> : null}
     </section></div>
   );
 }

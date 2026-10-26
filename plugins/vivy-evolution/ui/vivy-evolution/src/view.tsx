@@ -9,6 +9,7 @@ import type { SkillDocument, SkillDto, SkillHistoryEntry, SkillHistoryDocument, 
 import { useEvolution } from './useEvolution';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -345,9 +346,7 @@ function RequestDetailPane({ request, isBusy, onAccept, onReject }: RequestDetai
       </div>
 
       {request.status === 'stale' ? (
-        <p className="mb-4 rounded-lg border border-danger/50 bg-danger/10 p-3 text-ui text-danger">
-          {t('plugin.vivy/evolution.requests.staleNotice')}
-        </p>
+        <FailureNotice className="mb-4" variant="compact" detail={t('plugin.vivy/evolution.requests.staleNotice')} />
       ) : null}
       {request.status === 'accepted' || request.status === 'rejected' ? (
         <p className="mb-4 rounded-lg bg-sunken p-3 text-ui text-fg-muted">{t('plugin.vivy/evolution.requests.handledNotice')}</p>
@@ -417,7 +416,7 @@ function RunDetailPane({ run, events, onOpenRequests }: RunDetailPaneProps) {
         <p className="text-fg-muted">{t('plugin.vivy/evolution.autodream.completedAt', { time: formatDateTime(run.completed_at, noValue) })}</p>
         <p className="text-fg-muted">{t('plugin.vivy/evolution.autodream.attempt', { count: run.orchestration?.attempt ?? 0 })}</p>
         {run.error ? (
-          <p className="text-danger">{t('plugin.vivy/evolution.autodream.failure', { reason: run.error })}</p>
+          <FailureNotice variant="inline" detail={t('plugin.vivy/evolution.autodream.failure', { reason: run.error })} />
         ) : null}
       </div>
 
@@ -548,7 +547,7 @@ export function EvolutionView() {
         </div>
       </div>
 
-      {error && !noData ? <p className="mb-4 text-ui text-danger">{error}</p> : null}
+      {error && !noData ? <FailureNotice className="mb-4" variant="compact" title={t('plugin.vivy/evolution.loadFailed')} error={error} onRetry={() => void refresh()} retryBusy={isLoading} /> : null}
 
       <TabsContent value="skills" className="mt-0 min-h-0 flex-1">
         {evolutionSkills.length === 0 ? (

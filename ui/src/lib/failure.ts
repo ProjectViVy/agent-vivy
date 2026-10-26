@@ -6,10 +6,39 @@ export type FailureAction = 'retry' | 'open_model_settings' | 'none';
 export interface ClassifiedFailure {
   kind: FailureKind;
   titleKey: 'errors.controlPlaneTitle' | 'errors.apiKeyTitle' | 'errors.providerTitle' | 'errors.runFailedTitle' | 'errors.genericTitle';
+  /** 面向用户的一句话；机器噪声不会出现在这里。 */
   detail: string;
   action: FailureAction;
   /** 附加的本地化说明（比如「这不是后端连接问题」），不是原始错误文本。 */
   hintKey?: 'errors.runFailedHint' | 'errors.providerHint';
+  /** 原始文本，仅在它是机器噪声时保留，供「详情 / 复制诊断」使用。 */
+  technical?: string;
+}
+
+// 机器噪声的特征。只有命中这些标记的文本才折叠进详情；后端给出的人话
+// （比如「模型服务触发限流」）继续作为主文案。
+const TECHNICAL_MARKERS = [
+  'rpc error',
+  'code =',
+  'code:',
+  'grpc',
+  '{"',
+  'http://',
+  'https://',
+  'failed to fetch',
+  'typeerror',
+  'unexpected token',
+  'econnrefused',
+  'err_connection',
+  'networkerror',
+  'load failed',
+  'invalid json',
+  '\n    at ',
+] as const;
+
+export function looksTechnical(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return TECHNICAL_MARKERS.some((marker) => normalized.includes(marker));
 }
 
 function messageOf(error: unknown): string {
@@ -37,8 +66,12 @@ const CONTROL_PLANE_MARKERS = [
   '控制面',
 ] as const;
 
+// 只认「缺失/被拒」这类机器侧结论；表单自己的「请输入 API key」属于本地
+// 指引，不能被改写成通用的密钥缺失文案。
 const API_KEY_MARKERS = [
-  'api key',
+  'api key missing',
+  'api key rejected',
+  'api key invalid',
   '密钥未配置',
   '没有可用的 api key',
 ] as const;
@@ -65,6 +98,7 @@ export function classifyFailure(error: unknown): ClassifiedFailure {
 export function classifyFailureMessage(raw: string): ClassifiedFailure {
   const message = raw.trim();
   const normalized = message.toLowerCase();
+  const technical = looksTechnical(message) ? message : undefined;
 
   if (includesAny(normalized, API_KEY_MARKERS)) {
     return {
@@ -81,6 +115,7 @@ export function classifyFailureMessage(raw: string): ClassifiedFailure {
       titleKey: 'errors.controlPlaneTitle',
       detail: t('errors.controlPlaneUnreachable'),
       action: 'retry',
+      technical,
     };
   }
 
@@ -100,6 +135,7 @@ export function classifyFailureMessage(raw: string): ClassifiedFailure {
       detail: t('errors.providerDetail'),
       action: 'none',
       hintKey: 'errors.providerHint',
+      technical,
     };
   }
 
@@ -115,9 +151,10 @@ export function classifyFailureMessage(raw: string): ClassifiedFailure {
   return {
     kind: 'run',
     titleKey: 'errors.runFailedTitle',
-    detail: message,
+    detail: technical ? t('feedback.unknownDetail') : message,
     action: 'none',
     hintKey: 'errors.runFailedHint',
+    technical,
   };
 }
 

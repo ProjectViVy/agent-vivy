@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useVivyStore } from '@/lib/store';
 import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '@/lib/api';
 import { useTranslation } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Package, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -53,6 +54,13 @@ function DeliveriesSection() {
 
   if (deliverySetsPhase === 'loading' || deliverySetsPhase === 'idle') {
     return <p className="p-3 text-meta text-fg-muted">{t('files.loading')}</p>;
+  }
+  if (deliverySetsPhase === 'error') {
+    return (
+      <div className="border-b px-3 py-2">
+        <FailureNotice variant="inline" title={t('feedback.operation.filesAction')} onRetry={() => void loadDeliverySets()} />
+      </div>
+    );
   }
   if (deliverySets.length === 0) return null;
   return (

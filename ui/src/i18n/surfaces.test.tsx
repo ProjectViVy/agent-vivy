@@ -5,6 +5,7 @@ import { LanguagePicker } from '../components/settings/LanguagePicker';
 import { MessageBubble } from '../components/chat/MessageBubble';
 import { ReviewCard } from '../components/approvals/ReviewCard';
 import { ApprovalQuickCard } from '../components/approvals/ApprovalQuickCard';
+import { FailureNotice } from '../components/feedback/FailureNotice';
 import { TrajectoryLedger } from '../components/trajectory/TrajectoryLedger';
 import { turnLabel } from '../components/trajectory/trajectory-utils';
 import { TRAJECTORY_KIND_LABEL } from '../components/trajectory/trajectory-types';
@@ -23,16 +24,22 @@ vi.mock('@/lib/store', () => ({
 afterEach(() => resetLocaleForTests());
 
 describe.each([
-  { locale: 'en' as const, language: 'Language', saveError: 'Save failed; please retry', tool: 'Tool result', approve: 'Approve', empty: 'No trajectory records', session: 'Session', kind: 'TOOL' },
-  { locale: 'zh' as const, language: '语言', saveError: '保存失败，请重试', tool: '工具结果', approve: '批准', empty: '暂无轨迹记录', session: '会话开始', kind: '工具' },
+  { locale: 'en' as const, language: 'Language', saveSettings: 'Could not save settings', tool: 'Tool result', approve: 'Approve', empty: 'No trajectory records', session: 'Session', kind: 'TOOL' },
+  { locale: 'zh' as const, language: '语言', saveSettings: '保存设置失败', tool: '工具结果', approve: '批准', empty: '暂无轨迹记录', session: '会话开始', kind: '工具' },
 ])('real catalog surfaces: $locale', (copy) => {
-  it('renders locale-picker errors without translating backend details', () => {
+  it('renders the language picker from the catalog and leaves errors to the settings notice', () => {
     hydrateLocale(copy.locale);
     const html = renderToStaticMarkup(<LanguagePicker />);
     expect(html).toContain(copy.language);
-    expect(html).toContain(copy.saveError);
-    expect(html).toContain('backend_error_42');
     expect(html).toContain('aria-pressed="true"');
+    expect(html).not.toContain('backend_error_42');
+  });
+
+  it('renders settings save failures with a translated label and the raw backend detail', () => {
+    hydrateLocale(copy.locale);
+    const html = renderToStaticMarkup(<FailureNotice title={copy.saveSettings} error={new Error('backend_error_42')} />);
+    expect(html).toContain(copy.saveSettings);
+    expect(html).toContain('backend_error_42');
   });
 
   it('renders chat and review chrome while preserving user/model/tool text and raw identifiers', () => {

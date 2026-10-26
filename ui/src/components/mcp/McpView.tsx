@@ -14,6 +14,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
+import { notifyFailure } from '@/lib/toasts';
 import { useTranslation } from '@/i18n';
 import { Download, FileUp, Globe, LoaderCircle, PackageOpen, Pencil, Plug, Plus, RefreshCw, Search, Terminal, Trash2 } from 'lucide-react';
 import * as api from '@/lib/api';
@@ -209,7 +211,7 @@ export function McpView() {
       const saved = await api.upsertMcpServer(serverInput(server, !server.enabled));
       setServers((current) => mergeServer(current, saved));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.toggleFailed'));
+      notifyFailure(cause, { title: t('feedback.operation.connectMcp') });
     } finally {
       setBusyId('');
     }
@@ -221,7 +223,7 @@ export function McpView() {
       const probed = await api.probeMcpServer(server.name);
       setServers((current) => mergeServer(current, probed));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.probeFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.probeFailed') });
     } finally {
       setBusyId('');
     }
@@ -235,7 +237,7 @@ export function McpView() {
       setServers((current) => current.filter((server) => server.name !== deleting.name));
       setDeleting(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.deleteFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.deleteFailed') });
     } finally {
       setBusyId('');
     }
@@ -260,7 +262,7 @@ export function McpView() {
       setImportWarning(parsed.warnings.length ? t('mcp.importEnvWarning', { count: parsed.warnings.length }) : '');
       setQuery(''); setFilter('all');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.importFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.importFailed') });
     } finally {
       setImporting(false);
     }
@@ -279,7 +281,7 @@ export function McpView() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.exportFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.exportFailed') });
     }
   };
 
@@ -290,10 +292,7 @@ export function McpView() {
     return (
       <PageShell>
         <PageHeader icon={<Plug className="h-5 w-5" />} title={t('mcp.title')} description={t('mcp.subtitle')} />
-        <div role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-ui text-danger">
-          <p>{error}</p>
-          <Button className="mt-3" size="sm" variant="outline" onClick={() => void loadServers()}>{t('common.retry')}</Button>
-        </div>
+        <FailureNotice variant="full" title={t('mcp.errors.loadFailed')} error={error} onRetry={() => void loadServers()} />
       </PageShell>
     );
   }
@@ -321,7 +320,7 @@ export function McpView() {
 
       {readOnly ? <p className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn">{t('mcp.readOnly')}</p> : null}
       {importWarning ? <p role="status" className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn">{importWarning}</p> : null}
-      {error ? <div role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-ui text-danger">{error}</div> : null}
+      {error ? <FailureNotice variant="compact" title={t('mcp.errors.loadFailed')} error={error} /> : null}
 
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">

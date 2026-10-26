@@ -75,7 +75,10 @@ vi.mock('@/lib/store', async (importOriginal) => {
   };
 });
 
-vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }));
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => vi.fn(),
+  Link: ({ to, children }: { to: string; children?: React.ReactNode }) => <a href={to}>{children}</a>,
+}));
 
 vi.mock('@/hooks/use-welcome', () => ({
   useWelcomeOpen: () => true,

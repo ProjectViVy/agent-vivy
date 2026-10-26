@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, GitFork, RefreshCw, Rewind } from 'lucide-react';
 import type { Message } from '@/lib/api';
 import { useTranslation } from '@/i18n';
+import { notify } from '@/lib/toasts';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -35,12 +36,14 @@ export function MessageAssistantBubble({
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState<'rewind' | 'fork' | null>(null);
   const [pending, setPending] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const copyTimer = useRef<number | null>(null);
   useEffect(() => () => { if (copyTimer.current !== null) window.clearTimeout(copyTimer.current); }, []);
 
   const copy = async () => {
-    if (!(await copyTextToClipboard(message.content))) return;
+    if (!(await copyTextToClipboard(message.content))) {
+      notify({ tone: 'danger', title: t('feedback.operation.copy') });
+      return;
+    }
     setCopied(true);
     if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
     copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
@@ -73,7 +76,6 @@ export function MessageAssistantBubble({
             </MessageAction>
           </div>
         )}
-        {actionError ? <p className="mt-1 text-meta text-danger" role="alert">{actionError}</p> : null}
         <AlertDialog open={confirming !== null} onOpenChange={(open) => { if (!open && !pending) setConfirming(null); }}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -89,13 +91,12 @@ export function MessageAssistantBubble({
                   const action = confirming;
                   if (!action) return;
                   setPending(true);
-                  setActionError(null);
                   try {
                     if (action === 'rewind') await onRewind?.();
                     if (action === 'fork') await onFork?.();
                     setConfirming(null);
-                  } catch (error) {
-                    setActionError(error instanceof Error ? error.message : String(error));
+                  } catch {
+                    // ChatView reports history failures once as a chatAction toast.
                   } finally {
                     setPending(false);
                   }

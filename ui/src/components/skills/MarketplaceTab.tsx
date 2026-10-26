@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Download, LoaderCircle, PackageOpen, RefreshCw, Search, SearchCheck } from 'lucide-react';
 import * as api from '@/lib/api';
 
@@ -137,16 +138,14 @@ export function MarketplaceTab({ installedNames, onInstalledChange }: Marketplac
         {debouncedQuery.trim().length < 2 && featured && ` · ${t('skills.marketplace.featuredSnapshot', { date: snapshotDate })}`}
       </p>
 
-	  {queryError && (
-        <Card>
-          <CardContent className="flex items-center justify-between gap-3 py-3 text-ui">
-			<span className="min-w-0 break-all text-danger">{queryError}</span>
-            <Button variant="outline" size="sm" onClick={() => void (debouncedQuery.trim().length >= 2 ? search(debouncedQuery.trim()) : loadFeatured())}>
-              {t('common.retry')}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {queryError ? (
+        <FailureNotice
+          variant="compact"
+          title={t('skills.marketplace.loadFailed')}
+          error={queryError}
+          onRetry={() => void (debouncedQuery.trim().length >= 2 ? search(debouncedQuery.trim()) : loadFeatured())}
+        />
+      ) : null}
       <div className="min-h-0 flex-1 overflow-auto">
         {loading && entries.length === 0 ? (
           <div className="space-y-2">

@@ -5,6 +5,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -92,7 +93,9 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
         </Button>
       </div>
       {error ? (
-        <div className="border-b bg-danger/10 px-3 py-1.5 text-meta text-danger" role="alert">{error}</div>
+        <div className="border-b px-3 py-1.5">
+          <FailureNotice variant="inline" title={t('errors.genericTitle')} detail={error} onRetry={() => void reload()} />
+        </div>
       ) : null}
       <ScrollArea className="min-h-0 flex-1">
         {items === null ? (

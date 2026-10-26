@@ -18,6 +18,8 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
+import { notifyFailure } from '@/lib/toasts';
 import { Input } from '@/components/ui/input';
 import type { UITranslator } from '@vivy/ui-sdk';
 import { Play, Plus, RefreshCw, Save, ShieldCheck, Upload } from 'lucide-react';
@@ -301,12 +303,12 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       onRunStarted(res.run_id);
     } catch (e) {
       const err = e instanceof TransportError ? e : new TransportError(0, { code: 'rpc_error', message: String(e) });
-      setError(err);
+      notifyFailure(err, { title: t('errors.genericTitle') });
       setDiagnostics(diagnosticItems(err.diagnostics));
     } finally {
       setBusy(null);
     }
-  }, [applyArtifact, client, draft, materialize, onRunStarted]);
+  }, [applyArtifact, client, draft, materialize, onRunStarted, t]);
 
   const conflict = error?.status === 412;
   const selectedNode = useMemo(() => {
@@ -361,16 +363,15 @@ export function EditorPane({ client, catalog, t, canRun, target, onRunStarted }:
       </div>
       {idError ? <p className="border-b px-3 py-1 text-2xs text-danger">{t(`plugin.vivy/workflow-ui.editor.idError.${idError}`)}</p> : null}
       {error ? (
-        <div className="flex items-center gap-2 border-b bg-danger/10 px-3 py-1.5 text-meta text-danger" role="alert">
-          <span className="truncate">
-            {error.code}: {error.message}
-          </span>
-          {conflict ? (
-            <Button size="sm" variant="outline" className="ml-auto h-6 px-2 text-2xs" onClick={() => void openDraft(idInput)}>
-              <RefreshCw className="mr-1 h-3 w-3" />
-              {t('plugin.vivy/workflow-ui.editor.reload')}
-            </Button>
-          ) : null}
+        <div className="border-b px-3 py-1.5">
+          <FailureNotice
+            variant="inline"
+            title={t('errors.genericTitle')}
+            error={error}
+            technical={`${error.code}: ${error.message}`}
+            onRetry={conflict ? () => void openDraft(idInput) : undefined}
+            retryLabel={conflict ? t('plugin.vivy/workflow-ui.editor.reload') : undefined}
+          />
         </div>
       ) : null}
       {note ? <p className="border-b bg-sunken/50 px-3 py-1.5 text-2xs text-fg-muted">{note}</p> : null}

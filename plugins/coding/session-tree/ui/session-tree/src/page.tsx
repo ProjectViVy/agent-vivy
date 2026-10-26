@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, GitFork, RefreshCw, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
 import { decodeExport, flattenTree, type TreeRow } from './tree';
 
@@ -165,7 +166,7 @@ export function SessionTreePage() {
       </div>
       {notice ? <p className="text-ui text-fg-muted">{notice}</p> : null}
       {phase === 'loading' ? <p className="text-ui text-fg-muted">{t('plugin.vivy/session-tree.loading')}</p> : null}
-      {phase === 'error' ? <p className="text-ui text-danger">{t('plugin.vivy/session-tree.loadFailed')}: {error}</p> : null}
+      {phase === 'error' ? <FailureNotice variant="compact" title={t('plugin.vivy/session-tree.loadFailed')} detail={error} onRetry={() => void load()} retryBusy={busy} /> : null}
       {phase === 'ready' && rows.length === 0 ? <p className="text-ui text-fg-muted">{t('plugin.vivy/session-tree.empty')}</p> : null}
       {phase === 'ready' && rows.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-auto rounded-md border p-2">

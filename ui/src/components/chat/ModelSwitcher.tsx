@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/i18n';
+import { notifyFailure } from '@/lib/toasts';
 
 function displayProvider(provider: string, baseUrl: string, providers: readonly ProviderEntry[], catalog: readonly ProviderCatalogEntry[], t: ReturnType<typeof useTranslation>['t']): string {
   // 目录/注册表命中时显示厂商名（如 provider=openai-completions + DeepSeek 端点
@@ -38,7 +39,6 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
   const catalog = useVivyStore((state) => state.catalog);
   const savedModels = useSavedModels();
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const currentProvider = settings?.provider || settings?.config_provider || '';
   const currentBaseUrl = settings?.base_url ?? '';
   const currentModel = settings?.default_model || settings?.config_model || '';
@@ -54,7 +54,6 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
 
   const selectModel = async (entry: SavedModelEntry) => {
     if (!settings || !canChange || isCurrentModel(entry)) return;
-    setError(null);
     try {
 // settings/update replaces the whole document: carry the loaded
       // network_search preference and execute ceiling through unchanged;
@@ -64,11 +63,11 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
       await saveSettings({ ...settingsUpdateFrom(settings), provider: normalizeProviderAdapter(entry.provider), default_model: entry.model, base_url: entry.baseUrl });
       setOpen(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      notifyFailure(cause, { title: t('feedback.operation.modelAction'), onRetry: () => void selectModel(entry) });
     }
   };
 
-  return <DropdownMenu open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setError(null); }}>
+  return <DropdownMenu open={open} onOpenChange={setOpen}>
     <DropdownMenuTrigger asChild>
       <Button variant="ghost" className="h-9 min-w-0 gap-1.5 rounded-xl px-1.5 font-normal hover:bg-accent/70 sm:px-2.5" aria-label={t('modelSwitcher.switchModelAria', { provider: providerLabel, model: currentModel || t('modelSwitcher.defaultModel') })} title={`${providerLabel} | ${currentModel || t('modelSwitcher.defaultModel')}`}>
         {saving ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-brand-ink" /> : <CircleDot className="h-4 w-4 shrink-0 text-fg" />}
@@ -118,7 +117,6 @@ function ModelMenu({ settings }: { settings: Settings | null }) {
         )) : <p className="px-2 py-1.5 text-meta text-fg-muted">{t('modelSwitcher.noSavedModels')}</p>}
         {settings.frozen ? <p className="px-2 pb-1 pt-2 text-meta text-warn">{t('settingsModel.frozenNotice')}</p> : settings.read_only ? <p className="px-2 pb-1 pt-2 text-meta text-warn">{t('modelSwitcher.readOnlyHint')}</p> : null}
       </> : <DropdownMenuItem disabled className="cursor-default">{t('modelSwitcher.readingConfig')}</DropdownMenuItem>}
-      {error ? <p className="mx-2 mt-2 rounded-md bg-danger-soft px-2.5 py-2 text-meta text-danger">{error}</p> : null}
       <DropdownMenuSeparator className="my-2" />
       <DropdownMenuItem className="cursor-pointer gap-2 rounded-lg px-2.5 py-2 text-fg-muted" onSelect={() => void navigate({ to: '/settings', search: { tab: 'model' } })}>
         <Settings2 className="h-4 w-4" />

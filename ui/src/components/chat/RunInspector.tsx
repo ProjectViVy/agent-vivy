@@ -11,6 +11,7 @@ import * as workflowApi from '@/lib/workflow-api';
 import type { WorkflowDefinition, WorkflowProposal, WorkflowResult } from '@/lib/workflow-api';
 import { foldContinuityRows } from '@/lib/run-rows';
 import { useVivyStore } from '@/lib/store';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { useTranslation } from '@/i18n';
 
 export function RunInspector() {
@@ -381,7 +382,7 @@ export function RunInspector() {
       <TabsContent value="review" className="mt-0 space-y-3">
         {runReviews.length ? runReviews.map((review) => <ReviewCard key={review.id} review={review} busy={reviewBusyIds.includes(review.id)} onRespond={(response) => respondReview(review.id, response)} />) : <p className="py-10 text-center text-ui text-fg-muted">{t('runInspector.noReviews')}</p>}
       </TabsContent>
-      {error || childActionError || workflowError ? <p className="mt-3 rounded bg-danger-soft p-2 text-ui text-danger">{childActionError || workflowError || error}</p> : null}
+      {error || childActionError || workflowError ? <FailureNotice className="mt-3" variant="compact" title={t('errors.genericTitle')} error={childActionError || workflowError || error} /> : null}
     </div>
   </Tabs>;
 }

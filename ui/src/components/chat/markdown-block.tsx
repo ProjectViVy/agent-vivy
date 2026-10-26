@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { notify } from '@/lib/toasts';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 
@@ -45,7 +46,10 @@ function CodeBlock({ children }: { children?: ReactNode }) {
           aria-label={label}
           title={label}
           onClick={async () => {
-            if (!(await copyTextToClipboard(textOf(children).trimEnd()))) return;
+            if (!(await copyTextToClipboard(textOf(children).trimEnd()))) {
+              notify({ tone: 'danger', title: t('feedback.operation.copy') });
+              return;
+            }
             setCopied(true);
             if (timer.current !== null) window.clearTimeout(timer.current);
             timer.current = window.setTimeout(() => setCopied(false), 1500);

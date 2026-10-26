@@ -4,7 +4,8 @@ import { regeneratePrompt } from '@/lib/chat-actions';
 import { buildTranscriptRows, foldRunEvents, type RunRow } from '@/lib/run-rows';
 import { useVivyStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
-import { RecoverableError } from '@/components/feedback/RecoverableError';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
+import { notifyFailure } from '@/lib/toasts';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTranslation } from '@/i18n';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -41,7 +42,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const addDraftReference = useVivyStore((state) => state.addDraftReference);
   const viewEpoch = useRef(0);
-  const [actionError, setActionError] = useState<unknown>(null);
 	const [historyAction, setHistoryAction] = useState(false);
   const todoPanelOpen = useVivyStore((state) => state.todoPanelOpen);
   const setTodoPanelOpen = useVivyStore((state) => state.setTodoPanelOpen);
@@ -57,7 +57,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     viewEpoch.current += 1;
     setDraftPreset(null);
     setPickerOpen(false);
-    setActionError(null);
     setHistoryAction(false);
     return () => { viewEpoch.current += 1; };
   }, [sessionId]);
@@ -116,33 +115,30 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   // 编辑 / 回退 / 分叉（设计 §5）：Journal 追加式，编辑 = 回退到该输入再重发；
   // 回退后把仍在上下文里的最近一条用户输入预填进输入框；分叉成功后跳到新会话。
   const handleEdit = async (messageId: string, newText: string) => {
-    setActionError(null);
 	setHistoryAction(true);
     try {
 	  await editSession(sessionId, messageId, newText, 'normal', face);
-	} catch (error) { setActionError(error); throw error; }
+	} catch (error) { notifyFailure(error, { title: t('feedback.operation.chatAction') }); throw error; }
 	finally { setHistoryAction(false); }
   };
   const handleRewind = async (messageId: string) => {
     const epoch = viewEpoch.current;
     const current = () => epoch === viewEpoch.current && useVivyStore.getState().activeSessionId === sessionId;
-    setActionError(null);
 	setHistoryAction(true);
     try {
       const remaining = await rewindSession(sessionId, messageId);
       if (!current()) return;
       const lastUser = [...remaining].reverse().find((message) => message.role === 'user');
       if (lastUser) setDraftPreset({ sessionId, text: lastUser.content, seq: Date.now() });
-	} catch (error) { if (current()) { setActionError(error); throw error; } }
+	} catch (error) { if (current()) { notifyFailure(error, { title: t('feedback.operation.chatAction') }); throw error; } }
 	finally { if (current()) setHistoryAction(false); }
   };
   const handleFork = async (messageId: string) => {
-    setActionError(null);
 	setHistoryAction(true);
     try {
       const forkedId = await forkSession(sessionId, messageId);
       await selectSession(forkedId);
-	} catch (error) { setActionError(error); throw error; }
+	} catch (error) { notifyFailure(error, { title: t('feedback.operation.chatAction') }); throw error; }
 	finally { setHistoryAction(false); }
   };
   // 转写行：事件（run/log 或实时订阅）折叠出思考、工具与正文行，投影消息提供
@@ -171,15 +167,14 @@ export function ChatView({ sessionId }: { sessionId: string }) {
               <div className="h-24 w-3/4 animate-pulse rounded-2xl bg-sunken" />
             </div>
           ) : null}
-          {phase === 'error' && !messages.length ? <div className="py-16"><RecoverableError error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
+          {phase === 'error' && !messages.length ? <div className="py-8"><FailureNotice variant="full" error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
           {phase === 'empty' && transcript.length === 0 && !runError ? <div className="py-24"><p className="text-center text-title text-fg-muted">{t('chat.startNew')}</p></div> : null}
           {transcript.map((row) => {
             if (row.kind === 'user' || row.kind === 'assistant') return <MessageBubble key={row.id} message={row.message} streaming={row.kind === 'assistant' && row.streaming} canRegenerate={regeneratePrompt(messages, row.message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(row.message.id)} onEditConfirm={(text) => handleEdit(row.message.id, text)} onRewind={() => handleRewind(row.message.id)} onFork={() => handleFork(row.message.id)} />;
             if (row.kind === 'toolResult') return <MessageBubble key={row.id} message={row.message} />;
             return <RunRowView key={row.id} row={row.row} />;
           })}
-          {runError ? <RecoverableError className="my-3" compact error={runError} /> : null}
-          {actionError ? <RecoverableError className="my-3" compact error={actionError} onRetry={() => setActionError(null)} /> : null}
+          {runError ? <FailureNotice className="my-3" variant="compact" error={runError} /> : null}
         </div></ScrollArea>
         <WorkControlBar key={`work-${sessionId}`} sessionId={sessionId} />
         <TodoProgressStrip />

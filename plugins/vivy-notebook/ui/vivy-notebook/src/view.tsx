@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BookOpen, Calendar, FileText, Search, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -105,9 +106,8 @@ export function NotebookView() {
               </div>
               <ScrollArea className="min-h-0 flex-1 p-2">
                 {reportError ? (
-                  <div className="p-3 text-ui text-danger">
-                    <p>{reportError}</p>
-                    <Button className="mt-2" size="sm" variant="outline" onClick={() => setReloadKey((value) => value + 1)}>{t('common.retry')}</Button>
+                  <div className="p-3">
+                    <FailureNotice variant="inline" title={t('errors.genericTitle')} error={reportError} onRetry={() => setReloadKey((value) => value + 1)} />
                   </div>
                 ) : loadingReports ? (
                   <div className="space-y-2 p-2">
@@ -140,9 +140,8 @@ export function NotebookView() {
               </div>
               <ScrollArea className="min-h-0 flex-1 p-2">
                 {searchError ? (
-                  <div className="p-3 text-ui text-danger">
-                    <p>{searchError}</p>
-                    <Button className="mt-2" size="sm" variant="outline" onClick={() => void search()}>{t('common.retry')}</Button>
+                  <div className="p-3">
+                    <FailureNotice variant="inline" title={t('errors.genericTitle')} error={searchError} onRetry={() => void search()} />
                   </div>
                 ) : searching ? (
                   <div className="space-y-2 p-2">

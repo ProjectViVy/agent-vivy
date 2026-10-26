@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Brain, Plus, Search, Trash2 } from 'lucide-react';
+import { Brain, Plus, Search, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { MasterDetail } from '@/components/layout/MasterDetail';
@@ -159,14 +160,7 @@ export function MemoryView() {
           {error ? (
             <div className="h-full overflow-auto p-6">
               <div className="mx-auto max-w-xl">
-                <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-ui text-danger" role="alert">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <strong>{t('plugin.vivy/memory.loadFailed')}</strong>
-                  </div>
-                  <p className="mt-1">{error}</p>
-                  <Button className="mt-3" size="sm" variant="outline" onClick={() => void load(query.trim())}>{t('common.retry')}</Button>
-                </div>
+                <FailureNotice variant="compact" title={t('plugin.vivy/memory.loadFailed')} error={error} onRetry={() => void load(query.trim())} />
               </div>
             </div>
           ) : (
