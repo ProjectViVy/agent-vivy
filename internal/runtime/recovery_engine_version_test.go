@@ -201,7 +201,6 @@ func TestRecoverAcrossEngineVersionCancelsPendingPlanReview(t *testing.T) {
 		}
 		eng, err := NewEngine(ctx, model, toolset, EngineConfig{
 			StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
-			AutoApproveTools: []string{tools.SubmitPlanName},
 		})
 		if err != nil {
 			t.Fatalf("new engine: %v", err)

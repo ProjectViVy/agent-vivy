@@ -122,6 +122,10 @@ type Settings struct {
 	// a minimal..max level). Empty means "auto"; a per-turn explicit
 	// thinking parameter overrides it.
 	Thinking string `yaml:"thinking,omitempty"`
+	// BusyEnter is the composer delivery mode for plain Enter while a run is
+	// active: "queue" appends after the current turn, "steer" inserts into
+	// the running turn. Empty means "queue".
+	BusyEnter string `yaml:"busy_enter,omitempty"`
 	// BaseURL is an optional OpenAI-compatible gateway; empty means "use
 	// bundle default". It is applied through the existing VIVY_API_BASE
 	// mechanism.
@@ -454,6 +458,21 @@ func Default() Settings {
 	return Settings{}
 }
 
+// Accepted busy_enter values. Empty means BusyEnterQueue.
+const (
+	BusyEnterQueue = "queue"
+	BusyEnterSteer = "steer"
+)
+
+// EffectiveBusyEnter returns the persisted busy-Enter mode, defaulting to
+// queue for an unset document.
+func (s Settings) EffectiveBusyEnter() string {
+	if s.BusyEnter == "" {
+		return BusyEnterQueue
+	}
+	return s.BusyEnter
+}
+
 // IsZero reports whether the document carries no runtime overlay at all: no
 // active selection, no legacy key, no registry, no network/execute override.
 // A missing document and an empty document are equivalent for the overlay.
@@ -461,6 +480,7 @@ func (s Settings) IsZero() bool {
 	return s.Locale == "" &&
 		s.Provider == "" &&
 		s.DefaultModel == "" &&
+		s.BusyEnter == "" &&
 		s.BaseURL == "" &&
 		s.ApiKey == "" &&
 		len(s.Providers) == 0 &&
@@ -651,6 +671,11 @@ func (s Settings) Validate() error {
 	}
 	if s.BaseURL != "" && !apiBasePattern.MatchString(s.BaseURL) {
 		return fmt.Errorf("settings: base_url %q must be an http(s) absolute URL", s.BaseURL)
+	}
+	switch s.BusyEnter {
+	case "", BusyEnterQueue, BusyEnterSteer:
+	default:
+		return fmt.Errorf("settings: busy_enter %q unsupported; want queue or steer", s.BusyEnter)
 	}
 	if s.ApiKey != "" && strings.ContainsAny(s.ApiKey, "\r\n") {
 		return errors.New("settings: api_key must not contain newlines")

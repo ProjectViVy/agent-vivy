@@ -23,7 +23,7 @@ Deliberately not scheduled. Each row keeps the reason it waits and the record th
 | P2-4 | Long-term section map for V3 | DEFERRED | |
 | UI-TREE | Child-run tree visualization | DEFERRED | Harness GOAL-4/5 API exists; no tree UI |
 | SBX-OS | OS-level process sandbox (bwrap / Seatbelt / Windows ACL) | DEFERRED | EINO currently provides only workspace paths + command allowlist + HTTP policy, not a DSH process sandbox |
-| SBX-GLOB | Sandbox deny glob / editable auto_approve_tools | DEFERRED | The settings page exposes only presets and network policy; timeout remains in general settings |
+| SBX-GLOB | Sandbox deny glob | DEFERRED | The settings page exposes only presets and network policy; timeout remains in general settings. The former `auto_approve_tools` half of this row was deleted on 2026-10-25 when the `auto` policy became full-auto (`docs/logs/2026-10-25-trusted-full-auto/`). |
 | SBX-LIVE | Hot-swappable permission preset for an in-progress run | DEFERRED | The current turn pins the session policy; it takes effect on the next `turn/start` |
 | ST-SUB-3 | Further split community plugins into nested submodules (optional) | DEFERRED | The initial tree is all in `vivy-studio`; split it after size/update policy stabilizes |
 | WF-3 | Workflow follow-ups: trigger Port + single invocation entry, conditional edges/branch routing, node error policies (retry/skip), resume-after-interruption, structured (non-string) node IO, visual editor UI module, workflow nesting, version migration beyond schema v1, checkpoint-store mapping | DEFERRED | Umbrella for `DETAILED-DESIGN.md` §14 open items; none block WF-1/WF-2. Split into own rows when a slice is scheduled. |

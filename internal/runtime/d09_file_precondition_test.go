@@ -198,7 +198,7 @@ func TestD09NativeDispatchScopesPrivateBeforeState(t *testing.T) {
 		return "written", err
 	})
 	tl.spec.Params = tools.NewWriteFile(backend).Spec().Params
-	node, err := compose.NewToolNode(context.Background(), &compose.ToolsNodeConfig{Tools: []einotool.BaseTool{newToolAdapter(tl, 0, nil, nil, nil)}})
+	node, err := compose.NewToolNode(context.Background(), &compose.ToolsNodeConfig{Tools: []einotool.BaseTool{newToolAdapter(tl, 0, nil, nil)}})
 	if err != nil {
 		t.Fatal(err)
 	}

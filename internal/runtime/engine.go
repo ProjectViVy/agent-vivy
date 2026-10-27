@@ -70,9 +70,6 @@ type EngineConfig struct {
 	Policy *PolicyEngine
 	// ToolHooks is the in-process pre/post execution chain.
 	ToolHooks *ToolHookChain
-	// AutoApproveTools lists effectful tools that skip HITL under the
-	// session approval policy "auto".
-	AutoApproveTools []string
 	// SkillBackend wires Eino's skill middleware so the model can discover
 	// and load SKILL.md content without a keyword match, and — when the
 	// backend implements AlwaysSkills — injects `always: true` skill bodies
@@ -259,7 +256,7 @@ func NewEngine(ctx context.Context, m model.AgenticModel, ts []tools.Tool, cfg E
 		if _, exists := byName[spec.Name]; exists {
 			return nil, fmt.Errorf("runtime: duplicate tool name %q", spec.Name)
 		}
-		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools))
+		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks))
 		specs = append(specs, spec)
 		byName[spec.Name] = t
 		info, err := adapter.Info(ctx)
@@ -290,7 +287,7 @@ func NewEngine(ctx context.Context, m model.AgenticModel, ts []tools.Tool, cfg E
 		if _, exists := byName[spec.Name]; exists {
 			return nil, fmt.Errorf("runtime: duplicate tool name %q", spec.Name)
 		}
-		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks, cfg.AutoApproveTools))
+		adapter := newEnhancedToolAdapter(newToolAdapter(t, cfg.MaxToolResultBytes, cfg.Policy, cfg.ToolHooks))
 		info, err := adapter.Info(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("runtime: hidden tool %q info: %w", spec.Name, err)

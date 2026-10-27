@@ -36,7 +36,7 @@ func TestSoftPlanPreservesIndependentEffectfulPolicy(t *testing.T) {
 				t.Fatalf("soft Plan rewrote independent run options: %q %q %q %d", mode, profile, collaboration, version)
 			}
 			tool := &planCountingTool{}
-			adapter := newToolAdapter(tool, 0, nil, nil, nil)
+			adapter := newToolAdapter(tool, 0, nil, nil)
 			ctx := withPolicyProfile(withRunMode(context.Background(), mode), profile)
 			result, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
 			if err != nil {
@@ -120,7 +120,7 @@ func TestLegacyPlanShellResumeRestoresHardRestriction(t *testing.T) {
 		t.Fatalf("recovered runtime tool mode/profile = %q/%q, want plan/plan for legacy hard restriction", resumedMode, resumedProfile)
 	}
 	runtimeTool := &planCountingTool{}
-	runtimeAdapter := newToolAdapter(runtimeTool, 0, nil, nil, nil)
+	runtimeAdapter := newToolAdapter(runtimeTool, 0, nil, nil)
 	result, err := runtimeAdapter.InvokableRun(withPolicyProfile(withRunMode(ctx, resumedMode), resumedProfile), `{"value":"draft"}`)
 	if err != nil || runtimeTool.calls != 0 || !strings.Contains(result, "plan mode") {
 		t.Fatalf("legacy resumed runtime tool result = %q, err %v, calls %d; want pre-invocation hard denial", result, err, runtimeTool.calls)
@@ -130,7 +130,7 @@ func TestLegacyPlanShellResumeRestoresHardRestriction(t *testing.T) {
 		t.Fatalf("recovered shell mode/profile = %q/%q, want plan/plan for legacy hard restriction", mode, profile)
 	}
 	tool := &planCountingTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	runCtx := withPolicyProfile(withRunMode(ctx, mode), profile)
 	_, err = svc.authorizeShell(runCtx, adapter, json.RawMessage(`{"value":"draft"}`), false)
 	if err == nil || tool.calls != 0 {

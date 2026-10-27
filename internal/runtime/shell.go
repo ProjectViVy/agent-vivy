@@ -369,7 +369,7 @@ func (s *Service) runShell(ctx context.Context, p shellPendingRun, approved bool
 		s.failShell(ctx, p, errors.New("runtime: governed shell is unavailable"))
 		return
 	}
-	adapter := newToolAdapter(tool, s.shellResultBudget(), s.engine.cfg.Policy, s.engine.cfg.ToolHooks, s.engine.cfg.AutoApproveTools)
+	adapter := newToolAdapter(tool, s.shellResultBudget(), s.engine.cfg.Policy, s.engine.cfg.ToolHooks)
 	var finalArgs json.RawMessage
 	var err error
 	if approved {
@@ -514,7 +514,7 @@ func (s *Service) authorizeShell(ctx context.Context, adapter *toolAdapter, inpu
 			}
 			return args, nil
 		}
-		approvalEval := adapter.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, adapter.autoApprove)
+		approvalEval := adapter.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec)
 		if approvalEval.AutoApprove {
 			return args, nil
 		}

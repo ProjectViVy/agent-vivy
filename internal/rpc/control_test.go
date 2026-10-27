@@ -1197,6 +1197,9 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	if get.ConfigProvider != "deepseek" {
 		t.Fatalf("config_provider = %q, want deepseek", get.ConfigProvider)
 	}
+	if get.BusyEnter != "queue" {
+		t.Fatalf("busy_enter default = %q, want queue", get.BusyEnter)
+	}
 
 	// Invalid update is rejected (bad provider).
 	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
@@ -1223,6 +1226,47 @@ func TestSettingsGetAndUpdate(t *testing.T) {
 	}
 	if get.APIKeySet {
 		t.Fatal("api_key_set should be false before any key overlay")
+	}
+	// busy_enter persists, rejects unknown values, and survives an update that
+	// omits it.
+	if updated, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":      "deepseek",
+		"default_model": "deepseek-flash",
+		"base_url":      "https://gw.example.com/v1",
+		"busy_enter":    "steer",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	} else if echo := updated.(settingsResult); echo.BusyEnter != "steer" {
+		// The update response replaces the UI's whole settings document, so an
+		// omitted field reads as empty until the next settings/get.
+		t.Fatalf("update echo busy_enter = %q, want steer", echo.BusyEnter)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if get = result.(settingsResult); get.BusyEnter != "steer" {
+		t.Fatalf("busy_enter after update = %q, want steer", get.BusyEnter)
+	}
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":   "deepseek",
+		"busy_enter": "later",
+	}); rpcErr == nil {
+		t.Fatal("unknown busy_enter should be rejected")
+	}
+	if _, rpcErr := callControl(t, handler, "settings/update", map[string]any{
+		"provider":      "deepseek",
+		"default_model": "deepseek-flash",
+		"base_url":      "https://gw.example.com/v1",
+	}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	result, rpcErr = callControl(t, handler, "settings/get", nil)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if get = result.(settingsResult); get.BusyEnter != "steer" {
+		t.Fatalf("omitted busy_enter should preserve steer, got %q", get.BusyEnter)
 	}
 	// Network search section reflects the config default until overridden.
 	if get.NetworkSearch.Provider != "" || get.NetworkSearch.ConfigProvider != "duckduckgo" {
@@ -4369,6 +4413,72 @@ func findUserMessageWithContent(messages []messageResult, content string) *messa
 		}
 	}
 	return nil
+}
+
+// TestControlTranscriptReadsHideOneShotChildRows: a one-shot child reuses the
+// parent session but its transcript is not part of the parent conversation.
+// Both transcript RPCs hide those rows even when the derived store still has
+// them; a continuable child's own session keeps its history.
+func TestControlTranscriptReadsHideOneShotChildRows(t *testing.T) {
+	env := newControlTestEnv(t)
+	ctx := context.Background()
+	created, rpcErr := callControl(t, env.handler, "session/create", map[string]string{"title": "child view"})
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	createdJSON, _ := json.Marshal(created)
+	var session sessionResult
+	if err := json.Unmarshal(createdJSON, &session); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := domain.SessionID(session.ID)
+	parentID := domain.RunID("run-rpc-view-parent")
+	oneShotID := domain.RunID("run-rpc-view-oneshot")
+	continuableID := domain.RunID("run-rpc-view-continuable")
+	for _, run := range []domain.Run{
+		{ID: parentID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1, Kind: domain.RunKindPrimary},
+		{ID: oneShotID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 2, Kind: domain.RunKindChild,
+			ParentID: parentID, RootID: parentID, Depth: 1},
+		{ID: continuableID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 3, Kind: domain.RunKindChild,
+			ChildMode: domain.ChildModeContinuable, ParentID: parentID, RootID: parentID, Depth: 1},
+	} {
+		if err := env.backend.CreateRun(ctx, run); err != nil {
+			t.Fatalf("create run %s: %v", run.ID, err)
+		}
+	}
+	for _, msg := range []domain.Message{
+		{ID: "m-rpc-parent", SessionID: sessionID, RunID: parentID, Role: domain.RoleAssistant, Content: "parent", CreatedAt: 1},
+		{ID: "m-rpc-oneshot", SessionID: sessionID, RunID: oneShotID, Role: domain.RoleAssistant, Content: "child leak", CreatedAt: 2},
+		{ID: "m-rpc-continuable", SessionID: sessionID, RunID: continuableID, Role: domain.RoleAssistant, Content: "continuable", CreatedAt: 3},
+	} {
+		if err := env.backend.AppendMessage(ctx, msg); err != nil {
+			t.Fatalf("append message %s: %v", msg.ID, err)
+		}
+	}
+
+	for _, method := range []string{"session/get", "session/messages"} {
+		result, rpcErr := callControl(t, env.handler, method, map[string]string{"session_id": string(sessionID)})
+		if rpcErr != nil {
+			t.Fatal(rpcErr)
+		}
+		seen := map[string]bool{}
+		for _, msg := range decodeMessageResults(t, result) {
+			seen[msg.ID] = true
+		}
+		if seen["m-rpc-oneshot"] {
+			t.Fatalf("%s leaked the one-shot child transcript: %+v", method, seen)
+		}
+		if !seen["m-rpc-parent"] || !seen["m-rpc-continuable"] {
+			t.Fatalf("%s dropped a legitimate row: %+v", method, seen)
+		}
+	}
+	stored, err := env.backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 3 {
+		t.Fatalf("stored rows = %d, want the append-only store untouched", len(stored))
+	}
 }
 
 // TestControlMessageProvenanceProjected (CH-C1-N3): channel turns project

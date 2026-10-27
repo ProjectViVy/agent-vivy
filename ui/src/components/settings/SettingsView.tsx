@@ -16,6 +16,7 @@ import { DivaSettingsPreview } from './DivaSettingsPreview';
 import { ChannelsSettings } from './ChannelsSettings';
 import { ApprovalTimeoutCard } from './ApprovalTimeoutCard';
 import { CompactionSettingsCard } from './CompactionSettingsCard';
+import { ComposerSettingsCard } from './ComposerSettingsCard';
 import { GenerationParamsCard } from './GenerationParamsCard';
 import { ThinkingSettingsCard } from './ThinkingSettingsCard';
 import { ModelSettingsCard } from './ModelSettingsCard';
@@ -126,6 +127,7 @@ export function SettingsView({ initialTab }: { initialTab?: SettingsTab }) {
             </Card>
             <GenerationParamsCard />
             <ThinkingSettingsCard />
+            <ComposerSettingsCard />
             <ApprovalTimeoutCard />
             <CompactionSettingsCard />
             <DivaSettingsPreview section="general" />

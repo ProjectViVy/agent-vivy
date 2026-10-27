@@ -39,8 +39,7 @@ func TestModelEnterPlanWhileGoalArmedReportsGoalArmedWithoutPersistingPlan(t *te
 		testToolCalls(testCall("enter-while-armed", tools.EnterPlanModeName, `{}`)),
 		testAssistant("The Goal remains armed."),
 	)
-	engine, err := NewEngine(ctx, model, toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
-		AutoApproveTools: []string{tools.EnterPlanModeName}})
+	engine, err := NewEngine(ctx, model, toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,8 +140,7 @@ func TestUnadmittedRunCannotReportCurrentGoalFromSameSession(t *testing.T) {
 		testAssistant("Leaving the Goal to its owner."),
 		testAssistant("Nothing further to report."),
 		testAssistant("Done."),
-	), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
-		AutoApproveTools: []string{tools.ReportGoalName}})
+	), toolset, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10})
 	if err != nil {
 		t.Fatal(err)
 	}

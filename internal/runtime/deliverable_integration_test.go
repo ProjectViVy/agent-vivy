@@ -71,7 +71,7 @@ func TestPresentFilesStaysInsideToolHost(t *testing.T) {
 	f.writeFile(t, "run-deliv-pol", "a.txt", []byte("alpha"))
 
 	tool := tools.NewPresentFiles(f.svc)
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withPolicyProfile(withSelectedTools(context.Background(), []string{tools.PresentFilesName}), domain.PolicyProfilePlan)
 	ctx = withRunID(withSessionID(ctx, "B"), "run-deliv-pol")
 	result, err := adapter.InvokableRun(ctx, `{"files":[{"path":"a.txt","description":"d"}]}`)

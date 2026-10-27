@@ -88,7 +88,7 @@ func TestVC1Walkthrough(t *testing.T) {
 		testToolCalls(testCall("call-wt-edit", tools.MultiEditName, `{"path":"calc.sh","edits":[{"old_string":"echo FIAL","new_string":"echo PASS"}]}`)),
 		testToolCalls(testCall("call-wt-bash", tools.BashName, `{"command":"git grep --no-index PASS -- calc.sh"}`)),
 		testAssistant("Walkthrough complete: script fixed and verified."),
-	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints, AutoApproveTools: []string{tools.WriteFileName, tools.MultiEditName}})
+	), ts, EngineConfig{StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}

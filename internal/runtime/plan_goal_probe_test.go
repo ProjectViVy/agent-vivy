@@ -38,7 +38,6 @@ func TestPlanGoalProbePlanGuidanceAfterEnterPlanMode(t *testing.T) {
 	}
 	engine, err := NewEngine(ctx, script, toolset, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
-		AutoApproveTools: []string{tools.EnterPlanModeName},
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -114,7 +113,6 @@ func TestPlanGoalProbeReportFencesLaterToolInSameBatch(t *testing.T) {
 	}
 	engine, err := NewEngine(ctx, NewScriptedModel(script...), toolset, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
-		AutoApproveTools: []string{tools.ReportGoalName, tools.WriteFileName},
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -189,7 +187,6 @@ func TestPlanGoalProbeSubmissionFencesLaterToolInSameBatch(t *testing.T) {
 	)}
 	engine, err := NewEngine(ctx, script, toolset, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
-		AutoApproveTools: []string{tools.SubmitPlanName, tools.WriteFileName},
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
@@ -332,7 +329,7 @@ func TestPlanSubmissionSurvivesToolApprovalGate(t *testing.T) {
 	const sessionID = domain.SessionID("sess-plan-approval-gate")
 	if err := backend.CreateSession(ctx, domain.Session{
 		ID: sessionID, Title: "Plan approval gate", CreatedAt: 1,
-		SandboxMode: string(domain.SandboxModeWorkspaceWrite), ApprovalPolicy: string(domain.ApprovalPolicyAuto),
+		SandboxMode: string(domain.SandboxModeWorkspaceWrite), ApprovalPolicy: string(domain.ApprovalPolicyAsk),
 	}); err != nil {
 		t.Fatalf("create session: %v", err)
 	}

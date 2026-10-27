@@ -1411,8 +1411,6 @@ func (h *controlHandler) Handle(ctx context.Context, peer *Peer, request Request
 		return h.steerTurn(ctx, request)
 	case "turn/follow_up":
 		return h.followUpTurn(ctx, request)
-	case "turn/send_now":
-		return h.sendNowTurn(ctx, request)
 	case "queue/state":
 		return h.queueState(ctx, request)
 	case "queue/clear":
@@ -2180,7 +2178,7 @@ func (h *controlHandler) getSession(ctx context.Context, request Request) (any, 
 			return nil, internalError(err)
 		}
 	}
-	messages, err := h.deps.Messages.ListMessages(ctx, session.ID)
+	messages, err := h.sessionViewMessages(ctx, session.ID)
 	if err != nil {
 		return nil, internalError(err)
 	}
@@ -2270,7 +2268,7 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 			return nil, internalError(err)
 		}
 	}
-	messages, err := h.deps.Messages.ListMessages(ctx, sessionID)
+	messages, err := h.sessionViewMessages(ctx, sessionID)
 	if err != nil {
 		return nil, internalError(err)
 	}
@@ -2283,6 +2281,13 @@ func (h *controlHandler) listMessages(ctx context.Context, request Request) (any
 		out = append(out, toMessageResult(message, includeAttachmentData(params)))
 	}
 	return map[string]any{"messages": out}, nil
+}
+
+func (h *controlHandler) sessionViewMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error) {
+	if h.deps.Service != nil {
+		return h.deps.Service.SessionViewMessages(ctx, sessionID)
+	}
+	return h.deps.Messages.ListMessages(ctx, sessionID)
 }
 
 func includeAttachmentData(params sessionParams) bool {
@@ -3747,30 +3752,6 @@ func (h *controlHandler) followUpTurn(ctx context.Context, request Request) (any
 	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track}, nil
 }
 
-// sendNowTurn interrupts the session's active run and admits the text as
-// the next run; on an idle session it degrades to a normal start.
-func (h *controlHandler) sendNowTurn(ctx context.Context, request Request) (any, *Error) {
-	params, rpcErr := parseTurnParams(request)
-	if rpcErr != nil {
-		return nil, rpcErr
-	}
-	if params.SessionID == "" || params.Text == "" {
-		return nil, &Error{Code: InvalidParams, Message: "session_id and text are required"}
-	}
-	options, rpcErr := h.prepareTurnOptions(ctx, params)
-	if rpcErr != nil {
-		return nil, rpcErr
-	}
-	item, err := h.deps.Service.SendNowWithOptions(ctx, domain.SessionID(params.SessionID), params.Text, options)
-	if err != nil {
-		if errors.Is(err, runtime.ErrQueueUnavailable) {
-			return h.queueStartFallback(ctx, params, options)
-		}
-		return nil, runtimeError(err)
-	}
-	return map[string]any{"queued": true, "queue_id": item.ID, "track": item.Track, "interrupt_current": item.InterruptCurrent}, nil
-}
-
 // queueStartFallback runs a queued turn as a fresh prompt when the session
 // is idle — pi: steering/follow-up on an idle session equals prompt.
 func (h *controlHandler) queueStartFallback(ctx context.Context, params queueTurnParams, options runtime.RunOptions) (any, *Error) {
@@ -4747,6 +4728,9 @@ type settingsResult struct {
 	Frozen bool `json:"frozen"`
 	// DefaultModel is the selected model id, or empty for bundle default.
 	DefaultModel string `json:"default_model"`
+	// BusyEnter is the composer's delivery mode for plain Enter while a run is
+	// active: "queue" or "steer". Always resolved (defaults to "queue").
+	BusyEnter string `json:"busy_enter"`
 	// BaseURL is an optional OpenAI-compatible gateway, or empty.
 	BaseURL string `json:"base_url"`
 	// APIKeySet reports whether an api_key overlay is stored. The value
@@ -4888,6 +4872,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 	out := settingsResult{
 		Provider:         "",
 		DefaultModel:     "",
+		BusyEnter:        settings.BusyEnterQueue,
 		BaseURL:          "",
 		APIKeySet:        false,
 		Frozen:           h.deps.Frozen,
@@ -4909,6 +4894,7 @@ func (h *controlHandler) getSettings(ctx context.Context) (any, *Error) {
 		workspaceLocale = s.Locale
 		out.Provider = s.Provider
 		out.DefaultModel = s.DefaultModel
+		out.BusyEnter = s.EffectiveBusyEnter()
 		out.BaseURL = s.BaseURL
 		out.APIKeySet = settingsActiveKey(s, s.Provider, s.BaseURL)
 		savedSearchProvider = s.NetworkSearch.Provider
@@ -5065,7 +5051,11 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 	var params struct {
 		Provider     string `json:"provider"`
 		DefaultModel string `json:"default_model"`
-		BaseURL      string `json:"base_url"`
+		// BusyEnter sets the composer's running-Enter delivery mode; absent
+		// keeps the stored value, an explicit empty string returns to the
+		// queue default.
+		BusyEnter *string `json:"busy_enter"`
+		BaseURL   string  `json:"base_url"`
 		// ApiKey replaces the optional api_key overlay; empty clears it.
 		// The value is never echoed back. The registry (providers list) is
 		// preserved as-is: this method selects, it does not redefine.
@@ -5121,6 +5111,9 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		saved, rpcErr = h.updateSettingsOrError(func(cur settings.Settings) (settings.Settings, error) {
 			cur.Provider = params.Provider
 			cur.DefaultModel = params.DefaultModel
+			if params.BusyEnter != nil {
+				cur.BusyEnter = *params.BusyEnter
+			}
 			cur.BaseURL = params.BaseURL
 			// Empty api_key on select leaves the registry / overlay keys alone.
 			// A non-empty value still writes the legacy overlay for older clients.
@@ -5225,6 +5218,7 @@ func (h *controlHandler) updateSettings(ctx context.Context, request Request) (a
 		localeSettingsResult:           localeView,
 		Provider:                       saved.Provider,
 		DefaultModel:                   saved.DefaultModel,
+		BusyEnter:                      saved.EffectiveBusyEnter(),
 		BaseURL:                        saved.BaseURL,
 		APIKeySet:                      settingsActiveKey(saved, saved.Provider, saved.BaseURL),
 		ExecuteMaxTimeoutSeconds:       saved.ExecuteMaxTimeoutSeconds,

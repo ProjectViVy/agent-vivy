@@ -105,7 +105,6 @@ func TestStartGoalDecisionRPCWakesExactlyOneRound(t *testing.T) {
 	t.Cleanup(release)
 	engine, err := runtime.NewEngine(ctx, chat, toolset, runtime.EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
-		AutoApproveTools: []string{tools.SubmitPlanName},
 	})
 	if err != nil {
 		t.Fatal(err)

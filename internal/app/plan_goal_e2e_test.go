@@ -75,7 +75,6 @@ func TestPlanGoalIntegratedReviewAndTwoRounds(t *testing.T) {
 		Runtime:   config.Runtime{StreamBuffer: 16, MaxEventPayloadBytes: 64 << 10, WorkspaceRoot: workspace, ExecuteAllowedCommands: []string{"go"}},
 		Tools:     config.Tools{Enabled: []string{tools.WriteFileName, tools.SubmitPlanName, tools.ExecuteName, tools.ReportGoalName}, Approval: config.Approval{Expiration: time.Minute}},
 	}
-	cfg.Runtime.Sandbox.Approval.AutoApproveTools = []string{tools.WriteFileName, tools.SubmitPlanName, tools.ExecuteName, tools.ReportGoalName}
 	initializeTestPersona(t, cfg)
 	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway())
 	if err != nil {
@@ -532,7 +531,6 @@ func planGoalTestConfig(t *testing.T, enabled []string) (config.Config, string) 
 	cfg.Storage.SQLite.Path = filepath.Join(dir, "vivy.db")
 	cfg.Runtime.WorkspaceRoot = workspace
 	cfg.Tools.Enabled = enabled
-	cfg.Runtime.Sandbox.Approval.AutoApproveTools = enabled
 	initializeTestPersona(t, cfg)
 	return cfg, workspace
 }
@@ -586,7 +584,6 @@ func TestPlanGoalIntegratedReadOnlyDeniesPlanWrite(t *testing.T) {
 	cfg := newDeepSeekTestConfig(t)
 	cfg.Runtime.WorkspaceRoot = workspace
 	cfg.Tools.Enabled = []string{tools.WriteFileName}
-	cfg.Runtime.Sandbox.Approval.AutoApproveTools = []string{tools.WriteFileName}
 	a, err := New(context.Background(), cfg, WithoutEars(), WithoutGateway())
 	if err != nil {
 		t.Fatalf("compose read-only app: %v", err)

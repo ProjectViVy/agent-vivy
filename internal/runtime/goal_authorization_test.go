@@ -140,7 +140,6 @@ func TestReadFileClaimingUserApprovalCannotAuthorizeCreateGoal(t *testing.T) {
 	}
 	engine, err := NewEngine(ctx, model, toolset, EngineConfig{
 		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, Checkpoints: checkpoints,
-		AutoApproveTools: []string{tools.WriteFileName, tools.ReadFileName},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -277,7 +277,6 @@ type contractHarnessOpts struct {
 	checkpoints bool
 	retry       *adk.TypedModelRetryConfig[*schema.AgenticMessage]
 	extraTools  []tools.Tool
-	autoApprove []string
 	failures    map[int]error
 	// prodNudge installs the production boundary middleware.
 	prodNudge bool
@@ -326,7 +325,7 @@ func newContractHarness(t *testing.T, script []*schema.AgenticMessage, opts cont
 
 	adapters := make([]einotool.BaseTool, 0, len(allTools))
 	for _, tl := range allTools {
-		inner := newToolAdapter(tl, 64<<10, nil, nil, opts.autoApprove)
+		inner := newToolAdapter(tl, 64<<10, nil, nil)
 		var bt einotool.BaseTool = inner
 		if opts.enhanced {
 			bt = newEnhancedToolAdapter(inner)

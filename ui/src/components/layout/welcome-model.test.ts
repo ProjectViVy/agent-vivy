@@ -62,6 +62,7 @@ function settings(overrides: Partial<Settings> = {}): Settings {
     locale_read_only: false,
     provider: '',
     default_model: '',
+    busy_enter: 'queue',
     base_url: '',
     read_only: false,
     config_provider: '',

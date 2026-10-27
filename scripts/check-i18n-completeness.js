@@ -67,7 +67,7 @@ const dataFiles = new Set(['ui/src/components/trajectory/trajectory-demo-data.ts
 // Exact value exclusions, never blanket exclusions for host component directories.
 const exactHanData = {
   // Protocol recognition tokens, not displayed recovery messages.
-  'ui/src/lib/failure.ts': new Set(['控制面', '密钥未配置', '没有可用的 api key', '无法连接！请检查供应商配置！']),
+  'ui/src/lib/failure.ts': new Set(['控制面', '密钥未配置', '没有可用的 api key', '无法连接！请检查供应商配置！', '模型服务暂时不可用', '模型服务拒绝', '模型服务触发限流']),
   // Input matching keys, not host labels or generated output.
   'ui/src/lib/demo-api.ts': new Set(['你好', '帮我创建一个项目', '默认']),
   'ui/src/i18n/index.ts': new Set(['简体中文']), // Native language self-name.

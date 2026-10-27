@@ -21,7 +21,7 @@ Read `internal/runtime/service.go` consume loop (`s.consume`, ~3391), the `waitF
 
 ## Boundary
 
-No face changes (B2/B3). `s.active`-keyed busy semantics unchanged; steer never interrupts an in-flight tool call (delivery is at boundary only — same as pi). Abort semantics: abort flushes both tracks to dequeue events (pi returns queued messages to the editor; the face handles re-editing).
+No face changes (B2/B3). `s.active`-keyed busy semantics unchanged; steer never interrupts an in-flight tool call (delivery is at boundary only — same as pi). Abort semantics: abort flushes both tracks to dequeue events (pi returns queued messages to the editor; the face handles re-editing). There is no send-now / cancel-and-restart verb: delivery while busy is always queue or steer.
 
 ## Acceptance
 

@@ -212,6 +212,14 @@ func (s *Service) reconcileSessionMessageProjection(ctx context.Context, session
 		return fmt.Errorf("list existing message projection: %w", err)
 	}
 	for _, run := range runs {
+		// One-shot children reuse the parent session id but their turn is not
+		// part of the parent transcript: the Journal and the agent tool result
+		// already carry it, so projecting it would duplicate it in every
+		// transcript read. Continuable children keep their own session and are
+		// reconciled there (child/history).
+		if run.Kind == domain.RunKindChild && run.EffectiveChildMode() == domain.ChildModeOneShot {
+			continue
+		}
 		desired, err := s.projectedMessages(ctx, sessionID, run.ID)
 		if errors.Is(err, errUnsupportedCompletedVersion) {
 			continue
@@ -244,12 +252,65 @@ func (s *Service) parentFeed(ctx context.Context, sessionID domain.SessionID) ([
 	return s.parentFeedMessages(ctx, sessionID, stored), nil
 }
 
+// SessionViewMessages lists a session's parent conversation for transcript
+// surfaces. One-shot child transcripts reuse the parent session id but are
+// not part of that conversation, so they are excluded here even when an older
+// projection already wrote them.
+func (s *Service) SessionViewMessages(ctx context.Context, sessionID domain.SessionID) ([]domain.Message, error) {
+	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: list session messages: %w", err)
+	}
+	if len(stored) == 0 || s.deps.Runs == nil {
+		return stored, nil
+	}
+	oneShot, err := s.childRunIDs(ctx, sessionID, true)
+	if err != nil {
+		slog.Warn("one-shot child transcript filter skipped; listing runs failed",
+			"session", string(sessionID), "err", err)
+		return stored, nil
+	}
+	return dropRunMessages(stored, oneShot), nil
+}
+
+func (s *Service) childRunIDs(ctx context.Context, sessionID domain.SessionID, oneShotOnly bool) (map[domain.RunID]struct{}, error) {
+	runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	child := make(map[domain.RunID]struct{})
+	for _, run := range runs {
+		if run.Kind != domain.RunKindChild {
+			continue
+		}
+		if oneShotOnly && run.EffectiveChildMode() != domain.ChildModeOneShot {
+			continue
+		}
+		child[run.ID] = struct{}{}
+	}
+	return child, nil
+}
+
+func dropRunMessages(stored []domain.Message, drop map[domain.RunID]struct{}) []domain.Message {
+	if len(drop) == 0 {
+		return stored
+	}
+	kept := make([]domain.Message, 0, len(stored))
+	for _, msg := range stored {
+		if _, found := drop[msg.RunID]; found {
+			continue
+		}
+		kept = append(kept, msg)
+	}
+	return kept
+}
+
 // parentFeedMessages drops child-run transcripts from the history that becomes
-// the parent's model input. Child columns stay in the session store because
-// they are the durable transcript behind the `agent` tool card, but a child's
-// answer already reaches the parent as that tool's result. Feeding the child's
-// whole turn as well doubles it: one sub-agent transcript can exceed the
-// entire history byte budget and leave no room for the parent's own turns.
+// the parent's model input. Child rows stay in the append-only session store,
+// but a child's answer already reaches the parent as the `agent` tool result.
+// Feeding the child's whole turn as well doubles it: one sub-agent transcript
+// can exceed the entire history byte budget and leave no room for the parent's
+// own turns.
 //
 // A run row we cannot see is treated as non-child: legacy rows have no run id
 // and must stay in the feed.
@@ -257,27 +318,11 @@ func (s *Service) parentFeedMessages(ctx context.Context, sessionID domain.Sessi
 	if len(stored) == 0 || s.deps.Runs == nil {
 		return stored
 	}
-	runs, err := s.deps.Runs.ListRunsBySession(ctx, sessionID)
+	child, err := s.childRunIDs(ctx, sessionID, false)
 	if err != nil {
 		slog.Warn("child transcript filter skipped; listing runs failed",
 			"session", string(sessionID), "err", err)
 		return stored
 	}
-	child := make(map[domain.RunID]struct{})
-	for _, run := range runs {
-		if run.Kind == domain.RunKindChild {
-			child[run.ID] = struct{}{}
-		}
-	}
-	if len(child) == 0 {
-		return stored
-	}
-	kept := make([]domain.Message, 0, len(stored))
-	for _, msg := range stored {
-		if _, isChild := child[msg.RunID]; isChild {
-			continue
-		}
-		kept = append(kept, msg)
-	}
-	return kept
+	return dropRunMessages(stored, child)
 }

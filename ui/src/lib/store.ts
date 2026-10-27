@@ -200,8 +200,6 @@ interface RuntimeState {
   /** 内核队列动词：纯文本走内核双轨；带附件/引用回退本地 FIFO。 */
   steerMessage: (submission: api.TurnSubmission) => Promise<void>;
   followUpMessage: (submission: api.TurnSubmission) => Promise<void>;
-  /** 直接发送：中断活动 run 并以本条消息开新一轮（保留完整提交）。 */
-  sendNowMessage: (submission: api.TurnSubmission) => Promise<void>;
   refreshQueue: (sessionId?: string) => Promise<void>;
   removeKernelQueued: (queueId: string) => Promise<void>;
   /** pi Alt+Up：弹出最新 pending follow-up 回编辑框；空轨返回 null。 */
@@ -227,6 +225,8 @@ interface RuntimeState {
   cancelDeliveryDownload: (itemId: string) => void;
   removeQueuedMessage: (id: string) => void;
   clearQueue: () => void;
+  /** 「立即发送」：取出两轨与本地 FIFO，取消当前 run，终态后按原顺序重发。 */
+  sendQueuedNow: () => Promise<void>;
   cancelCurrentRun: () => Promise<void>;
   openRun: (runId: string, sessionId: string) => Promise<void>;
   /** 按需拉取并缓存某个历史运行的事件（失败即静默回退到投影渲染）。 */
@@ -288,6 +288,8 @@ let runOpen = 0;
 let reviewEpoch = 0;
 let queuedSeq = 0;
 let queueRestoreSeq = 0;
+/** 「立即发送」清空队列时抑制 cleared 回填：文本马上重发，不再回到编辑框。 */
+let suppressClearedRestore = false;
 
 /** 内核队列仅载文本（与 TUI 同规则）：附件/历史引用提交仍走本地 FIFO。 */
 const kernelEligible = (submission: api.TurnSubmission): boolean =>
@@ -468,7 +470,8 @@ function handleRunEvent(event: RunEvent): void {
     if (event.type === 'turn.dequeued') {
       const reason = String(event.payload.reason ?? '');
       const text = String(event.payload.text ?? '');
-      if ((reason === 'aborted' || reason === 'cleared') && text) {
+      const resent = reason === 'cleared' && suppressClearedRestore;
+      if ((reason === 'aborted' || reason === 'cleared') && text && !resent) {
         update.queueRestoreText = { text, seq: ++queueRestoreSeq };
       }
     }
@@ -493,6 +496,37 @@ function drainQueue(): void {
       useVivyStore.setState({ queuedMessages: [item, ...state.queuedMessages] });
     }
   });
+}
+
+/** 「立即发送」等取消落地：事件流按 seq 处理，currentRun 已终态说明之前的
+ *  turn.dequeued 都已应用；轮询上限后放弃，调用方把消息放回队列。 */
+async function waitForRunSettled(runId: string, attemptsLeft = 150): Promise<boolean> {
+  const run = useVivyStore.getState().currentRun;
+  if (!run || run.id !== runId || !runActive(run)) return true;
+  if (attemptsLeft <= 0) return false;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return waitForRunSettled(runId, attemptsLeft - 1);
+}
+
+/** 立即发送途中用户切走会话：消息已从服务端清空，附件/引用只能由前台 FIFO
+ *  承载，先缓冲到回到该会话时合并；纯文本直接投回原会话，不丢。 */
+const bufferedFlushItems = new Map<string, api.TurnSubmission[]>();
+
+async function redispatchToSession(sessionId: string, submissions: api.TurnSubmission[]): Promise<void> {
+  let started = false;
+  for (const submission of submissions) {
+    if (!kernelEligible(submission)) {
+      bufferedFlushItems.set(sessionId, [...(bufferedFlushItems.get(sessionId) ?? []), submission]);
+      continue;
+    }
+    try {
+      if (!started) { await api.startTurn(sessionId, submission); started = true; }
+      else await api.followUpTurn(sessionId, submission.text);
+    } catch {
+      // 原会话仍有活跃运行：降级为 follow-up，settle 后照常放行。
+      try { await api.followUpTurn(sessionId, submission.text); started = true; } catch { /* 会话已删：无处可投 */ }
+    }
+  }
 }
 
 function startSubscription(runId: string, afterSeq: number): void {
@@ -781,7 +815,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     stopDeliveryDownloads();
     runOpen += 1;
     stopSubscription(); stopWorkSubscription(); localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
+    set({ activeSessionId: id, messages: [], messagesPhase: 'loading', messagesError: null, sessionContext: null, todos: [], todosPhase: 'loading', todosError: null, currentRun: null, runEvents: [], runLogs: {}, streamingText: '', streamingReasoning: '', runError: null, runBusy: false, queuedMessages: [], kernelQueue: null, queueRestoreText: null, children: [], selectedChild: null, work: null, workPhase: 'loading', workError: null, draftReferences: [], draftScope: null, draftRequestId: newDraftRequestId(), referenceViews: {}, deliverySets: [], deliverySetsPhase: 'idle', deliveryItemStates: {} });
     try {
       const [messages] = await Promise.all([loadMessagesIntoStore(id, epoch), loadTodosIntoStore(id, epoch).catch((error) => {
         if (epoch === sessionEpoch && get().activeSessionId === id) set({ todosPhase: get().todos.length ? 'ready' : 'error', todosError: errorMessage(error) });
@@ -795,6 +829,12 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       set({ backgroundRuns: background.runs, backgroundPhase: background.runs.length ? 'ready' : 'empty' });
       const runId = get().work?.current_run_id || background.runs.filter((run) => run.session_id === id).sort((a, b) => b.created_at - a.created_at)[0]?.id || lastRunId(messages);
       if (runId && get().currentRun?.id !== runId) await get().openRun(runId, id);
+      const buffered = bufferedFlushItems.get(id);
+      if (buffered?.length && epoch === sessionEpoch && get().activeSessionId === id) {
+        bufferedFlushItems.delete(id);
+        for (const submission of buffered) get().enqueueMessage(submission);
+        drainQueue();
+      }
       // 最近的两个更早运行按需回放事件，让前几轮也按工具/思考行渲染。
       const older = recentRunIds(messages, 3).filter((candidate) => candidate !== runId);
       await Promise.all(older.map((candidate) => get().loadRunLog(candidate)));
@@ -1006,17 +1046,6 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
       void get().refreshQueue();
     } catch (error) { set({ runError: errorMessage(error) }); }
   },
-  // 直接发送：服务端排队一条带 interrupt_current 的 follow-up 并取消活动 run，
-  // 终态结算时自动准入。附件/引用不走内核轨，回退本地 FIFO（settle 后发送）。
-  sendNowMessage: async (submission) => {
-    const sessionId = get().activeSessionId;
-    if (!sessionId) return;
-    if (!kernelEligible(submission)) { get().enqueueMessage(submission); return; }
-    try {
-      adoptQueueResult(sessionId, await api.sendNowTurn(sessionId, submission), submission);
-      void get().refreshQueue();
-    } catch (error) { set({ runError: errorMessage(error) }); }
-  },
   refreshQueue: async (sessionId = get().activeSessionId ?? undefined) => {
     if (!sessionId) return;
     try {
@@ -1171,6 +1200,64 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
     set({ queuedMessages: [] });
     const sessionId = get().activeSessionId;
     if (sessionId) void api.clearSessionQueue(sessionId).catch(() => undefined).then(() => get().refreshQueue());
+  },
+  // 立即发送 = 清空两轨与本地 FIFO → 取消当前 run → 终态后按原顺序重发：
+  // 第一条开新 run，其余回到内核 follow-up 轨（带附件/引用的仍走本地 FIFO）。
+  sendQueuedNow: async () => {
+    const state = get();
+    const sessionId = state.activeSessionId;
+    const run = state.currentRun;
+    if (!sessionId || state.runBusy) return;
+    const running = runActive(run);
+    const local = state.queuedMessages.map((item) => {
+      const { id: _id, ...submission } = item;
+      return copySubmission(submission);
+    });
+    const kernelPending = (state.kernelQueue?.steering.length ?? 0) + (state.kernelQueue?.follow_up.length ?? 0);
+    if (!running && !local.length && kernelPending === 0) return;
+    set({ runBusy: true, runError: null });
+    let texts: string[];
+    suppressClearedRestore = true;
+    try {
+      const cleared = await api.clearSessionQueue(sessionId);
+      texts = (cleared.texts ?? []).map(String);
+    } catch (error) {
+      suppressClearedRestore = false;
+      set({ runBusy: false, runError: errorMessage(error) });
+      return;
+    }
+    try {
+      let settled = true;
+      if (running && run) {
+        try { await api.cancelRun(run.id); } catch { /* 终态竞态：照常等待并重发 */ }
+        settled = await waitForRunSettled(run.id);
+      }
+      const submissions: api.TurnSubmission[] = [...texts.map((text) => ({ text })), ...local];
+      if (get().activeSessionId !== sessionId) {
+        // 会话已切走：清空已生效，消息投回原会话，不污染当前会话的运行状态。
+        void redispatchToSession(sessionId, submissions);
+        return;
+      }
+      if (!settled) {
+        set({ runBusy: false });
+        for (const submission of submissions) get().enqueueMessage(submission);
+        return;
+      }
+      set((current) => ({
+        runBusy: false,
+        queuedMessages: [],
+        ...(running ? { queueRestoreText: null } : {}),
+        kernelQueue: current.kernelQueue ? { ...current.kernelQueue, steering: [], follow_up: [], pending: 0 } : null,
+      }));
+      for (const [index, submission] of submissions.entries()) {
+        if (index === 0) {
+          try { await get().startRun(sessionId, submission); } catch { get().enqueueMessage(submission); }
+        } else if (kernelEligible(submission)) await get().followUpMessage(submission);
+        else get().enqueueMessage(submission);
+      }
+    } finally {
+      suppressClearedRestore = false;
+    }
   },
   cancelCurrentRun: async () => {
     const run = get().currentRun; if (!runActive(run) || get().runBusy || !run) return;

@@ -205,46 +205,39 @@ func (t *classifierStubTool) ClassifyInvocation(json.RawMessage) (tools.Invocati
 }
 
 func TestToolAdapterTieredApprovalForClassifiedTools(t *testing.T) {
-	run := func(policy domain.ApprovalPolicy, profile domain.PolicyProfile, class tools.InvocationClass, whitelist []string) (string, error, int) {
+	run := func(policy domain.ApprovalPolicy, profile domain.PolicyProfile, class tools.InvocationClass) (string, error, int) {
 		tool := &classifierStubTool{class: class, findings: []string{"stub finding"}}
-		adapter := newToolAdapter(tool, 0, nil, nil, whitelist)
+		adapter := newToolAdapter(tool, 0, nil, nil)
 		ctx := withPolicyProfile(withApprovalPolicy(context.Background(), policy), profile)
 		result, err := adapter.InvokableRun(ctx, `{"command":"stub script"}`)
 		return result, err, tool.calls
 	}
 	// Safe under auto: no interrupt, direct execution.
-	result, err, calls := run(domain.ApprovalPolicyAuto, domain.PolicyProfileDefault, tools.InvocationSafe, nil)
+	result, err, calls := run(domain.ApprovalPolicyAuto, domain.PolicyProfileDefault, tools.InvocationSafe)
 	if err != nil || calls != 1 || !strings.Contains(result, "ran") {
 		t.Fatalf("safe+auto ran = %q/%v/%d, want executed once", result, err, calls)
 	}
-	// Mutating under auto: approval interrupt, tool never runs.
-	_, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileDefault, tools.InvocationMutating, nil)
-	if err == nil || calls != 0 {
-		t.Fatalf("mutating+auto = err %v calls %d, want interrupt without execution", err, calls)
-	}
-	if errors.Is(err, ErrPolicyDenied) {
-		t.Fatalf("mutating under auto surfaced policy denial %v, want an approval interrupt", err)
+	// Mutating under auto: the trusted policy runs effectful calls without an
+	// interrupt, because the deny table (below) is the remaining hard stop.
+	result, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileDefault, tools.InvocationMutating)
+	if err != nil || calls != 1 || !strings.Contains(result, "ran") {
+		t.Fatalf("mutating+auto ran = %q/%v/%d, want executed once", result, err, calls)
 	}
 	// Safe under ask: 'ask' consults the user for every effectful call.
-	_, err, calls = run(domain.ApprovalPolicyAsk, domain.PolicyProfileDefault, tools.InvocationSafe, nil)
+	_, err, calls = run(domain.ApprovalPolicyAsk, domain.PolicyProfileDefault, tools.InvocationSafe)
 	if err == nil || calls != 0 {
 		t.Fatalf("safe+ask = err %v calls %d, want interrupt", err, calls)
 	}
 	// Safe under never: refused per call, not run, and the run continues.
-	result, err, calls = run(domain.ApprovalPolicyNever, domain.PolicyProfileDefault, tools.InvocationSafe, nil)
+	result, err, calls = run(domain.ApprovalPolicyNever, domain.PolicyProfileDefault, tools.InvocationSafe)
 	if err != nil || calls != 0 || !strings.Contains(result, "did not run") {
 		t.Fatalf("safe+never = %q/%v/%d, want a refusal without execution", result, err, calls)
 	}
 	// Deny table beats the full-auto profile: the invocation is refused with
 	// a model-visible result, and the run is not failed by a per-call refusal.
-	result, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileFullAuto, tools.InvocationDenied, nil)
+	result, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileFullAuto, tools.InvocationDenied)
 	if err != nil || calls != 0 || !strings.Contains(result, "stub finding") || !strings.Contains(result, "did not run") {
 		t.Fatalf("denied+full-auto = %q/%v/%d, want a refusal result with the finding", result, err, calls)
-	}
-	// Whitelisted under auto keeps the pre-classifier behavior.
-	result, err, calls = run(domain.ApprovalPolicyAuto, domain.PolicyProfileDefault, tools.InvocationMutating, []string{"stub_classifier"})
-	if err != nil || calls != 1 || !strings.Contains(result, "ran") {
-		t.Fatalf("whitelisted+auto = %q/%v/%d, want executed once", result, err, calls)
 	}
 }
 

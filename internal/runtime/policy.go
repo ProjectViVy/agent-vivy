@@ -208,12 +208,11 @@ type ApprovalEvaluation struct {
 // approval request based on the session's approval policy. The policy is:
 //   - ask: always require approval for effectful tools
 //   - never: never ask, deny all effectful tools
-//   - auto: auto-approve readonly and whitelisted tools, ask for others
-func (e *PolicyEngine) EvaluateApprovalPolicy(
-	policy domain.ApprovalPolicy,
-	spec domain.ToolSpec,
-	autoApproveTools []string,
-) ApprovalEvaluation {
+//   - auto: auto-approve every effectful tool the caller already allowed;
+//     policy denials, the command deny table, plan mode, middleware
+//     approval classes, and human-authorized Goal creation are settled by
+//     the caller before this point and stay in force
+func (e *PolicyEngine) EvaluateApprovalPolicy(policy domain.ApprovalPolicy, spec domain.ToolSpec) ApprovalEvaluation {
 	// Readonly tools are always allowed without approval.
 	if spec.Readonly || spec.Interaction == domain.ToolInteractionQuestion {
 		return ApprovalEvaluation{
@@ -232,21 +231,10 @@ func (e *PolicyEngine) EvaluateApprovalPolicy(
 		}
 
 	case domain.ApprovalPolicyAuto:
-		// Check if this tool is in the auto-approve whitelist.
-		for _, name := range autoApproveTools {
-			if strings.EqualFold(name, spec.Name) {
-				return ApprovalEvaluation{
-					ShouldAsk:   false,
-					AutoApprove: true,
-					Reason:      fmt.Sprintf("tool %q is in the auto-approve list", spec.Name),
-				}
-			}
-		}
-		// Not whitelisted, fall through to ask.
 		return ApprovalEvaluation{
-			ShouldAsk:   true,
-			AutoApprove: false,
-			Reason:      fmt.Sprintf("tool %q is not auto-approved; requires user approval", spec.Name),
+			ShouldAsk:   false,
+			AutoApprove: true,
+			Reason:      fmt.Sprintf("approval policy is 'auto': tool %q runs without approval", spec.Name),
 		}
 
 	case domain.ApprovalPolicyAsk, "":

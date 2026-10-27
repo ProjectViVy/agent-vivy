@@ -192,7 +192,7 @@ func (s *Service) CloneSession(ctx context.Context, sessionID domain.SessionID, 
 	if err != nil {
 		return ForkResult{}, fmt.Errorf("runtime: get source session: %w", err)
 	}
-	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	stored, err := s.SessionViewMessages(ctx, sessionID)
 	if err != nil {
 		return ForkResult{}, fmt.Errorf("runtime: list session messages: %w", err)
 	}
@@ -364,7 +364,7 @@ func (s *Service) rejectBusySession(ctx context.Context, sessionID domain.Sessio
 // returned index is view-relative so remaining-count arithmetic matches
 // what the user sees. The raw stored list rides along for tail anchoring.
 func (s *Service) sessionViewCutoff(ctx context.Context, sessionID domain.SessionID, messageID string) (stored, effective []domain.Message, idx int, err error) {
-	stored, err = s.deps.Messages.ListMessages(ctx, sessionID)
+	stored, err = s.SessionViewMessages(ctx, sessionID)
 	if err != nil {
 		return nil, nil, -1, fmt.Errorf("runtime: list session messages: %w", err)
 	}

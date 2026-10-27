@@ -66,7 +66,7 @@ func TestToolAdapterRechecksPolicyAfterPublicMiddlewareRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := &middlewareRuntimeTool{rewrite: json.RawMessage(`{"value":"danger"}`)}
-	adapter := newToolAdapter(tool, 0, policy, nil, nil)
+	adapter := newToolAdapter(tool, 0, policy, nil)
 	result, err := adapter.InvokableRun(context.Background(), `{"value":"safe"}`)
 	if err != nil {
 		t.Fatalf("middleware rewrite refusal failed the run: %v", err)
@@ -87,7 +87,7 @@ func TestToolAdapterMiddlewareRequireApprovalBlocksPermissivePolicy(t *testing.T
 		t.Fatal(err)
 	}
 	tool := &middlewareRuntimeTool{approvalClass: "external-effect"}
-	adapter := newToolAdapter(tool, 0, policy, nil, []string{tool.Spec().Name})
+	adapter := newToolAdapter(tool, 0, policy, nil)
 	if _, err := adapter.InvokableRun(context.Background(), `{"value":"safe"}`); err == nil {
 		t.Fatal("middleware RequireApproval must interrupt instead of executing")
 	}

@@ -110,6 +110,44 @@ func TestSaveConcurrentWritersKeepDocumentValid(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadBusyEnter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent-home", FileName)
+	if got := (Settings{}).EffectiveBusyEnter(); got != BusyEnterQueue {
+		t.Fatalf("default busy enter = %q, want %q", got, BusyEnterQueue)
+	}
+	if !(Settings{}).IsZero() {
+		t.Fatal("empty settings should stay zero with the busy-enter default")
+	}
+	if (Settings{BusyEnter: BusyEnterSteer}).IsZero() {
+		t.Fatal("an explicit busy_enter must not report a zero document")
+	}
+	saved, err := Save(path, Settings{BusyEnter: BusyEnterSteer})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.BusyEnter != BusyEnterSteer || loaded.EffectiveBusyEnter() != BusyEnterSteer {
+		t.Fatalf("busy_enter round trip = %+v, want %q", loaded, BusyEnterSteer)
+	}
+	if saved.BusyEnter != BusyEnterSteer {
+		t.Fatalf("saved busy_enter = %q", saved.BusyEnter)
+	}
+}
+
+func TestValidateBusyEnter(t *testing.T) {
+	for _, value := range []string{"", BusyEnterQueue, BusyEnterSteer} {
+		if err := (Settings{BusyEnter: value}).Validate(); err != nil {
+			t.Fatalf("busy_enter %q should validate: %v", value, err)
+		}
+	}
+	if err := (Settings{BusyEnter: "later"}).Validate(); err == nil {
+		t.Fatal("unknown busy_enter should be rejected")
+	}
+}
+
 func TestSaveAndLoadRoundTripWithAPIKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent-home", FileName)
 	saved, err := Save(path, Settings{Provider: ProviderOpenAI, DefaultModel: "gpt-4o", BaseURL: "https://gw.example.com/v1", ApiKey: "sk-test-overlay"})

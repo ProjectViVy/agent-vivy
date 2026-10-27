@@ -231,3 +231,99 @@ func TestMessageProjectorToleratesLegacyV1Run(t *testing.T) {
 		t.Fatalf("legacy run projection = %+v, want the persisted row untouched", got)
 	}
 }
+
+func TestMessageProjectorSkipsOneShotChildRuns(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-projector-child")
+	if err := svc.deps.Sessions.CreateSession(ctx, domain.Session{ID: sessionID, Title: "child", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	parentID := domain.RunID("run-projector-parent")
+	childID := domain.RunID("run-projector-child")
+	for _, run := range []domain.Run{
+		{ID: parentID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1, Kind: domain.RunKindPrimary},
+		{ID: childID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 2, Kind: domain.RunKindChild,
+			ParentID: parentID, RootID: parentID, Depth: 1},
+	} {
+		if err := svc.deps.Runs.CreateRun(ctx, run); err != nil {
+			t.Fatalf("create run %s: %v", run.ID, err)
+		}
+	}
+	for _, spec := range []struct {
+		runID   domain.RunID
+		content string
+	}{{parentID, "parent answer"}, {childID, "child answer"}} {
+		trajCommit(t, ctx, svc.deps.Journal, spec.runID,
+			trajEvent(domain.EventRunStarted, 10, payloadRunStarted{Provider: "test", Model: "test-model", Mode: "chat"}),
+			trajEvent(domain.EventModelRequest, 20, payloadModelRequest{}),
+			trajEvent(domain.EventModelDelta, 30, payloadModelDelta{Delta: spec.content}),
+			trajEventVersion(domain.EventModelCompleted, 40, v2Completion(spec.content), 2),
+		)
+	}
+
+	if err := svc.ReconcileSessionMessages(ctx, sessionID); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	got, err := backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].RunID != parentID {
+		t.Fatalf("projected rows = %+v, want only the parent transcript", got)
+	}
+}
+
+func TestSessionViewMessagesDropsOnlyOneShotChildRows(t *testing.T) {
+	svc, backend, _ := newTestService(t, testsupport.NewEchoModel())
+	ctx := context.Background()
+	sessionID := domain.SessionID("sess-view-child")
+	if err := svc.deps.Sessions.CreateSession(ctx, domain.Session{ID: sessionID, Title: "view", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	parentID := domain.RunID("run-view-parent")
+	oneShotID := domain.RunID("run-view-oneshot")
+	continuableID := domain.RunID("run-view-continuable")
+	for _, run := range []domain.Run{
+		{ID: parentID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 1, Kind: domain.RunKindPrimary},
+		{ID: oneShotID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 2, Kind: domain.RunKindChild,
+			ParentID: parentID, RootID: parentID, Depth: 1},
+		{ID: continuableID, SessionID: sessionID, Status: domain.RunCompleted, CreatedAt: 3, Kind: domain.RunKindChild,
+			ChildMode: domain.ChildModeContinuable, ParentID: parentID, RootID: parentID, Depth: 1},
+	} {
+		if err := svc.deps.Runs.CreateRun(ctx, run); err != nil {
+			t.Fatalf("create run %s: %v", run.ID, err)
+		}
+	}
+	rows := []domain.Message{
+		{ID: "msg-view-parent", SessionID: sessionID, RunID: parentID, Role: domain.RoleAssistant, CreatedAt: 1, Content: "parent"},
+		{ID: "msg-view-oneshot", SessionID: sessionID, RunID: oneShotID, Role: domain.RoleAssistant, CreatedAt: 2, Content: "one-shot child"},
+		{ID: "msg-view-continuable", SessionID: sessionID, RunID: continuableID, Role: domain.RoleAssistant, CreatedAt: 3, Content: "continuable child"},
+		{ID: "msg-view-legacy", SessionID: sessionID, Role: domain.RoleUser, CreatedAt: 4, Content: "legacy"},
+	}
+	for _, msg := range rows {
+		if err := backend.AppendMessage(ctx, msg); err != nil {
+			t.Fatalf("append message %s: %v", msg.ID, err)
+		}
+	}
+
+	view, err := svc.SessionViewMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("session view: %v", err)
+	}
+	var ids []string
+	for _, msg := range view {
+		ids = append(ids, msg.ID)
+	}
+	want := "msg-view-parent,msg-view-continuable,msg-view-legacy"
+	if strings.Join(ids, ",") != want {
+		t.Fatalf("session view = %v, want %s", ids, want)
+	}
+	stored, err := backend.ListMessages(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 4 {
+		t.Fatalf("stored rows = %d, want the append-only store untouched", len(stored))
+	}
+}

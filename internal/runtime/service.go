@@ -5746,9 +5746,10 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 			removedQueued = append(removedQueued, q.inFlight...)
 			q.inFlight = nil
 		case domain.EventRunCancelled:
-			// A send-now is the reason this run was cancelled and is admitted
-			// next; every other queued item returns to the caller through an
-			// aborted turn.dequeued marker.
+			// Only a replay of a legacy send-now item survives here (nothing
+			// produces the flag any more): it is the reason this run was
+			// cancelled and is admitted next; every other queued item returns
+			// to the caller through an aborted turn.dequeued marker.
 			kept := make([]domain.QueuedTurn, 0, len(q.followUp))
 			for _, item := range q.followUp {
 				if item.InterruptCurrent {
@@ -5786,9 +5787,9 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	// VCP-B1: a settling human turn admits the follow-up lane (steer items
 	// left behind demote into it); a user abort flushes both lanes instead —
 	// pi semantics: queued text returns to the caller via turn.dequeued, not
-	// into a run the user just cancelled. A send-now is the exception: it is
-	// the turn the cancellation was requested for. Goal/cron runs are
-	// excluded from the completed/failed drain only.
+	// into a run the user just cancelled. A replayed legacy send-now item is
+	// the exception: it is the turn the cancellation was requested for.
+	// Goal/cron runs are excluded from the completed/failed drain only.
 	if runSession != "" {
 		switch terminal.Type {
 		case domain.EventRunCancelled:

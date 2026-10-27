@@ -445,9 +445,9 @@ func TestToolFailureUnknownEffectsCountOnce(t *testing.T) {
 		testToolCalls(failureToolCall(w1, "write_arg", `{"value":"x"}`)),
 		testAssistant("stopping here"),
 	}
-	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{writeTool}, autoApprove: []string{"write_arg"}})
-	// The write tool only reaches its invocation under an auto-approve
-	// session profile — without it the call interrupts for approval.
+	h := newContractHarness(t, script, contractHarnessOpts{streaming: true, extraTools: []tools.Tool{writeTool}})
+	// The write tool only reaches its invocation under the auto approval
+	// policy; under ask the call interrupts for approval.
 	if err := h.backend.CreateSession(context.Background(), domain.Session{
 		ID:             "sess-failure-write",
 		Title:          "write failure",

@@ -42,7 +42,6 @@ type acceptanceHarness struct {
 
 type acceptanceOpts struct {
 	policy      domain.ApprovalPolicy
-	autoApprove []string
 	extraTools  []tools.Tool
 	failures    map[int]error
 	checkpoints bool
@@ -103,7 +102,6 @@ func newAcceptanceHarness(t *testing.T, script []*schema.AgenticMessage, opts ac
 		MaxEventPayloadBytes: 64 << 10,
 		MaxContextBytes:      1 << 20,
 		MaxToolResultBytes:   64 << 10,
-		AutoApproveTools:     opts.autoApprove,
 	}
 	if opts.checkpoints {
 		store, err := NewVersionedCheckpointStore(backend.Blobs(), "acceptance-engine")
@@ -194,8 +192,7 @@ func TestNudgeAcceptanceMissingFileCorrection(t *testing.T) {
 		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
-		policy:      domain.ApprovalPolicyAuto,
-		autoApprove: []string{tools.WriteFileName},
+		policy: domain.ApprovalPolicyAuto,
 	})
 	h.openSession(t, "sess-acc-a", domain.ApprovalPolicyAuto)
 	runID, err := h.svc.Run(context.Background(), "sess-acc-a", "read missing.txt")
@@ -231,8 +228,7 @@ func TestNudgeAcceptanceCommandRetry(t *testing.T) {
 		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
-		policy:      domain.ApprovalPolicyAuto,
-		autoApprove: []string{tools.BashName},
+		policy: domain.ApprovalPolicyAuto,
 	})
 	h.openSession(t, "sess-acc-b", domain.ApprovalPolicyAuto)
 	runID, err := h.svc.Run(context.Background(), "sess-acc-b", "run the probe")
@@ -380,9 +376,8 @@ func TestNudgeAcceptanceRemoteToolIsError(t *testing.T) {
 		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
-		policy:      domain.ApprovalPolicyAuto,
-		autoApprove: []string{tools.BashName, governed.spec.Name},
-		extraTools:  []tools.Tool{governed},
+		policy:     domain.ApprovalPolicyAuto,
+		extraTools: []tools.Tool{governed},
 	})
 	h.openSession(t, "sess-acc-c", domain.ApprovalPolicyAuto)
 	runID, err := h.svc.Run(context.Background(), "sess-acc-c", "call the remote probe")
@@ -672,8 +667,7 @@ func TestNudgeAcceptancePartialEffectNoReplay(t *testing.T) {
 		testAssistant("done"),
 	}
 	h := newAcceptanceHarness(t, script, acceptanceOpts{
-		policy:      domain.ApprovalPolicyAuto,
-		autoApprove: []string{tools.BashName},
+		policy: domain.ApprovalPolicyAuto,
 	})
 	h.openSession(t, "sess-acc-i", domain.ApprovalPolicyAuto)
 	runID, err := h.svc.Run(context.Background(), "sess-acc-i", "run the partial command")

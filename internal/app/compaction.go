@@ -110,7 +110,6 @@ func buildEngineConfig(cfg config.Config, skillBackend *runtime.EinoSkillBackend
 		Checkpoints:          checkpoints,
 		Policy:               policy,
 		ToolHooks:            hooks,
-		AutoApproveTools:     cfg.Runtime.Sandbox.Approval.AutoApproveTools,
 		Compaction:           cmp,
 		SummaryModelID:       cfg.Runtime.Compaction.SummaryModel,
 	}

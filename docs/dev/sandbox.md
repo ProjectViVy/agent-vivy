@@ -49,9 +49,11 @@ Three policies control when user approval is required:
 
 ### 3. `auto`
 - Readonly tools auto-execute
-- Whitelisted tools auto-execute
-- Other effectful tools still require approval
-- Balance between safety and convenience
+- Every effectful tool the governance policy allows auto-executes
+- Policy denials, the command deny table, plan mode, and Goal creation
+  still stop the call
+- Balance between safety and convenience; this is what the Trusted preset
+  selects
 
 ## Configuration
 
@@ -64,12 +66,6 @@ runtime:
     approval:
       default_policy: ask
       timeout_seconds: 300  # 5 minutes
-      auto_approve_tools:
-        - list_dir
-        - read_file
-        - search_files
-        - list_notes
-        - network_search
     network:
       allowed_domains: []  # Empty = no restriction
       deny_private_ips: true
@@ -116,8 +112,9 @@ writes the **current session** via `session/set_permission`. An in-flight run
 keeps the knobs captured at `turn/start`.
 
 `danger_full_access` still cannot leave the per-run workspace allocated by
-`WorkspaceManager`. It relaxes the command allowlist and auto-approves
-readonly / allowlisted tools.
+`WorkspaceManager`. It relaxes the command allowlist, and the `auto` policy
+runs effectful tools without an approval prompt; governance policy denials,
+the command deny table, plan mode, and Goal creation remain hard stops.
 
 ## API Usage
 

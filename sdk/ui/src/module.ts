@@ -1129,9 +1129,14 @@ export interface FaceLocaleSettings {
   readonly locale_read_only: boolean;
 }
 
+/** Delivery mode for a message typed while a run is active. */
+export type FaceBusyEnter = "queue" | "steer";
+
 export interface FaceSettings extends FaceLocaleSettings {
   readonly provider: string;
   readonly default_model: string;
+  /** Composer delivery mode for plain Enter while a run is active. */
+  readonly busy_enter?: FaceBusyEnter;
   readonly base_url: string;
   readonly read_only: boolean;
   readonly config_provider: string;
@@ -1202,6 +1207,8 @@ export interface FaceSandboxSettings {
 export interface FaceSettingsUpdate {
   readonly provider: string;
   readonly default_model: string;
+  /** Absent keeps the saved mode, so older faces do not reset it. */
+  readonly busy_enter?: FaceBusyEnter;
   readonly base_url: string;
   readonly api_key?: string;
   readonly network_search?: { readonly provider: string };
@@ -1932,9 +1939,6 @@ export interface FaceClientAPI {
    * fresh run on an idle session. */
   steerTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
   followUpTurn(sessionId: string, text: string): Promise<FaceQueueTurnResult>;
-  /** Send now: durable flagged follow-up that cancels the active run and is
-   * admitted on its terminal settle; idle sessions start a fresh run. */
-  sendNowTurn(sessionId: string, submission: FaceTurnSubmission): Promise<FaceQueueTurnResult>;
   getQueueState(sessionId: string, afterRunId?: string): Promise<FaceQueueState>;
   clearSessionQueue(sessionId: string): Promise<FaceQueueClearResult>;
   dequeueQueuedTurn(sessionId: string): Promise<FaceQueueDequeueResult>;
@@ -2078,14 +2082,15 @@ export interface FaceQueueState {
   readonly admitted_run_id?: string;
 }
 
-/** turn/steer, turn/follow_up and turn/send_now answer one of two shapes:
- * queued onto the kernel lanes, or (idle session) a fresh run start — pi's
- * "prompt while idle" rule. run_id/status carry the fallback shape. */
+/** turn/steer and turn/follow_up answer one of two shapes: queued onto the
+ * kernel lanes, or (idle session) a fresh run start — pi's "prompt while
+ * idle" rule. run_id/status carry the fallback shape. */
 export interface FaceQueueTurnResult {
   readonly queued: boolean;
   readonly queue_id?: string;
   readonly track?: string;
-  /** Set by turn/send_now: the queued turn interrupts its carrier run. */
+  /** Legacy: only journals written before the single-primary composer carry
+   * this flag; no producer sets it and faces must not act on it. */
   readonly interrupt_current?: boolean;
   readonly run_id?: string;
   readonly status?: string;
@@ -2224,13 +2229,15 @@ export interface FaceStoreState {
   enqueueMessage(submission: FaceTurnSubmission): void;
   removeQueuedMessage(id: string): void;
   clearQueue(): void;
+  /** Clears both kernel lanes and the face-local FIFO, cancels the active run,
+   * and resends the collected messages in order once it settles (first starts
+   * a new run, the rest return to the follow-up lane). */
+  sendQueuedNow(): Promise<void>;
   /** Kernel queue verbs (pi parity): text-only submissions route onto the
    * kernel lanes; attachment- or reference-bearing ones stay on the
    * face-local FIFO. */
   steerMessage(submission: FaceTurnSubmission): Promise<void>;
   followUpMessage(submission: FaceTurnSubmission): Promise<void>;
-  /** Interrupts the active run and opens a new one with this submission. */
-  sendNowMessage(submission: FaceTurnSubmission): Promise<void>;
   refreshQueue(sessionId?: string): Promise<void>;
   removeKernelQueued(queueId: string): Promise<void>;
   /** Pops the newest pending follow-up back into the editor (pi Alt+Up);

@@ -18,7 +18,7 @@ The owner standard: VIVY CODE must carry 100% of pi agent's capability surface *
 | VCP-O5 | `codemode` JS sandbox tool: deferred (goja remains the candidate engine). |
 | VCP-O6 | Self-update (`vivy-code update/install`): deferred. |
 | VCP-O7 | Context files stay AGENTS.md-only (D6 stands; CLAUDE.md/override/SYSTEM.md rejected). |
-| VCP-O8 | Steering keys follow pi: `Enter`=steer, `Alt+Enter`=follow-up, `Alt+Up`=dequeue to editor. |
+| VCP-O8 | Steering keys follow the single-primary model: plain `Enter` (or the primary send button) delivers a message typed during a run by the persisted `busy_enter` preference (`queue` default, or `steer`), `Cmd/Ctrl+Enter` inverts it, and `Alt+Up` dequeues to the editor. There is no send-now transport verb and no second primary button. The queue pill, not the composer, owns the bulk escape hatch: `queue/clear` + `run/cancel` + ordered re-send, composed in the face (`Send queued now`), so the kernel keeps one admission path and per-item steering stays out of scope. |
 
 ## 3. Requirements
 
@@ -119,7 +119,6 @@ Each pi command maps to existing or new `vivy.rpc.v1` methods:
 |---|---|
 | prompt | `turn/start` |
 | steer / follow_up / abort / clear_queue | `turn/steer` / `turn/follow_up` / `turn/cancel` / `queue/clear` (B1) |
-| send_now (interrupt the run, start this turn next) | `turn/send_now` — durable flagged follow-up (`turn.queued{interrupt_current:true}`) + cancel of the active run; admitted on the cancelled terminal's settle |
 | new_session / switch_session / set_session_name | `session/new` / `session/select` / `session/rename` (existing) |
 | get_state / get_messages / get_session_stats / get_last_assistant_text | `session/context`/`session/status` + `history/read` + `session/stats` (new light RPC) |
 | set_model / cycle_model / get_available_models | `settings/update`-style model set + `model/list`; `cycle_model` is face-side (uses ordered list) |

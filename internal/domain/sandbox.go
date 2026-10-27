@@ -11,7 +11,7 @@ const (
 	// PermissionPresetSmart is workspace-write sandbox; effectful tools still ask.
 	PermissionPresetSmart PermissionPreset = "smart"
 	// PermissionPresetTrusted is unconfined sandbox with auto-approve
-	// for readonly and allowlisted tools.
+	// for every effectful tool the governance policy allows.
 	PermissionPresetTrusted PermissionPreset = "trusted"
 	// PermissionPresetCustom is derived when the two knobs do not match
 	// a named preset. It is display-only and never a switch target.
@@ -108,8 +108,9 @@ const (
 	// This is the strict headless stance for CI or unattended runs.
 	ApprovalPolicyNever ApprovalPolicy = "never"
 
-	// ApprovalPolicyAuto automatically approves readonly tools and
-	// whitelisted commands; other effectful tools still require approval.
+	// ApprovalPolicyAuto runs readonly and effectful tools without an
+	// approval prompt; caller-owned hard stops (governance policy denial,
+	// the command deny table, plan mode, Goal creation) still apply.
 	ApprovalPolicyAuto ApprovalPolicy = "auto"
 )
 

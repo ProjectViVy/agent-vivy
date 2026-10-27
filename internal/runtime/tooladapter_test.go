@@ -38,7 +38,7 @@ func TestCompactToolResultLeavesSmallResultsUntouched(t *testing.T) {
 
 func TestToolAdapterCompactsReadonlyResult(t *testing.T) {
 	tool := &longResultTool{}
-	adapter := newToolAdapter(tool, 48, nil, nil, nil)
+	adapter := newToolAdapter(tool, 48, nil, nil)
 	got, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -50,7 +50,7 @@ func TestToolAdapterCompactsReadonlyResult(t *testing.T) {
 
 func TestToolAdapterRejectsToolOutsideRunSelection(t *testing.T) {
 	tool := &countingTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withSelectedTools(context.Background(), []string{"another_tool"})
 	result, err := adapter.InvokableRun(ctx, `{}`)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestToolAdapterHookDenyRefusesCall(t *testing.T) {
 	chain := NewToolHookChain(time.Second, &testToolHook{
 		name: "deny", pre: PreToolUseResult{Decision: hookDeny, Reason: "blocked by test"},
 	})
-	adapter := newToolAdapter(tool, 0, nil, chain, nil)
+	adapter := newToolAdapter(tool, 0, nil, chain)
 	result, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`)
 	if err != nil {
 		t.Fatalf("hook deny failed the run: %v", err)
@@ -88,7 +88,7 @@ func TestToolAdapterHookDenyRefusesCall(t *testing.T) {
 // call is refused, so the run inspector shows why it did not run.
 func TestToolAdapterDenyTableRefusalEmitsPolicyEvent(t *testing.T) {
 	tool := &classifierStubTool{class: tools.InvocationDenied, findings: []string{"deny-table: host shell or interpreter escape"}}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	var events []GovernanceEvent
 	ctx := withGovernanceEventSink(withPolicyProfile(context.Background(), domain.PolicyProfileDefault),
 		func(_ context.Context, ev GovernanceEvent) error {
@@ -117,7 +117,7 @@ func TestToolAdapterDenyTableRefusalEmitsPolicyEvent(t *testing.T) {
 // absent from the base selection executes once mounted.
 func TestToolAdapterAllowsMountedTool(t *testing.T) {
 	tool := &countingTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	mounts := tools.NewMountedTools()
 	mounts.Mount(tool.Spec().Name)
 	ctx := tools.WithMountedTools(withSelectedTools(context.Background(), []string{"another_tool"}), mounts)
@@ -133,7 +133,7 @@ func TestToolAdapterAllowsMountedTool(t *testing.T) {
 // tool never runs, and the model can correct its own arguments.
 func TestToolAdapterRefusesInvalidSchemaBeforeInvocation(t *testing.T) {
 	tool := &countingTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withSelectedTools(context.Background(), []string{tool.Spec().Name})
 	result, err := adapter.InvokableRun(ctx, `{}`)
 	if err != nil {
@@ -165,7 +165,7 @@ func TestToolAdapterInfoPreservesUnsupportedJSONSchemaKeywords(t *testing.T) {
 		"required":["value"],
 		"unevaluatedProperties":false
 	}`
-	info, err := newToolAdapter(rawSchemaTool{schema: json.RawMessage(raw)}, 0, nil, nil, nil).Info(context.Background())
+	info, err := newToolAdapter(rawSchemaTool{schema: json.RawMessage(raw)}, 0, nil, nil).Info(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestToolAdapterInfoPreservesUnsupportedJSONSchemaKeywords(t *testing.T) {
 // exploring in plan mode is normal model behavior.
 func TestToolAdapterPlanModeRefusesEffectfulToolBeforeApproval(t *testing.T) {
 	tool := &planCountingTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withRunMode(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.RunModePlan)
 	result, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestToolAdapterPlanModeRefusesEffectfulToolBeforeApproval(t *testing.T) {
 // alive so the model can answer without them.
 func TestToolAdapterApprovalPolicyNeverRefusesEffectful(t *testing.T) {
 	tool := &planCountingTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withPolicyProfile(
 		withSessionSandbox(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.SandboxModeWorkspaceWrite, domain.ApprovalPolicyNever),
 		domain.PolicyProfileFullAuto,
@@ -231,9 +231,11 @@ func TestToolAdapterApprovalPolicyNeverRefusesEffectful(t *testing.T) {
 	}
 }
 
-func TestToolAdapterApprovalPolicyAutoAllowlistsEffectful(t *testing.T) {
+// The trusted preset's 'auto' policy runs effectful tools without an
+// approval interrupt; a tool has to be allowlisted no longer.
+func TestToolAdapterApprovalPolicyAutoRunsEffectful(t *testing.T) {
 	tool := &planCountingTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, []string{"plan_write"})
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withSessionSandbox(withSelectedTools(context.Background(), []string{tool.Spec().Name}), domain.SandboxModeDangerFullAccess, domain.ApprovalPolicyAuto)
 	got, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
 	if err != nil {
@@ -251,7 +253,7 @@ func TestToolAdapterApprovalPolicyAutoAllowlistsEffectful(t *testing.T) {
 // not a run failure: the call did not happen and the model is told why.
 func TestToolAdapterSandboxDenialRefusesInsteadOfFailing(t *testing.T) {
 	tool := &sandboxDeniedTool{}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	ctx := withPolicyProfile(context.Background(), domain.PolicyProfileFullAuto)
 	result, err := adapter.InvokableRun(ctx, `{"value":"draft"}`)
 	if err != nil {
@@ -266,7 +268,7 @@ func TestToolAdapterSandboxDenialRefusesInsteadOfFailing(t *testing.T) {
 }
 
 func TestToolAdapterRedactsAndMarksUntrustedResult(t *testing.T) {
-	adapter := newToolAdapter(secretResultTool{}, 0, nil, nil, nil)
+	adapter := newToolAdapter(secretResultTool{}, 0, nil, nil)
 	got, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -277,7 +279,7 @@ func TestToolAdapterRedactsAndMarksUntrustedResult(t *testing.T) {
 }
 
 func TestToolAdapterRedactsProviderErrorAndPreservesCause(t *testing.T) {
-	adapter := newToolAdapter(secretErrorTool{}, 0, nil, nil, nil)
+	adapter := newToolAdapter(secretErrorTool{}, 0, nil, nil)
 	_, err := adapter.InvokableRun(context.Background(), `{}`)
 	if err == nil {
 		t.Fatal("secret error tool returned nil error")
@@ -387,7 +389,7 @@ func TestToolAdapterPreflightArgErrorRefusesInsteadOfSuspending(t *testing.T) {
 		spec:       effectfulProposalSpec("staged_write"),
 		prepareErr: &tools.ArgError{Field: "cwd", Reason: "must stay inside the run workspace"},
 	}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	result, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`)
 	if err != nil {
 		t.Fatalf("unpreparable proposal failed the run: %v", err)
@@ -410,7 +412,7 @@ func TestToolAdapterPreflightCapabilitySkipsPrepare(t *testing.T) {
 		},
 		preflightErr: &tools.ArgError{Field: "name", Reason: "is required"},
 	}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	result, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`)
 	if err != nil {
 		t.Fatalf("unpreparable proposal failed the run: %v", err)
@@ -433,7 +435,7 @@ func TestToolAdapterPreflightSandboxDenialRefusesAsPolicyDenied(t *testing.T) {
 		proposalStubTool: proposalStubTool{spec: effectfulProposalSpec("staged_write")},
 		preflightErr:     fmt.Errorf("%w: cwd symlink escapes the run workspace", ErrSandboxDenied),
 	}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	err := adapter.preflightToolProposal(context.Background(), json.RawMessage(`{"value":"draft"}`))
 	refusal, ok := asToolRefusal(err)
 	if !ok {
@@ -458,7 +460,7 @@ func TestToolAdapterPreflightWiringFailureStaysRunFatal(t *testing.T) {
 		spec:       effectfulProposalSpec("staged_write"),
 		prepareErr: errors.New("tools: skills backend not wired"),
 	}
-	adapter := newToolAdapter(tool, 0, nil, nil, nil)
+	adapter := newToolAdapter(tool, 0, nil, nil)
 	if _, err := adapter.InvokableRun(context.Background(), `{"value":"draft"}`); err == nil || !strings.Contains(err.Error(), "backend not wired") {
 		t.Fatalf("wiring failure = %v, want the original run-fatal error", err)
 	}

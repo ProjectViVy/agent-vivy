@@ -386,7 +386,7 @@ func (s *Service) ExportSession(ctx context.Context, sessionID domain.SessionID,
 	if err != nil {
 		return ExportResult{}, fmt.Errorf("runtime: get session: %w", err)
 	}
-	stored, err := s.deps.Messages.ListMessages(ctx, sessionID)
+	stored, err := s.SessionViewMessages(ctx, sessionID)
 	if err != nil {
 		return ExportResult{}, fmt.Errorf("runtime: list session messages: %w", err)
 	}

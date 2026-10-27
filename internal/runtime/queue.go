@@ -255,39 +255,16 @@ func (s *Service) Steer(ctx context.Context, sessionID domain.SessionID, text st
 	return s.SteerWithOptions(ctx, sessionID, text, RunOptions{})
 }
 func (s *Service) SteerWithOptions(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions) (domain.QueuedTurn, error) {
-	return s.enqueueTurn(ctx, sessionID, text, o, true, false)
+	return s.enqueueTurn(ctx, sessionID, text, o, true)
 }
 func (s *Service) FollowUp(ctx context.Context, sessionID domain.SessionID, text string) (domain.QueuedTurn, error) {
 	return s.FollowUpWithOptions(ctx, sessionID, text, RunOptions{})
 }
 func (s *Service) FollowUpWithOptions(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions) (domain.QueuedTurn, error) {
-	return s.enqueueTurn(ctx, sessionID, text, o, false, false)
+	return s.enqueueTurn(ctx, sessionID, text, o, false)
 }
 
-// SendNow interrupts the session's active run and admits the text as the
-// next run. The turn is a flagged follow-up: cancellation flushes every
-// other queued item, the flagged turn survives the terminal, and the
-// settle drains it — one durable admission path, replay-safe.
-func (s *Service) SendNow(ctx context.Context, sessionID domain.SessionID, text string) (domain.QueuedTurn, error) {
-	return s.SendNowWithOptions(ctx, sessionID, text, RunOptions{})
-}
-func (s *Service) SendNowWithOptions(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions) (domain.QueuedTurn, error) {
-	item, err := s.enqueueTurn(ctx, sessionID, text, o, false, true)
-	if err != nil {
-		return domain.QueuedTurn{}, err
-	}
-	// The admission fence is released: resolve the run driving the session
-	// now instead of cancelling an id read under the fence.
-	runID := s.activeRunForSession(sessionID)
-	if runID == "" {
-		return item, nil
-	}
-	if _, err := s.CancelRun(context.WithoutCancel(ctx), runID); err != nil {
-		slog.Warn("send now could not cancel the active run", "session", string(sessionID), "run", string(runID), "err", err)
-	}
-	return item, nil
-}
-func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions, steer, interruptCurrent bool) (domain.QueuedTurn, error) {
+func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, text string, o RunOptions, steer bool) (domain.QueuedTurn, error) {
 	s.projectionMu.Lock()
 	defer s.projectionMu.Unlock()
 	runID := s.activeRunForSession(sessionID)
@@ -302,12 +279,14 @@ func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, t
 	if err != nil {
 		return domain.QueuedTurn{}, err
 	}
-	item := domain.QueuedTurn{ID: newQueueID(), SessionID: sessionID, Track: domain.QueueTrackFollowUp, Text: text, CreatedAt: time.Now(), EnqueuedOn: runID, Request: request, InterruptCurrent: interruptCurrent}
+	// InterruptCurrent is never set by this build: it only survives so legacy
+	// journals carrying a flagged send-now item replay into the same queue.
+	item := domain.QueuedTurn{ID: newQueueID(), SessionID: sessionID, Track: domain.QueueTrackFollowUp, Text: text, CreatedAt: time.Now(), EnqueuedOn: runID, Request: request}
 	s.mu.Lock()
 	_, suspended := s.pending[runID]
 	cancelFn, cancellable := s.steerCancels[runID]
 	s.mu.Unlock()
-	if steer && !interruptCurrent && request == nil && !suspended && cancellable {
+	if steer && request == nil && !suspended && cancellable {
 		item.Track = domain.QueueTrackSteer
 	}
 	if request != nil {
@@ -334,11 +313,7 @@ func (s *Service) enqueueTurn(ctx context.Context, sessionID domain.SessionID, t
 		return domain.QueuedTurn{}, fmt.Errorf("runtime: persist queue marker: %w", err)
 	}
 	s.mu.Lock()
-	if item.InterruptCurrent {
-		// The send-now is the first turn admitted after the cancellation
-		// that follows this enqueue.
-		q.followUp = append([]domain.QueuedTurn{item}, q.followUp...)
-	} else if item.Track == domain.QueueTrackSteer {
+	if item.Track == domain.QueueTrackSteer {
 		q.steer = append(q.steer, item)
 		s.steerArmed[runID] = true
 	} else {

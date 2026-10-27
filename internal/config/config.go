@@ -496,8 +496,9 @@ type SandboxApprovalConfig struct {
 	// and closes the run with the human_timeout cause. Zero disables timed
 	// auto-approval, leaving tools.approval.expiration as the only bound.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
-	// AutoApproveTools lists tool names that are auto-approved under the
-	// "auto" policy (typically readonly tools).
+	// AutoApproveTools is accepted so existing strict-decoded config files
+	// keep loading, but it has no runtime effect: the "auto" policy now
+	// approves every effectful tool the governance policy allows.
 	AutoApproveTools []string `yaml:"auto_approve_tools"`
 }
 
@@ -707,9 +708,8 @@ func Default() Config {
 				DefaultMode:   "workspace_write",
 				WorkspaceRoot: "",
 				Approval: SandboxApprovalConfig{
-					DefaultPolicy:    "ask",
-					TimeoutSeconds:   300, // 5 minutes
-					AutoApproveTools: []string{"list_dir", "read_file", "search_files", "list_notes", "read_note", "skills_list", "skill_view", "network_search"},
+					DefaultPolicy:  "ask",
+					TimeoutSeconds: 300, // 5 minutes
 				},
 				Network: SandboxNetworkConfig{
 					AllowedDomains: []string{},

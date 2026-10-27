@@ -266,16 +266,15 @@ type toolAdapter struct {
 	maxResultBytes int
 	policy         *PolicyEngine
 	hooks          *ToolHookChain
-	autoApprove    []string
 }
 
 var _ einotool.InvokableTool = (*toolAdapter)(nil)
 
-func newToolAdapter(t tools.Tool, maxResultBytes int, policy *PolicyEngine, hooks *ToolHookChain, autoApprove []string) *toolAdapter {
+func newToolAdapter(t tools.Tool, maxResultBytes int, policy *PolicyEngine, hooks *ToolHookChain) *toolAdapter {
 	if policy == nil {
 		policy, _ = NewPolicyEngine(nil)
 	}
-	return &toolAdapter{t: t, maxResultBytes: maxResultBytes, policy: policy, hooks: hooks, autoApprove: append([]string(nil), autoApprove...)}
+	return &toolAdapter{t: t, maxResultBytes: maxResultBytes, policy: policy, hooks: hooks}
 }
 
 func (a *toolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
@@ -838,7 +837,7 @@ func (a *toolAdapter) dispatchUngated(ctx context.Context, argumentsInJSON strin
 			if forceHumanApproval {
 				approvalEval = ApprovalEvaluation{ShouldAsk: true, Reason: "human authorization is required to create a Goal"}
 			} else {
-				approvalEval = a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec, a.autoApprove)
+				approvalEval = a.policy.EvaluateApprovalPolicy(approvalPolicy(ctx), spec)
 			}
 			if approvalEval.AutoApprove {
 				return a.run(ctx, string(args), operation)

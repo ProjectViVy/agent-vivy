@@ -162,9 +162,11 @@ export interface LocaleSettings {
   workspace_locale: Locale | '';
   locale_read_only: boolean;
 }
+export type BusyEnter = FaceBusyEnter;
 export interface Settings extends LocaleSettings {
   provider: string;
   default_model: string;
+  busy_enter?: BusyEnter;
   base_url: string;
   read_only: boolean;
   frozen?: boolean;
@@ -225,6 +227,7 @@ export interface SandboxSettingsView {
   approval_expiration_seconds: number;
 }
 export type SettingsUpdate = Pick<Settings, 'provider' | 'default_model' | 'base_url'> & {
+  busy_enter?: BusyEnter;
   api_key?: string;
   network_search?: { provider: string };
   execute_max_timeout_seconds?: number;
@@ -279,6 +282,7 @@ export function settingsUpdateFrom(settings: Settings | null, patch: Partial<Set
   return {
     provider: patch.provider ?? settings?.provider ?? '',
     default_model: patch.default_model ?? settings?.default_model ?? '',
+    busy_enter: patch.busy_enter ?? (settings?.busy_enter === 'steer' ? 'steer' : 'queue'),
     base_url: patch.base_url ?? settings?.base_url ?? '',
     network_search: patch.network_search ?? { provider: settings?.network_search?.provider ?? '' },
     execute_max_timeout_seconds: patch.execute_max_timeout_seconds ?? settings?.execute_max_timeout_seconds ?? 0,
@@ -365,6 +369,7 @@ export const updateTodo = (sessionId: string, id: string, status: TodoStatus) =>
 // Explicit-history continuity types are owned by @vivy/ui-sdk so the Face
 // contract and this host API share one structural submission shape (SC-D4).
 import type {
+  FaceBusyEnter,
   FaceContextReference, FaceHistoryItem, FaceHistoryPage, FaceHistoryReadRequest,
   FaceHistoryScope, FaceHistorySearchRequest, FaceHistorySelection, FaceHistorySession,
   FaceHistorySessionPage, FaceReferencePreview, FaceReferenceSelection, FaceReferenceView,
@@ -421,11 +426,6 @@ export const steerTurn = (sessionId: string, text: string) =>
   request<QueueTurnResult>('turn/steer', { session_id: sessionId, text });
 export const followUpTurn = (sessionId: string, text: string) =>
   request<QueueTurnResult>('turn/follow_up', { session_id: sessionId, text });
-/** Send now: cancel the active run and admit this turn next. Carries the full
- * turn submission because it opens a fresh run; on an idle session it is a
- * plain turn/start fallback. */
-export const sendNowTurn = (sessionId: string, submission: TurnSubmission) =>
-  request<QueueTurnResult>('turn/send_now', turnPayload(sessionId, submission));
 export const getQueueState = (sessionId: string, afterRunId?: string) =>
   request<QueueState>('queue/state', { session_id: sessionId, after_run_id: afterRunId })
     // Go nil slices marshal as null; faces always want arrays.

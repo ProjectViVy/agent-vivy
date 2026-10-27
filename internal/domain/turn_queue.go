@@ -31,9 +31,9 @@ type QueuedTurn struct {
 	// EnqueuedOn is the run journal the turn.queued marker was written to.
 	// Consumption events target the same journal while it remains appendable.
 	EnqueuedOn RunID `json:"enqueued_on"`
-	// InterruptCurrent marks a "send now": the enqueue cancels the session's
-	// active run and this turn is the first admitted after that cancellation.
-	// The queue journal carries the flag; admission clears it.
+	// InterruptCurrent is decode-only: journals written before the single
+	// primary composer can carry a flagged send-now item, and replay must
+	// keep it queued. No producer sets it; admission clears it.
 	InterruptCurrent bool `json:"interrupt_current,omitempty"`
 }
 

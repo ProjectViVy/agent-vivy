@@ -260,7 +260,7 @@ func TestOldGoalRunCannotReportEditedGoalReference(t *testing.T) {
 		entered: make(chan struct{}), release: make(chan struct{}),
 	}
 	engine, err := NewEngine(ctx, model, toolset, EngineConfig{
-		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10, AutoApproveTools: []string{tools.ReportGoalName},
+		StreamBuffer: 8, MaxEventPayloadBytes: 64 << 10,
 	})
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

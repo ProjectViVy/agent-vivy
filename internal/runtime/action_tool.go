@@ -116,7 +116,7 @@ func (s *Service) InvokeActionTool(ctx context.Context, sessionID domain.Session
 	toolCtx = withSessionSandbox(toolCtx, sandboxMode, approvalPolicy)
 	toolCtx = withGovernanceEventSink(toolCtx, s.governanceSink(mapper, sessionID, ledger))
 	toolCtx = withRunEventPublisher(toolCtx, s.deps.Sink)
-	adapter := newToolAdapter(tool, eng.cfg.MaxToolResultBytes, eng.cfg.Policy, eng.cfg.ToolHooks, eng.cfg.AutoApproveTools)
+	adapter := newToolAdapter(tool, eng.cfg.MaxToolResultBytes, eng.cfg.Policy, eng.cfg.ToolHooks)
 	result, invokeErr := adapter.InvokableRun(toolCtx, string(args))
 	if invokeErr != nil {
 		_, _ = s.appendRunEvent(context.WithoutCancel(ctx), mapper.build(domain.EventToolFinished, payloadToolFinished{ToolCallID: callID, ToolName: name, Error: "tool execution failed; the action did not complete"}), false)

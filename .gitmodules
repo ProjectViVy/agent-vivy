@@ -4,3 +4,6 @@
 [submodule "studio"]
 	path = studio
 	url = https://github.com/ProjectViVy/vivy-studio.git
+[submodule ".agents/skills/oil-ui"]
+	path = .agents/skills/oil-ui
+	url = https://github.com/oil-oil/oil-ui.git
