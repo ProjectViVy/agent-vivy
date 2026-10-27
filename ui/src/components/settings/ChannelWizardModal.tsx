@@ -90,17 +90,17 @@ function ChannelWizardModal({
             {steps.map((s, index) => (
               <div key={s.key} className="flex flex-1 flex-col items-center gap-1.5">
                 <div
-                  className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors ${
+                  className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-meta font-semibold transition-colors ${
                     index < stepIndex
-                      ? 'border-primary bg-primary text-primary-foreground'
+                      ? 'border-brand bg-brand-fill text-brand-fg'
                       : s.key === step
-                        ? 'border-primary text-primary'
-                        : 'border-border text-muted-foreground'
+                        ? 'border-brand text-brand-ink'
+                        : 'border-line text-fg-muted'
                   }`}
                 >
                   {index < stepIndex ? <Check className="h-3.5 w-3.5" /> : index + 1}
                 </div>
-                <span className="text-[10px] text-muted-foreground">{s.title}</span>
+                <span className="text-2xs text-fg-muted">{s.title}</span>
               </div>
             ))}
           </div>
@@ -108,7 +108,7 @@ function ChannelWizardModal({
           <div className="space-y-4">
             {step === 'platform' ? (
               <>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="text-meta font-semibold uppercase tracking-wide text-fg-muted">
                   {t('channels.choosePlatform')}
                 </p>
                 {addablePlatforms.length > 0 ? (
@@ -121,19 +121,19 @@ function ChannelWizardModal({
                           key={name}
                           type="button"
                           className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border p-4 transition-all hover:-translate-y-0.5 ${
-                            platform === name ? 'border-primary bg-primary text-primary-foreground' : 'bg-card hover:border-primary'
+                            platform === name ? 'border-brand bg-brand-fill text-brand-fg' : 'bg-raised hover:border-brand'
                           }`}
                           onClick={() => setPlatform(name)}
                         >
                           {PlatformIcon ? (
                             <PlatformIcon className="h-6 w-6" />
                           ) : (
-                            <span className="flex h-6 w-6 items-center justify-center text-sm font-semibold">
+                            <span className="flex h-6 w-6 items-center justify-center text-ui font-semibold">
                               {name.slice(0, 1).toUpperCase()}
                             </span>
                           )}
-                          <span className="text-sm font-semibold">{displayName}</span>
-                          <span className={`text-center text-xs ${platform === name ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
+                          <span className="text-ui font-semibold">{displayName}</span>
+                          <span className={`text-center text-meta ${platform === name ? 'text-brand-fg' : 'text-fg-muted'}`}>
                             {PLATFORM_DESCRIPTIONS[name] ?? name}
                           </span>
                         </button>
@@ -141,25 +141,25 @@ function ChannelWizardModal({
                     })}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">{t('channels.wizardNoAddable')}</p>
+                  <p className="text-ui text-fg-muted">{t('channels.wizardNoAddable')}</p>
                 )}
               </>
             ) : null}
 
             {step === 'credentials' ? (
               <>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="text-meta font-semibold uppercase tracking-wide text-fg-muted">
                   {t('channels.enterCredentials')}
                 </p>
                 {platformInfo ? (
-                  <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
+                  <div className="rounded-lg border border-info/30 bg-info-soft p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <Lightbulb className="h-4 w-4 text-primary" />
-                      <h4 className="text-sm font-semibold">
+                      <Lightbulb className="h-4 w-4 text-brand-ink" />
+                      <h4 className="text-ui font-semibold">
                         {t('channels.quickGuideTitle', { platform: platformInfo.displayName })}
                       </h4>
                     </div>
-                    <ol className="list-decimal space-y-1 pl-5 text-sm">
+                    <ol className="list-decimal space-y-1 pl-5 text-ui">
                       {platformInfo.quickGuideSteps.map((item, index) => (
                         <li key={index}>{item}</li>
                       ))}
@@ -175,17 +175,17 @@ function ChannelWizardModal({
                   allowFromText={allowFromText}
                   onAllowFromTextChange={setAllowFromText}
                 />
-                <p className="text-xs text-muted-foreground">{t('channels.wizardRestartNote')}</p>
+                <p className="text-meta text-fg-muted">{t('channels.wizardRestartNote')}</p>
               </>
             ) : null}
 
             {step === 'done' ? (
               <div className="flex flex-col items-center py-8 text-center">
-                <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-ok text-ok-fg">
                   <Check className="h-12 w-12" />
                 </div>
                 <h4 className="mb-1 text-xl font-semibold">{t('channels.wizardDone')}</h4>
-                <p className="text-sm text-muted-foreground">{t('channels.wizardDoneHint')}</p>
+                <p className="text-ui text-fg-muted">{t('channels.wizardDoneHint')}</p>
               </div>
             ) : null}
           </div>

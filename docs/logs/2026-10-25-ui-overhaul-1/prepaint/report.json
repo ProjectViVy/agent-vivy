@@ -1,0 +1,79 @@
+[
+  {
+    "family": "default",
+    "appearance": "light",
+    "file": "default-prepaint.png",
+    "dataTheme": null,
+    "dataAppearance": "light",
+    "darkClass": false,
+    "rootBackground": "rgb(240, 248, 253)",
+    "bodyBackground": "rgb(240, 248, 253)",
+    "scriptRan": true
+  },
+  {
+    "family": "dark",
+    "appearance": "dark",
+    "file": "dark-prepaint.png",
+    "dataTheme": null,
+    "dataAppearance": "dark",
+    "darkClass": true,
+    "rootBackground": "rgb(12, 20, 24)",
+    "bodyBackground": "rgb(12, 20, 24)",
+    "scriptRan": true
+  },
+  {
+    "family": "pink",
+    "appearance": "light",
+    "file": "pink-prepaint.png",
+    "dataTheme": null,
+    "dataAppearance": "light",
+    "darkClass": false,
+    "rootBackground": "rgb(240, 248, 253)",
+    "bodyBackground": "rgb(240, 248, 253)",
+    "scriptRan": true
+  },
+  {
+    "family": "miku",
+    "appearance": "dark",
+    "file": "miku-prepaint.png",
+    "dataTheme": null,
+    "dataAppearance": "dark",
+    "darkClass": true,
+    "rootBackground": "rgb(12, 20, 24)",
+    "bodyBackground": "rgb(12, 20, 24)",
+    "scriptRan": true
+  },
+  {
+    "family": "rice",
+    "appearance": "light",
+    "file": "rice-prepaint.png",
+    "dataTheme": null,
+    "dataAppearance": "light",
+    "darkClass": false,
+    "rootBackground": "rgb(240, 248, 253)",
+    "bodyBackground": "rgb(240, 248, 253)",
+    "scriptRan": true
+  },
+  {
+    "family": "fluor",
+    "appearance": "dark",
+    "file": "fluor-prepaint.png",
+    "dataTheme": null,
+    "dataAppearance": "dark",
+    "darkClass": true,
+    "rootBackground": "rgb(12, 20, 24)",
+    "bodyBackground": "rgb(12, 20, 24)",
+    "scriptRan": true
+  },
+  {
+    "family": "indigo",
+    "appearance": "dark",
+    "file": "indigo-prepaint.png",
+    "dataTheme": null,
+    "dataAppearance": "dark",
+    "darkClass": true,
+    "rootBackground": "rgb(12, 20, 24)",
+    "bodyBackground": "rgb(12, 20, 24)",
+    "scriptRan": true
+  }
+]

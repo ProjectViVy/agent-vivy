@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ListTodo, Folder, Menu, Wifi, WifiOff } from 'lucide-react';
+import { ListTodo, Folder, Loader2, Menu, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar';
@@ -16,7 +16,8 @@ import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { usePluginHost } from '@vivy/ui-sdk';
 import { ChatHeaderSlot } from '@/plugins/presentation-host';
-import { ConversationModePlaceholder } from '@/components/chat/ConversationModePlaceholder';
+import { ToastViewport } from '@/components/feedback/ToastViewport';
+import { notify } from '@/lib/toasts';
 
 export const Route = createFileRoute('/_layout')({ component: Layout });
 
@@ -55,6 +56,22 @@ function Layout() {
   }, [initialized, initializationError]);
 
   const connected = connection === 'connected';
+  const connectionCopy = connected ? t('layout.online')
+    : connection === 'connecting' ? t('layout.connection.connecting')
+    : connection === 'reconnecting' ? t('layout.connection.reconnecting')
+    : connection === 'error' ? t('errors.disconnected')
+    : t('layout.connection.idle');
+  const connectionTone = connected ? 'bg-ok-soft text-ok'
+    : connection === 'error' ? 'bg-danger-soft text-danger'
+    : connection === 'reconnecting' ? 'bg-warn-soft text-warn'
+    : 'bg-sunken text-fg-muted';
+  const previousConnection = useRef(connection);
+  useEffect(() => {
+    if (previousConnection.current !== 'error' && connection === 'error' && !useVivyStore.getState().runError) {
+      notify({ tone: 'danger', title: t('errors.disconnected'), detail: t('errors.controlPlaneUnreachable') });
+    }
+    previousConnection.current = connection;
+  }, [connection, t]);
   const navClosed = mobile ? !mobileNavOpen : desktopCollapsed;
   const selectAndOpen = async (id: string) => {
     await selectSession(id);
@@ -96,11 +113,11 @@ function Layout() {
 
   return (
     <div className="flex h-dvh bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
-      <div className={cn('hidden h-full shrink-0 overflow-hidden transition-[width] duration-200 md:block', desktopCollapsed ? 'w-0' : 'w-72')}>
+      <div className={cn('hidden h-full shrink-0 overflow-hidden transition-[width] duration-200 md:block', desktopCollapsed ? 'w-0' : 'w-sidebar')}>
         {sidebar}
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-1 border-b bg-card px-2 sm:gap-2 sm:px-4">
+        <header className="flex h-14 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 sm:gap-2 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <Button
               variant="ghost"
@@ -112,26 +129,26 @@ function Layout() {
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex min-w-0 items-center gap-2 max-[359px]:hidden">
-              <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-lg sm:flex">😊</div>
+              <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-selected text-lg sm:flex">😊</div>
               <div className="min-w-0 max-[359px]:hidden">
-                <div className="truncate text-sm font-semibold leading-tight">Vivy</div>
-                <div className="hidden truncate text-xs leading-tight text-muted-foreground sm:block">{run ? run.status : t('layout.idleMood')}</div>
+                <div className="truncate text-title font-semibold leading-tight">Vivy</div>
+                <div className="hidden truncate text-meta leading-tight text-fg-muted sm:block">{run ? run.status : t('layout.idleMood')}</div>
               </div>
               <span
-                className={cn(
-                  'ml-1 hidden sm:flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs',
-                  connected ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600',
-                )}
-                title={connected ? t('layout.online') : connection}
+                role="status"
+                aria-label={connectionCopy}
+                className={cn('ml-1 flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-meta', connectionTone)}
+                title={connectionCopy}
               >
-                {connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                <span className="hidden sm:inline">{connected ? t('layout.online') : connection}</span>
+                {connected ? <Wifi className="h-3 w-3" aria-hidden="true" />
+                  : connection === 'connecting' || connection === 'reconnecting' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                  : <WifiOff className="h-3 w-3" aria-hidden="true" />}
+                <span className="hidden sm:inline">{connectionCopy}</span>
               </span>
             </div>
           </div>
           <div className="flex min-w-0 flex-1 justify-end">
             <div className="flex min-w-0 max-w-full items-center gap-1" data-chat-toolbar>
-              <ConversationModePlaceholder />
               {host ? <ChatHeaderSlot host={host} /> : null}
               <ModelSwitcher />
             </div>
@@ -178,7 +195,7 @@ function Layout() {
       </div>
       {mobile ? (
         <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-          <SheetContent side="left" className="w-72 max-w-full [&>button]:hidden">
+          <SheetContent side="left" className="w-sidebar max-w-full [&>button]:hidden">
             {sidebar}
           </SheetContent>
         </Sheet>
@@ -210,6 +227,7 @@ function Layout() {
         </SheetContent>
       </Sheet>
       <WelcomeWizard />
+      <ToastViewport />
     </div>
   );
 }

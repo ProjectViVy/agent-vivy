@@ -40,7 +40,7 @@ function usePreviewFeedback() {
 function PreviewNotice() {
   const { t } = useTranslation();
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+    <div className="flex items-start gap-2 rounded-lg border border-warn/30 bg-warn-soft p-3 text-meta text-warn">
       <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span><strong>{t('divaPreview.noticeTitle')}</strong> · {t('divaPreview.noticeBody')}</span>
     </div>
@@ -50,7 +50,7 @@ function PreviewNotice() {
 function PreviewHeader({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-brand-ink">
         <Icon className="h-5 w-5" aria-hidden="true" />
       </div>
       <div>
@@ -79,7 +79,7 @@ function PreviewFrame({
       <PreviewNotice />
       <PreviewHeader icon={icon} title={title} description={description} />
       {children}
-      <p className="text-xs text-muted-foreground" aria-live="polite">{feedback}</p>
+      <p className="text-meta text-fg-muted" aria-live="polite">{feedback}</p>
     </div>
   );
 }
@@ -182,9 +182,9 @@ function GeneralPreview() {
 
       <PreviewCard title={t('divaPreview.cacheTitle')} description={t('divaPreview.cacheDescription')}>
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{t('divaPreview.controlPlane')}</p><p className="mt-1 font-medium text-emerald-600">{t('divaPreview.statusHealthy')}</p></div>
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{t('divaPreview.providersLabel')}</p><p className="mt-1 font-medium">2 / 3 {t('divaPreview.readySuffix')}</p></div>
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{t('divaPreview.channelsLabel')}</p><p className="mt-1 font-medium">1 / 3 {t('divaPreview.readySuffix')}</p></div>
+          <div className="rounded-lg border p-3"><p className="text-meta text-fg-muted">{t('divaPreview.controlPlane')}</p><p className="mt-1 font-medium text-ok">{t('divaPreview.statusHealthy')}</p></div>
+          <div className="rounded-lg border p-3"><p className="text-meta text-fg-muted">{t('divaPreview.providersLabel')}</p><p className="mt-1 font-medium">2 / 3 {t('divaPreview.readySuffix')}</p></div>
+          <div className="rounded-lg border p-3"><p className="text-meta text-fg-muted">{t('divaPreview.channelsLabel')}</p><p className="mt-1 font-medium">1 / 3 {t('divaPreview.readySuffix')}</p></div>
         </div>
         <Button type="button" variant="outline" className="mt-4" onClick={() => { setCacheCleared(true); notify(t('divaPreview.cacheClearedShort')); }}>
           {cacheCleared ? t('divaPreview.clearCacheDone') : t('divaPreview.clearCache')}

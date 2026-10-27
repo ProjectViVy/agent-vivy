@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { AlertTriangle, Check, Code2, Eye, GitPullRequest, Loader2, RefreshCw, Save, X } from 'lucide-react';
+import { Check, Code2, Eye, GitPullRequest, Loader2, RefreshCw, Save, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -298,7 +299,7 @@ export function PersonaMemoryView() {
     );
   }
   if (!sessionReady || (loading && !status)) {
-    return <div className="flex h-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex h-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-fg-muted" /></div>;
   }
   if (status?.persona.state === 'uninitialized') {
     return (
@@ -330,7 +331,7 @@ export function PersonaMemoryView() {
               className="shrink-0 gap-1.5"
             >
               {KIND_LABELS[kind]}
-              {personaDocument?.kind === kind ? <span className="text-[10px] opacity-70">r{personaDocument.revision}</span> : null}
+              {personaDocument?.kind === kind ? <span className="text-2xs opacity-70">r{personaDocument.revision}</span> : null}
             </Button>
           ))}
         </div>
@@ -343,7 +344,7 @@ export function PersonaMemoryView() {
               <TabsTrigger value="current" disabled={operationBusy}>{t('plugin.vivy/persona.current')}</TabsTrigger>
               <TabsTrigger value="pending" disabled={operationBusy} className="gap-1.5">
                 {t('plugin.vivy/persona.pending')}
-                {pendingCount > 0 ? <Badge variant="secondary" className="h-4 px-1 text-[10px]">{pendingCount}</Badge> : null}
+                {pendingCount > 0 ? <Badge variant="secondary" className="h-4 px-1 text-2xs">{pendingCount}</Badge> : null}
               </TabsTrigger>
             </TabsList>
             <div className="flex flex-wrap gap-2">
@@ -370,12 +371,11 @@ export function PersonaMemoryView() {
           </div>
 
           {error ? (
-            <div className="mx-4 mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
-              <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /><span>{error}</span></div>
-              <Button className="mt-2" size="sm" variant="outline" onClick={refresh} disabled={loading || operationBusy}>{t('common.retry')}</Button>
+            <div className="mx-4 mt-3">
+              <FailureNotice variant="compact" title={t('errors.genericTitle')} error={error} onRetry={refresh} retryBusy={loading || operationBusy} />
             </div>
           ) : null}
-          {notice ? <p className="mx-4 mt-3 text-sm text-emerald-600 dark:text-emerald-400" role="status">{notice}</p> : null}
+          {notice ? <p className="mx-4 mt-3 text-ui text-ok" role="status">{notice}</p> : null}
 
           <TabsContent value="current" className="mt-0 min-h-0 flex-1 overflow-hidden p-4">
             {mode === 'source' ? (
@@ -384,26 +384,26 @@ export function PersonaMemoryView() {
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 disabled={operationBusy}
-                className="h-full min-h-48 w-full resize-none rounded-lg border bg-background p-3 font-mono text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-full min-h-48 w-full resize-none rounded-lg border bg-canvas p-3 font-mono text-ui outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder={t('plugin.vivy/persona.editorPlaceholder')}
                 aria-label={KIND_LABELS[selectedKind]}
               />
             ) : (
               <ScrollArea className="h-full rounded-lg border p-4">
-                <pre className="whitespace-pre-wrap break-words font-mono text-sm">{draft}</pre>
+                <pre className="whitespace-pre-wrap break-words font-mono text-ui">{draft}</pre>
               </ScrollArea>
             )}
           </TabsContent>
 
           <TabsContent value="pending" className="mt-0 min-h-0 flex-1 overflow-hidden p-4">
             <ScrollArea className="h-full">
-              {reviewsNextCursor ? <p className="mb-3 text-xs text-muted-foreground">{t('plugin.vivy/persona.reviewsLimited')}</p> : null}
+              {reviewsNextCursor ? <p className="mb-3 text-meta text-fg-muted">{t('plugin.vivy/persona.reviewsLimited')}</p> : null}
               {reviews === null && loading ? (
-                <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-fg-muted" /></div>
               ) : reviews === null ? null : reviews.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <div className="flex flex-col items-center justify-center py-16 text-fg-muted">
                   <GitPullRequest className="mb-3 h-10 w-10 opacity-40" />
-                  <p className="text-sm">{t('plugin.vivy/persona.emptyPending')}</p>
+                  <p className="text-ui">{t('plugin.vivy/persona.emptyPending')}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -436,8 +436,8 @@ function Unavailable({
   return (
     <div className="flex h-full items-center justify-center overflow-auto p-6 text-center">
       <div className="max-w-md space-y-3">
-        <p className="text-sm text-muted-foreground">{message}</p>
-        {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+        <p className="text-ui text-fg-muted">{message}</p>
+        {error ? <FailureNotice variant="inline" detail={error} /> : null}
         {actionLabel && onAction ? (
           <Button onClick={onAction} disabled={actionBusy}>
             {actionBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -469,19 +469,19 @@ function InitializationPanel({
       <Card className="mx-auto max-w-3xl">
         <CardHeader>
           <CardTitle>{t('plugin.vivy/persona.initialize.title')}</CardTitle>
-          <p className="text-sm text-muted-foreground">{t('plugin.vivy/persona.initialize.description')}</p>
+          <p className="text-ui text-fg-muted">{t('plugin.vivy/persona.initialize.description')}</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {error ? <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</div> : null}
+          {error ? <FailureNotice variant="inline" detail={error} /> : null}
           {REQUIRED_KINDS.map((kind) => (
             <label key={kind} className="block space-y-1.5">
-              <span className="text-sm font-medium">{t(`plugin.vivy/persona.initialize.fields.${kind}`)} <span className="text-destructive">*</span></span>
+              <span className="text-ui font-medium">{t(`plugin.vivy/persona.initialize.fields.${kind}`)} <span className="text-danger">*</span></span>
               <textarea
                 name={kind}
                 required
                 value={values[kind]}
                 onChange={(event) => onChange(kind, event.target.value)}
-                className="min-h-24 w-full resize-y rounded-lg border bg-background p-3 font-mono text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-h-24 w-full resize-y rounded-lg border bg-canvas p-3 font-mono text-ui outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
           ))}
@@ -521,7 +521,7 @@ function ReviewCard({
         <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Badge variant={review.state === 'pending' ? 'secondary' : review.state === 'accepted' ? 'default' : 'destructive'}>{stateLabel}</Badge>
-            <span className="text-xs text-muted-foreground">{formatDateTime(review.created_at)}</span>
+            <span className="text-meta text-fg-muted">{formatDateTime(review.created_at)}</span>
           </div>
           {review.state === 'pending' ? (
             <div className="flex gap-2">
@@ -535,10 +535,10 @@ function ReviewCard({
             </div>
           ) : null}
         </div>
-        <p className="mb-2 text-sm text-muted-foreground">
+        <p className="mb-2 text-ui text-fg-muted">
           {review.reason ? t('plugin.vivy/persona.review.reason', { reason: review.reason }) : t('plugin.vivy/persona.review.noReason')}
         </p>
-        <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-3 text-xs">{review.proposed_markdown}</pre>
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-sunken p-3 text-meta">{review.proposed_markdown}</pre>
       </CardContent>
     </Card>
   );

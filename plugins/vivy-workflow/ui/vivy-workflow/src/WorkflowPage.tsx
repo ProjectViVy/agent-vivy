@@ -17,6 +17,7 @@ import {
 import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { WorkflowClient } from './client';
 import { FaceBridge } from './face-bridge';
 import { EditorPane, type EditTarget } from './editor/EditorPane';
@@ -77,12 +78,14 @@ function Page({ host, client, t }: { host: FullUIHost; client: WorkflowClient; t
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <TabsList className="h-8">
-            <TabsTrigger value="editor" className="text-xs">{t('plugin.vivy/workflow-ui.tab.editor')}</TabsTrigger>
-            <TabsTrigger value="workflows" className="text-xs">{t('plugin.vivy/workflow-ui.tab.workflows')}</TabsTrigger>
-            <TabsTrigger value="runs" className="text-xs">{t('plugin.vivy/workflow-ui.tab.runs')}</TabsTrigger>
+            <TabsTrigger value="editor" className="text-meta">{t('plugin.vivy/workflow-ui.tab.editor')}</TabsTrigger>
+            <TabsTrigger value="workflows" className="text-meta">{t('plugin.vivy/workflow-ui.tab.workflows')}</TabsTrigger>
+            <TabsTrigger value="runs" className="text-meta">{t('plugin.vivy/workflow-ui.tab.runs')}</TabsTrigger>
           </TabsList>
           {catalogError ? (
-            <span className="ml-auto text-[11px] text-destructive">{catalogError}</span>
+            <div className="ml-auto max-w-sm">
+              <FailureNotice variant="inline" title={t('plugin.vivy/workflow-ui.tab.workflows')} detail={catalogError} />
+            </div>
           ) : null}
         </div>
         <TabsContent value="editor" className="mt-0 min-h-0 flex-1">

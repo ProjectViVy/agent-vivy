@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import {
-  Check, ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderPlus,
-  Pencil, Plus, Search, SlidersHorizontal, Trash2, X,
+  ChevronDown, ChevronLeft, ChevronRight, Folder, FolderOpen, FolderPlus,
+  Plus, Search, SlidersHorizontal, X,
 } from 'lucide-react';
 import type { Session } from '@/lib/api';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { SIDEBAR_VIVY_GROUP, useGroupedNavigation } from '@/plugins/grouped-navigation';
@@ -16,6 +19,7 @@ import {
   filterSessions, readSessionListView, storeSessionListView, type SessionListView,
 } from './session-list-view';
 import { WorkspaceFolderDialog } from './WorkspaceFolderDialog';
+import { SessionRow } from './session-row';
 
 type SidebarView = 'root' | 'toolbox' | 'vivy';
 /** Every entry names its left icon from the host icon set, core or Module. */
@@ -95,25 +99,10 @@ export function ConversationSidebar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
-  const viewMenuRef = useRef<HTMLDivElement>(null);
   const view = manualView ?? pathView;
   const searching = query.trim().length > 0;
 
   useEffect(() => setManualView(null), [pathView]);
-  useEffect(() => {
-    if (!viewMenuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (viewMenuRef.current?.contains(event.target as Node)) return;
-      setViewMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setViewMenuOpen(false); };
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [viewMenuOpen]);
 
   const groups = useMemo(() => groupSessionsByWorkspace(sessions, t('workspace.default')), [sessions, t]);
   const matches = useMemo(() => filterSessions(sessions, query, {
@@ -129,11 +118,11 @@ export function ConversationSidebar({
     return (
       <Link key={item.to} to={item.to}>
         <div className={cn(
-          'flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+          'flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-ui transition-colors',
           active ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground' : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
-        )}>
+        )} title={item.label ?? navT(item.labelKey)}>
           <Icon className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">{item.label ?? navT(item.labelKey)}</span>
+          <span className="min-w-0 flex-1 line-clamp-2 break-words">{item.label ?? navT(item.labelKey)}</span>
         </div>
       </Link>
     );
@@ -143,12 +132,12 @@ export function ConversationSidebar({
     const Icon = resolveHostIcon(icon);
     const active = view === key || childItems.some(isNavItemActive);
     return (
-      <button type="button" onClick={() => setManualView(key)} className={cn(
-        'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
+      <button type="button" onClick={() => setManualView(key)} title={label} className={cn(
+        'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left text-ui transition-colors',
         active ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground' : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
       )}>
         <Icon className="h-4 w-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="min-w-0 flex-1 line-clamp-2 break-words">{label}</span>
         <ChevronRight className="h-4 w-4 shrink-0 opacity-50" />
       </button>
     );
@@ -163,38 +152,23 @@ export function ConversationSidebar({
   const renderSession = (session: Session) => {
     const editing = editingSessionId === session.id;
     return (
-      <div
+      <SessionRow
         key={session.id}
-        onClick={() => { if (!editing) onSelectSession(session.id); }}
-        className={cn(
-          'group relative flex min-h-8 cursor-pointer items-center rounded-lg px-2.5 py-1.5 text-sm transition-colors',
-          activeSessionId === session.id ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'hover:bg-sidebar-accent/50',
-          busyId === session.id && 'opacity-60',
-        )}
-      >
-        {editing ? (
-          <div className="flex w-full min-w-0 items-center gap-1">
-            <input
-              autoFocus value={editingTitle} onChange={(event) => setEditingTitle(event.target.value)}
-              onKeyDown={(event) => { if (event.key === 'Enter') void saveRename(); if (event.key === 'Escape') setEditingSessionId(null); }}
-              onClick={(event) => event.stopPropagation()}
-              className="min-w-0 flex-1 rounded border bg-background px-2 py-0.5 text-sm outline-none focus:border-primary"
-            />
-            <button type="button" onClick={(event) => { event.stopPropagation(); void saveRename(); }} title={t('common.save')} className="rounded p-0.5 hover:bg-sidebar-accent"><Check className="h-3.5 w-3.5" /></button>
-            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingSessionId(null); }} title={t('common.cancel')} className="rounded p-0.5 hover:bg-sidebar-accent"><X className="h-3.5 w-3.5" /></button>
-          </div>
-        ) : (
-          <>
-            <span className={cn('min-w-0 flex-1 truncate group-hover:pr-12', !session.title && 'text-muted-foreground')}>
-              {session.title || t('errors.newSessionDefault')}
-            </span>
-            <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-              <button type="button" onClick={(event) => { event.stopPropagation(); setEditingSessionId(session.id); setEditingTitle(session.title); }} title={t('common.edit')} className="rounded p-1 hover:bg-sidebar-accent"><Pencil className="h-3.5 w-3.5" /></button>
-              <button type="button" onClick={(event) => { event.stopPropagation(); void onDeleteSession(session.id); }} title={t('common.delete')} className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
-            </div>
-          </>
-        )}
-      </div>
+        title={session.title || t('errors.newSessionDefault')}
+        untitled={!session.title}
+        active={activeSessionId === session.id}
+        busy={busyId === session.id}
+        onSelect={() => onSelectSession(session.id)}
+        rename={{
+          editing,
+          draft: editingTitle,
+          onDraftChange: setEditingTitle,
+          onStart: () => { setEditingSessionId(session.id); setEditingTitle(session.title); },
+          onSave: () => void saveRename(),
+          onCancel: () => setEditingSessionId(null),
+        }}
+        onDelete={() => void onDeleteSession(session.id)}
+      />
     );
   };
 
@@ -211,7 +185,7 @@ export function ConversationSidebar({
     <div className="flex min-h-7 items-center gap-0.5 px-3 pb-1 pt-3">
       {searchOpen ? (
         <>
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <Search className="h-3.5 w-3.5 shrink-0 text-fg-muted" aria-hidden="true" />
           <input
             autoFocus
             value={query}
@@ -219,35 +193,29 @@ export function ConversationSidebar({
             onKeyDown={(event) => { if (event.key === 'Escape') closeSearch(); }}
             placeholder={t('sessionDrawer.searchPlaceholder')}
             aria-label={t('sessionDrawer.searchPlaceholder')}
-            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent text-ui text-fg outline-none placeholder:text-fg-muted"
           />
-          <button type="button" onClick={closeSearch} title={t('common.cancel')} aria-label={t('common.cancel')} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><X className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={closeSearch} title={t('common.cancel')} aria-label={t('common.cancel')} className="rounded-md p-1 text-fg-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><X className="h-3.5 w-3.5" /></button>
         </>
       ) : (
         <>
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">{t('layout.sessions')}</span>
-          <button type="button" onClick={() => setSearchOpen(true)} title={t('sidebar.search')} aria-label={t('sidebar.search')} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><Search className="h-3.5 w-3.5" /></button>
-          <div ref={viewMenuRef} className="relative">
-            <button type="button" onClick={() => setViewMenuOpen((open) => !open)} title={t('sidebar.view')} aria-label={t('sidebar.view')} aria-haspopup="menu" aria-expanded={viewMenuOpen} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><SlidersHorizontal className="h-3.5 w-3.5" /></button>
-            {viewMenuOpen ? (
-              <div role="menu" className="absolute right-0 top-7 z-20 w-44 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
+          <span className="min-w-0 flex-1 truncate text-meta font-medium text-fg-muted">{t('layout.sessions')}</span>
+          <button type="button" onClick={() => setSearchOpen(true)} title={t('sidebar.search')} aria-label={t('sidebar.search')} className="rounded-md p-1 text-fg-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><Search className="h-3.5 w-3.5" /></button>
+          <DropdownMenu open={viewMenuOpen} onOpenChange={setViewMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <button type="button" title={t('sidebar.view')} aria-label={t('sidebar.view')} className="rounded-md p-1 text-fg-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><SlidersHorizontal className="h-3.5 w-3.5" /></button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuRadioGroup value={viewMode} onValueChange={(value) => selectViewMode(value as SessionListView)}>
                 {VIEW_MODES.map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={viewMode === mode}
-                    onClick={() => selectViewMode(mode)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <Check className={cn('h-3.5 w-3.5 shrink-0', viewMode !== mode && 'opacity-0')} />
-                    <span className="min-w-0 flex-1 truncate">{t(mode === 'grouped' ? 'sidebar.viewGrouped' : 'sidebar.viewFlat')}</span>
-                  </button>
+                  <DropdownMenuRadioItem key={mode} value={mode} className="text-ui">
+                    {t(mode === 'grouped' ? 'sidebar.viewGrouped' : 'sidebar.viewFlat')}
+                  </DropdownMenuRadioItem>
                 ))}
-              </div>
-            ) : null}
-          </div>
-          <button type="button" onClick={() => setFolderPickerOpen(true)} title={t('sidebar.openFolder')} aria-label={t('sidebar.openFolder')} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><FolderPlus className="h-3.5 w-3.5" /></button>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button type="button" onClick={() => setFolderPickerOpen(true)} title={t('sidebar.openFolder')} aria-label={t('sidebar.openFolder')} className="rounded-md p-1 text-fg-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"><FolderPlus className="h-3.5 w-3.5" /></button>
         </>
       )}
     </div>
@@ -255,11 +223,11 @@ export function ConversationSidebar({
 
   const renderSessionList = () => {
     if (sessions.length === 0) {
-      return <div className="px-3 py-8 text-center text-xs text-muted-foreground">{t('sessionDrawer.empty')}</div>;
+      return <div className="px-3 py-8 text-center text-meta text-fg-muted">{t('sessionDrawer.empty')}</div>;
     }
     if (searching) {
       return matches.length === 0
-        ? <div className="px-3 py-8 text-center text-xs text-muted-foreground">{t('sessionDrawer.noMatch')}</div>
+        ? <div className="px-3 py-8 text-center text-meta text-fg-muted">{t('sessionDrawer.noMatch')}</div>
         : <div className="space-y-0.5">{matches.map(renderSession)}</div>;
     }
     if (viewMode === 'flat') return <div className="space-y-0.5">{sessions.map(renderSession)}</div>;
@@ -268,12 +236,12 @@ export function ConversationSidebar({
         {groups.map((group) => {
           const open = workspaceOpen[group.key] ?? true;
           return <div key={group.key || '__default__'}>
-            <div className="group/workspace flex min-h-8 items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent/50" title={group.key || t('workspace.default')}>
+            <div className="group/workspace flex min-h-8 items-center gap-1 rounded-lg px-2.5 py-1.5 text-ui text-sidebar-foreground hover:bg-sidebar-accent/50" title={group.key || t('workspace.default')}>
               <button type="button" onClick={() => setWorkspaceOpen((current) => ({ ...current, [group.key]: !open }))} className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-expanded={open}>
                 {open ? <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-70" /> : <Folder className="h-3.5 w-3.5 shrink-0 opacity-70" />}
-                <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">{group.sessions.length}</span>
-                <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', !open && '-rotate-90')} />
+                <span className="min-w-0 flex-1 line-clamp-2 break-words font-medium">{group.label}</span>
+                <span className="text-2xs tabular-nums text-fg-muted">{group.sessions.length}</span>
+                <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-fg-muted transition-transform', !open && '-rotate-90')} />
               </button>
               <button type="button" onClick={() => void onCreateSession(group.key)} title={t('sidebar.newSession')} aria-label={t('sidebar.newSession')} className="pointer-events-none rounded p-1 opacity-0 hover:bg-sidebar-accent group-hover/workspace:pointer-events-auto group-hover/workspace:opacity-100"><Plus className="h-3.5 w-3.5" /></button>
             </div>
@@ -294,19 +262,19 @@ export function ConversationSidebar({
   const renderDrillHeader = (icon: HostIconName, title: string) => {
     const Icon = resolveHostIcon(icon);
     return <div className="flex items-center gap-1 px-2 pb-1 pt-3">
-      <button type="button" onClick={() => setManualView('root')} aria-label={t('nav.back')} title={t('nav.back')} className="-ml-1 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"><ChevronLeft className="h-4 w-4" /></button>
-      <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground"><Icon className="h-4 w-4 shrink-0" /><span className="truncate">{title}</span></div>
+      <button type="button" onClick={() => setManualView('root')} aria-label={t('nav.back')} title={t('nav.back')} className="-ml-1 rounded-md p-1.5 text-fg-muted transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"><ChevronLeft className="h-4 w-4" /></button>
+      <div className="flex min-w-0 items-center gap-2 text-ui font-semibold text-fg"><Icon className="h-4 w-4 shrink-0" /><span className="line-clamp-2 break-words" title={title}>{title}</span></div>
     </div>;
   };
 
   const rootBody = <>
-    <div className="px-2 pt-2"><button type="button" onClick={() => void onCreateSession('')} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"><Plus className="h-4 w-4" /><span>{t('sidebar.newSession')}</span></button></div>
+    <div className="px-2 pt-2"><button type="button" onClick={() => void onCreateSession('')} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-ui text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"><Plus className="h-4 w-4" /><span>{t('sidebar.newSession')}</span></button></div>
     <nav className="space-y-0.5 px-2 py-1">{renderNavLink(DASHBOARD_ITEM)}{renderDrillButton('toolbox', 'wrench', t('nav.toolbox'), TOOLBOX_ITEMS)}{renderDrillButton('vivy', 'sparkles', t('nav.vivy'), vivyItems)}</nav>
     {renderSessions()}
   </>;
 
   return <aside className="flex h-full flex-col bg-sidebar">
-    <div className="flex items-center gap-2.5 px-4 py-4"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary"><span className="text-sm font-bold text-primary-foreground">V</span></div><span className="text-lg font-semibold text-foreground">Vivy</span></div>
+    <div className="flex items-center gap-2.5 px-4 py-4"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-fill"><span className="text-ui font-bold text-brand-fg">V</span></div><span className="text-title font-semibold text-fg">Vivy</span></div>
     <div className="flex min-h-0 flex-1 flex-col">{view === 'toolbox' ? <>{renderDrillHeader('wrench', t('nav.toolbox'))}<nav className="space-y-0.5 px-2 py-1">{TOOLBOX_ITEMS.map(renderNavLink)}</nav></> : view === 'vivy' ? <>{renderDrillHeader('sparkles', t('nav.vivy'))}<nav className="space-y-0.5 px-2 py-1">{vivyItems.map(renderNavLink)}</nav></> : rootBody}</div>
     <div className="border-t border-sidebar-border p-2">{renderNavLink({ to: '/settings', icon: 'settings', labelKey: 'nav.settings' })}</div>
     <WorkspaceFolderDialog

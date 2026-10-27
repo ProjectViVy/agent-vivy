@@ -9,6 +9,7 @@ import { isTaskToolName } from './todos';
 import { recentRunIds } from './run-rows';
 import { checkDeliverable, DeliverableTransferError, downloadDeliverable, readDeliveryPreview } from './deliverable-download';
 import { hydrateLocale, t } from '@/i18n';
+import { notifyFailure } from './toasts';
 
 export type Phase = 'idle' | 'loading' | 'refreshing' | 'ready' | 'empty' | 'error' | 'processing';
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -160,7 +161,6 @@ interface RuntimeState {
   reviewBusyIds: string[];
   reviewCenterOpen: boolean;
   filesPanelOpen: boolean;
-  sessionDrawerOpen: boolean;
   settings: api.Settings | null;
   settingsPhase: Phase;
   settingsError: string | null;
@@ -252,7 +252,6 @@ interface RuntimeState {
   respondReview: (id: string, response: { action: 'approve' | 'deny' | 'answer' | 'cancel'; reason?: string; answer?: string }) => Promise<void>;
   setReviewCenterOpen: (open: boolean) => void;
   setFilesPanelOpen: (open: boolean) => void;
-  setSessionDrawerOpen: (open: boolean) => void;
   loadTodos: (sessionId?: string) => Promise<void>;
   updateTodoStatus: (todoId: string, status: api.TodoStatus) => Promise<void>;
   setTodoPanelOpen: (open: boolean) => void;
@@ -630,7 +629,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   work: null, workPhase: 'idle', workError: null, workBusy: false,
   backgroundRuns: [], backgroundPhase: 'idle', backgroundError: null, backgroundBusyId: null,
   children: [], childrenPhase: 'idle', childrenError: null, childBusyId: null, selectedChild: null,
-  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false, sessionDrawerOpen: false,
+  reviews: [], reviewsPhase: 'idle', reviewsError: null, reviewBusyIds: [], reviewCenterOpen: false, filesPanelOpen: false,
   settings: null, settingsPhase: 'idle', settingsError: null,
   providers: [], catalog: [], providersPhase: 'idle', providersError: null,
   species: null, generations: [], evals: [], promotions: [], lifecyclePhase: 'idle', lifecycleError: null, lifecycleBusy: false,
@@ -786,14 +785,14 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   renameSession: async (id, title) => {
     set({ sessionBusyId: id, sessionsError: null });
     try { const renamed = await api.renameSession(id, title); set((state) => ({ sessions: state.sessions.map((item) => item.id === id ? renamed : item) })); }
-    catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
+    catch (error) { notifyFailure(error, { title: t('feedback.operation.sessionAction') }); throw error; } finally { set({ sessionBusyId: null }); }
   },
   setSessionPermission: async (id, preset) => {
     set({ sessionBusyId: id, sessionsError: null });
     try {
       const updated = await api.setSessionPermission(id, preset);
       set((state) => ({ sessions: state.sessions.map((item) => item.id === id ? { ...item, ...updated } : item) }));
-    } catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
+    } catch (error) { notifyFailure(error, { title: t('feedback.operation.sessionAction') }); throw error; } finally { set({ sessionBusyId: null }); }
   },
   deleteSession: async (id) => {
     set({ sessionBusyId: id, sessionsError: null });
@@ -808,7 +807,7 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
         if (remaining[0]) await get().selectSession(remaining[0].id);
         else await get().createSession();
       }
-    } catch (error) { set({ sessionsError: errorMessage(error) }); throw error; } finally { set({ sessionBusyId: null }); }
+    } catch (error) { notifyFailure(error, { title: t('feedback.operation.sessionAction') }); throw error; } finally { set({ sessionBusyId: null }); }
   },
   selectSession: async (id) => {
     const epoch = ++sessionEpoch;
@@ -1317,7 +1316,6 @@ export const useVivyStore = create<RuntimeState>((set, get) => ({
   },
   setReviewCenterOpen: (open) => set({ reviewCenterOpen: open }),
   setFilesPanelOpen: (open) => set({ filesPanelOpen: open }),
-  setSessionDrawerOpen: (open) => set({ sessionDrawerOpen: open }),
   loadSettings: async () => {
     const operation = beginSettingsRead();
     if (!operation) return;

@@ -69,13 +69,13 @@ export function NodePanel({ artifact, node, descriptor, t, disabled, onChange, o
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b px-3 py-2">
         <div className="flex items-center gap-2">
-          <h3 className="text-xs font-semibold">{t('plugin.vivy/workflow-ui.node.title')}</h3>
-          <Badge variant="outline" className="text-[10px]">{node.kind}</Badge>
+          <h3 className="text-meta font-semibold">{t('plugin.vivy/workflow-ui.node.title')}</h3>
+          <Badge variant="outline" className="text-2xs">{node.kind}</Badge>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="ml-auto h-6 w-6 text-muted-foreground hover:text-destructive"
+            className="ml-auto h-6 w-6 text-fg-muted hover:text-danger"
             disabled={disabled}
             onClick={() => onDelete(node.id)}
             title={t('plugin.vivy/workflow-ui.node.delete')}
@@ -83,35 +83,35 @@ export function NodePanel({ artifact, node, descriptor, t, disabled, onChange, o
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
-        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+        <p className="mt-0.5 truncate text-2xs text-fg-muted">
           {node.id}
           {descriptor?.display?.title ? ` · ${descriptor.display.title}` : ''}
         </p>
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
         {!isCall ? (
-          <p className="text-[11px] text-muted-foreground">{t('plugin.vivy/workflow-ui.node.advanced')}</p>
+          <p className="text-2xs text-fg-muted">{t('plugin.vivy/workflow-ui.node.advanced')}</p>
         ) : (
           <>
             <div className="space-y-1.5">
-              <Label htmlFor="wf-node-task" className="text-xs">{t('plugin.vivy/workflow-ui.node.task')}</Label>
+              <Label htmlFor="wf-node-task" className="text-meta">{t('plugin.vivy/workflow-ui.node.task')}</Label>
               <Textarea
                 id="wf-node-task"
                 value={task}
                 disabled={disabled}
                 rows={4}
-                className="text-xs"
+                className="text-meta"
                 onChange={(e) => patch(setConfigField(node, 'task', e.target.value))}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="wf-node-tools" className="text-xs">{t('plugin.vivy/workflow-ui.node.tools')}</Label>
+              <Label htmlFor="wf-node-tools" className="text-meta">{t('plugin.vivy/workflow-ui.node.tools')}</Label>
               <Input
                 id="wf-node-tools"
                 value={tools.join(', ')}
                 disabled={disabled}
                 placeholder={t('plugin.vivy/workflow-ui.node.toolsPlaceholder')}
-                className="h-8 text-xs"
+                className="h-8 text-meta"
                 onChange={(e) => {
                   const list = e.target.value.split(',').map((x) => x.trim()).filter((x) => x !== '');
                   patch(setConfigField(node, 'tool_names', list.length > 0 ? list : undefined));
@@ -119,21 +119,21 @@ export function NodePanel({ artifact, node, descriptor, t, disabled, onChange, o
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="wf-node-inputs" className="text-xs">{t('plugin.vivy/workflow-ui.node.inputs')}</Label>
+              <Label htmlFor="wf-node-inputs" className="text-meta">{t('plugin.vivy/workflow-ui.node.inputs')}</Label>
               <Textarea
                 id="wf-node-inputs"
                 value={inputsDraft}
                 disabled={disabled}
                 rows={5}
                 spellCheck={false}
-                className="font-mono text-[11px]"
+                className="font-mono text-2xs"
                 onChange={(e) => setInputsDraft(e.target.value)}
                 onBlur={(e) => commitInputs(e.target.value)}
               />
-              {inputsError ? <p className="text-[11px] text-destructive">{inputsError}</p> : null}
+              {inputsError ? <p className="text-2xs text-danger">{inputsError}</p> : null}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="wf-node-timeout" className="text-xs">{t('plugin.vivy/workflow-ui.node.timeout')}</Label>
+              <Label htmlFor="wf-node-timeout" className="text-meta">{t('plugin.vivy/workflow-ui.node.timeout')}</Label>
               <Input
                 id="wf-node-timeout"
                 type="number"
@@ -141,7 +141,7 @@ export function NodePanel({ artifact, node, descriptor, t, disabled, onChange, o
                 value={typeof node.timeout_ms === 'number' ? node.timeout_ms : ''}
                 disabled={disabled}
                 placeholder={t('plugin.vivy/workflow-ui.node.timeoutPlaceholder')}
-                className="h-8 text-xs"
+                className="h-8 text-meta"
                 onChange={(e) => {
                   const raw = e.target.value;
                   const next = { ...node };
@@ -159,17 +159,17 @@ export function NodePanel({ artifact, node, descriptor, t, disabled, onChange, o
                 disabled={disabled}
                 onCheckedChange={(checked) => onChange(setExit(artifact, node.id, checked === true))}
               />
-              <Label htmlFor="wf-node-exit" className="text-xs">{t('plugin.vivy/workflow-ui.node.exit')}</Label>
+              <Label htmlFor="wf-node-exit" className="text-meta">{t('plugin.vivy/workflow-ui.node.exit')}</Label>
             </div>
             {isExit ? (
               <div className="space-y-1.5">
-                <Label htmlFor="wf-node-output" className="text-xs">{t('plugin.vivy/workflow-ui.node.outputName')}</Label>
+                <Label htmlFor="wf-node-output" className="text-meta">{t('plugin.vivy/workflow-ui.node.outputName')}</Label>
                 <Input
                   id="wf-node-output"
                   value={outputName}
                   disabled={disabled}
                   placeholder={node.id}
-                  className="h-8 text-xs"
+                  className="h-8 text-meta"
                   onChange={(e) => onChange(setExitOutputName(artifact, node.id, e.target.value))}
                 />
               </div>

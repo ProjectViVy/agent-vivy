@@ -76,7 +76,7 @@ export function GenerationParamsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
           <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('settings.advancedFeaturesTitle')}</CardTitle>
@@ -86,12 +86,12 @@ export function GenerationParamsCard() {
         {options.length ? (
           <>
             <div className="flex items-center gap-2">
-              <p className="text-sm font-medium">{t('settings.generationParamsTitle')}</p>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">{t('settings.demoBadge')}</span>
+              <p className="text-ui font-medium">{t('settings.generationParamsTitle')}</p>
+              <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-medium leading-none text-fg-muted">{t('settings.demoBadge')}</span>
             </div>
-            <p className="text-xs text-muted-foreground">{t('settings.generationParamsDescription')}</p>
+            <p className="text-meta text-fg-muted">{t('settings.generationParamsDescription')}</p>
             <div className="space-y-1.5">
-              <Label htmlFor="gen-params-model" className="text-xs">{t('settings.modelSelect')}</Label>
+              <Label htmlFor="gen-params-model" className="text-meta">{t('settings.modelSelect')}</Label>
               <Select value={selectedKey} onValueChange={(value) => setSelectedKey(value)}>
                 <SelectTrigger id="gen-params-model" className="w-full sm:max-w-xs">
                   <SelectValue />
@@ -100,22 +100,22 @@ export function GenerationParamsCard() {
                   {options.map((entry) => (
                     <SelectItem key={modelKey(entry)} value={modelKey(entry)}>
                       <span className="font-medium">{savedModelVendorLabel(entry, providers, catalog)}</span>
-                      <span className="text-muted-foreground"> · </span>
-                      <span className="font-mono text-xs">{entry.model}</span>
+                      <span className="text-fg-muted"> · </span>
+                      <span className="font-mono text-meta">{entry.model}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {selectedEntry ? (
-                <p className="text-xs text-muted-foreground">{t('settings.genParamsModelHint', { model: selectedEntry.model })}</p>
+                <p className="text-meta text-fg-muted">{t('settings.genParamsModelHint', { model: selectedEntry.model })}</p>
               ) : null}
             </div>
             {genParams ? (
               <div className="space-y-4 rounded-lg border p-3">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <Label className="text-xs">{t('settings.temperature')}</Label>
-                    <span className="font-mono text-xs tabular-nums text-muted-foreground">{genParams.temperature.toFixed(1)}</span>
+                    <Label className="text-meta">{t('settings.temperature')}</Label>
+                    <span className="font-mono text-meta tabular-nums text-fg-muted">{genParams.temperature.toFixed(1)}</span>
                   </div>
                   <Slider
                     value={[genParams.temperature]}
@@ -127,7 +127,7 @@ export function GenerationParamsCard() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="gen-params-max-tokens" className="text-xs">{t('settings.maxTokens')}</Label>
+                  <Label htmlFor="gen-params-max-tokens" className="text-meta">{t('settings.maxTokens')}</Label>
                   <Input
                     id="gen-params-max-tokens"
                     type="number"
@@ -144,8 +144,8 @@ export function GenerationParamsCard() {
                     {genStatus === 'saving' ? t('settings.saving') : t('settings.saveDemoParams')}
                   </Button>
                   {genStatus === 'saved' ? (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                    <span className="inline-flex items-center gap-1.5 text-ui text-fg-muted">
+                      <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
                       {t('settings.savedLocally')}
                     </span>
                   ) : null}
@@ -156,7 +156,7 @@ export function GenerationParamsCard() {
             )}
           </>
         ) : (
-          <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">{t('settings.noModelsForGenParams')}</p>
+          <p className="rounded-md border border-dashed px-3 py-2 text-meta text-fg-muted">{t('settings.noModelsForGenParams')}</p>
         )}
       </CardContent>
     </Card>

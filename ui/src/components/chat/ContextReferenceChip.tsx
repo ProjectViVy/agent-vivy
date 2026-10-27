@@ -25,10 +25,10 @@ export function ContextReferenceChip({ preview, onView, onRemove }: ContextRefer
       className="flex max-w-full items-center gap-1.5 py-1 pl-2 pr-1 font-normal"
       data-testid="context-reference-chip"
     >
-      <span className="truncate text-xs" title={preview.selection.source_session_id}>
+      <span className="truncate text-meta" title={preview.selection.source_session_id}>
         {t('contextRef.chip', { session: preview.selection.source_session_id })}
       </span>
-      <span className="shrink-0 text-[10px] text-muted-foreground">
+      <span className="shrink-0 text-2xs text-fg-muted">
         {t('contextRef.chipMeta', { count: preview.items.length, kinds: kinds.join('/'), time: captured })}
       </span>
       {onView ? (

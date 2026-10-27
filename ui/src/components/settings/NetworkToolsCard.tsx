@@ -26,7 +26,6 @@ function parseHosts(value: string): string[] {
 export function NetworkToolsCard() {
   const { t } = useTranslation();
   const settings = useVivyStore((state) => state.settings);
-  const error = useVivyStore((state) => state.settingsError);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
 
@@ -104,15 +103,13 @@ export function NetworkToolsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-brand-ink">
           <Globe2 className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('networkTools.title')}</CardTitle>
         <CardDescription>{t('networkTools.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
-
         <div className="space-y-2">
           <Label htmlFor="network-tools-provider">{t('networkTools.preferredProvider')}</Label>
           <div className="flex flex-wrap items-center gap-3">
@@ -130,7 +127,7 @@ export function NetworkToolsCard() {
             </Button>
             {savedFlash ? (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
                 {t('networkTools.saved')}
               </span>
             ) : null}
@@ -204,7 +201,7 @@ export function NetworkToolsCard() {
             </Button>
             {httpSavedFlash ? (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
                 {t('networkTools.saved')}
               </span>
             ) : null}

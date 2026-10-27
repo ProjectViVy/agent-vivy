@@ -4,23 +4,11 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
-  GitBranch,
   MessageSquare,
-  Settings,
   SkipForward,
   Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
 import { completeWelcome, useWelcomeOpen } from '@/hooks/use-welcome';
@@ -37,6 +25,9 @@ import {
   welcomeVendors,
   type WelcomeModelDraft,
 } from './welcome-model';
+import { WizardStepIntro } from './welcome/wizard-step-intro';
+import { WizardStepModel, type WizardStepModelProps } from './welcome/wizard-step-model';
+import { WizardStepDone, type WelcomeNavigateTarget } from './welcome/wizard-step-done';
 import { cn } from '@/lib/utils';
 
 // 首次使用引导向导（移植自 Agent-Diva 的 WelcomeWizard）：
@@ -47,13 +38,14 @@ import { cn } from '@/lib/utils';
 // models 清单，选中三元组写 `{provider: 密封适配器, base_url, default_model}`。
 // API Key 由注册表承载（写-only；wire 只回 api_key_set），在向导里填写后
 // 通过 `settings/providers/upsert` 落盘，永不回显或写日志。
+//
+// 本壳只持有状态、effects 与保存流程；三个步骤视图在 ./welcome/ 下，
+// 与 composer 拆分同口径（壳拥有数据，步骤视图纯展示）。
 const WELCOME_STEPS = [
   { id: 'intro', icon: Sparkles, labelKey: 'welcome.stepIntro' },
   { id: 'model', icon: Bot, labelKey: 'welcome.stepModel' },
   { id: 'done', icon: MessageSquare, labelKey: 'welcome.stepDone' },
 ] as const;
-
-type WelcomeNavigateTarget = 'chat' | 'settings' | 'skills';
 
 const FLOATING_ORBS = [
   { left: '6%', top: '12%', size: 18, delay: 0 },
@@ -94,11 +86,10 @@ export function WelcomeWizard() {
   const vendors = useMemo(() => welcomeVendors(rows), [rows]);
   const selectedRow = rows.find(
     (candidate) => candidate.vendor === form.vendor && candidate.adapter === form.adapter,
-  );
+  ) ?? null;
   const vendorEndpoints = rows.filter((candidate) => candidate.vendor === form.vendor);
   const keyStatus = selectedRow ? welcomeKeyStatus(rows, providers, settings, selectedRow) : null;
   const keyConfigured = keyStatus?.configured ?? false;
-  const locked = saving || readOnly;
   const catalogLoading = !catalog.length && (providersPhase === 'idle' || providersPhase === 'loading');
   const catalogFailed = !rows.length && providersPhase === 'error';
 
@@ -158,6 +149,17 @@ export function WelcomeWizard() {
 
   const chooseModel = (model: string) => {
     setForm({ ...form, model });
+    setError(null);
+  };
+
+  const changeApiKey = (value: string) => {
+    setApiKey(value);
+    if (value.trim()) setEnvKeyConfirmed(false);
+    setError(null);
+  };
+
+  const changeEnvKeyConfirmed = (checked: boolean) => {
+    setEnvKeyConfirmed(checked);
     setError(null);
   };
 
@@ -225,6 +227,31 @@ export function WelcomeWizard() {
 
   if (!open) return null;
 
+  const modelStepProps: WizardStepModelProps = {
+    form,
+    rows,
+    vendors,
+    selectedRow,
+    vendorEndpoints,
+    keyConfigured,
+    apiKey,
+    envKeyConfirmed,
+    saving,
+    readOnly,
+    frozen: settings?.frozen ?? false,
+    error,
+    catalogLoading,
+    catalogFailed,
+    providersError,
+    onChooseVendor: chooseVendor,
+    onChooseProtocol: chooseProtocol,
+    onChooseModel: chooseModel,
+    onApiKeyChange: changeApiKey,
+    onEnvKeyConfirmedChange: changeEnvKeyConfirmed,
+    onSubmit: () => void goNext(),
+    onRetryCatalog: () => void loadProviders(),
+  };
+
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
@@ -237,32 +264,32 @@ export function WelcomeWizard() {
         {FLOATING_ORBS.map((orb, index) => (
           <span
             key={index}
-            className="welcome-float absolute rounded-full bg-primary/10"
+            className="welcome-float absolute rounded-full bg-brand/10"
             style={{ left: orb.left, top: orb.top, width: orb.size, height: orb.size, animationDelay: `${orb.delay}s` }}
           />
         ))}
       </div>
 
-      <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border bg-card text-card-foreground shadow-xl">
+      <div className="relative flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-line bg-raised text-fg shadow-xl">
         {/* 品牌头 */}
-        <div className="border-b px-7 pb-5 pt-6 text-center">
+        <div className="border-b border-line px-7 pb-5 pt-6 text-center">
           <div className="mb-3 flex items-center justify-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-sm">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-ink shadow-sm">
               <Bot className="h-6 w-6" aria-hidden="true" />
             </div>
             <div className="text-left">
-              <h1 className="text-[22px] font-bold leading-tight tracking-wide">Vivy</h1>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Project ViVY</p>
+              <h1 className="text-page font-bold leading-tight tracking-wide">Vivy</h1>
+              <p className="text-2xs uppercase tracking-[0.18em] text-fg-muted">Project ViVY</p>
             </div>
           </div>
-          <p className="text-sm text-muted-foreground">{t('welcome.subtitle')}</p>
+          <p className="text-ui text-fg-muted">{t('welcome.subtitle')}</p>
         </div>
 
         {/* 步骤进度 */}
-        <div className="border-b bg-muted/40 px-7 py-4">
-          <div className="mb-4 h-1 overflow-hidden rounded-full bg-border">
+        <div className="border-b border-line bg-sunken px-7 py-4">
+          <div className="mb-4 h-1 overflow-hidden rounded-full bg-line">
             <div
-              className="h-full rounded-full bg-primary transition-all duration-300"
+              className="h-full rounded-full bg-brand transition-all duration-300"
               style={{ width: `${(step / (steps.length - 1)) * 100}%` }}
             />
           </div>
@@ -284,15 +311,15 @@ export function WelcomeWizard() {
                     className={cn(
                       'flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors',
                       index === step
-                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                        ? 'border-brand bg-brand-fill text-brand-fg shadow-sm'
                         : index < step
-                          ? 'border-primary/30 bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground',
+                          ? 'border-brand/30 bg-brand-soft text-brand-ink'
+                          : 'border-line bg-surface text-fg-muted',
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                   </span>
-                  <span className="whitespace-nowrap text-[10px] font-medium text-muted-foreground">{entry.label}</span>
+                  <span className="whitespace-nowrap text-2xs font-medium text-fg-muted">{entry.label}</span>
                 </button>
               );
             })}
@@ -301,231 +328,18 @@ export function WelcomeWizard() {
 
         {/* 内容区 */}
         <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
-          {step === 0 ? (
-            <div className="text-center">
-              <div className="mb-4 flex justify-center">
-                <Sparkles className="h-12 w-12 text-primary" aria-hidden="true" />
-              </div>
-              <h2 className="mb-3 text-lg font-semibold">{t('welcome.introTitle')}</h2>
-              <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{t('welcome.introBody')}</p>
-              <div className="space-y-3 text-left">
-                {[
-                  { icon: MessageSquare, label: t('welcome.featureChat') },
-                  { icon: Sparkles, label: t('welcome.featureSkills') },
-                  { icon: GitBranch, label: t('welcome.featureLifecycle') },
-                ].map((feature) => {
-                  const Icon = feature.icon;
-                  return (
-                    <div key={feature.label} className="flex items-center gap-3 rounded-xl bg-muted/50 px-4 py-3 text-sm">
-                      <Icon className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-                      <span>{feature.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : step === 1 ? (
-            <form
-              className="space-y-5"
-              onSubmit={(event) => { event.preventDefault(); if (!saving) void goNext(); }}
-            >
-              <div className="flex gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Bot className="h-6 w-6" aria-hidden="true" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="mb-1 text-base font-semibold">{t('welcome.modelTitle')}</h3>
-                  <p className="text-xs leading-relaxed text-muted-foreground">{t('welcome.modelBody')}</p>
-                </div>
-              </div>
-              {catalogLoading ? (
-                <p
-                  data-testid="welcome-catalog-loading"
-                  aria-busy="true"
-                  className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground"
-                >
-                  {t('welcome.catalogLoading')}
-                </p>
-              ) : catalogFailed ? (
-                <div className="space-y-2 rounded-lg bg-destructive/10 p-3" role="alert">
-                  <p className="text-sm text-destructive">
-                    {t('welcome.catalogFailed', { error: providersError ?? '' })}
-                  </p>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void loadProviders()}>
-                    {t('welcome.retry')}
-                  </Button>
-                </div>
-              ) : !rows.length ? (
-                <p className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-                  {t('welcome.catalogEmpty')}
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="welcome-provider">{t('welcome.provider')}</Label>
-                    <Select value={form.vendor} onValueChange={chooseVendor} disabled={locked}>
-                      <SelectTrigger id="welcome-provider" data-testid="welcome-provider">
-                        <SelectValue placeholder={t('welcome.select')} />
-                      </SelectTrigger>
-                      <SelectContent className="z-[250]">
-                        {vendors.map((vendor) => (
-                          <SelectItem key={vendor.vendor} value={vendor.vendor}>
-                            {vendor.displayName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="welcome-protocol">{t('welcome.protocol')}</Label>
-                    <Select value={form.adapter} onValueChange={chooseProtocol} disabled={locked || !form.vendor}>
-                      <SelectTrigger id="welcome-protocol" data-testid="welcome-protocol">
-                        <SelectValue placeholder={t('welcome.select')} />
-                      </SelectTrigger>
-                      <SelectContent className="z-[250]">
-                        {vendorEndpoints.map((endpoint) => (
-                          <SelectItem key={endpoint.adapter} value={endpoint.adapter}>
-                            {endpoint.adapter}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="welcome-model">{t('welcome.model')}</Label>
-                    <Select value={form.model} onValueChange={chooseModel} disabled={locked || !selectedRow}>
-                      <SelectTrigger id="welcome-model" data-testid="welcome-model">
-                        <SelectValue placeholder={t('welcome.select')} />
-                      </SelectTrigger>
-                      <SelectContent className="z-[250]">
-                        {(selectedRow?.models ?? []).map((model) => (
-                          <SelectItem key={model} value={model}>
-                            {model}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {selectedRow ? (
-                    <p className="text-xs text-muted-foreground" data-testid="welcome-endpoint">
-                      {t('welcome.endpoint')}: <span className="font-mono">{selectedRow.baseUrl}</span>
-                    </p>
-                  ) : null}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="welcome-api-key">{t('welcome.apiKey')}</Label>
-                    <Input
-                      id="welcome-api-key"
-                      data-testid="welcome-api-key"
-                      type="password"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={apiKey}
-                      disabled={locked}
-                      placeholder={
-                        keyConfigured
-                          ? t('welcome.apiKeyConfiguredPlaceholder')
-                          : t('welcome.apiKeyPlaceholder')
-                      }
-                      onChange={(event) => {
-                        setApiKey(event.target.value);
-                        if (event.target.value.trim()) setEnvKeyConfirmed(false);
-                        setError(null);
-                      }}
-                    />
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      {keyConfigured ? t('welcome.apiKeyConfigured') : t('welcome.apiKeyHint')}
-                    </p>
-                  </div>
-
-                  {!readOnly && !keyConfigured && !apiKey.trim() ? (
-                    <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-3">
-                      <Checkbox
-                        id="welcome-env-key"
-                        data-testid="welcome-env-key"
-                        checked={envKeyConfirmed}
-                        disabled={saving}
-                        onCheckedChange={(checked) => {
-                          setEnvKeyConfirmed(checked === true);
-                          setError(null);
-                        }}
-                      />
-                      <div className="min-w-0 space-y-1">
-                        <Label htmlFor="welcome-env-key" className="cursor-pointer text-xs font-medium">
-                          {t('welcome.envKey')}
-                        </Label>
-                        <p className="text-[11px] leading-relaxed text-muted-foreground">
-                          {t('welcome.envKeyHint')}
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-              {readOnly ? (
-                <p className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-                  {settings?.frozen ? t('welcome.frozenNotice') : t('welcome.readOnlyNotice')}
-                </p>
-              ) : null}
-              {error ? (
-                <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p>
-              ) : null}
-            </form>
-          ) : (
-            <div className="text-center">
-              <div className="mb-4 flex justify-center">
-                <Bot className="h-12 w-12 text-primary" aria-hidden="true" />
-              </div>
-              <h2 className="mb-3 text-lg font-semibold">{t('welcome.doneTitle')}</h2>
-              <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{t('welcome.doneBody')}</p>
-              <div className="space-y-2.5 text-left">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3.5 rounded-2xl border border-primary/30 bg-primary/5 p-4 transition-colors hover:border-primary/60 hover:bg-primary/10"
-                  onClick={() => finish('chat')}
-                >
-                  <MessageSquare className="h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-sm font-semibold">{t('welcome.startChat')}</span>
-                    <span className="text-[11px] text-muted-foreground">{t('welcome.startChatDesc')}</span>
-                  </span>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3.5 rounded-2xl border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-muted/50"
-                  onClick={() => finish('settings')}
-                >
-                  <Settings className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-sm font-semibold">{t('welcome.goSettings')}</span>
-                    <span className="text-[11px] text-muted-foreground">{t('welcome.goSettingsDesc')}</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3.5 rounded-2xl border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-muted/50"
-                  onClick={() => finish('skills')}
-                >
-                  <Sparkles className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-sm font-semibold">{t('welcome.goSkills')}</span>
-                    <span className="text-[11px] text-muted-foreground">{t('welcome.goSkillsDesc')}</span>
-                  </span>
-                </button>
-              </div>
-            </div>
-          )}
+          {step === 0
+            ? <WizardStepIntro />
+            : step === 1
+              ? <WizardStepModel {...modelStepProps} />
+              : <WizardStepDone onFinish={finish} />}
         </div>
 
         {/* 底部操作 */}
-        <div className="flex items-center justify-between gap-3 border-t bg-muted/30 px-7 py-4">
+        <div className="flex items-center justify-between gap-3 border-t border-line bg-sunken px-7 py-4">
           <div>
             {step === 0 ? (
-              <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={skip}>
+              <Button type="button" variant="ghost" size="sm" className="text-meta text-fg-muted" onClick={skip}>
                 <SkipForward className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('welcome.skip')}
               </Button>

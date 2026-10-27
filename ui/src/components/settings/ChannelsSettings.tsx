@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, LayoutGrid, List, LoaderCircle, MessageSquare, Plus, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useTranslation } from '@/i18n';
@@ -148,7 +149,7 @@ export function ChannelsSettings() {
   /** 编辑面板的实时健康徽标（CH-R-1）；detail 悬停可见（仅标识符）。 */
   const selectedHealthBadge = selectedStatus?.health
     ? selectedStatus.health.ok
-      ? { label: t('channels.healthOk'), className: 'border-emerald-500/40 text-emerald-600' }
+      ? { label: t('channels.healthOk'), tone: 'ok' as const }
       : {
           label:
             selectedStatus.health.class === 'dead'
@@ -156,10 +157,7 @@ export function ChannelsSettings() {
               : selectedStatus.health.class === 'rate-limit'
                 ? t('channels.healthRateLimit')
                 : t('channels.healthTemporary'),
-          className:
-            selectedStatus.health.class === 'dead'
-              ? 'border-destructive/40 text-destructive'
-              : 'border-amber-500/40 text-amber-600',
+          tone: selectedStatus.health.class === 'dead' ? ('danger' as const) : ('warn' as const),
         }
     : null;
 
@@ -173,19 +171,19 @@ export function ChannelsSettings() {
   const failedDeliveriesSection =
     loaded && !error && failedDeliveries.length > 0 ? (
       <div className="border-t px-4 py-3">
-        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h4 className="mb-2 text-meta font-semibold uppercase tracking-wide text-fg-muted">
           {t('channels.failedDeliveries')}
         </h4>
         <div className="space-y-1.5">
           {failedDeliveries.map((d) => (
             <div
               key={d.run_id}
-              className="flex flex-wrap items-center gap-2 rounded-md border bg-background px-3 py-2 text-xs"
+              className="flex flex-wrap items-center gap-2 rounded-md border bg-surface px-3 py-2 text-meta"
             >
               <span className="font-medium capitalize">{PLATFORM_DISPLAY_NAMES[d.channel] ?? d.channel}</span>
-              <span className="font-mono text-muted-foreground">{d.chat_id}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{d.run_id}</span>
-              <span className="text-muted-foreground">
+              <span className="font-mono text-fg-muted">{d.chat_id}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-fg-muted">{d.run_id}</span>
+              <span className="text-fg-muted">
                 {t('channels.deliveryAttempts', { attempts: d.attempts })}
               </span>
               <Button
@@ -209,22 +207,22 @@ export function ChannelsSettings() {
   return (
     <div className="flex h-[min(44rem,calc(100dvh-16rem))] min-h-0 overflow-hidden rounded-lg border">
       {viewMode === 'list' && statuses.length > 0 ? (
-        <div className="w-56 shrink-0 overflow-y-auto border-r bg-muted/30">
+        <div className="w-56 shrink-0 overflow-y-auto border-r bg-sunken/30">
           {statuses.map((status) => (
             <button
               key={status.name}
               type="button"
               className={`flex w-full cursor-pointer items-center gap-2 border-b px-3 py-2.5 text-left transition-colors ${
-                selected === status.name ? 'bg-background' : 'hover:bg-background/60'
+                selected === status.name ? 'bg-surface' : 'hover:bg-surface/60'
               }`}
               onClick={() => setSelectedName(status.name)}
             >
-              <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <MessageSquare className="h-4 w-4 shrink-0 text-fg-muted" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium capitalize">{status.name}</span>
+                <span className="block truncate text-ui font-medium capitalize">{status.name}</span>
                 <span
-                  className={`block text-xs ${
-                    status.started ? 'text-emerald-600' : 'text-muted-foreground'
+                  className={`block text-meta ${
+                    status.started ? 'text-ok' : 'text-fg-muted'
                   }`}
                 >
                   {status.started
@@ -241,7 +239,7 @@ export function ChannelsSettings() {
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between gap-2 border-b bg-muted/20 px-4 py-2">
+        <div className="flex items-center justify-between gap-2 border-b bg-sunken/20 px-4 py-2">
           <div className="flex items-center gap-2">
             <Button
               type="button"
@@ -285,15 +283,15 @@ export function ChannelsSettings() {
         </div>
 
         {!loaded && !error ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-fg-muted">
             <LoaderCircle className="mr-2 h-5 w-5 animate-spin" />
-            <span className="text-sm">{t('channels.loading')}</span>
+            <span className="text-ui">{t('channels.loading')}</span>
           </div>
         ) : error ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-            <AlertTriangle className="h-12 w-12 text-destructive/40" />
-            <p className="text-sm font-medium">{t('channels.inspectError')}</p>
-            <p className="max-w-md text-xs text-muted-foreground">{error}</p>
+            <AlertTriangle className="h-12 w-12 text-danger/40" />
+            <p className="text-ui font-medium">{t('channels.inspectError')}</p>
+            <p className="max-w-md text-meta text-fg-muted">{error}</p>
             <Button
               type="button"
               variant="outline"
@@ -319,7 +317,7 @@ export function ChannelsSettings() {
         ) : (
           <>
             {actionError ? (
-              <div className="border-b bg-destructive/10 px-4 py-2 text-xs text-destructive">
+              <div className="border-b bg-danger/10 px-4 py-2 text-meta text-danger">
                 {actionError}
               </div>
             ) : null}
@@ -346,7 +344,7 @@ export function ChannelsSettings() {
                         {(() => {
                           const Icon = PLATFORM_ICONS[selected] ?? MessageSquare;
                           return (
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand-ink">
                               <Icon className="h-5 w-5" />
                             </div>
                           );
@@ -355,8 +353,8 @@ export function ChannelsSettings() {
                           <h3 className="truncate text-base font-semibold capitalize">
                             {PLATFORM_DISPLAY_NAMES[selected] ?? selected}
                           </h3>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm">
-                            <span className="text-muted-foreground">{t('channels.status')}:</span>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-ui">
+                            <span className="text-fg-muted">{t('channels.status')}:</span>
                             <Badge variant={selectedStatus.started ? 'default' : 'secondary'}>
                               {selectedStatus.started
                                 ? t('channels.started')
@@ -368,13 +366,12 @@ export function ChannelsSettings() {
                               <Badge variant="outline">{t('channels.pendingRestart')}</Badge>
                             ) : null}
                             {selectedHealthBadge ? (
-                              <Badge
-                                variant="outline"
-                                className={selectedHealthBadge.className}
+                              <StatusBadge
+                                tone={selectedHealthBadge.tone}
                                 title={selectedStatus.health?.detail ?? undefined}
                               >
                                 {selectedHealthBadge.label}
-                              </Badge>
+                              </StatusBadge>
                             ) : null}
                             <Switch
                               checked={selectedDraft.enabled}
@@ -386,7 +383,7 @@ export function ChannelsSettings() {
                             />
                           </div>
                           {selectedStatus.note ? (
-                            <p className="mt-1 text-xs text-amber-600">{selectedStatus.note}</p>
+                            <p className="mt-1 text-meta text-warn">{selectedStatus.note}</p>
                           ) : null}
                         </div>
                       </div>
@@ -402,7 +399,7 @@ export function ChannelsSettings() {
                       </Button>
                     </div>
 
-                    <div className="rounded-lg border bg-muted/20 p-4">
+                    <div className="rounded-lg border bg-sunken/20 p-4">
                       <ChannelEditorForm
                         platform={selected}
                         enabled={selectedDraft.enabled}
@@ -415,9 +412,9 @@ export function ChannelsSettings() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-fg-muted">
                     <MessageSquare className="h-12 w-12 opacity-20" />
-                    <p className="text-sm">{t('channels.selectChannel')}</p>
+                    <p className="text-ui">{t('channels.selectChannel')}</p>
                   </div>
                 )}
                 {failedDeliveriesSection}

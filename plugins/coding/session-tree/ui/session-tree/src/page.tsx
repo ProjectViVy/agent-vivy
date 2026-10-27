@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Download, GitFork, RefreshCw, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { usePluginHost, usePluginTranslation } from '@vivy/ui-sdk';
 import { decodeExport, flattenTree, type TreeRow } from './tree';
 
@@ -124,12 +125,12 @@ export function SessionTreePage() {
       <button
         key={node.session_id}
         type="button"
-        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors ${isSelected ? 'bg-accent' : 'hover:bg-accent/50'}`}
+        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-ui transition-colors ${isSelected ? 'bg-selected' : 'hover:bg-hover/50'}`}
         style={{ paddingLeft: `${depth * 1.25 + 0.5}rem` }}
         onClick={() => setSelectedId(node.session_id)}
         onDoubleClick={() => void openSession(node.session_id)}
       >
-        {depth > 0 ? <GitFork className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+        {depth > 0 ? <GitFork className="h-3.5 w-3.5 shrink-0 text-fg-muted" /> : null}
         <span className="min-w-0 flex-1 truncate">{node.title || node.session_id}</span>
         {isActive ? <Badge variant="secondary" className="shrink-0">{t('plugin.vivy/session-tree.current')}</Badge> : null}
       </button>
@@ -163,13 +164,13 @@ export function SessionTreePage() {
           }}
         />
       </div>
-      {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
-      {phase === 'loading' ? <p className="text-sm text-muted-foreground">{t('plugin.vivy/session-tree.loading')}</p> : null}
-      {phase === 'error' ? <p className="text-sm text-destructive">{t('plugin.vivy/session-tree.loadFailed')}: {error}</p> : null}
-      {phase === 'ready' && rows.length === 0 ? <p className="text-sm text-muted-foreground">{t('plugin.vivy/session-tree.empty')}</p> : null}
+      {notice ? <p className="text-ui text-fg-muted">{notice}</p> : null}
+      {phase === 'loading' ? <p className="text-ui text-fg-muted">{t('plugin.vivy/session-tree.loading')}</p> : null}
+      {phase === 'error' ? <FailureNotice variant="compact" title={t('plugin.vivy/session-tree.loadFailed')} detail={error} onRetry={() => void load()} retryBusy={busy} /> : null}
+      {phase === 'ready' && rows.length === 0 ? <p className="text-ui text-fg-muted">{t('plugin.vivy/session-tree.empty')}</p> : null}
       {phase === 'ready' && rows.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-auto rounded-md border p-2">
-          <p className="px-2 pb-2 text-xs text-muted-foreground">{t('plugin.vivy/session-tree.selectHint')}</p>
+          <p className="px-2 pb-2 text-meta text-fg-muted">{t('plugin.vivy/session-tree.selectHint')}</p>
           {rowsView}
         </div>
       ) : null}

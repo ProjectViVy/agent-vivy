@@ -92,7 +92,7 @@ export function ThinkingSettingsCard() {
           <p className="text-xs text-muted-foreground">{t('thinkingSettings.effective', { level: report.effective })}</p>
         ) : null}
         {report?.read_only ? (
-          <p className="text-xs text-amber-600 dark:text-amber-300">{t('settings.readOnlyNotice')}</p>
+          <p className="text-meta text-warn">{t('settings.readOnlyNotice')}</p>
         ) : null}
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </CardContent>

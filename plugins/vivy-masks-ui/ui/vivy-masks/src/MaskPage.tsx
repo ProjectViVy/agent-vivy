@@ -17,6 +17,7 @@ import { useNavigationGuard } from '@/hooks/use-navigation-guard';
 import { CircleHelp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import {
   Dialog,
   DialogContent,
@@ -342,7 +343,7 @@ export function MaskPage({
 
   if (!host)
     return (
-      <div className="p-6 text-sm text-muted-foreground">
+      <div className="p-6 text-ui text-fg-muted">
         {t('plugin.vivy/masks-ui.unavailable')}
       </div>
     );
@@ -369,55 +370,46 @@ export function MaskPage({
   );
 
   return (
-    <main className="h-full overflow-auto bg-muted/15" data-testid="mask-page">
+    <main className="h-full overflow-auto bg-sunken/15" data-testid="mask-page">
       <div className="mx-auto w-full max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
         {shared.error ? (
-          <div
-            role="alert"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
-          >
-            <span>
-              {t('plugin.vivy/masks-ui.connectionError')} ·{' '}
-              {maskErrorText(t, shared.error)}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void session?.refreshCatalog();
-                void session?.refreshSelection();
-              }}
-            >
-              {t('plugin.vivy/masks-ui.retry')}
-            </Button>
-          </div>
+          <FailureNotice
+            variant="compact"
+            title={t('plugin.vivy/masks-ui.connectionError')}
+            detail={maskErrorText(t, shared.error)}
+            onRetry={() => {
+              void session?.refreshCatalog();
+              void session?.refreshSelection();
+            }}
+            retryLabel={t('plugin.vivy/masks-ui.retry')}
+          />
         ) : null}
         {editorError && !editorOpen && !deleteOpen ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-ui text-danger">
             {editorError}
           </p>
         ) : null}
         {notice ? (
           <p
             role="status"
-            className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300"
+            className="rounded-xl bg-ok-soft px-4 py-3 text-ui text-ok"
           >
             {notice}
           </p>
         ) : null}
         <section
-          className="flex min-w-0 flex-wrap items-center gap-4 rounded-2xl border bg-card p-4 sm:p-5"
+          className="flex min-w-0 flex-wrap items-center gap-4 rounded-2xl border bg-raised p-4 sm:p-5"
           data-active-mask={known ? maskId : undefined}
         >
           <MaskIdentity id={known ? maskId : 'pending'} large={!mobile} />
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-meta text-fg-muted">
               {t('plugin.vivy/masks-ui.selectorTitle')}
             </p>
-            <h2 className="mt-1 break-words text-lg font-semibold">
+            <h2 className="mt-1 break-words text-title font-semibold">
               {currentName}
             </h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-meta leading-relaxed text-fg-muted">
               {!shared.sessionId
                 ? t('plugin.vivy/masks-ui.noActiveSession')
                 : shared.selection?.inactive_reason
@@ -454,10 +446,10 @@ export function MaskPage({
             t={t}
           />
           <div className="hidden min-w-0 space-y-4 md:block">
-            <div className="rounded-2xl border bg-card p-5 sm:p-6">
+            <div className="rounded-2xl border bg-raised p-5 sm:p-6">
               {details}
             </div>
-            <div className="flex items-start gap-3 rounded-xl border bg-card p-4 text-xs leading-relaxed text-muted-foreground">
+            <div className="flex items-start gap-3 rounded-xl border bg-raised p-4 text-meta leading-relaxed text-fg-muted">
               <CircleHelp className="mt-0.5 h-4 w-4 shrink-0" />
               {t('plugin.vivy/masks-ui.roleHint')}
             </div>
@@ -530,12 +522,12 @@ export function MaskPage({
             </DialogDescription>
           </DialogHeader>
           {maskId === preview.id ? (
-            <p className="text-sm text-amber-700 dark:text-amber-300">
+            <p className="text-ui text-warn">
               {t('plugin.vivy/masks-ui.deleteCurrentHint')}
             </p>
           ) : null}
           {editorError ? (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-ui text-danger">
               {editorError}
             </p>
           ) : null}

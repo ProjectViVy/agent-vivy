@@ -29,9 +29,9 @@ function ChannelCardView({
   if (statuses.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-8 py-16 text-center">
-        <MessageSquarePlus className="mb-6 h-20 w-20 text-muted-foreground/30" />
+        <MessageSquarePlus className="mb-6 h-20 w-20 text-fg-muted/30" />
         <h3 className="mb-1 text-xl font-semibold">{t('channels.noChannels')}</h3>
-        <p className="mb-6 max-w-md text-sm text-muted-foreground">{t('channels.noChannelsHint')}</p>
+        <p className="mb-6 max-w-md text-ui text-fg-muted">{t('channels.noChannelsHint')}</p>
       </div>
     );
   }

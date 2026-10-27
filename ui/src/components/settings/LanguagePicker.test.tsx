@@ -46,13 +46,6 @@ function elements(node: ReactNode, type: string): TestElement[] {
   return [...matches, ...children.flatMap((child) => elements(child, type))];
 }
 
-function textContent(node: ReactNode): string {
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (!node || typeof node !== 'object' || !('type' in node)) return '';
-  const children = (node as ReactElement<{ children?: ReactNode }>).props.children;
-  return (Array.isArray(children) ? children : [children]).map(textContent).join('');
-}
-
 describe('LanguagePicker', () => {
   beforeEach(() => {
     view.locale = 'en';
@@ -99,13 +92,5 @@ describe('LanguagePicker', () => {
     view.settingsPhase = 'loading';
 
     expect(elements(LanguagePicker(), 'button').every((button) => button.props.disabled)).toBe(true);
-  });
-
-  it('shows a translated save error with the backend detail', () => {
-    view.settingsError = 'settings are read-only';
-    const alerts = elements(LanguagePicker(), 'p').filter((element) => element.props.role === 'alert');
-
-    expect(alerts).toHaveLength(1);
-    expect(textContent(alerts[0])).toBe('Save failed; please retry: settings are read-only');
   });
 });

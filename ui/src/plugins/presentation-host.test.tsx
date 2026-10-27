@@ -97,6 +97,7 @@ describe('PresentationHost', () => {
     window.history.replaceState({}, '', '/');
     document.documentElement.style.removeProperty('--fixture-collision');
     document.documentElement.style.removeProperty('--fixture-theme');
+    document.documentElement.style.removeProperty('--brand');
     document.documentElement.classList.remove('fixture-theme-class');
     document.documentElement.removeAttribute('data-fixture-theme');
     document.head.querySelectorAll('[data-vivy-ui-style^="fixture-"]').forEach((style) => style.remove());
@@ -374,6 +375,30 @@ describe('PresentationHost', () => {
     await act(async () => reactRoot.unmount());
     expect(document.head.querySelector('[data-vivy-ui-style="fixture-style"]')).toBeNull();
     expect(document.documentElement.style.getPropertyValue('--fixture-theme')).toBe('');
+  });
+
+  it('keeps module theme variables winning while the kernel theme switches', async () => {
+    const { DEFAULT_THEME_ID, setTheme } = await import('@/hooks/use-theme');
+    const selectedHost = host();
+    const selectedExtension = extension('fixture/kernel-theme', (receivedHost) => {
+      receivedHost.composition.themes.register('fixture-module-theme', { variables: { '--brand': 'rgb(1, 2, 3)' } });
+    });
+
+    await act(async () => {
+      reactRoot.render(<PresentationHost host={selectedHost} extensions={[selectedExtension]} />);
+    });
+    const rootElement = document.documentElement;
+    expect(rootElement.style.getPropertyValue('--brand')).toBe('rgb(1, 2, 3)');
+
+    await act(async () => { setTheme('pink'); });
+    expect(rootElement.getAttribute('data-theme')).toBe('pink');
+    expect(rootElement.getAttribute('data-appearance')).toBe('light');
+    // The kernel switch writes attributes only; the module's inline token still wins.
+    expect(rootElement.style.getPropertyValue('--brand')).toBe('rgb(1, 2, 3)');
+
+    await act(async () => { setTheme(DEFAULT_THEME_ID); });
+    await act(async () => reactRoot.unmount());
+    expect(rootElement.style.getPropertyValue('--brand')).toBe('');
   });
 
   it('delegates registered navigation to the real Face router when no module route claims the target', async () => {

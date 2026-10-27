@@ -1,0 +1,441 @@
+{
+  "app-1280": {
+    "navOpen": {
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "navToggled": {
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "offenderCount": 13,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2.5 px-4 py-4",
+          "text": "VVivy",
+          "client": 32,
+          "scroll": 69
+        },
+        {
+          "tag": "div",
+          "cls": "px-2 pt-2",
+          "text": "New session",
+          "client": 16,
+          "scroll": 79
+        },
+        {
+          "tag": "button",
+          "cls": "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-ui text-sidebar-foreground tran",
+          "text": "New session",
+          "client": 24,
+          "scroll": 71
+        },
+        {
+          "tag": "nav",
+          "cls": "space-y-0.5 px-2 py-1",
+          "text": "DashboardToolboxVIVY",
+          "client": 16,
+          "scroll": 76
+        },
+        {
+          "tag": "div",
+          "cls": "flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors text-sideb",
+          "text": "Dashboard",
+          "client": 24,
+          "scroll": 28
+        },
+        {
+          "tag": "button",
+          "cls": "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-",
+          "text": "Toolbox",
+          "client": 24,
+          "scroll": 68
+        },
+        {
+          "tag": "button",
+          "cls": "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-",
+          "text": "VIVY",
+          "client": 24,
+          "scroll": 68
+        },
+        {
+          "tag": "div",
+          "cls": "flex min-h-7 items-center gap-0.5 px-3 pb-1 pt-3",
+          "text": "Sessions",
+          "client": 24,
+          "scroll": 84
+        },
+        {
+          "tag": "div",
+          "cls": "group/workspace flex min-h-8 items-center gap-1 rounded-lg px-2.5 py-1.5 text-ui text-side",
+          "text": "Default workspace9",
+          "client": 20,
+          "scroll": 69
+        },
+        {
+          "tag": "div",
+          "cls": "space-y-0.5 pl-5",
+          "text": "Acknowledged.Streaming line 01 for the b",
+          "client": 20,
+          "scroll": 40
+        },
+        {
+          "tag": "div",
+          "cls": "border-t border-sidebar-border p-2",
+          "text": "Settings",
+          "client": 16,
+          "scroll": 36
+        },
+        {
+          "tag": "div",
+          "cls": "flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors text-sideb",
+          "text": "Settings",
+          "client": 24,
+          "scroll": 28
+        },
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "sidebarWrapper": {
+      "width": 0,
+      "height": 900,
+      "client": 0,
+      "scroll": 84
+    },
+    "sheet": null,
+    "settings": {
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "offenderCount": 0,
+      "offenders": []
+    },
+    "tabsList": {
+      "width": 832,
+      "height": 68,
+      "client": 832,
+      "scroll": 832
+    },
+    "longTitle": {
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "clampedTitles": [
+      {
+        "text": "Dashboard",
+        "clientH": 24,
+        "scrollH": 24,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Toolbox",
+        "clientH": 24,
+        "scrollH": 24,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "VIVY",
+        "clientH": 24,
+        "scrollH": 24,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Default workspace",
+        "clientH": 20,
+        "scrollH": 20,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "New session",
+        "clientH": 24,
+        "scrollH": 24,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Acknowledged.",
+        "clientH": 20,
+        "scrollH": 20,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Streaming line 01 for the busy",
+        "clientH": 39,
+        "scrollH": 59,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Streaming line 01 for the busy",
+        "clientH": 39,
+        "scrollH": 59,
+        "hasTitleAttr": true
+      }
+    ]
+  },
+  "app-390": {
+    "navOpen": {
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "navToggled": {
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "sidebarWrapper": {
+      "width": 0,
+      "height": 0,
+      "client": 0,
+      "scroll": 0
+    },
+    "sheet": {
+      "width": 390,
+      "height": 844,
+      "client": 390,
+      "scroll": 390
+    },
+    "settings": {
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "offenderCount": 0,
+      "offenders": []
+    },
+    "tabsList": {
+      "width": 358,
+      "height": 100,
+      "client": 358,
+      "scroll": 358
+    },
+    "longTitle": {
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "clampedTitles": [
+      {
+        "text": "Dashboard",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Toolbox",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "VIVY",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Default workspace",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Acknowledged.",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Acknowledged.",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Streaming line 01 for the busy",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      },
+      {
+        "text": "Streaming line 01 for the busy",
+        "clientH": 0,
+        "scrollH": 0,
+        "hasTitleAttr": true
+      }
+    ]
+  },
+  "wizard-390": {
+    "intro": {
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "introCard": {
+      "width": 358,
+      "height": 724,
+      "client": 356,
+      "scroll": 356
+    },
+    "model": {
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "modelCard": {
+      "width": 358,
+      "height": 760,
+      "client": 356,
+      "scroll": 356
+    },
+    "hasProviderSelect": 1,
+    "hasCatalogLoading": 0
+  },
+  "wizard-1280": {
+    "intro": {
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "introCard": {
+      "width": 512,
+      "height": 684,
+      "client": 510,
+      "scroll": 510
+    },
+    "model": {
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "span",
+          "cls": "sr-only",
+          "text": "Context usage",
+          "client": 1,
+          "scroll": 112
+        }
+      ]
+    },
+    "modelCard": {
+      "width": 512,
+      "height": 810,
+      "client": 510,
+      "scroll": 510
+    },
+    "hasProviderSelect": 1,
+    "hasCatalogLoading": 0
+  }
+}

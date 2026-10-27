@@ -10,6 +10,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,7 +70,7 @@ export function MaskHeader({
     <Button
       onClick={mobile ? () => toggle(true) : undefined}
       variant={label ? 'outline' : 'ghost'}
-      className={`h-9 min-w-0 max-w-[160px] gap-1.5 rounded-xl px-1.5 text-sm ${label ? '' : 'bg-muted/40 sm:max-w-[200px] sm:px-3'}`}
+      className={`h-9 min-w-0 max-w-[160px] gap-1.5 rounded-xl px-1.5 text-ui ${label ? '' : 'bg-sunken/40 sm:max-w-[200px] sm:px-3'}`}
       aria-label={t('plugin.vivy/masks-ui.selectorAria', { name })}
       disabled={!state.sessionId}
       title={
@@ -85,38 +86,37 @@ export function MaskHeader({
       {state.selectionPending ? (
         <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
       ) : unknown ? (
-        <CircleAlert className="h-4 w-4 shrink-0 text-amber-600" />
+        <CircleAlert className="h-4 w-4 shrink-0 text-warn" />
       ) : (
         <MaskIdentity id={maskId} compact />
       )}
       <span className="min-w-0 truncate font-medium">{label ?? name}</span>
-      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-fg-muted" />
     </Button>
   );
   const warnings = (
     <>
       {state.selection?.inactive_reason ? (
-        <p role="alert" className="px-2 py-2 text-xs text-destructive">
-          {t('plugin.vivy/masks-ui.errors.unavailable')}
-        </p>
+        <div className="px-2 py-2">
+          <FailureNotice variant="inline" title={t('plugin.vivy/masks-ui.errors.unavailable')} />
+        </div>
       ) : null}
       {state.error ? (
-        <div role="alert" className="px-2 py-2 text-xs text-destructive">
-          {maskErrorText(t, state.error)}
-          <button
-            type="button"
-            className="ml-2 underline"
-            onClick={() => {
+        <div className="px-2 py-2">
+          <FailureNotice
+            variant="inline"
+            title={t('plugin.vivy/masks-ui.connectionError')}
+            detail={maskErrorText(t, state.error)}
+            onRetry={() => {
               void session.refreshCatalog();
               void session.refreshSelection();
             }}
-          >
-            {t('plugin.vivy/masks-ui.retry')}
-          </button>
+            retryLabel={t('plugin.vivy/masks-ui.retry')}
+          />
         </div>
       ) : null}
       {state.catalogPending ? (
-        <p className="px-2 py-1 text-xs text-muted-foreground">
+        <p className="px-2 py-1 text-meta text-fg-muted">
           {t('plugin.vivy/masks-ui.loading')}
         </p>
       ) : null}
@@ -127,15 +127,15 @@ export function MaskHeader({
       <>
         <MaskIdentity id={mask.id} />
         <span className="min-w-0 flex-1">
-          <span className="block break-words text-sm font-medium">
+          <span className="block break-words text-ui font-medium">
             {mask.name}
           </span>
-          <span className="mt-0.5 block break-words text-xs leading-relaxed text-muted-foreground">
+          <span className="mt-0.5 block break-words text-meta leading-relaxed text-fg-muted">
             {mask.description}
           </span>
         </span>
         {maskId === mask.id && state.selection ? (
-          <Check className="h-4 w-4 shrink-0 text-primary" />
+          <Check className="h-4 w-4 shrink-0 text-brand-ink" />
         ) : null}
       </>
     );
@@ -145,7 +145,7 @@ export function MaskHeader({
         type="button"
         disabled={disabled}
         aria-pressed={Boolean(state.selection && maskId === mask.id)}
-        className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-accent/50 disabled:opacity-50"
+        className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-hover/50 disabled:opacity-50"
         onClick={() => void choose(mask.id)}
       >
         {row}
@@ -204,7 +204,7 @@ export function MaskHeader({
             align="start"
             className="max-h-[min(32rem,80dvh)] w-80 max-w-[calc(100vw-1rem)] overflow-auto rounded-2xl p-2"
           >
-            <DropdownMenuLabel className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+            <DropdownMenuLabel className="px-2 pb-2 text-meta font-normal text-fg-muted">
               {context.running
                 ? t('plugin.vivy/masks-ui.nextRun')
                 : t('plugin.vivy/masks-ui.chooseMask')}
@@ -213,7 +213,7 @@ export function MaskHeader({
             {content}
             <DropdownMenuSeparator className="my-2" />
             <DropdownMenuItem
-              className="gap-2 rounded-xl px-2.5 py-2 text-muted-foreground"
+              className="gap-2 rounded-xl px-2.5 py-2 text-fg-muted"
               onSelect={manage}
             >
               <Settings2 className="h-4 w-4" />

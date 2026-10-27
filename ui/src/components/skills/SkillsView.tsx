@@ -7,6 +7,8 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MasterDetail } from '@/components/layout/MasterDetail';
 import { useTranslation } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
+import { notifyFailure } from '@/lib/toasts';
 import { useVivyStore } from '@/lib/store';
 import { BookOpen, RefreshCw, Zap } from 'lucide-react';
 import * as api from '@/lib/api';
@@ -59,7 +61,7 @@ export function SkillsView() {
       );
     } catch (err) {
       // A 409 here means the SKILL.md changed under us; re-read the catalog.
-      setError(err instanceof Error ? err.message : t('skills.errors.toggleFailed'));
+      notifyFailure(err, { title: t('feedback.operation.skillAction') });
       void loadSkills();
     } finally {
       setToggling(false);
@@ -69,21 +71,13 @@ export function SkillsView() {
   const selectedSummary = skills.find((skill) => skill.name === selected?.name);
 
   if (isLoading && skills.length === 0) {
-    return <div className="p-6 text-sm text-muted-foreground">{t('skills.loading')}</div>;
+    return <div className="p-6 text-ui text-fg-muted">{t('skills.loading')}</div>;
   }
 
   if (error && skills.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle>{t('skills.loadFailed')}</CardTitle>
-            <CardDescription>{error}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => void loadSkills()}>{t('common.retry')}</Button>
-          </CardContent>
-        </Card>
+        <FailureNotice className="w-full max-w-md" variant="full" title={t('skills.loadFailed')} error={error} onRetry={() => void loadSkills()} />
       </div>
     );
   }
@@ -106,15 +100,15 @@ export function SkillsView() {
         </Button>
       </div>
 
-      {error && <p className="mb-4 min-w-0 break-all text-sm text-destructive">{error}</p>}
+      {error ? <FailureNotice className="mb-4" variant="compact" title={t('skills.loadFailed')} error={error} /> : null}
 
       <TabsContent value="skills" className="mt-0 min-h-0 flex-1">
         {skills.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
+            <CardContent className="py-12 text-center text-fg-muted">
               <Zap className="mx-auto mb-3 h-10 w-10 opacity-50" />
               {t('skills.empty')}
-              <p className="mx-auto mt-2 max-w-md text-xs">{t('skills.emptyHint')}</p>
+              <p className="mx-auto mt-2 max-w-md text-meta">{t('skills.emptyHint')}</p>
             </CardContent>
           </Card>
         ) : (
@@ -123,19 +117,19 @@ export function SkillsView() {
             onBack={() => setSelected(null)}
             columnsClassName="md:grid-cols-[minmax(16rem,0.8fr)_minmax(0,1.6fr)] md:gap-4"
             master={
-              <ScrollArea className="h-full min-h-0 rounded-xl border bg-card">
+              <ScrollArea className="h-full min-h-0 rounded-xl border bg-raised">
                 <div className="space-y-1 p-2">
                   {skills.map((skill) => (
                     <button
                       key={skill.name}
                       type="button"
                       onClick={() => void openSkill(skill.name)}
-                      className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-accent ${
-                        selected?.name === skill.name ? 'bg-accent' : ''
+                      className={`w-full rounded-lg p-3 text-left transition-colors hover:bg-hover ${
+                        selected?.name === skill.name ? 'bg-selected' : ''
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="min-w-0 font-medium">{skill.name}</span>
+                        <span className="min-w-0 truncate font-medium" title={skill.name}>{skill.name}</span>
                         <div className="flex shrink-0 flex-wrap justify-end gap-1">
                           {skill.origin === 'project' && (
                             <Badge variant="outline">{t('skills.project')}</Badge>
@@ -145,9 +139,9 @@ export function SkillsView() {
                           </Badge>
                         </div>
                       </div>
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{skill.description}</p>
+                      <p className="mt-1 line-clamp-2 text-ui text-fg-muted">{skill.description}</p>
                       {skill.warnings.length > 0 && (
-                        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                        <p className="mt-2 text-meta text-warn">
                           {t('skills.warningCount', { count: skill.warnings.length })}
                         </p>
                       )}
@@ -158,11 +152,11 @@ export function SkillsView() {
             }
             detail={
               selected ? (
-                <article className="h-full overflow-auto rounded-xl border bg-card p-4 sm:p-6">
+                <article className="h-full overflow-auto rounded-xl border bg-raised p-4 sm:p-6">
                   <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h2 className="text-xl font-semibold">{selectedSummary?.name ?? selected.name}</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">{selected.description}</p>
+                      <h2 className="text-title font-semibold">{selectedSummary?.name ?? selected.name}</h2>
+                      <p className="mt-1 text-ui text-fg-muted">{selected.description}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {selected.origin === 'project' && (
@@ -182,12 +176,12 @@ export function SkillsView() {
                     </div>
                   </div>
 
-                  <div className="mb-5 grid gap-3 text-sm sm:grid-cols-2">
-                    <p><span className="text-muted-foreground">{t('skills.supportingFiles')}</span>{selected.supporting_files.length}</p>
+                  <div className="mb-5 grid gap-3 text-ui sm:grid-cols-2">
+                    <p><span className="text-fg-muted">{t('skills.supportingFiles')}</span>{selected.supporting_files.length}</p>
                   </div>
 
                   {selected.warnings.length > 0 && (
-                    <ul className="mb-5 list-inside list-disc rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                    <ul className="mb-5 list-inside list-disc rounded-lg border border-warn/30 bg-warn-soft p-3 text-meta text-warn">
                       {selected.warnings.map((warning) => (
                         <li key={warning}>{warning}</li>
                       ))}
@@ -204,13 +198,13 @@ export function SkillsView() {
                     </div>
                   )}
 
-                  <div className="rounded-lg bg-muted p-4">
-                    <p className="mb-2 text-xs text-muted-foreground">{selected.relative_path}</p>
-                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">{selected.content}</pre>
+                  <div className="rounded-lg bg-sunken p-4">
+                    <p className="mb-2 text-meta text-fg-muted">{selected.relative_path}</p>
+                    <pre className="whitespace-pre-wrap break-words font-sans text-ui leading-6">{selected.content}</pre>
                   </div>
                 </article>
               ) : (
-                <div className="flex h-full min-h-64 items-center justify-center rounded-xl border bg-card p-6 text-center text-muted-foreground">
+                <div className="flex h-full min-h-64 items-center justify-center rounded-xl border bg-raised p-6 text-center text-fg-muted">
                   <div>
                     <BookOpen className="mx-auto mb-3 h-10 w-10 opacity-50" />
                     {t('skills.selectHint')}

@@ -9,22 +9,19 @@ import { cn } from '@/lib/utils';
 const identities = {
   'builtin/programmer': {
     Icon: Code2,
-    color: 'bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300',
+    color: 'bg-info-soft text-info',
   },
   'builtin/researcher': {
     Icon: BookOpenCheck,
-    color:
-      'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300',
+    color: 'bg-ok-soft text-ok',
   },
   'builtin/writer': {
     Icon: PenLine,
-    color:
-      'bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300',
+    color: 'bg-brand-soft text-brand-ink',
   },
   '': {
     Icon: Star,
-    color:
-      'bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300',
+    color: 'bg-warn-soft text-warn',
   },
 };
 export function MaskIdentity({
@@ -38,7 +35,7 @@ export function MaskIdentity({
 }) {
   const { Icon, color } = identities[id as keyof typeof identities] ?? {
     Icon: VenetianMask,
-    color: 'bg-primary/10 text-primary',
+    color: 'bg-brand-soft text-brand-ink',
   };
   return (
     <span
@@ -51,7 +48,7 @@ export function MaskIdentity({
             ? 'h-16 w-16 rounded-2xl'
             : 'h-11 w-11 rounded-xl',
         color,
-        compact && 'bg-transparent dark:bg-transparent',
+        compact && 'bg-transparent',
       )}
     >
       <Icon className={compact ? 'h-4 w-4' : large ? 'h-7 w-7' : 'h-5 w-5'} />

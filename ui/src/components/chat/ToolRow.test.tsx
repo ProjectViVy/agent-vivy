@@ -53,4 +53,15 @@ describe('ToolRow', () => {
     const waiting = renderToStaticMarkup(<ToolRow call={call({ status: 'awaiting-approval' })} />);
     expect(waiting).toContain('Awaiting approval');
   });
+
+  it('wraps a 200-character tool name and a long path instead of truncating them', () => {
+    const longName = `read_file_${'segment_'.repeat(24)}end`;
+    const longPath = `workspace/${'very-long-directory/'.repeat(10)}report.tsx`;
+    expect(longName.length).toBeGreaterThan(200);
+    const html = renderToStaticMarkup(<ToolRow call={call({ name: longName, args: { path: longPath } })} />);
+    expect(html).toContain(longName.slice(0, 120));
+    expect(html).toContain('line-clamp-2');
+    expect(html).toContain('break-words');
+    expect(html).not.toContain('truncate');
+  });
 });

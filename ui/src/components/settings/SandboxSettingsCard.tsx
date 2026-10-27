@@ -21,7 +21,6 @@ export function SandboxSettingsCard() {
   const { t } = useTranslation();
   const settings = useVivyStore((state) => state.settings);
   const phase = useVivyStore((state) => state.settingsPhase);
-  const error = useVivyStore((state) => state.settingsError);
   const load = useVivyStore((state) => state.loadSettings);
   const save = useVivyStore((state) => state.saveSettings);
 
@@ -70,15 +69,13 @@ export function SandboxSettingsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-brand-ink">
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <CardTitle>{t('sandboxSettings.title')}</CardTitle>
         <CardDescription>{t('sandboxSettings.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
-
         <div className="space-y-2">
           <Label htmlFor="sandbox-default-preset">{t('sandboxSettings.defaultPreset')}</Label>
           <Select value={preset} disabled={locked} onValueChange={(value: Exclude<PermissionPreset, 'custom'>) => setPreset(value)}>
@@ -134,7 +131,7 @@ export function SandboxSettingsCard() {
           </Button>
           {savedFlash ? (
             <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+              <Check className="h-4 w-4 text-brand-ink" aria-hidden="true" />
               {t('sandboxSettings.saved')}
             </span>
           ) : null}

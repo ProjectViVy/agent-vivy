@@ -1,0 +1,3130 @@
+{
+  "generatedAt": "2026-10-25T18:14:09.722Z",
+  "base": "http://127.0.0.1:3016",
+  "combos": {
+    "default-390-persona": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nPersona\n\nLive persona authority · current / pen"
+    },
+    "default-390-evolution": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "default-390-memory": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMemory\n\nRemembered items · search and inspect e"
+    },
+    "default-390-notebook": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "default-390-masks": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMasks\n\nChoose a working role for this conversat"
+    },
+    "default-390-workflows": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nWorkflows\n\nDraft, validate, publish, and inspec"
+    },
+    "default-390-session-tree": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nSession tree\n\nFork and clone graph · switch, cl"
+    },
+    "default-768-persona": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 2,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        },
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Current documentPending chan",
+          "client": 238,
+          "scroll": 299
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-768-evolution": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-768-memory": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-768-notebook": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-768-masks": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-768-workflows": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-768-session-tree": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-1280-persona": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-1280-evolution": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-1280-memory": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-1280-notebook": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-1280-masks": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-1280-workflows": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "default-1280-session-tree": {
+      "theme": "default",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-390-persona": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nPersona\n\nLive persona authority · current / pen"
+    },
+    "dark-390-evolution": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "dark-390-memory": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMemory\n\nRemembered items · search and inspect e"
+    },
+    "dark-390-notebook": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "dark-390-masks": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMasks\n\nChoose a working role for this conversat"
+    },
+    "dark-390-workflows": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nWorkflows\n\nDraft, validate, publish, and inspec"
+    },
+    "dark-390-session-tree": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nSession tree\n\nFork and clone graph · switch, cl"
+    },
+    "dark-768-persona": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 2,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        },
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Current documentPending chan",
+          "client": 238,
+          "scroll": 299
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-768-evolution": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-768-memory": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-768-notebook": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-768-masks": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-768-workflows": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-768-session-tree": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-1280-persona": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-1280-evolution": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-1280-memory": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-1280-notebook": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-1280-masks": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-1280-workflows": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "dark-1280-session-tree": {
+      "theme": "dark",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-390-persona": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nPersona\n\nLive persona authority · current / pen"
+    },
+    "pink-390-evolution": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "pink-390-memory": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMemory\n\nRemembered items · search and inspect e"
+    },
+    "pink-390-notebook": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "pink-390-masks": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMasks\n\nChoose a working role for this conversat"
+    },
+    "pink-390-workflows": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nWorkflows\n\nDraft, validate, publish, and inspec"
+    },
+    "pink-390-session-tree": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nSession tree\n\nFork and clone graph · switch, cl"
+    },
+    "pink-768-persona": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 2,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        },
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Current documentPending chan",
+          "client": 238,
+          "scroll": 299
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-768-evolution": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-768-memory": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-768-notebook": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-768-masks": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-768-workflows": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-768-session-tree": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-1280-persona": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-1280-evolution": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-1280-memory": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-1280-notebook": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-1280-masks": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-1280-workflows": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "pink-1280-session-tree": {
+      "theme": "pink",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-390-persona": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nPersona\n\nLive persona authority · current / pen"
+    },
+    "miku-390-evolution": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "miku-390-memory": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMemory\n\nRemembered items · search and inspect e"
+    },
+    "miku-390-notebook": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "miku-390-masks": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMasks\n\nChoose a working role for this conversat"
+    },
+    "miku-390-workflows": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nWorkflows\n\nDraft, validate, publish, and inspec"
+    },
+    "miku-390-session-tree": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nSession tree\n\nFork and clone graph · switch, cl"
+    },
+    "miku-768-persona": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 2,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        },
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Current documentPending chan",
+          "client": 238,
+          "scroll": 299
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-768-evolution": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-768-memory": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-768-notebook": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-768-masks": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-768-workflows": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-768-session-tree": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-1280-persona": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-1280-evolution": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-1280-memory": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-1280-notebook": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-1280-masks": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-1280-workflows": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "miku-1280-session-tree": {
+      "theme": "miku",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-390-persona": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nPersona\n\nLive persona authority · current / pen"
+    },
+    "rice-390-evolution": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "rice-390-memory": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMemory\n\nRemembered items · search and inspect e"
+    },
+    "rice-390-notebook": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "rice-390-masks": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMasks\n\nChoose a working role for this conversat"
+    },
+    "rice-390-workflows": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nWorkflows\n\nDraft, validate, publish, and inspec"
+    },
+    "rice-390-session-tree": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nSession tree\n\nFork and clone graph · switch, cl"
+    },
+    "rice-768-persona": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 2,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        },
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Current documentPending chan",
+          "client": 238,
+          "scroll": 299
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-768-evolution": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-768-memory": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-768-notebook": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-768-masks": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-768-workflows": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-768-session-tree": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-1280-persona": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-1280-evolution": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-1280-memory": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-1280-notebook": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-1280-masks": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-1280-workflows": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "rice-1280-session-tree": {
+      "theme": "rice",
+      "appearance": "light",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-390-persona": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nPersona\n\nLive persona authority · current / pen"
+    },
+    "fluor-390-evolution": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "fluor-390-memory": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMemory\n\nRemembered items · search and inspect e"
+    },
+    "fluor-390-notebook": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "fluor-390-masks": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMasks\n\nChoose a working role for this conversat"
+    },
+    "fluor-390-workflows": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nWorkflows\n\nDraft, validate, publish, and inspec"
+    },
+    "fluor-390-session-tree": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nSession tree\n\nFork and clone graph · switch, cl"
+    },
+    "fluor-768-persona": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 2,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        },
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Current documentPending chan",
+          "client": 238,
+          "scroll": 299
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-768-evolution": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-768-memory": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-768-notebook": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-768-masks": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-768-workflows": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-768-session-tree": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-1280-persona": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-1280-evolution": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-1280-memory": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-1280-notebook": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-1280-masks": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-1280-workflows": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "fluor-1280-session-tree": {
+      "theme": "fluor",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-390-persona": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nPersona\n\nLive persona authority · current / pen"
+    },
+    "indigo-390-evolution": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "indigo-390-memory": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMemory\n\nRemembered items · search and inspect e"
+    },
+    "indigo-390-notebook": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nDemo / Local simulation\nThis page has no backen"
+    },
+    "indigo-390-masks": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nMasks\n\nChoose a working role for this conversat"
+    },
+    "indigo-390-workflows": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 390,
+          "scroll": 830
+        }
+      ],
+      "bodyText": "Vivy\nJust me\nWorkflows\n\nDraft, validate, publish, and inspec"
+    },
+    "indigo-390-session-tree": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 390,
+      "doc": {
+        "client": 390,
+        "scroll": 390
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "Vivy\nJust me\nSession tree\n\nFork and clone graph · switch, cl"
+    },
+    "indigo-768-persona": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 2,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        },
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Current documentPending chan",
+          "client": 238,
+          "scroll": 299
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-768-evolution": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 1,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-768-memory": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-768-notebook": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-768-masks": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-768-workflows": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 6,
+      "offenders": [
+        {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex h-full min-h-0 flex-col",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        },
+        {
+          "tag": "div",
+          "cls": "flex items-center gap-2 border-b px-3 py-2",
+          "text": "Openvivy.child-task@1Save dr",
+          "client": 480,
+          "scroll": 855
+        }
+      ],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-768-session-tree": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 768,
+      "doc": {
+        "client": 768,
+        "scroll": 768
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-1280-persona": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-1280-evolution": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-1280-memory": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-1280-notebook": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-1280-masks": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-1280-workflows": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    },
+    "indigo-1280-session-tree": {
+      "theme": "indigo",
+      "appearance": "dark",
+      "viewport": 1280,
+      "doc": {
+        "client": 1280,
+        "scroll": 1280
+      },
+      "docOverflow": false,
+      "offenderCount": 0,
+      "offenders": [],
+      "bodyText": "V\nVivy\nVIVY\nPersona\nEvolution\nMemory\nSession tree\nNotebook\nM"
+    }
+  },
+  "summary": {
+    "total": 147,
+    "docOverflowCount": 0,
+    "docOverflowKeys": [],
+    "withOffendersCount": 35,
+    "offenderRollup": [
+      {
+        "key": "default-390-persona",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "default-390-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        }
+      },
+      {
+        "key": "default-768-persona",
+        "n": 2,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "default-768-evolution",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      },
+      {
+        "key": "default-768-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        }
+      },
+      {
+        "key": "dark-390-persona",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "dark-390-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        }
+      },
+      {
+        "key": "dark-768-persona",
+        "n": 2,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "dark-768-evolution",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      },
+      {
+        "key": "dark-768-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        }
+      },
+      {
+        "key": "pink-390-persona",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "pink-390-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        }
+      },
+      {
+        "key": "pink-768-persona",
+        "n": 2,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "pink-768-evolution",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      },
+      {
+        "key": "pink-768-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        }
+      },
+      {
+        "key": "miku-390-persona",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "miku-390-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        }
+      },
+      {
+        "key": "miku-768-persona",
+        "n": 2,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "miku-768-evolution",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      },
+      {
+        "key": "miku-768-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        }
+      },
+      {
+        "key": "rice-390-persona",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "rice-390-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        }
+      },
+      {
+        "key": "rice-768-persona",
+        "n": 2,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "rice-768-evolution",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      },
+      {
+        "key": "rice-768-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        }
+      },
+      {
+        "key": "fluor-390-persona",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "fluor-390-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        }
+      },
+      {
+        "key": "fluor-768-persona",
+        "n": 2,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "fluor-768-evolution",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      },
+      {
+        "key": "fluor-768-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        }
+      },
+      {
+        "key": "indigo-390-persona",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 390,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "indigo-390-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 390,
+          "scroll": 830
+        }
+      },
+      {
+        "key": "indigo-768-persona",
+        "n": 2,
+        "sample": {
+          "tag": "div",
+          "cls": "overflow-x-auto border-b p-2",
+          "text": "IDENTITY.MDr1RELATIONSHIP.MD",
+          "client": 480,
+          "scroll": 848
+        }
+      },
+      {
+        "key": "indigo-768-evolution",
+        "n": 1,
+        "sample": {
+          "tag": "div",
+          "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto ",
+          "text": "Skill (2)Requests (1)AutoDre",
+          "client": 176,
+          "scroll": 317
+        }
+      },
+      {
+        "key": "indigo-768-workflows",
+        "n": 6,
+        "sample": {
+          "tag": "div",
+          "cls": "min-h-0 flex-1 overflow-y-auto",
+          "text": "EditorWorkflowsRunsOpenvivy.",
+          "client": 480,
+          "scroll": 855
+        }
+      }
+    ],
+    "pageErrors": []
+  }
+}

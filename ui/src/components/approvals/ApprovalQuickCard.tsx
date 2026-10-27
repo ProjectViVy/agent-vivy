@@ -2,6 +2,7 @@ import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react
 import { GripVertical, X } from 'lucide-react';
 import type { ReviewItem } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { useTranslation } from '@/i18n';
 
 /** Card placement relative to its default anchor (above the composer, right aligned). */
@@ -127,47 +128,47 @@ export function ApprovalQuickCard({
       aria-label={t('approvals.quick.title')}
       onKeyDown={(event) => { if (event.key === 'Escape') onClose(); }}
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
-      className="absolute right-0 bottom-full z-30 mb-3 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-card shadow-lg"
+      className="absolute right-0 bottom-full z-30 mb-3 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-line bg-raised shadow-lg"
     >
       <div
-        className="flex cursor-grab touch-none select-none items-center gap-2 rounded-t-xl border-b border-border/60 px-3 py-2"
+        className="flex cursor-grab touch-none select-none items-center gap-2 rounded-t-xl border-b border-line/60 px-3 py-2"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
-        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium" title={t('approvals.quick.drag')}>{title}</span>
-        {remaining > 0 ? <span className="shrink-0 text-xs text-muted-foreground">{t('approvals.quick.remaining', { count: remaining })}</span> : null}
+        <GripVertical className="h-4 w-4 shrink-0 text-fg-muted" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate text-ui font-medium" title={t('approvals.quick.drag')}>{title}</span>
+        {remaining > 0 ? <span className="shrink-0 text-meta text-fg-muted">{t('approvals.quick.remaining', { count: remaining })}</span> : null}
         <button
           type="button"
           onPointerDown={(event) => event.stopPropagation()}
           onClick={onClose}
           title={t('approvals.quick.close')}
           aria-label={t('approvals.quick.close')}
-          className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="shrink-0 rounded-lg p-1 text-fg-muted transition-colors hover:bg-hover hover:text-fg"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
       <div className="space-y-2 px-3 py-2.5">
         {review === null ? (
-          <p className="text-sm text-muted-foreground">{t('approvals.quick.empty')}</p>
+          <p className="text-ui text-fg-muted">{t('approvals.quick.empty')}</p>
         ) : review.kind === 'question' ? (
           <>
-            <p className="text-xs text-muted-foreground">{t('approvals.quick.questionHint')}</p>
-            {review.prompt ? <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2 font-mono text-xs">{review.prompt}</pre> : null}
+            <p className="text-meta text-fg-muted">{t('approvals.quick.questionHint')}</p>
+            {review.prompt ? <pre className="max-h-[30vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-sunken p-2 font-mono text-meta">{review.prompt}</pre> : null}
           </>
         ) : (
           <>
-            <p className="text-xs text-muted-foreground">{t('approvals.quick.command')}</p>
-            {command ? <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2 font-mono text-xs">{command}</pre> : null}
-            {risk ? <p className="text-xs text-destructive">{t('approvals.risk')}: {risk}</p> : null}
+            <p className="text-meta text-fg-muted">{t('approvals.quick.command')}</p>
+            {command ? <pre className="max-h-[30vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-sunken p-2 font-mono text-meta">{command}</pre> : null}
+            {risk ? <p className="text-meta text-danger">{t('approvals.risk')}: {risk}</p> : null}
           </>
         )}
-        {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+        {error ? <FailureNotice variant="inline" title={t('feedback.operation.approvalAction')} error={error} /> : null}
       </div>
-      <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2">
+      <div className="flex items-center gap-2 border-t border-line/60 px-3 py-2">
         {review?.kind === 'approval' ? (
           <>
             <Button size="sm" disabled={busy} onClick={() => void respond('approve')}>{busy ? t('approvals.processing') : t('approvals.approve')}</Button>

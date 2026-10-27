@@ -23,7 +23,7 @@ export function WorkspaceSelector({ workspacePath, disabled, onSelect }: Props) 
 				disabled={disabled}
 				title={workspacePath || t('workspace.default')}
 				onClick={() => setOpen(true)}
-				className="flex h-7 min-w-0 max-w-48 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+				className="flex h-7 min-w-0 max-w-48 items-center gap-1.5 rounded-md px-2 text-meta text-fg-muted transition-colors hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-50"
 			>
 				<FolderOpen className="h-3.5 w-3.5 shrink-0" />
 				<span className="truncate">{label}</span>

@@ -3,7 +3,7 @@ import { CornerDownLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+
 import { settingsUpdateFrom, type BusyEnter } from '@/lib/api';
 import { useVivyStore } from '@/lib/store';
 import { useTranslation } from '@/i18n';
@@ -50,28 +50,23 @@ export function ComposerSettingsCard() {
   return (
     <Card>
       <CardHeader>
-        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><CornerDownLeft className="h-5 w-5" aria-hidden="true" /></div>
+        <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand-ink"><CornerDownLeft className="h-5 w-5" aria-hidden="true" /></div>
         <CardTitle>{t('settings.busyEnter.title')}</CardTitle>
         <CardDescription>{t('settings.busyEnter.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <RadioGroup
-          value={mode}
-          onValueChange={(value) => setMode(value as BusyEnter)}
-          disabled={locked}
-          aria-label={t('settings.busyEnter.title')}
-        >
+        <div role="radiogroup" aria-label={t('settings.busyEnter.title')} className="space-y-2">
           {OPTIONS.map((option) => (
-            <div key={option.value} className="flex items-start gap-3 rounded-lg border p-3">
-              <RadioGroupItem value={option.value} id={`busy-enter-${option.value}`} className="mt-0.5" data-testid={`busy-enter-${option.value}`} />
+            <div key={option.value} className="flex items-start gap-3 rounded-lg border border-line p-3">
+              <input type="radio" name="busy-enter" value={option.value} checked={mode === option.value} aria-checked={mode === option.value} onChange={() => setMode(option.value)} disabled={locked || saving} id={`busy-enter-${option.value}`} className="mt-0.5 accent-brand-fill" data-testid={`busy-enter-${option.value}`} />
               <div className="min-w-0">
                 <Label htmlFor={`busy-enter-${option.value}`} className="font-medium">{t(option.label)}</Label>
-                <p className="mt-1 text-sm text-muted-foreground">{t(option.hint)}</p>
+                <p className="mt-1 text-ui text-fg-muted">{t(option.hint)}</p>
               </div>
             </div>
           ))}
-        </RadioGroup>
-        <p className="text-xs text-muted-foreground" data-testid="busy-enter-effective">
+        </div>
+        <p className="text-meta text-fg-muted" data-testid="busy-enter-effective">
           {t('settings.busyEnter.effective', { mode: t(effective === 'steer' ? 'settings.busyEnter.steerLabel' : 'settings.busyEnter.queueLabel') })}
         </p>
         <div className="flex flex-wrap items-center gap-3">
@@ -80,7 +75,7 @@ export function ComposerSettingsCard() {
           </Button>
         </div>
         {feedback ? (
-          <p className="text-xs text-muted-foreground" aria-live="polite">
+          <p className="text-meta text-fg-muted" aria-live="polite">
             {feedback.kind === 'error' ? feedback.message : t('settings.busyEnter.saved')}
           </p>
         ) : null}

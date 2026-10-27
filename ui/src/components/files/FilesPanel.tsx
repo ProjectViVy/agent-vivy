@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useVivyStore } from '@/lib/store';
 import { listWorkspaceFiles, readWorkspaceFile, type WorkspaceFile } from '@/lib/api';
 import { useTranslation } from '@/i18n';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Package, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -52,27 +53,34 @@ function DeliveriesSection() {
   };
 
   if (deliverySetsPhase === 'loading' || deliverySetsPhase === 'idle') {
-    return <p className="p-3 text-xs text-muted-foreground">{t('files.loading')}</p>;
+    return <p className="p-3 text-meta text-fg-muted">{t('files.loading')}</p>;
+  }
+  if (deliverySetsPhase === 'error') {
+    return (
+      <div className="border-b px-3 py-2">
+        <FailureNotice variant="inline" title={t('feedback.operation.filesAction')} onRetry={() => void loadDeliverySets()} />
+      </div>
+    );
   }
   if (deliverySets.length === 0) return null;
   return (
     <div className="border-b">
-      <p className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('files.deliveries')}</p>
+      <p className="px-3 pt-2 pb-1 text-2xs font-medium uppercase tracking-wide text-fg-muted">{t('files.deliveries')}</p>
       <ul>
         {deliverySets.map((set) => (
           <li key={set.id}>
             <button
               type="button"
               onClick={() => focusSet(set.id)}
-              className="flex w-full min-w-0 items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-accent"
+              className="flex w-full min-w-0 items-center gap-1.5 px-3 py-1.5 text-left text-meta hover:bg-accent"
               aria-label={t('files.deliveryFocus', { name: set.title ?? set.id })}
             >
-              <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <Package className="h-3.5 w-3.5 shrink-0 text-fg-muted" aria-hidden />
               <span className="min-w-0 flex-1 truncate">
                 {(set.title ?? '') !== '' ? `${set.title} · ` : ''}
                 {t('deliverableCard.summary', { count: set.items.length })}
               </span>
-              {set.failures.length > 0 ? <span className="shrink-0 text-[10px] text-amber-600">{t('deliverableCard.failures', { count: set.failures.length })}</span> : null}
+              {set.failures.length > 0 ? <span className="shrink-0 text-2xs text-warn">{t('deliverableCard.failures', { count: set.failures.length })}</span> : null}
             </button>
           </li>
         ))}
@@ -142,7 +150,7 @@ export function FilesPanel() {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <DeliveriesSection />
-        <p className="p-4 text-sm text-muted-foreground">{t('files.noRun')}</p>
+        <p className="p-4 text-ui text-fg-muted">{t('files.noRun')}</p>
       </div>
     );
   }
@@ -151,22 +159,22 @@ export function FilesPanel() {
     <div className="flex h-full min-h-0 flex-col">
       <DeliveriesSection />
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-xs text-muted-foreground">{t('files.count', { count: files.length })}</span>
+        <span className="text-meta text-fg-muted">{t('files.count', { count: files.length })}</span>
         <Button variant="ghost" size="icon" className="h-7 w-7" title={t('files.refresh')} aria-label={t('files.refresh')} onClick={() => void refresh()} disabled={loading}>
           <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
         </Button>
       </div>
-      {error ? <p className="px-3 py-2 text-xs text-destructive">{error}</p> : null}
+      {error ? <p className="px-3 py-2 text-meta text-danger">{error}</p> : null}
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,auto)_minmax(0,1fr)] md:grid-cols-[minmax(0,180px)_minmax(0,1fr)] md:grid-rows-1">
         <div className="min-h-0 overflow-y-auto border-b md:border-b-0 md:border-r">
-          {files.length === 0 && !loading ? <p className="p-3 text-xs text-muted-foreground">{t('files.empty')}</p> : null}
+          {files.length === 0 && !loading ? <p className="p-3 text-meta text-fg-muted">{t('files.empty')}</p> : null}
           {files.map((file) => (
             <button
               key={file.path}
               type="button"
               onClick={() => void openFile(file.path)}
               className={cn(
-                'block w-full truncate px-3 py-1.5 text-left text-xs hover:bg-accent',
+                'block w-full truncate px-3 py-1.5 text-left text-meta hover:bg-accent',
                 selected === file.path && 'bg-accent font-medium',
               )}
               title={`${file.path} (${formatBytes(file.size)})`}
@@ -174,19 +182,19 @@ export function FilesPanel() {
               {file.path}
             </button>
           ))}
-          {truncated ? <p className="p-3 text-xs text-muted-foreground">{t('files.listTruncated')}</p> : null}
+          {truncated ? <p className="p-3 text-meta text-fg-muted">{t('files.listTruncated')}</p> : null}
         </div>
         <div className="min-h-0 overflow-auto">
-          {binary ? <p className="p-3 text-xs text-muted-foreground">{t('files.binary')}</p> : null}
-          {fileTruncated ? <p className="border-b px-3 py-2 text-xs text-amber-600">{t('files.truncated')}</p> : null}
+          {binary ? <p className="p-3 text-meta text-fg-muted">{t('files.binary')}</p> : null}
+          {fileTruncated ? <p className="border-b px-3 py-2 text-meta text-warn">{t('files.truncated')}</p> : null}
           {html !== null ? (
-            <pre className="hljs m-0 min-h-full whitespace-pre p-3 text-xs">
+            <pre className="hljs m-0 min-h-full whitespace-pre p-3 text-meta">
               <code dangerouslySetInnerHTML={{ __html: html }} />
             </pre>
           ) : !binary && selected ? (
-            <p className="p-3 text-xs text-muted-foreground">{t('files.loading')}</p>
+            <p className="p-3 text-meta text-fg-muted">{t('files.loading')}</p>
           ) : null}
-          {!selected ? <p className="p-3 text-xs text-muted-foreground">{t('files.pick')}</p> : null}
+          {!selected ? <p className="p-3 text-meta text-fg-muted">{t('files.pick')}</p> : null}
         </div>
       </div>
     </div>

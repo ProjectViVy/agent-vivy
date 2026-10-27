@@ -5,6 +5,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -80,7 +81,7 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
           value={newId}
           onChange={(e) => setNewId(e.target.value)}
           placeholder={t('plugin.vivy/workflow-ui.workflows.newPlaceholder')}
-          className="h-8 w-64 text-xs font-mono"
+          className="h-8 w-64 text-meta font-mono"
           spellCheck={false}
         />
         <Button size="sm" variant="outline" disabled={newId.trim() === ''} onClick={() => onOpenDraft(newId.trim())}>
@@ -92,21 +93,23 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
         </Button>
       </div>
       {error ? (
-        <div className="border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive" role="alert">{error}</div>
+        <div className="border-b px-3 py-1.5">
+          <FailureNotice variant="inline" title={t('errors.genericTitle')} detail={error} onRetry={() => void reload()} />
+        </div>
       ) : null}
       <ScrollArea className="min-h-0 flex-1">
         {items === null ? (
-          <p className="p-4 text-sm text-muted-foreground">{t('common.loading')}</p>
+          <p className="p-4 text-ui text-fg-muted">{t('common.loading')}</p>
         ) : items.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">{t('plugin.vivy/workflow-ui.workflows.empty')}</p>
+          <p className="p-4 text-ui text-fg-muted">{t('plugin.vivy/workflow-ui.workflows.empty')}</p>
         ) : (
           <ul className="divide-y">
             {items.map((w) => (
               <li key={`${w.workflow_id}@${w.revision ?? '?'}`} className="flex items-center gap-3 px-4 py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-mono text-xs font-medium">{w.workflow_id}</span>
-                    <Badge variant="secondary" className="text-[10px]">r{w.revision}</Badge>
+                    <span className="truncate font-mono text-meta font-medium">{w.workflow_id}</span>
+                    <Badge variant="secondary" className="text-2xs">r{w.revision}</Badge>
                   </div>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => w.revision != null && onOpenRevision(w.workflow_id, w.revision)}>
@@ -130,10 +133,10 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
           <>
             <Separator />
             <div className="px-4 py-3">
-              <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <h4 className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">
                 {t('plugin.vivy/workflow-ui.workflows.capabilities')}
               </h4>
-              <pre className="mt-1 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">
+              <pre className="mt-1 overflow-auto rounded-md bg-sunken/50 p-2 font-mono text-2xs leading-relaxed">
                 {JSON.stringify(capabilities, null, 2)}
               </pre>
             </div>
@@ -141,15 +144,15 @@ export function WorkflowsPane({ client, t, canRun, onOpenDraft, onOpenRevision, 
         ) : null}
         {connections && connections.length > 0 ? (
           <div className="px-4 pb-3">
-            <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h4 className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">
               {t('plugin.vivy/workflow-ui.workflows.connections')}
             </h4>
             <ul className="mt-1 space-y-1">
               {connections.map((c) => (
-                <li key={c.id} className="flex items-center gap-2 text-[11px]">
+                <li key={c.id} className="flex items-center gap-2 text-2xs">
                   <span className="font-mono">{c.id}</span>
-                  <Badge variant="outline" className="text-[10px]">{c.kind}</Badge>
-                  <span className="text-muted-foreground">{c.model}</span>
+                  <Badge variant="outline" className="text-2xs">{c.kind}</Badge>
+                  <span className="text-fg-muted">{c.model}</span>
                 </li>
               ))}
             </ul>

@@ -167,7 +167,7 @@ describe('chat work controls', () => {
     useVivyStore.setState({ work: null, workPhase: 'error', workError: 'connection lost', loadWork: loadWork as never });
     await render();
     expect(container.textContent).toContain('connection lost');
-    await act(async () => { button('Refresh work state')?.click(); });
+    await act(async () => { button('Retry')?.click(); });
     expect(loadWork).toHaveBeenCalledWith('s1');
   });
 

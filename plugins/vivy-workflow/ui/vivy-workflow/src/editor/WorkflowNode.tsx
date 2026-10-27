@@ -32,27 +32,27 @@ export function WorkflowNode({ data, selected }: NodeProps<Node<CanvasNodeData>>
   return (
     <div
       className={cn(
-        'w-[200px] rounded-lg border bg-card text-card-foreground shadow-sm',
-        selected && 'ring-2 ring-primary ring-offset-1',
-        data.unresolved && 'border-destructive',
+        'w-[200px] rounded-lg border bg-raised text-fg shadow-sm',
+        selected && 'ring-2 ring-brand ring-offset-1',
+        data.unresolved && 'border-danger',
       )}
     >
-      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-border !bg-muted-foreground" />
+      <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-line !bg-fg-muted" />
       <div className="flex items-center gap-1.5 border-b px-2.5 py-1.5">
-        {data.isEntry ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden /> : null}
-        <span className="truncate text-xs font-medium">{n.id}</span>
+        {data.isEntry ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden /> : null}
+        <span className="truncate text-meta font-medium">{n.id}</span>
         {data.isExit ? (
-          <Badge variant="secondary" className="ml-auto h-4 shrink-0 px-1 text-[10px]">
+          <Badge variant="secondary" className="ml-auto h-4 shrink-0 px-1 text-2xs">
             {t('plugin.vivy/workflow-ui.node.exitBadge')}
           </Badge>
         ) : null}
       </div>
       <div className="px-2.5 py-1.5">
-        <p className="truncate text-[11px] text-muted-foreground">{shortType(n.type) || t('plugin.vivy/workflow-ui.node.untyped')}</p>
-        {task ? <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug">{task}</p> : null}
+        <p className="truncate text-2xs text-fg-muted">{shortType(n.type) || t('plugin.vivy/workflow-ui.node.untyped')}</p>
+        {task ? <p className="mt-0.5 line-clamp-2 text-2xs leading-snug">{task}</p> : null}
       </div>
       {ports.length === 0 ? (
-        <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-border !bg-muted-foreground" />
+        <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-line !bg-fg-muted" />
       ) : (
         ports.map((port, i) => (
           <Handle
@@ -61,7 +61,7 @@ export function WorkflowNode({ data, selected }: NodeProps<Node<CanvasNodeData>>
             type="source"
             position={Position.Right}
             style={{ top: 24 + i * 14 }}
-            className="!h-2 !w-2 !border-border !bg-muted-foreground"
+            className="!h-2 !w-2 !border-line !bg-fg-muted"
           />
         ))
       )}

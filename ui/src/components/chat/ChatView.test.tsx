@@ -23,7 +23,7 @@ vi.mock('@/lib/store', async (importOriginal) => {
   return { ...original, useVivyStore };
 });
 // 输入区与待办条不参与转写渲染，避免把无关的 RPC 副作用带进断言。
-vi.mock('./ChatInput', () => ({ ChatInput: ({ draftPreset }: { draftPreset?: { text: string } | null }) => <div data-composer>{draftPreset?.text}</div> }));
+vi.mock('./composer/composer-root', () => ({ ChatInput: ({ draftPreset }: { draftPreset?: { text: string } | null }) => <div data-composer>{draftPreset?.text}</div> }));
 vi.mock('./TodoProgressStrip', () => ({ TodoProgressStrip: () => null }));
 
 const RUN: Run = { id: 'r1', session_id: 's1', status: 'active', created_at: 10 };

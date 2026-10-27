@@ -11,14 +11,16 @@ import { isTextPreviewable } from '@/lib/deliverable-download';
 import { useVivyStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
+const SET_STATUS_KEYS = new Set(['ok', 'partial', 'failed']);
+const PREVIEW_LINES = 12;
+const ACTION_CLASS =
+  'inline-flex h-7 items-center gap-1 rounded border border-line px-1.5 text-2xs text-fg-muted hover:bg-hover disabled:opacity-50';
+
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-const STATUS_KEYS: api.DeliveryItemStatus[] = ['unchecked', 'checking', 'available', 'downloading', 'downloaded', 'changed', 'missing', 'forbidden', 'unavailable'];
-const SET_STATUS_KEYS = new Set(['ok', 'partial', 'failed']);
 
 function DeliverableItemRow({ item, setId }: { item: api.Deliverable; setId: string }) {
   const { t } = useTranslation();
@@ -28,28 +30,32 @@ function DeliverableItemRow({ item, setId }: { item: api.Deliverable; setId: str
   const downloadDeliveryItem = useVivyStore((s) => s.downloadDeliveryItem);
   const cancelDeliveryDownload = useVivyStore((s) => s.cancelDeliveryDownload);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   const status: api.DeliveryItemStatus = state?.status ?? 'unchecked';
   const busy = status === 'checking' || status === 'downloading';
   const previewable = isTextPreviewable(item.media_type);
   const failureReason = ['changed', 'missing', 'forbidden', 'unavailable'].includes(status);
+  const previewLines = state?.preview?.split('\n') ?? [];
+  const previewHidden = !previewExpanded && previewLines.length > PREVIEW_LINES;
+  const shownPreview = previewHidden ? previewLines.slice(0, PREVIEW_LINES).join('\n') : state?.preview;
 
   return (
-    <li className="rounded-md border border-border/60 bg-background/50 px-2 py-1.5" data-delivery-item={item.id} data-delivery-set={setId}>
+    <li className="rounded-md border border-line/60 bg-canvas/50 px-2 py-1.5" data-delivery-item={item.id} data-delivery-set={setId}>
       <div className="flex min-w-0 items-start gap-2">
-        <span className="mt-0.5 shrink-0 text-muted-foreground">
+        <span className="mt-0.5 shrink-0 text-fg-muted">
           <Package className="h-3.5 w-3.5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium" title={item.path}>
+          <p className="break-words text-ui font-medium" title={item.name}>
             {item.name}
           </p>
-          <p className="truncate text-[11px] text-muted-foreground" title={item.path}>
+          <p className="break-all text-2xs text-fg-muted" title={item.path}>
             {item.path} · {formatBytes(item.size)}
             {item.media_type !== '' ? ` · ${item.media_type}` : ''}
           </p>
-          {item.description !== '' ? <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{item.description}</p> : null}
+          {item.description !== '' ? <p className="mt-0.5 text-meta text-fg-muted">{item.description}</p> : null}
           <p
-            className={cn('mt-0.5 text-[11px]', failureReason ? 'text-amber-600' : 'text-muted-foreground')}
+            className={cn('mt-0.5 text-2xs', failureReason ? 'text-warn' : 'text-fg-muted')}
             role="status"
             aria-live="polite"
           >
@@ -60,7 +66,7 @@ function DeliverableItemRow({ item, setId }: { item: api.Deliverable; setId: str
           {status === 'unchecked' || failureReason ? (
             <button
               type="button"
-              className="inline-flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] text-muted-foreground hover:bg-accent disabled:opacity-50"
+              className={ACTION_CLASS}
               aria-label={t('deliverableCard.verify', { name: item.name })}
               disabled={busy}
               onClick={() => void checkDeliveryItem(item)}
@@ -72,7 +78,7 @@ function DeliverableItemRow({ item, setId }: { item: api.Deliverable; setId: str
           {previewable && !failureReason ? (
             <button
               type="button"
-              className="inline-flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] text-muted-foreground hover:bg-accent disabled:opacity-50"
+              className={ACTION_CLASS}
               aria-label={t('deliverableCard.preview', { name: item.name })}
               aria-expanded={previewOpen}
               disabled={busy}
@@ -89,7 +95,7 @@ function DeliverableItemRow({ item, setId }: { item: api.Deliverable; setId: str
           {status === 'downloading' ? (
             <button
               type="button"
-              className="inline-flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] text-muted-foreground hover:bg-accent"
+              className={ACTION_CLASS}
               aria-label={t('deliverableCard.cancel', { name: item.name })}
               onClick={() => cancelDeliveryDownload(item.id)}
             >
@@ -99,7 +105,7 @@ function DeliverableItemRow({ item, setId }: { item: api.Deliverable; setId: str
           ) : (
             <button
               type="button"
-              className="inline-flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] text-muted-foreground hover:bg-accent disabled:opacity-50"
+              className={ACTION_CLASS}
               aria-label={t('deliverableCard.download', { name: item.name })}
               disabled={busy}
               onClick={() => void downloadDeliveryItem(item)}
@@ -110,12 +116,31 @@ function DeliverableItemRow({ item, setId }: { item: api.Deliverable; setId: str
           )}
         </div>
       </div>
-      {previewOpen && state?.preview !== undefined ? (
-        <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-muted/50 p-2 text-[11px] whitespace-pre-wrap" data-delivery-preview={item.id}>
-          {state.preview}
-        </pre>
+      {previewOpen && shownPreview !== undefined ? (
+        <div className="mt-1.5 rounded bg-sunken/60 p-2">
+          <pre className="overflow-x-auto whitespace-pre-wrap break-words text-2xs leading-ui" data-delivery-preview={item.id}>
+            {shownPreview}
+          </pre>
+          {previewHidden ? (
+            <button
+              type="button"
+              className="mt-1 text-2xs text-fg-muted underline-offset-2 hover:underline"
+              onClick={() => setPreviewExpanded(true)}
+            >
+              {t('deliverableCard.showMore')}
+            </button>
+          ) : previewExpanded ? (
+            <button
+              type="button"
+              className="mt-1 text-2xs text-fg-muted underline-offset-2 hover:underline"
+              onClick={() => setPreviewExpanded(false)}
+            >
+              {t('deliverableCard.showLess')}
+            </button>
+          ) : null}
+        </div>
       ) : previewOpen ? (
-        <p className="mt-1.5 text-[11px] text-muted-foreground">{t('deliverableCard.previewLoading')}</p>
+        <p className="mt-1.5 text-2xs text-fg-muted">{t('deliverableCard.previewLoading')}</p>
       ) : null}
     </li>
   );
@@ -129,27 +154,27 @@ export function DeliverableCard({ set }: { set: api.DeliverySet }) {
 
   return (
     <section
-      className="my-2 min-w-0 rounded-lg border border-border bg-card/60"
+      className="my-2 min-w-0 rounded-lg border border-line bg-raised/60"
       data-delivery-set={set.id}
       id={`deliverable-${set.id}`}
       aria-label={t('deliverableCard.title')}
     >
       <button
         type="button"
-        className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left"
+        className="flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">
+        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-fg-muted">
           {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </span>
-        <span className="truncate text-[13px] leading-6 text-muted-foreground">
+        <span className="line-clamp-2 min-w-0 flex-1 break-words text-ui text-fg-muted">
           {(set.title ?? '') !== '' ? `${set.title} · ` : ''}
           {t('deliverableCard.summary', { count: set.items.length })}
           {failed > 0 ? ` · ${t('deliverableCard.failures', { count: failed })}` : ''}
         </span>
         {statusKey !== 'ok' ? (
-          <Badge variant="outline" className="ml-auto shrink-0 text-[10px]">
+          <Badge variant="outline" className="ml-auto shrink-0 text-2xs">
             {t(`deliverableCard.status.${statusKey}`)}
           </Badge>
         ) : null}
@@ -164,10 +189,10 @@ export function DeliverableCard({ set }: { set: api.DeliverySet }) {
           {failed > 0 ? (
             <ul className="mt-1 space-y-1" aria-label={t('deliverableCard.failures', { count: failed })}>
               {set.failures.map((failure) => (
-                <li key={failure.path} className="flex items-start gap-2 rounded-md border border-dashed border-border/60 px-2 py-1">
-                  <FileWarning className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" aria-hidden />
-                  <div className="min-w-0 text-[11px] text-muted-foreground">
-                    <span className="font-medium text-foreground/80">{failure.path}</span>
+                <li key={failure.path} className="flex items-start gap-2 rounded-md border border-dashed border-line/60 px-2 py-1">
+                  <FileWarning className="mt-0.5 h-3 w-3 shrink-0 text-warn" aria-hidden />
+                  <div className="min-w-0 break-words text-2xs text-fg-muted">
+                    <span className="font-medium text-fg/80">{failure.path}</span>
                     <span className="ml-1">{failure.reason}</span>
                   </div>
                 </li>

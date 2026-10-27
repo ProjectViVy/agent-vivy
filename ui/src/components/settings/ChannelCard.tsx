@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from 'react';
 import { MessageSquare, Pencil, Power, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { useTranslation } from '@/i18n';
 import { PLATFORM_DISPLAY_NAMES, PLATFORM_ICONS } from './channel-icons';
 import type { ChannelStatus } from '../../lib/api';
@@ -51,7 +52,7 @@ function ChannelCard({
   /** 实时健康徽标（CH-R-1）：只在已启动且适配器有健康面时出现。 */
   const healthBadge = status.health
     ? status.health.ok
-      ? { label: t('channels.healthOk'), className: 'border-emerald-500/40 text-emerald-600' }
+      ? { label: t('channels.healthOk'), tone: 'ok' as const }
       : {
           label:
             status.health.class === 'dead'
@@ -59,35 +60,32 @@ function ChannelCard({
               : status.health.class === 'rate-limit'
                 ? t('channels.healthRateLimit')
                 : t('channels.healthTemporary'),
-          className:
-            status.health.class === 'dead'
-              ? 'border-destructive/40 text-destructive'
-              : 'border-amber-500/40 text-amber-600',
+          tone: status.health.class === 'dead' ? ('danger' as const) : ('warn' as const),
         }
     : null;
 
   return (
     <div
-      className={`flex flex-col gap-4 rounded-lg border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md ${
-        status.started ? 'border-l-4 border-l-emerald-500' : status.enabled ? 'border-l-4 border-l-amber-500' : 'opacity-60'
+      className={`flex flex-col gap-4 rounded-lg border bg-raised p-5 transition-all hover:-translate-y-0.5 hover:shadow-md ${
+        status.started ? 'border-l-4 border-l-ok' : status.enabled ? 'border-l-4 border-l-warn' : 'opacity-60'
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex h-12 w-12 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <div className="flex h-12 w-12 items-center justify-center rounded-md bg-brand/10 text-brand-ink">
           <Icon className="h-6 w-6" />
         </div>
         <div className="flex flex-col items-end gap-1">
           <Badge variant={status.started ? 'default' : 'secondary'}>{badgeLabel}</Badge>
           {pendingRestart ? <Badge variant="outline">{t('channels.pendingRestart')}</Badge> : null}
-          {healthBadge ? <Badge variant="outline" className={healthBadge.className}>{healthBadge.label}</Badge> : null}
+          {healthBadge ? <StatusBadge tone={healthBadge.tone}>{healthBadge.label}</StatusBadge> : null}
         </div>
       </div>
 
       <div className="space-y-1.5">
         <h3 className="text-base font-semibold">{displayName}</h3>
-        <p className="text-sm text-muted-foreground">{stateLine}</p>
+        <p className="text-ui text-fg-muted">{stateLine}</p>
         {status.note ? (
-          <p className="text-xs text-amber-600">{status.note}</p>
+          <p className="text-meta text-warn">{status.note}</p>
         ) : null}
       </div>
 
@@ -119,7 +117,7 @@ function ChannelCard({
           variant="ghost"
           size="icon"
           disabled={busy || !status.enabled}
-          className="text-muted-foreground hover:bg-destructive hover:text-white"
+          className="text-fg-muted hover:bg-danger hover:text-danger-fg"
           onClick={onDisable}
           title={t('channels.disable')}
           aria-label={t('channels.disable')}

@@ -1,0 +1,2831 @@
+{
+  "generatedAt": "2026-10-25T17:38:21.933Z",
+  "base": "http://127.0.0.1:3016",
+  "combos": {
+    "default-390-chat": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "default-390-dashboard": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-390-approvals": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-390-mcp": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-390-settings": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-390-skills": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-390-cron": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-390-lifecycle": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "div",
+            "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto rounded-lg",
+            "text": "SpeciesGenerationsEvaluationsPro",
+            "client": 358,
+            "scroll": 399
+          }
+        ]
+      }
+    },
+    "default-768-chat": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "default-768-dashboard": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-768-approvals": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-768-mcp": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-768-settings": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-768-skills": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-768-cron": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-768-lifecycle": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-1280-chat": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "default-1280-dashboard": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-1280-approvals": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-1280-mcp": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-1280-settings": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-1280-skills": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-1280-cron": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "default-1280-lifecycle": {
+      "layout": {
+        "theme": "default",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-390-chat": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "dark-390-dashboard": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-390-approvals": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-390-mcp": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-390-settings": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-390-skills": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-390-cron": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-390-lifecycle": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "div",
+            "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto rounded-lg",
+            "text": "SpeciesGenerationsEvaluationsPro",
+            "client": 358,
+            "scroll": 399
+          }
+        ]
+      }
+    },
+    "dark-768-chat": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "dark-768-dashboard": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-768-approvals": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-768-mcp": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-768-settings": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-768-skills": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-768-cron": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-768-lifecycle": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-1280-chat": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "dark-1280-dashboard": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-1280-approvals": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-1280-mcp": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-1280-settings": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-1280-skills": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-1280-cron": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "dark-1280-lifecycle": {
+      "layout": {
+        "theme": "dark",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-390-chat": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "pink-390-dashboard": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-390-approvals": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-390-mcp": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-390-settings": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-390-skills": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-390-cron": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-390-lifecycle": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "div",
+            "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto rounded-lg",
+            "text": "SpeciesGenerationsEvaluationsPro",
+            "client": 358,
+            "scroll": 399
+          }
+        ]
+      }
+    },
+    "pink-768-chat": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "pink-768-dashboard": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-768-approvals": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-768-mcp": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-768-settings": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-768-skills": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-768-cron": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-768-lifecycle": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-1280-chat": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "pink-1280-dashboard": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-1280-approvals": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-1280-mcp": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-1280-settings": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-1280-skills": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-1280-cron": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "pink-1280-lifecycle": {
+      "layout": {
+        "theme": "pink",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-390-chat": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "miku-390-dashboard": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-390-approvals": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-390-mcp": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-390-settings": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-390-skills": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-390-cron": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-390-lifecycle": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "div",
+            "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto rounded-lg",
+            "text": "SpeciesGenerationsEvaluationsPro",
+            "client": 358,
+            "scroll": 399
+          }
+        ]
+      }
+    },
+    "miku-768-chat": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "miku-768-dashboard": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-768-approvals": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-768-mcp": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-768-settings": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-768-skills": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-768-cron": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-768-lifecycle": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-1280-chat": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "miku-1280-dashboard": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-1280-approvals": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-1280-mcp": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-1280-settings": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-1280-skills": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-1280-cron": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "miku-1280-lifecycle": {
+      "layout": {
+        "theme": "miku",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-390-chat": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "rice-390-dashboard": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-390-approvals": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-390-mcp": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-390-settings": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-390-skills": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-390-cron": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-390-lifecycle": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "div",
+            "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto rounded-lg",
+            "text": "SpeciesGenerationsEvaluationsPro",
+            "client": 358,
+            "scroll": 399
+          }
+        ]
+      }
+    },
+    "rice-768-chat": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "rice-768-dashboard": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-768-approvals": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-768-mcp": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-768-settings": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-768-skills": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-768-cron": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-768-lifecycle": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-1280-chat": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "rice-1280-dashboard": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-1280-approvals": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-1280-mcp": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-1280-settings": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-1280-skills": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-1280-cron": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "rice-1280-lifecycle": {
+      "layout": {
+        "theme": "rice",
+        "appearance": "light",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-390-chat": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "fluor-390-dashboard": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-390-approvals": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-390-mcp": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-390-settings": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-390-skills": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-390-cron": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-390-lifecycle": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "div",
+            "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto rounded-lg",
+            "text": "SpeciesGenerationsEvaluationsPro",
+            "client": 358,
+            "scroll": 399
+          }
+        ]
+      }
+    },
+    "fluor-768-chat": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "fluor-768-dashboard": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-768-approvals": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-768-mcp": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-768-settings": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-768-skills": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-768-cron": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-768-lifecycle": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-1280-chat": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "fluor-1280-dashboard": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-1280-approvals": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-1280-mcp": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-1280-settings": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-1280-skills": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-1280-cron": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "fluor-1280-lifecycle": {
+      "layout": {
+        "theme": "fluor",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-390-chat": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "indigo-390-dashboard": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-390-approvals": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-390-mcp": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-390-settings": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-390-skills": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-390-cron": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-390-lifecycle": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 390,
+        "doc": {
+          "client": 390,
+          "scroll": 390
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "div",
+            "cls": "inline-flex h-9 max-w-full items-center justify-start overflow-x-auto rounded-lg",
+            "text": "SpeciesGenerationsEvaluationsPro",
+            "client": 358,
+            "scroll": 399
+          }
+        ]
+      }
+    },
+    "indigo-768-chat": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "indigo-768-dashboard": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-768-approvals": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-768-mcp": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-768-settings": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-768-skills": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-768-cron": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-768-lifecycle": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 768,
+        "doc": {
+          "client": 768,
+          "scroll": 768
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-1280-chat": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      }
+    },
+    "indigo-1280-dashboard": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-1280-approvals": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-1280-mcp": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-1280-settings": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-1280-skills": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-1280-cron": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    },
+    "indigo-1280-lifecycle": {
+      "layout": {
+        "theme": "indigo",
+        "appearance": "dark",
+        "viewport": 1280,
+        "doc": {
+          "client": 1280,
+          "scroll": 1280
+        },
+        "docOverflow": false,
+        "offenderCount": 0,
+        "offenders": []
+      }
+    }
+  },
+  "panels": {
+    "todos-1280": {
+      "visible": 1,
+      "layout": {
+        "viewport": 1280,
+        "docOverflow": false,
+        "offenderCount": 1,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          }
+        ]
+      },
+      "panelPresent": 1
+    },
+    "files-1280": {
+      "visible": 1,
+      "layout": {
+        "viewport": 1280,
+        "docOverflow": false,
+        "offenderCount": 2,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Close",
+            "client": 1,
+            "scroll": 43
+          }
+        ]
+      },
+      "panelPresent": 0
+    },
+    "todos-390": {
+      "visible": 1,
+      "layout": {
+        "viewport": 390,
+        "docOverflow": false,
+        "offenderCount": 3,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Close",
+            "client": 1,
+            "scroll": 43
+          },
+          {
+            "tag": "div",
+            "cls": "flex shrink-0 flex-col space-y-2 px-4 py-3 text-center sm:te",
+            "text": "To-dos",
+            "client": 64,
+            "scroll": 83
+          }
+        ]
+      },
+      "panelPresent": 1
+    },
+    "files-390": {
+      "visible": 1,
+      "layout": {
+        "viewport": 390,
+        "docOverflow": false,
+        "offenderCount": 2,
+        "offenders": [
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Context usage",
+            "client": 1,
+            "scroll": 112
+          },
+          {
+            "tag": "span",
+            "cls": "sr-only",
+            "text": "Close",
+            "client": 1,
+            "scroll": 43
+          }
+        ]
+      },
+      "panelPresent": 0
+    }
+  },
+  "summary": {
+    "totalCombos": 168,
+    "erroredCombos": 0,
+    "combosWithOverflow": 28,
+    "overflowedCombos": [
+      {
+        "combo": "default-390-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "default-390-lifecycle",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "default-768-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "default-1280-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "dark-390-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "dark-390-lifecycle",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "dark-768-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "dark-1280-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "pink-390-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "pink-390-lifecycle",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "pink-768-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "pink-1280-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "miku-390-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "miku-390-lifecycle",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "miku-768-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "miku-1280-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "rice-390-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "rice-390-lifecycle",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "rice-768-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "rice-1280-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "fluor-390-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "fluor-390-lifecycle",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "fluor-768-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "fluor-1280-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "indigo-390-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "indigo-390-lifecycle",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "indigo-768-chat",
+        "docOverflow": false,
+        "offenders": 1
+      },
+      {
+        "combo": "indigo-1280-chat",
+        "docOverflow": false,
+        "offenders": 1
+      }
+    ]
+  }
+}

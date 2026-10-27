@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>VIVY</title>
     <style>
-      /* 内联样式确保主题底色立即生效，避免闪烁；色值是各主题 --background 的近似值 */
+      /* 预绘制只认外观（light/dark），不认识任何主题 id：两对中性近似值分别对应
+         styles.css 的 --bg-app / --fg，用于 React 挂载前不闪底色。 */
       html, body, #root {
         margin: 0;
         padding: 0;
@@ -15,36 +16,24 @@
         overflow: hidden;
       }
       html, html body {
-        background-color: #f6f7f9;
-        color: #1c2030;
+        background-color: #ebfaff;
+        color: #1e3137;
       }
-      html[data-theme="pink"], html[data-theme="pink"] body {
-        background-color: #ffffff;
-        color: #6b2737;
-      }
-      html[data-theme="dark"], html[data-theme="dark"] body,
-      html[data-theme="miku"], html[data-theme="miku"] body {
-        background-color: #10131f;
-        color: #e6edf3;
+      html[data-appearance="dark"], html[data-appearance="dark"] body {
+        background-color: #071519;
+        color: #e9f4f8;
       }
     </style>
     <script>
-      // 在 React 加载前应用持久化主题（vivy.theme），避免闪烁。
-      // 必须与 src/hooks/use-theme.ts 的 THEME_IDS / 外观保持同步。
+      // React 挂载前应用持久化外观，避免深色皮肤先闪一帧浅色。
+      // 家族 id 只在 hooks/use-theme.ts；这里只读 vivy.appearance。
       (function() {
-        var APPEARANCES = {
-          default: 'light', pink: 'light',
-          dark: 'dark', miku: 'dark',
-        };
-        var id = null;
+        var appearance = 'light';
         try {
-          var stored = window.localStorage.getItem('vivy.theme');
-          if (Object.prototype.hasOwnProperty.call(APPEARANCES, stored)) id = stored;
-        } catch (e) { /* storage 不可用时使用默认主题 */ }
-        if (!id) id = 'default';
-        document.documentElement.setAttribute('data-theme', id);
-        // .dark 类驱动 Tailwind dark: 变体；令牌值来自 [data-theme] 块
-        document.documentElement.classList.toggle('dark', APPEARANCES[id] === 'dark');
+          if (window.localStorage.getItem('vivy.appearance') === 'dark') appearance = 'dark';
+        } catch (e) { /* storage 不可用时按浅色预绘制 */ }
+        document.documentElement.setAttribute('data-appearance', appearance);
+        document.documentElement.classList.toggle('dark', appearance === 'dark');
       })();
     </script>
   </head>

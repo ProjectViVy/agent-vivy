@@ -61,16 +61,16 @@ function ChannelTutorialModal({
         {platform ? (
           <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-3">
             <div>
-              <p className="text-xs text-muted-foreground">{t('channels.accessMethod')}</p>
-              <p className="mt-0.5 text-sm font-semibold">{platform.accessMethod}</p>
+              <p className="text-meta text-fg-muted">{t('channels.accessMethod')}</p>
+              <p className="mt-0.5 text-ui font-semibold">{platform.accessMethod}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">{t('channels.tutorialPublicIP')}</p>
-              <p className="mt-0.5 text-sm font-semibold">{publicIPText}</p>
+              <p className="text-meta text-fg-muted">{t('channels.tutorialPublicIP')}</p>
+              <p className="mt-0.5 text-ui font-semibold">{publicIPText}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">{t('channels.tutorialDifficulty')}</p>
-              <p className="mt-0.5 text-sm font-semibold">{difficultyStars(platform.difficulty)}</p>
+              <p className="text-meta text-fg-muted">{t('channels.tutorialDifficulty')}</p>
+              <p className="mt-0.5 text-ui font-semibold">{difficultyStars(platform.difficulty)}</p>
             </div>
           </div>
         ) : null}

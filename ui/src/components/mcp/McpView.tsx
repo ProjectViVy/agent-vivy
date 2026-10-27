@@ -14,10 +14,13 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { FailureNotice } from '@/components/feedback/FailureNotice';
+import { notifyFailure } from '@/lib/toasts';
 import { useTranslation } from '@/i18n';
-import { Download, FileUp, Globe, LoaderCircle, PackageOpen, Pencil, Plus, RefreshCw, Search, Terminal, Trash2 } from 'lucide-react';
+import { Download, FileUp, Globe, LoaderCircle, PackageOpen, Pencil, Plug, Plus, RefreshCw, Search, Terminal, Trash2 } from 'lucide-react';
 import * as api from '@/lib/api';
 import { exportMcpConfig, parseMcpImport } from './mcp-import';
+import { PageHeader } from '@/components/ui/panel';
 
 type McpFilter = 'all' | 'enabled' | 'disabled';
 type McpForm = {
@@ -208,7 +211,7 @@ export function McpView() {
       const saved = await api.upsertMcpServer(serverInput(server, !server.enabled));
       setServers((current) => mergeServer(current, saved));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.toggleFailed'));
+      notifyFailure(cause, { title: t('feedback.operation.connectMcp') });
     } finally {
       setBusyId('');
     }
@@ -220,7 +223,7 @@ export function McpView() {
       const probed = await api.probeMcpServer(server.name);
       setServers((current) => mergeServer(current, probed));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.probeFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.probeFailed') });
     } finally {
       setBusyId('');
     }
@@ -234,7 +237,7 @@ export function McpView() {
       setServers((current) => current.filter((server) => server.name !== deleting.name));
       setDeleting(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.deleteFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.deleteFailed') });
     } finally {
       setBusyId('');
     }
@@ -259,7 +262,7 @@ export function McpView() {
       setImportWarning(parsed.warnings.length ? t('mcp.importEnvWarning', { count: parsed.warnings.length }) : '');
       setQuery(''); setFilter('all');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.importFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.importFailed') });
     } finally {
       setImporting(false);
     }
@@ -278,7 +281,7 @@ export function McpView() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('mcp.errors.exportFailed'));
+      notifyFailure(cause, { title: t('mcp.errors.exportFailed') });
     }
   };
 
@@ -288,51 +291,46 @@ export function McpView() {
   if (error && servers.length === 0) {
     return (
       <PageShell>
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('mcp.title')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('mcp.subtitle')}</p>
-        </header>
-        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <p>{error}</p>
-          <Button className="mt-3" size="sm" variant="outline" onClick={() => void loadServers()}>{t('common.retry')}</Button>
-        </div>
+        <PageHeader icon={<Plug className="h-5 w-5" />} title={t('mcp.title')} description={t('mcp.subtitle')} />
+        <FailureNotice variant="full" title={t('mcp.errors.loadFailed')} error={error} onRetry={() => void loadServers()} />
       </PageShell>
     );
   }
 
   return (
     <PageShell>
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('mcp.title')}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t('mcp.subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input ref={fileInputRef} className="hidden" type="file" accept="application/json,.json" onChange={(event) => void handleImport(event)} />
-          <Button variant="outline" disabled={importing || readOnly} title={t('mcp.importTitle')} onClick={() => fileInputRef.current?.click()}>
-            {importing ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-            {t('mcp.importJson')}
-          </Button>
-          <Button variant="outline" disabled={servers.length === 0} onClick={handleExport}>
-            <Download className="mr-2 h-4 w-4" />{t('mcp.exportJson')}
-          </Button>
-          <Button onClick={openCreate} disabled={readOnly} className="self-start sm:self-auto"><Plus className="mr-2 h-4 w-4" />{t('mcp.addService')}</Button>
-        </div>
-      </header>
+      <PageHeader
+        icon={<Plug className="h-5 w-5" />}
+        title={t('mcp.title')}
+        description={t('mcp.subtitle')}
+        actions={
+          <>
+            <input ref={fileInputRef} className="hidden" type="file" accept="application/json,.json" onChange={(event) => void handleImport(event)} />
+            <Button variant="outline" disabled={importing || readOnly} title={t('mcp.importTitle')} onClick={() => fileInputRef.current?.click()}>
+              {importing ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+              {t('mcp.importJson')}
+            </Button>
+            <Button variant="outline" disabled={servers.length === 0} onClick={handleExport}>
+              <Download className="mr-2 h-4 w-4" />{t('mcp.exportJson')}
+            </Button>
+            <Button onClick={openCreate} disabled={readOnly}><Plus className="mr-2 h-4 w-4" />{t('mcp.addService')}</Button>
+          </>
+        }
+      />
 
-      {readOnly ? <p className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm text-amber-700">{t('mcp.readOnly')}</p> : null}
-      {importWarning ? <p role="status" className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm text-amber-700">{importWarning}</p> : null}
-      {error ? <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</div> : null}
+      {readOnly ? <p className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn">{t('mcp.readOnly')}</p> : null}
+      {importWarning ? <p role="status" className="rounded-lg bg-warn-soft px-4 py-3 text-ui text-warn">{importWarning}</p> : null}
+      {error ? <FailureNotice variant="compact" title={t('mcp.errors.loadFailed')} error={error} /> : null}
 
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0 border-b px-4 py-3">
           <CardTitle className="text-base">{t('mcp.listTitle')}</CardTitle>
-          <span className="text-xs text-muted-foreground">{t('mcp.countLabel', { total: servers.length, enabled: enabledCount })}</span>
+          <span className="text-meta text-fg-muted">{t('mcp.countLabel', { total: servers.length, enabled: enabledCount })}</span>
         </CardHeader>
         {servers.length > 0 ? (
           <div className="flex flex-col gap-2 border-b px-4 py-3 sm:flex-row">
             <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
               <Input value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" placeholder={t('mcp.searchPlaceholder')} aria-label={t('mcp.searchAria')} />
             </div>
             <Select value={filter} onValueChange={(value) => setFilter(value as McpFilter)}>
@@ -350,8 +348,8 @@ export function McpView() {
         <CardContent className="p-2">
           {servers.length === 0 ? (
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
-              <div className="rounded-full bg-muted p-3 text-muted-foreground"><PackageOpen className="h-5 w-5" /></div>
-              <div><p className="font-medium">{t('mcp.emptyTitle')}</p><p className="mt-1 text-sm text-muted-foreground">{t('mcp.emptyHint')}</p></div>
+              <div className="rounded-full bg-sunken p-3 text-fg-muted"><PackageOpen className="h-5 w-5" /></div>
+              <div><p className="font-medium">{t('mcp.emptyTitle')}</p><p className="mt-1 text-ui text-fg-muted">{t('mcp.emptyHint')}</p></div>
               {readOnly ? null : (
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>{t('mcp.importJson')}</Button>
@@ -367,7 +365,7 @@ export function McpView() {
           ) : (
             <div className="space-y-1">
               {visibleServers.map((server) => (
-                <div key={server.name} className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-3 transition-colors hover:bg-muted/60">
+                <div key={server.name} className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-3 transition-colors hover:bg-sunken">
                   {(() => {
                     const state = legacyState(server);
                     const reason = boundedReason(server.deferred_reason || server.error);
@@ -385,13 +383,13 @@ export function McpView() {
                       <Badge variant="outline" className="shrink-0 font-normal">{server.transport === 'stdio' ? 'STDIO' : 'HTTP'}</Badge>
                       <Badge variant={state === 'unavailable' ? 'destructive' : 'outline'} className="shrink-0 font-normal">{t(`mcp.states.${state}`)}</Badge>
                     </div>
-                    <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="mt-1 flex min-w-0 items-center gap-1.5 text-meta text-fg-muted">
                       {server.transport === 'stdio' ? <Terminal className="h-3.5 w-3.5 shrink-0" /> : <Globe className="h-3.5 w-3.5 shrink-0" />}
                       <span className="truncate">{server.transport === 'stdio' ? server.command : server.endpoint}</span>
                       {state === 'ready' ? <span className="shrink-0">· {t('mcp.toolCount', { count: server.tool_count })}</span> : null}
                     </span>
-                    {server.env_missing?.length ? <p className="mt-1 truncate text-xs text-destructive">{t('mcp.envMissing', { names: server.env_missing.join(', ') })}</p> : null}
-                    {reason ? <p className="mt-1 truncate text-xs text-destructive">{reason}</p> : null}
+                    {server.env_missing?.length ? <p className="mt-1 truncate text-meta text-danger">{t('mcp.envMissing', { names: server.env_missing.join(', ') })}</p> : null}
+                    {reason ? <p className="mt-1 truncate text-meta text-danger">{reason}</p> : null}
                   </div>
                   <Button variant="ghost" size="icon" aria-label={t('mcp.probeAria', { name: server.name })} title={t('mcp.probeTitle')} disabled={Boolean(busyId) || !server.enabled} onClick={() => void handleProbe(server)}>
                     {busyId === `probe:${server.name}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -399,7 +397,7 @@ export function McpView() {
                   <Button variant="ghost" size="icon" aria-label={t('mcp.editAria', { name: server.name })} title={t('mcp.editTitle')} disabled={locked} onClick={() => openEdit(server)}>
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" aria-label={t('mcp.deleteAria', { name: server.name })} title={t('mcp.deleteTitle')} className="text-destructive hover:text-destructive" disabled={locked} onClick={() => setDeleting(server)}>
+                  <Button variant="ghost" size="icon" aria-label={t('mcp.deleteAria', { name: server.name })} title={t('mcp.deleteTitle')} className="text-danger hover:text-danger" disabled={locked} onClick={() => setDeleting(server)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                       </>
@@ -443,7 +441,7 @@ export function McpView() {
                   <div className="space-y-2">
                     <Label htmlFor="mcp-auth">{t('mcp.authEnvLabel')}</Label>
                     <Input id="mcp-auth" value={formData.auth_env} onChange={(event) => setFormData((current) => ({ ...current, auth_env: event.target.value }))} placeholder="MCP_DOCS_TOKEN" />
-                    <p className="text-xs text-muted-foreground">{t('mcp.authEnvHint')}</p>
+                    <p className="text-meta text-fg-muted">{t('mcp.authEnvHint')}</p>
                   </div>
                 </>
               ) : (
@@ -451,14 +449,14 @@ export function McpView() {
                   <div className="space-y-2">
                     <Label htmlFor="mcp-command">{t('mcp.commandLabel')}</Label>
                     <Input id="mcp-command" value={formData.command} onChange={(event) => setFormData((current) => ({ ...current, command: event.target.value }))} placeholder="npx" />
-                    <p className="text-xs text-muted-foreground">{t('mcp.commandHint')}</p>
+                    <p className="text-meta text-fg-muted">{t('mcp.commandHint')}</p>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <Label>{t('mcp.argsLabel')}</Label>
                       <Button type="button" variant="ghost" size="sm" onClick={() => setFormData((current) => ({ ...current, args: [...current.args, ''] }))}><Plus className="mr-1 h-3.5 w-3.5" />{t('mcp.addArg')}</Button>
                     </div>
-                    {formData.args.length === 0 ? <p className="text-xs text-muted-foreground">{t('mcp.argsHint')}</p> : null}
+                    {formData.args.length === 0 ? <p className="text-meta text-fg-muted">{t('mcp.argsHint')}</p> : null}
                     <div className="space-y-2">
                       {formData.args.map((arg, index) => (
                         <div key={index} className="flex items-center gap-2">
@@ -467,19 +465,19 @@ export function McpView() {
                         </div>
                       ))}
                     </div>
-                    <p className="text-xs text-muted-foreground">{t('mcp.argsHint')}</p>
+                    <p className="text-meta text-fg-muted">{t('mcp.argsHint')}</p>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <Label>{t('mcp.envFromLabel')}</Label>
                       <Button type="button" variant="ghost" size="sm" onClick={() => setEnvRows((rows) => [...rows, { child: '', host: '' }])}><Plus className="mr-1 h-3.5 w-3.5" />{t('mcp.addEnv')}</Button>
                     </div>
-                    {envRows.length === 0 ? <p className="text-xs text-muted-foreground">{t('mcp.envFromHint')}</p> : null}
+                    {envRows.length === 0 ? <p className="text-meta text-fg-muted">{t('mcp.envFromHint')}</p> : null}
                     <div className="space-y-2">
                       {envRows.map((row, index) => (
                         <div key={index} className="flex items-center gap-2">
                           <Input aria-label={t('mcp.envChildLabel')} value={row.child} onChange={(event) => setEnvRows((rows) => rows.map((current, rowIndex) => rowIndex === index ? { ...current, child: event.target.value } : current))} placeholder="CHILD_VAR" />
-                          <span className="text-muted-foreground">←</span>
+                          <span className="text-fg-muted">←</span>
                           <Input aria-label={t('mcp.envHostLabel')} value={row.host} onChange={(event) => setEnvRows((rows) => rows.map((current, rowIndex) => rowIndex === index ? { ...current, host: event.target.value } : current))} placeholder="HOST_VAR" />
                           <Button type="button" variant="ghost" size="icon" aria-label={t('mcp.removeEnv')} onClick={() => setEnvRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}><Trash2 className="h-4 w-4" /></Button>
                         </div>
@@ -489,19 +487,19 @@ export function McpView() {
                   <div className="space-y-2">
                     <Label htmlFor="mcp-cwd">{t('mcp.cwdLabel')}</Label>
                     <Input id="mcp-cwd" value={formData.cwd} onChange={(event) => setFormData((current) => ({ ...current, cwd: event.target.value }))} placeholder="." />
-                    <p className="text-xs text-muted-foreground">{t('mcp.cwdHint')}</p>
+                    <p className="text-meta text-fg-muted">{t('mcp.cwdHint')}</p>
                   </div>
-                  <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">{t('mcp.stdioWarning')}</p>
+                  <p className="rounded-md bg-warn-soft px-3 py-2 text-meta text-warn">{t('mcp.stdioWarning')}</p>
                 </>
               )}
               <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
                 <div>
                   <Label htmlFor="mcp-resource-bridge">{t('mcp.resourceBridgeLabel')}</Label>
-                  <p className="text-xs text-muted-foreground">{t('mcp.resourceBridgeHint')}</p>
+                  <p className="text-meta text-fg-muted">{t('mcp.resourceBridgeHint')}</p>
                 </div>
                 <Switch id="mcp-resource-bridge" checked={formData.resource_bridge} onCheckedChange={(checked) => setFormData((current) => ({ ...current, resource_bridge: checked }))} />
               </div>
-              {formError ? <p role="alert" className="text-sm text-destructive">{formError}</p> : null}
+              {formError ? <p role="alert" className="text-ui text-danger">{formError}</p> : null}
             </DialogBody>
             <DialogFooter>
               <Button type="button" variant="outline" disabled={busyId === 'save'} onClick={() => { setFormOpen(false); setEditingName(null); setEnvRows([]); }}>{t('common.cancel')}</Button>
@@ -524,7 +522,7 @@ export function McpView() {
             <AlertDialogCancel disabled={Boolean(busyId)}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               disabled={Boolean(busyId)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-danger text-danger-fg hover:bg-danger/90"
               onClick={(event) => { event.preventDefault(); void handleDelete(); }}
             >
               {busyId.startsWith('delete:') ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}{t('mcp.deleteAction')}

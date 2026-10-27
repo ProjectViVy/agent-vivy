@@ -68,7 +68,7 @@ function RequestDetails({
             className={[
               'rounded px-2 py-1 text-xs',
               tab === item.id
-                ? 'bg-primary/10 text-primary'
+                ? 'bg-primary/10 text-brand-ink'
                 : 'text-muted-foreground hover:bg-muted/60',
             ].join(' ')}
           >
@@ -81,7 +81,7 @@ function RequestDetails({
           <dl className="space-y-2.5 px-3 py-3 text-xs">
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">{t('trajectory.status')}</dt>
-              <dd className={request.status === 'error' ? 'text-red-600' : request.status === 'active' ? 'text-primary' : undefined}>
+              <dd className={request.status === 'error' ? 'text-danger' : request.status === 'active' ? 'text-brand-ink' : undefined}>
                 {request.status === 'error' ? t('trajectory.statusError')
                   : request.status === 'active' ? t('trajectory.callStatus.active')
                     : request.status === 'cancelled' ? t('trajectory.callStatus.cancelled')
@@ -92,8 +92,8 @@ function RequestDetails({
               <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">{t('trajectory.callStatusLabel')}</dt>
                 <dd className={request.callStatus === 'failed' || request.callStatus === 'interrupted'
-                  ? 'text-red-600'
-                  : request.callStatus === 'active' ? 'text-primary' : undefined}
+                  ? 'text-danger'
+                  : request.callStatus === 'active' ? 'text-brand-ink' : undefined}
                 >
                   {TRAJECTORY_CALL_STATUS_LABEL[request.callStatus]}
                 </dd>
@@ -142,7 +142,7 @@ function RequestDetails({
             {request.error !== undefined && (
               <div className="flex justify-between gap-3">
                 <dt className="text-muted-foreground">{t('trajectory.error')}</dt>
-                <dd className="text-red-600">{request.error}</dd>
+                <dd className="text-danger">{request.error}</dd>
               </div>
             )}
             {request.retry !== undefined && (
@@ -199,7 +199,7 @@ function RequestDetails({
                 {request.usageEvidence.partial && (
                   <div className="flex justify-between gap-3">
                     <dt className="text-muted-foreground">{t('trajectory.usagePartial')}</dt>
-                    <dd className="text-amber-600 dark:text-amber-400">{t('trajectory.usagePartialHint')}</dd>
+                    <dd className="text-warn">{t('trajectory.usagePartialHint')}</dd>
                   </div>
                 )}
               </>
@@ -279,7 +279,7 @@ function RecordDetails({
             className={[
               'rounded px-2 py-1 text-xs',
               tab === item.id
-                ? 'bg-primary/10 text-primary'
+                ? 'bg-primary/10 text-brand-ink'
                 : 'text-muted-foreground hover:bg-muted/60',
             ].join(' ')}
           >
@@ -288,7 +288,7 @@ function RecordDetails({
         ))}
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <pre className="whitespace-pre-wrap px-3 py-3 font-mono text-[11px] leading-5 text-foreground/90">
+        <pre className="whitespace-pre-wrap px-3 py-3 font-mono text-2xs leading-5 text-foreground/90">
           {content[tab] ?? t('trajectory.detailsEmpty')}
         </pre>
       </ScrollArea>
@@ -328,24 +328,24 @@ export function TrajectoryDetailPanel({
                 {t('trajectory.request')} {request!.number}
               </span>
               {request!.purpose === 'compaction' && (
-                <span className="shrink-0 text-[10px] text-muted-foreground">{t('trajectory.compaction')}</span>
+                <span className="shrink-0 text-2xs text-muted-foreground">{t('trajectory.compaction')}</span>
               )}
             </>
           ) : (
             <span
               className={[
-                'shrink-0 rounded px-1 py-0.5 font-mono text-[10px]',
+                'shrink-0 rounded px-1 py-0.5 font-mono text-2xs',
                 record!.kind === 'message'
-                  ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400'
+                  ? 'bg-brand-soft text-brand-ink'
                   : record!.kind === 'tool' || record!.kind === 'subtool'
-                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                    : 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
+                    ? 'bg-warn-soft text-warn'
+                    : 'bg-sunken text-fg-muted',
               ].join(' ')}
             >
               {TRAJECTORY_KIND_LABEL[record!.kind]}
             </span>
           )}
-          <span className="truncate text-[10px] text-muted-foreground">{location}</span>
+          <span className="truncate text-2xs text-muted-foreground">{location}</span>
         </div>
         <button
           type="button"
