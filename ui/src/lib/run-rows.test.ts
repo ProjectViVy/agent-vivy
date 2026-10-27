@@ -127,6 +127,93 @@ describe('foldRunEvents', () => {
   });
 });
 
+describe('foldRunEvents on stopped runs', () => {
+  const marksInterrupted = (rows: ReturnType<typeof foldRunEvents>) =>
+    rows.some((row) => (row.kind === 'assistant' || row.kind === 'reasoning') && row.interrupted === true);
+
+  it('keeps a cancelled text tail but marks it interrupted', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'model.request', {}),
+      event(2, 'model.delta', { delta: '前半' }),
+      event(3, 'run.cancelled', {}),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'assistant', content: '前半', streaming: false, interrupted: true });
+  });
+
+  it('marks a cancelled reasoning tail, including the trailing model.call.finished', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'model.request', {}),
+      event(2, 'model.reasoning_delta', { delta: '想了一半' }),
+      event(3, 'model.call.finished', {}),
+      event(4, 'run.cancelled', {}),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'reasoning', text: '想了一半', running: false, interrupted: true });
+  });
+
+  it('marks a failed run text tail', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'model.delta', { delta: '部分答案' }),
+      event(2, 'run.failed', {}),
+    ]);
+    expect(rows[0]).toMatchObject({ kind: 'assistant', interrupted: true });
+  });
+
+  it('treats child session terminals the same way', () => {
+    const rows = foldRunEvents('child-1', [
+      event(1, 'model.delta', { delta: '部分答案' }),
+      event(2, 'child.failed', {}),
+    ]);
+    expect(rows[0]).toMatchObject({ kind: 'assistant', interrupted: true });
+  });
+
+  it('leaves completed runs unmarked', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'model.reasoning_delta', { delta: '想清楚' }),
+      event(2, 'model.delta', { delta: '答案' }),
+      event(3, 'model.completed', {}),
+      event(4, 'run.completed', {}),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(marksInterrupted(rows)).toBe(false);
+  });
+
+  it('keeps an active run streaming without the interrupted mark', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'model.delta', { delta: '写着' }),
+    ], { active: true });
+    expect(rows[0]).toMatchObject({ kind: 'assistant', streaming: true, interrupted: false });
+  });
+
+  it('does not mislabel a log without a terminal event that is not active', () => {
+    // 后台运行仍可能在流式，或历史被截断：这两种都不能诚实标成“已中断”。
+    const rows = foldRunEvents('run-1', [
+      event(1, 'model.delta', { delta: '写着' }),
+    ]);
+    expect(rows[0]).toMatchObject({ kind: 'assistant', streaming: false, interrupted: false });
+    expect(marksInterrupted(rows)).toBe(false);
+  });
+
+  it('lets the terminal event override a stale active flag', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'model.delta', { delta: '前半' }),
+      event(2, 'run.cancelled', {}),
+    ], { active: true });
+    expect(rows[0]).toMatchObject({ kind: 'assistant', streaming: false, interrupted: true });
+  });
+
+  it('closes unfinished tool calls once the log settles, even if still marked active', () => {
+    const rows = foldRunEvents('run-1', [
+      event(1, 'tool.requested', { tool_call_id: 'c1', tool_name: 'bash', args: { command: 'sleep 30' } }),
+      event(2, 'run.cancelled', {}),
+    ], { active: true });
+    const tool = rows[0];
+    if (tool?.kind !== 'tool') throw new Error('expected a tool row');
+    expect(tool.call.status).toBe('stopped');
+  });
+});
+
 describe('buildTranscriptRows', () => {
   const messages: Message[] = [
     message({ id: 'u1', role: 'user', content: '你好', run_id: 'run-1' }),
@@ -159,6 +246,24 @@ describe('buildTranscriptRows', () => {
     expect(rows.map((row) => (row.kind === 'run' ? `run:${row.row.kind}` : row.kind))).toEqual([
       'user', 'run:reasoning', 'assistant', 'run:tool', 'assistant',
     ]);
+  });
+
+  it('propagates the interrupted flag onto the synthetic assistant row', () => {
+    const rows = buildTranscriptRows({
+      messages: [],
+      runRows: {
+        'run-1': foldRunEvents('run-1', [
+          event(1, 'model.delta', { delta: '写到一半' }),
+          event(2, 'run.cancelled', {}),
+        ]),
+      },
+      liveRunId: 'run-1',
+    });
+    expect(rows).toHaveLength(1);
+    const assistant = rows[0];
+    if (assistant?.kind !== 'assistant') throw new Error('expected an assistant row');
+    expect(assistant.interrupted).toBe(true);
+    expect(assistant.streaming).toBe(false);
   });
 });
 

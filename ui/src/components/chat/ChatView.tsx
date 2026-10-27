@@ -167,7 +167,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           {phase === 'error' && !messages.length ? <div className="py-8"><FailureNotice variant="full" error={messagesError} onRetry={() => void selectSession(sessionId)} /></div> : null}
           {phase === 'empty' && transcript.length === 0 && !runError ? <div className="py-24"><p className="text-center text-title text-fg-muted">{t('chat.startNew')}</p></div> : null}
           {transcript.map((row) => {
-            if (row.kind === 'user' || row.kind === 'assistant') return <MessageBubble key={row.id} message={row.message} streaming={row.kind === 'assistant' && row.streaming} canRegenerate={regeneratePrompt(messages, row.message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(row.message.id)} onEditConfirm={(text) => handleEdit(row.message.id, text)} onRewind={() => handleRewind(row.message.id)} onFork={() => handleFork(row.message.id)} />;
+            if (row.kind === 'user' || row.kind === 'assistant') return <MessageBubble key={row.id} message={row.message} streaming={row.kind === 'assistant' && row.streaming} interrupted={row.kind === 'assistant' && row.interrupted} canRegenerate={regeneratePrompt(messages, row.message.id) !== null} actionsDisabled={actionsDisabled} onRegenerate={() => regenerate(row.message.id)} onEditConfirm={(text) => handleEdit(row.message.id, text)} onRewind={() => handleRewind(row.message.id)} onFork={() => handleFork(row.message.id)} />;
             if (row.kind === 'toolResult') return <MessageBubble key={row.id} message={row.message} />;
             return <RunRowView key={row.id} row={row.row} />;
           })}
@@ -188,7 +188,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 /** 事件折叠出的非消息行：思考行、工具调用行、上下文压缩通知。 */
 function RunRowView({ row }: { row: RunRow }) {
   const { t } = useTranslation();
-  if (row.kind === 'reasoning') return <ReasoningRow text={row.text} running={row.running} />;
+  if (row.kind === 'reasoning') return <ReasoningRow text={row.text} running={row.running} interrupted={row.interrupted === true} />;
   if (row.kind === 'tool') return <ToolRow call={row.call} />;
   if (row.kind === 'context_reference') return <ReferenceDetail reference={row.reference} />;
   if (row.kind === 'deliverables') return <DeliverableCard set={row.set} />;

@@ -41,6 +41,8 @@ export interface RunRowAssistant {
   content: string;
   /** 流式中的最后一段正文。 */
   streaming: boolean;
+  /** 运行被取消/失败而收尾：这段正文没有 model.completed 提交边界。 */
+  interrupted?: boolean;
   createdAt: number;
 }
 
@@ -50,6 +52,8 @@ export interface RunRowReasoning {
   runId: string;
   text: string;
   running: boolean;
+  /** 运行被取消/失败而收尾：这段思考没有 model.completed 提交边界。 */
+  interrupted?: boolean;
   createdAt: number;
 }
 
@@ -164,6 +168,7 @@ function compactedNotice(payload: Record<string, unknown>): string {
  * @param runId 运行 id，用于生成稳定行 id。
  * @param events 该运行的 Journal 事件。
  * @param options.active 运行仍在进行：最后一段正文/思考标记为流式/进行中。
+ *   日志自带终态事件时以终态为准，调用方残留的 status 不会让它继续“运行中”。
  */
 export function foldRunEvents(
   runId: string,
@@ -177,12 +182,13 @@ export function foldRunEvents(
   let buffer = '';
   let laneAt = 0;
   let seq = 0;
+  let terminal: string | null = null;
 
-  const flush = (flags: { streaming?: boolean; running?: boolean } = {}): void => {
+  const flush = (flags: { streaming?: boolean; running?: boolean; interrupted?: boolean } = {}): void => {
     if (lane === 'text' && buffer !== '') {
-      rows.push({ kind: 'assistant', id: `${runId}-a${seq++}`, runId, content: buffer, streaming: flags.streaming === true, createdAt: laneAt });
+      rows.push({ kind: 'assistant', id: `${runId}-a${seq++}`, runId, content: buffer, streaming: flags.streaming === true, interrupted: flags.interrupted === true, createdAt: laneAt });
     } else if (lane === 'reasoning' && buffer !== '') {
-      rows.push({ kind: 'reasoning', id: `${runId}-r${seq++}`, runId, text: buffer, running: flags.running === true, createdAt: laneAt });
+      rows.push({ kind: 'reasoning', id: `${runId}-r${seq++}`, runId, text: buffer, running: flags.running === true, interrupted: flags.interrupted === true, createdAt: laneAt });
     }
     lane = null;
     buffer = '';
@@ -321,19 +327,35 @@ export function foldRunEvents(
         rows.push({ kind: 'notice', id: `${runId}-n${seq++}`, runId, tag: 'retry', text: `provider retry${detail ? ` · ${detail}` : ''}`, createdAt: event.created_at });
         break;
       }
+      case 'run.completed':
+      case 'run.failed':
+      case 'run.cancelled':
+      case 'child.completed':
+      case 'child.failed':
+      case 'child.cancelled': {
+        // 终态事件是这份日志自己的结算边界，优先于调用方传入的 active。
+        terminal = event.type;
+        break;
+      }
       default:
         break;
     }
   }
 
+  const sequenceEnded = terminal !== null;
+  const active = options.active === true && !sequenceEnded;
+  const interrupted = terminal === 'run.cancelled' || terminal === 'run.failed'
+    || terminal === 'child.cancelled' || terminal === 'child.failed';
   const lastType = events.length > 0 ? events[events.length - 1]?.type : undefined;
   flush({
-    streaming: options.active === true && lastType === 'model.delta',
-    running: options.active === true && lastType === 'model.reasoning_delta',
+    streaming: active && lastType === 'model.delta',
+    running: active && lastType === 'model.reasoning_delta',
+    // 没有 model.completed 就收尾的正文/思考只可能是中断残留；保留正文但打上标记。
+    interrupted: !active && interrupted,
   });
   // 运行已经结束却仍有没收到 tool.finished 的调用：内核把它当作中断收尾
   // （approval 中断会让运行保持 active，所以这里只处理真正结束的运行）。
-  if (options.active !== true) {
+  if (!active) {
     for (const call of calls.values()) if (call.status === 'running') call.status = 'stopped';
   }
   return rows;
@@ -349,7 +371,7 @@ export interface TranscriptSources {
 
 export type TranscriptRow =
   | { kind: 'user'; id: string; message: Message }
-  | { kind: 'assistant'; id: string; message: Message; streaming: boolean }
+  | { kind: 'assistant'; id: string; message: Message; streaming: boolean; interrupted: boolean }
   | { kind: 'toolResult'; id: string; message: Message }
   | { kind: 'run'; id: string; runId: string; row: RunRow };
 
@@ -392,7 +414,7 @@ export function buildTranscriptRows(sources: TranscriptSources): TranscriptRow[]
     }
     if (message.role === 'tool') out.push({ kind: 'toolResult', id: `tool-${message.id}`, message });
     else if (message.role === 'assistant' && message.content.trim() !== '') {
-      out.push({ kind: 'assistant', id: `assistant-${message.id}`, message, streaming: false });
+      out.push({ kind: 'assistant', id: `assistant-${message.id}`, message, streaming: false, interrupted: false });
     }
   }
 
@@ -413,10 +435,10 @@ function eventRows(runId: string, rows: readonly RunRow[], textMessages: readonl
       const candidate = textMessages[cursor];
       if (candidate !== undefined && candidate.content.trim() === row.content.trim()) {
         cursor += 1;
-        out.push({ kind: 'assistant', id: `assistant-${candidate.id}`, message: candidate, streaming: row.streaming });
+        out.push({ kind: 'assistant', id: `assistant-${candidate.id}`, message: candidate, streaming: row.streaming, interrupted: row.interrupted === true });
         continue;
       }
-      out.push({ kind: 'assistant', id: row.id, message: syntheticTextMessage(runId, row), streaming: row.streaming });
+      out.push({ kind: 'assistant', id: row.id, message: syntheticTextMessage(runId, row), streaming: row.streaming, interrupted: row.interrupted === true });
       continue;
     }
     out.push({ kind: 'run', id: row.id, runId, row });

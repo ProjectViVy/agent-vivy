@@ -313,6 +313,7 @@ export const en: Dictionary = {
     toolRunning: 'Running',
     toolFailed: 'Failed',
     toolStopped: 'Stopped',
+    interrupted: 'Interrupted',
     toolAwaitingApproval: 'Awaiting approval',
     toolInput: 'Input',
     toolOutput: 'Output',

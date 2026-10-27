@@ -14,6 +14,7 @@ import { MessageAction, formatTime } from './message-actions';
 export function MessageAssistantBubble({
   message,
   streaming = false,
+  interrupted = false,
   canRegenerate = false,
   actionsDisabled = false,
   onRegenerate,
@@ -22,6 +23,7 @@ export function MessageAssistantBubble({
 }: {
   message: Message;
   streaming?: boolean;
+  interrupted?: boolean;
   /** 助手消息之前存在用户消息（有可重发的输入） */
   canRegenerate?: boolean;
   /** 运行期间禁用重试，对应 Agent-DIVA 的 isTyping */
@@ -50,13 +52,14 @@ export function MessageAssistantBubble({
   };
 
   return (
-    <article data-message-id={message.id} className="group my-4 flex min-w-0 justify-start">
+    <article data-message-id={message.id} data-interrupted={interrupted ? 'true' : undefined} className="group my-4 flex min-w-0 justify-start">
       <div className="flex min-w-0 max-w-[min(78%,100%)] flex-col items-start">
         <div className="w-fit max-w-full min-w-0 rounded-2xl border border-line bg-raised px-4 py-3 text-read shadow-sm">
           <MarkdownBody content={message.content} streaming={streaming} />
         </div>
         {streaming ? null : (
           <div className="mt-1.5 flex items-center gap-0.5 px-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            {interrupted ? <span className="mr-1 rounded-full border border-line px-1.5 text-2xs text-fg-muted">{t('chat.interrupted')}</span> : null}
             <span className="mr-0.5 text-2xs text-fg-subtle">{formatTime(message.created_at)}</span>
             <MessageAction label={copied ? t('chat.copied') : t('chat.copy')} onClick={() => void copy()}>
               {copied ? <Check className="h-3.5 w-3.5 text-brand-ink" /> : <Copy className="h-3.5 w-3.5" />}

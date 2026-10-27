@@ -359,8 +359,12 @@ type Service struct {
 	recoveryMu   sync.Mutex
 	sweepMu      sync.Mutex
 	projectionMu sync.Mutex
-	sweepCancel  context.CancelFunc
-	sweepWG      sync.WaitGroup
+	// projections memoizes each live run's Journal→Message cursor so a tool
+	// exchange projects only its own events instead of replaying the run.
+	// Guarded by projectionMu; entries die with the run or its session.
+	projections map[domain.RunID]runProjectionState
+	sweepCancel context.CancelFunc
+	sweepWG     sync.WaitGroup
 
 	// cron holds the CRON scheduler state; nil until first use and only
 	// meaningful when deps.Crons is wired (lazy init guarded by cronInit).
@@ -822,6 +826,7 @@ func (s *Service) DeleteSession(ctx context.Context, id domain.SessionID) error 
 	}
 	for _, sessionID := range sessionIDs {
 		s.dropSessionQueue(sessionID)
+		s.dropSessionProjectionsLocked(sessionID)
 	}
 	s.dropSessionToolActivation(id)
 	return nil
@@ -5606,6 +5611,7 @@ func (s *Service) persistAndPublishEvent(ctx context.Context, sessionID domain.S
 	s.projectionMu.Lock()
 	if s.sessionDeleted(sessionID) {
 		s.cleanupRunState(re.RunID)
+		s.dropRunProjectionLocked(re.RunID)
 		s.projectionMu.Unlock()
 		return errors.New("runtime: session was deleted")
 	}
@@ -5655,6 +5661,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	s.projectionMu.Lock()
 	if s.runSessionDeleted(terminal.RunID) {
 		s.cleanupRunState(terminal.RunID)
+		s.dropRunProjectionLocked(terminal.RunID)
 		s.projectionMu.Unlock()
 		return
 	}
@@ -5663,11 +5670,13 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	seq, err := s.deps.Journal.Append(persistCtx, storage.Commit{RunID: terminal.RunID, Events: []domain.RunEvent{terminal}})
 	reconciled := false
 	if err != nil {
+
 		if !errors.Is(err, storage.ErrRunClosed) {
 			// The backend failed; the stored truth wins and the row must not be
 			// flipped here.
 			slog.Error("journal append of terminal event failed", "run", string(terminal.RunID), "type", string(terminal.Type), "err", err)
 			s.cleanupRunState(terminal.RunID)
+			s.dropRunProjectionLocked(terminal.RunID)
 			s.projectionMu.Unlock()
 			return
 		}
@@ -5771,6 +5780,7 @@ func (s *Service) emitTerminal(ctx context.Context, m *eventMapper, terminal dom
 	removedQueued = append(removedQueued, abortedQueued...)
 	s.deleteQueuedRequests(persistCtx, removedQueued)
 	s.deleteShellState(shellStateRefToDelete)
+	s.dropRunProjectionLocked(terminal.RunID)
 	s.projectionMu.Unlock()
 	if runSession != "" {
 		s.cancelPlanReviewForRun(persistCtx, runSession, terminal.RunID)

@@ -6,6 +6,7 @@ import { ToolResultBubble } from './tool-result';
 export function MessageBubble({
   message,
   streaming,
+  interrupted = false,
   canRegenerate = false,
   actionsDisabled = false,
   onRegenerate,
@@ -15,6 +16,7 @@ export function MessageBubble({
 }: {
   message: Message;
   streaming?: boolean;
+  interrupted?: boolean;
   /** 助手消息之前存在用户消息（有可重发的输入） */
   canRegenerate?: boolean;
   /** 运行期间禁用重试，对应 Agent-DIVA 的 isTyping */
@@ -46,6 +48,7 @@ export function MessageBubble({
     <MessageAssistantBubble
       message={message}
       streaming={streaming}
+      interrupted={interrupted}
       canRegenerate={canRegenerate}
       actionsDisabled={actionsDisabled}
       onRegenerate={onRegenerate}

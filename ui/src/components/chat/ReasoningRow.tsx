@@ -20,14 +20,14 @@ function lastLine(text: string): string {
   return newline === -1 ? visible : visible.slice(newline + 1);
 }
 
-export function ReasoningRow({ text, running }: { text: string; running: boolean }) {
+export function ReasoningRow({ text, running, interrupted = false }: { text: string; running: boolean; interrupted?: boolean }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const summary = (running ? lastLine(text) : firstLine(text)).replaceAll('**', '').trim();
   const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
-    <div className="my-2 min-w-0" data-reasoning-row="" data-state={running ? 'running' : 'ok'} data-expanded={expanded || undefined}>
+    <div className="my-2 min-w-0" data-reasoning-row="" data-state={running ? 'running' : interrupted ? 'interrupted' : 'ok'} data-expanded={expanded || undefined}>
       <button
         type="button"
         className={cn(
@@ -43,6 +43,9 @@ export function ReasoningRow({ text, running }: { text: string; running: boolean
           <Chevron className={cn('absolute h-3.5 w-3.5 transition-opacity duration-100', expanded ? 'opacity-100' : 'opacity-0 group-hover/reasoning:opacity-100')} />
         </span>
         <span className="shrink-0 pt-0.5 text-ui text-fg-muted">{t('chat.thinking')}</span>
+        {interrupted && !running ? (
+          <span className="ml-1.5 shrink-0 rounded-full border border-line px-1.5 text-2xs text-fg-muted">{t('chat.interrupted')}</span>
+        ) : null}
         {!expanded && summary !== '' ? (
           <>
             <span aria-hidden className="mt-2 h-0.5 w-0.5 shrink-0 rounded-full bg-fg-subtle" />

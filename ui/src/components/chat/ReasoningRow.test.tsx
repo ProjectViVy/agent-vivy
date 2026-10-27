@@ -39,4 +39,16 @@ describe('ReasoningRow', () => {
     expect(html).toContain('重要：先看文件');
     expect(html).not.toContain('**重要**');
   });
+
+  it('marks an interrupted thought next to the label', () => {
+    const html = renderToStaticMarkup(<ReasoningRow text={'想了一半'} running={false} interrupted />);
+    expect(html).toContain('data-state="interrupted"');
+    expect(html).toContain('Interrupted');
+  });
+
+  it('lets the running state win over interrupted', () => {
+    const html = renderToStaticMarkup(<ReasoningRow text={'还在想'} running interrupted />);
+    expect(html).toContain('data-state="running"');
+    expect(html).not.toContain('Interrupted');
+  });
 });
