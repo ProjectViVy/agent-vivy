@@ -1,0 +1,29 @@
+[package]
+name = "vivy-gateway"
+version = "0.1.0"
+description = "OpenAI/Anthropic-compatible provider management on Rig, with legacy gateway configuration."
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[features]
+default = []
+openai = []
+anthropic = []
+tui = []
+
+[dependencies]
+# Must be the recipe's Rig revision: the agent holds one copy of each Rig crate.
+rig-harness = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }
+# Named by the Resource derive and the log macros; Rig's exact versions.
+bevy_ecs = { version = "=0.20.0", default-features = false, features = ["std"] }
+bevy_log = "=0.20.0"
+bevy_tasks = "=0.20.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+toml_edit = { version = "0.25", features = ["serde"] }
+url = "2"
+futures = "0.3"
+vivy-process = { path = "../../crates/vivy-process" }
+vivy-basics = { path = "../vivy-basics", default-features = false }

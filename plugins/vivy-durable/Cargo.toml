@@ -1,0 +1,38 @@
+[package]
+name = "vivy-durable"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+description = "Opt-in persistent agent lifecycle and Rig checkpoint acceptance probes."
+
+[features]
+default = []
+d0-probe = []
+# Acceptance tests for the local Rig fork; normal pinned probes keep their
+# original characterization. This feature adds no runtime capability.
+rig-fork-probe = ["d0-probe"]
+checkpoint-probe = []
+runtime = ["dep:vivy-gateway", "dep:schemars"]
+assistant-context = ["runtime", "dep:vivy-laputa", "dep:vivy-basics"]
+wake = ["assistant-context"]
+autodream = ["wake", "dep:vivy-python", "dep:vivy-process", "dep:vivy-basics"]
+
+[dependencies]
+rig-harness = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }
+rig-memory = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }
+bevy_ecs = { version = "=0.20.0", default-features = false, features = ["std"] }
+bevy_reflect = "=0.20.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+schemars = { version = "1", optional = true }
+vivy-gateway = { path = "../vivy-gateway", default-features = false, optional = true }
+vivy-laputa = { path = "../vivy-laputa", optional = true }
+vivy-python = { path = "../vivy-python", features = ["managed-skills"], optional = true }
+vivy-process = { path = "../../crates/vivy-process", optional = true }
+vivy-basics = { path = "../vivy-basics", optional = true }
+
+[dev-dependencies]
+rig-core = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776", features = ["test-utils"] }
+rig-harness-test-support = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }

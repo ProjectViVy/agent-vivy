@@ -1,0 +1,34 @@
+[package]
+name = "vivy-basics"
+version = "0.1.0"
+description = "Vivy coding, session and terminal plugins on rig-harness."
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[features]
+# /copy through the terminal view (OSC 52 as well as the system clipboard).
+tui = ["dep:rig-tui", "rig-basics/tui"]
+
+[dependencies]
+# Must be the recipe's Rig revision: the agent holds one copy of each Rig crate.
+rig-harness = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }
+# Rig's skills discovery, for the trust-aware skills plugin.
+rig-basics = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776", default-features = false }
+rig-tui = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776", optional = true, default-features = false }
+# Named by the derives and the log macros; Rig's exact versions.
+bevy_ecs = { version = "=0.20.0", default-features = false, features = ["std"] }
+bevy_log = "=0.20.0"
+bevy_reflect = "=0.20.0"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# A template's frontmatter.
+serde-saphyr = "2"
+vivy-process = { path = "../../crates/vivy-process" }
+
+[dev-dependencies]
+futures = "0.3"
+rig-core = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776", features = ["test-utils"] }
+rig-harness-test-support = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }

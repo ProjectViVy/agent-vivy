@@ -1,0 +1,25 @@
+# Reference checkouts and disposable build/verification work.
+/.workspace/
+/.workapce/
+/.generated/
+target/
+/data/
+/.vivy/
+
+# Local credentials and runtime settings.
+.env
+.env.*
+!.env.example
+*.local.yaml
+*.local.yml
+
+# Local tool state.
+/.workbuddy/
+/.claude/
+/.codex/
+
+# Editor / OS state.
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc

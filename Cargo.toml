@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["crates/vivy", "crates/vivy-process"]
+# Generated agents are their own Cargo workspaces and build the plugins;
+# references are read-only.
+exclude = [".generated", ".workspace", "plugins"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97.1"
+publish = false

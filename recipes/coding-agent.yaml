@@ -1,0 +1,164 @@
+# The baseline coding agent. `cargo run -p vivy -- build recipes/coding-agent.yaml`
+# generates .generated/coding-agent/ from this file and builds it; changing the
+# selection and rebuilding changes what is compiled in.
+#
+# Each component is a group of plugin types from one crate, added in this
+# order. A Rig crate comes from `rig` below; a crate of this repository has a
+# `path`. Plugin crates build without their default features: a component
+# lists, under `features`, the ones it needs of any selected crate.
+#
+# Left out on purpose: Rig's subscription login, reload and
+# /plugins (they rebuild from Rig's plugins.toml, a second selection path), and
+# remote hosts. Rig's runtime settings live in RIG_HOME/settings.toml.
+name: coding-agent
+rig:
+  git: https://github.com/0xPlaygrounds/rig
+  rev: fc556f982d501eea9d7167398a19386e4884e776
+components:
+  - name: prompt
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::prompt::VivyPromptPlugin
+
+  # Pi's project trust: the project's own skills, prompt templates and
+  # system-prompt files load once the user trusts it (--approve, /trust, or
+  # the start question). Rig's skills, without untrusted project skills.
+  - name: trust
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::trust::TrustPlugin
+      - vivy_basics::skills::TrustedSkillsPlugin
+
+  # Pi's context files (AGENTS.override.md, AGENTS.md, CLAUDE.md in every
+  # directory up from the working one) and SYSTEM.md / APPEND_SYSTEM.md, in
+  # place of Rig's AGENTS.md-only plugin.
+  - name: context-files
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::context::ContextFilesPlugin
+
+  # Collaborative planning, user-reviewed exit and the terminal PLAN marker.
+  # Plan supplies guidance; existing tools and permissions stay unchanged.
+  - name: plan
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::plan::PlanPlugin
+
+  - name: providers
+    crate: vivy-gateway
+    path: ../plugins/vivy-gateway
+    plugins:
+      - vivy_gateway::ProvidersPlugin
+    features:
+      vivy-gateway: [openai, anthropic]
+
+  - name: models
+    crate: rig-basics
+    plugins:
+      - rig_basics::models::ModelsPlugin
+
+  # Pi's /thinking and --thinking, and model and reasoning cycling (Alt+P,
+  # Shift+Tab), on Rig's /model and /effort.
+  - name: model-controls
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::model::PiModelControlsPlugin
+
+  - name: sessions
+    crate: rig-basics
+    plugins:
+      # The session list /resume opens; SessionsPlugin would add it, named here.
+      - rig_basics::session_picker::SessionPickerPlugin
+      - rig_basics::sessions::SessionsPlugin
+      - rig_basics::sessions::agents::AgentsPlugin
+      - rig_basics::compaction::CompactionPlugin
+      - rig_basics::telemetry::usage::UsagePlugin
+      - rig_basics::activity::ActivityPlugin
+
+  # Pi's branch summary: what a rewind leaves behind, summarized into the fork.
+  - name: branch-summary
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::branch::BranchSummaryPlugin
+
+  - name: coding-tools
+    crate: rig-basics
+    plugins:
+      - rig_basics::coding_tools::ReadTool
+      - rig_basics::coding_tools::EditTool
+      - rig_basics::coding_tools::WriteTool
+      - rig_basics::coding_tools::AttachPlugin
+
+  - name: shell
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::shell::ShellTool
+
+  # Pi's grep/find/ls: Rig's search and list tools.
+  - name: search-tools
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::search::SearchTools
+
+  # Native Rig execution with Vivy roles, bounded parallel tasks and chains.
+  - name: subagents
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::subagents::VivySubagentsPlugin
+
+  # Markdown prompt templates in .rig/prompts and RIG_HOME/prompts as /commands.
+  - name: prompt-templates
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::templates::PromptTemplatesPlugin
+
+  # Pi's /session, /copy, /export, /clone, /import and /tree.
+  - name: session-commands
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::session::SessionInfoPlugin
+      - vivy_basics::session::CopyPlugin
+      - vivy_basics::session::ExportPlugin
+      - vivy_basics::session::ClonePlugin
+      - vivy_basics::session::ImportPlugin
+      - vivy_basics::session::TreePlugin
+
+  # Auxiliary Python workbench; removing this component excludes its crate.
+  - name: python
+    crate: vivy-python
+    path: ../plugins/vivy-python
+    plugins:
+      - vivy_python::PythonPlugin
+
+  - name: commands
+    crate: rig-basics
+    plugins:
+      - rig_basics::BasicCommandsPlugin
+
+  # -p, piped input and --json: the front of every run without a terminal.
+  - name: print
+    crate: rig-basics
+    plugins:
+      - rig_basics::print::PrintPlugin
+
+  # The terminal view. Without it, rig-tui is not compiled at all.
+  - name: terminal
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::tui::VivyTuiPlugin
+    features:
+      rig-basics: [tui]
+      vivy-basics: [tui]
+      vivy-gateway: [tui]

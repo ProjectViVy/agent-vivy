@@ -1,0 +1,3 @@
+-r requirements-core.in
+mempalace @ https://github.com/MemPalace/mempalace/archive/f41e8e75ddaadf5588d5127715fa531d79eadb45.zip
+chromadb==1.5.8

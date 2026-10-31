@@ -1,0 +1,15 @@
+[package]
+name = "vivy"
+version = "0.1.0"
+description = "Builds Vivy agents from YAML recipes with generated Cargo dependencies and static plugin wiring."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-saphyr = "2"
+rig-harness-protocol = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }
+ctrlc = "3"
+vivy-process = { path = "../vivy-process" }

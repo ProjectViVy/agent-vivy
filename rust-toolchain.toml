@@ -1,0 +1,4 @@
+# The pinned Rig revision requires Rust 1.97.1 or newer.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
