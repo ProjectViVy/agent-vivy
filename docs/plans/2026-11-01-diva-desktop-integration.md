@@ -363,3 +363,23 @@ Next: expand protocol tests for EOF/oversize/reopen and type export, then implem
 committed admission, question adaptation, streaming and historical projections
 before wiring the desktop UI. No real gateway, complete M1 capability/readiness
 contract, M2 conversation, management pages, tray host or installer is verified.
+
+### Native transport boundary follow-up (2026-11-01)
+
+- Added distinct `incompatible_version` and `unsupported_operation` error codes.
+  Invalid/oversized correlation IDs are not reflected in error responses. Input
+  pipe read failures retain their OS cause without echoing request contents.
+- JSON Lines frames now require their newline terminator. A native regression
+  demonstrated that the previous implementation executed a valid JSON object
+  after EOF without its terminator; it now reports `invalid_frame` and exits.
+  Oversized frames likewise report an error and close the connection.
+- Added `scripts/diva_transport_test.py`, using disposable homes and actual
+  executables, covering EOF exit and session reopen, invalid UTF-8/JSON and unknown
+  fields, Unicode/multiline request IDs, oversize input, and incomplete frames.
+- Executed: four native boundary tests and the existing native front smoke passed;
+  `cargo test --workspace --locked --offline` passed all 34 tests; plugin formatting
+  and Git whitespace checks passed. Rebuilt the native recipe with the same short
+  target/temp paths and explicit Rig fork. Existing unused-patch, unused-provider
+  function and MSVC linker warnings remain.
+- This is a transport increment, not completion of M1 or desktop delivery. Type
+  export and capability/readiness contracts remain next, followed by M2-M6.

@@ -45,8 +45,12 @@ def main():
             assert hello["data"]["plugins"], hello
             bad = request({"v": 999, "id": "bad", "method": "snapshot"})
             assert bad["type"] == "error" and bad["id"] == "bad", bad
+            assert bad["data"]["code"] == "incompatible_version", bad
             unknown = request({"v": 1, "id": "unknown", "method": "arbitrary_shell"})
             assert unknown["type"] == "error", unknown
+            assert unknown["data"]["code"] == "unsupported_operation", unknown
+            oversized_id = request({"v": 1, "id": "x" * 257, "method": "snapshot"})
+            assert oversized_id["id"] is None, oversized_id
             state = request({"v": 1, "id": "状态", "method": "snapshot"})
             assert state["type"] == "reply" and state["id"] == "状态", state
             assert state["instance"] == hello["instance"], state

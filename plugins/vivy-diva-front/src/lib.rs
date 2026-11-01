@@ -66,8 +66,18 @@ impl Plugin for DivaFrontPlugin {
                         wake.wake();
                         break;
                     }
+                    Ok(_) if !bytes.ends_with(b"\n") => {
+                        let _ =
+                            tx.send(Err("request frame is missing its newline terminator".into()));
+                        wake.wake();
+                        break;
+                    }
                     Ok(_) => String::from_utf8(bytes).map_err(|_| "request is not UTF-8".into()),
-                    Err(_) => break,
+                    Err(error) => {
+                        let _ = tx.send(Err(format!("request pipe read failed: {error}")));
+                        wake.wake();
+                        break;
+                    }
                 };
                 if tx.send(frame).is_err() {
                     break;
@@ -171,9 +181,26 @@ fn poll(world: &mut World) {
             .as_ref()
             .ok()
             .and_then(|v| v.get("id"))
-            .filter(|v| v.is_string())
+            .filter(|v| v.as_str().is_some_and(|s| !s.is_empty() && s.len() <= 256))
             .cloned()
             .unwrap_or(Value::Null);
+        let code = match value.as_ref().ok() {
+            Some(v)
+                if v.get("v")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|v| v != u64::from(VERSION)) =>
+            {
+                "incompatible_version"
+            }
+            Some(v)
+                if v.get("method")
+                    .and_then(Value::as_str)
+                    .is_some_and(|m| !matches!(m, "snapshot" | "shutdown")) =>
+            {
+                "unsupported_operation"
+            }
+            _ => "invalid_request",
+        };
         let request = value
             .ok()
             .and_then(|v| serde_json::from_value::<Request>(v).ok());
@@ -184,7 +211,7 @@ fn poll(world: &mut World) {
                 world,
                 "error",
                 id,
-                json!({"code":"invalid_request","message":"Expected protocol v1, a bounded nonempty id and a supported method"}),
+                json!({"code":code,"message":"Expected protocol v1, a bounded nonempty id and a supported method"}),
             );
             continue;
         };
