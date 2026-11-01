@@ -36,6 +36,15 @@ tracked build products, sessions, obvious credential tokens or AI attribution
 markers. Existing protocol/instruction-file compatibility names remain functional.
 Local verification evidence stays ignored under `.workspace/promotion/`.
 
+## Diva implementation started (2026-11-01)
+
+The owner subsequently authorized implementation. Work is isolated on
+`feat/diva-desktop` in `.workspace/diva-integration`. Initial desktop transport
+and recipe build and pass a native pipe smoke; integration remains incomplete.
+See the [plan progress](plans/2026-11-01-diva-desktop-integration.md#7-implementation-progress-2026-11-01)
+for exact evidence and next steps. Do not treat this as a completed desktop,
+conversation or installer. Existing trial data/processes and desktop UI are untouched.
+
 ## Diva desktop plan recorded (2026-11-01; not implemented)
 
 The owner requested the [desktop integration plan](plans/2026-11-01-diva-desktop-integration.md)

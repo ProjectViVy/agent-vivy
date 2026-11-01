@@ -1,11 +1,10 @@
 # Agent Diva desktop integration plan
 
-Status: **planned; awaiting implementation**. Recorded on 2026-11-01.
+Status: **implementation started; incomplete**. Recorded on 2026-11-01.
 
-The owner selected the decisions below, then explicitly requested that only the
-plan be written for now. This document does not authorize starting implementation
-in the documentation turn. No desktop integration, installer or new runtime
-verification is delivered by this change.
+The owner initially requested documentation only, then explicitly authorized
+implementation. The progress record below distinguishes implemented work from
+the remaining plan. No complete desktop integration or installer is claimed.
 
 ## 1. Goal and selected scope
 
@@ -240,7 +239,8 @@ perform connection tests.
 
 ## 5. Implementation sequence and packaging
 
-All milestones below are **pending**.
+M1 transport scaffolding is implemented; the full M1 contract and M2-M6 remain
+incomplete. See the progress record for exact executed checks.
 
 | Milestone | Work | Exit condition |
 | --- | --- | --- |
@@ -337,8 +337,29 @@ continued execution while hidden and correct recovery after exit/reopen. Update
 the existing DESIGN/HANDOFF records with actual implementation, build inputs,
 measured checks and remaining limits when implementation eventually occurs.
 
-## 7. Current verification status
+## 7. Implementation progress (2026-11-01)
 
-This planning change only records inspected source behavior and owner decisions.
-No milestone above has been implemented or tested by this change. Documentation
-diff review and whitespace checks are the applicable checks for this deliverable.
+Worktree: `.workspace/diva-integration`, branch `feat/diva-desktop`.
+
+- Added the desktop recipe and `DivaFrontPlugin`, using the existing headless
+  runner, a bounded input channel, 1 MiB input limit, versioned output, instance
+  identity, sequence numbers, runtime-derived plugin inventory, snapshot and
+  shutdown. No UI or reference checkout changes.
+- Native smoke initially failed because the binary did not exist. After the
+  first build it exposed an actual first-run exit: the shared headless driver
+  exits without a reachable model. Added the existing `Starting` barrier while
+  awaiting model configuration so management stays reachable. This does not add
+  a model loop or modify Rig.
+- Native `scripts/diva_front_smoke.py C:/vtd0/rig-dev/debug/diva-agent.exe` passed:
+  fresh temporary home, ready/session/inventory, version and unknown-operation
+  rejection, Unicode request correlation, snapshot and orderly exit.
+- `cargo test -p vivy --offline` passed. Generated composition loads the desktop
+  plugin and omits the terminal plugin. The generated patch table mentions
+  rig-tui because it lists local Rig packages; that is not compilation evidence.
+- Build uses `CARGO_TARGET_DIR=C:/vtd0`, `CARGO_PROFILE_DEV_DEBUG=0`,
+  `TEMP=TMP=C:/vtd0/tmp` and the existing `.workspace/rig-durable` checkout.
+
+Next: expand protocol tests for EOF/oversize/reopen and type export, then implement
+committed admission, question adaptation, streaming and historical projections
+before wiring the desktop UI. No real gateway, complete M1 capability/readiness
+contract, M2 conversation, management pages, tray host or installer is verified.

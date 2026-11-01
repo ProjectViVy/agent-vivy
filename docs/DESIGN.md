@@ -17,7 +17,7 @@ functional meaning. Historical design and verification records below remain
 available as evidence at their recorded scope; their old paths and commit IDs
 refer to the retained local experiment, not the new repository's ancestry.
 
-## Diva desktop integration direction (2026-11-01; planned)
+## Diva desktop integration direction (2026-11-01; implementation started)
 
 The owner selected a thin recipe-assembled Diva Front, hosted as a bundled child
 of the existing Tauri/Vue desktop application, with full local management and
@@ -29,9 +29,9 @@ coding-session delegation remain outside this desktop integration scope.
 The [detailed plan](plans/2026-11-01-diva-desktop-integration.md) records interfaces,
 ownership, management behavior, installer delivery and acceptance. This selects
 the desktop product direction previously deferred below; it does not change the
-shared-core or independent-repository rules. **Implementation is pending:** the
-owner's latest instruction was to write the plan only. No new runtime or installer
-support is established by this documentation.
+shared-core or independent-repository rules. The owner subsequently authorized
+implementation. The initial pipe transport is built and smoke-tested in the
+isolated desktop branch; full integration and installer support remain pending.
 
 ## Human-editable prompt files (2026-11-01)
 

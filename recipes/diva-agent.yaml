@@ -1,0 +1,108 @@
+# Diva desktop assistant. Requires the local Rig checkpoint fork:
+# vivy build recipes/diva-agent.yaml --rig-path <rig-checkout>
+# vivy run recipes/diva-agent.yaml --rig-path <rig-checkout> -- --diva
+# New D4 sessions only; preserve D1/D2/D3 sessions and executables. No native delegation,
+# coding-session management, compaction or history-mutation plugins are selected.
+name: diva-agent
+rig:
+  git: https://github.com/0xPlaygrounds/rig
+  rev: fc556f982d501eea9d7167398a19386e4884e776
+components:
+  - name: prompt
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::prompt::AssistantPromptPlugin
+
+  # Pi's project trust: the project's own skills, prompt templates and
+  # system-prompt files load once the user trusts it (--approve, /trust, or
+  # the start question). Rig's skills, without untrusted project skills.
+  - name: trust
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::trust::TrustPlugin
+      - vivy_basics::skills::TrustedSkillsPlugin
+
+  # Pi's context files (AGENTS.override.md, AGENTS.md, CLAUDE.md in every
+  # directory up from the working one) and SYSTEM.md / APPEND_SYSTEM.md, in
+  # place of Rig's AGENTS.md-only plugin.
+  - name: context-files
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::context::ContextFilesPlugin
+
+  - name: providers
+    crate: vivy-gateway
+    path: ../plugins/vivy-gateway
+    plugins:
+      - vivy_gateway::ProvidersPlugin
+    features:
+      vivy-gateway: [openai, anthropic]
+
+  - name: models
+    crate: rig-basics
+    plugins:
+      - rig_basics::models::ModelsPlugin
+
+  # Pi's /thinking and --thinking, and model and reasoning cycling (Alt+P,
+  # Shift+Tab), on Rig's /model and /effort.
+  - name: model-controls
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::model::PiModelControlsPlugin
+
+  - name: coding-tools
+    crate: rig-basics
+    plugins:
+      - rig_basics::coding_tools::ReadTool
+      - rig_basics::coding_tools::EditTool
+      - rig_basics::coding_tools::WriteTool
+      - rig_basics::coding_tools::AttachPlugin
+
+  - name: shell
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::shell::ShellTool
+
+  # Pi's grep/find/ls: Rig's search and list tools.
+  - name: search-tools
+    crate: vivy-basics
+    path: ../plugins/vivy-basics
+    plugins:
+      - vivy_basics::search::SearchTools
+
+  # The optional Python workbench uses the same tool execution path.
+  - name: python
+    crate: vivy-python
+    path: ../plugins/vivy-python
+    plugins:
+      - vivy_python::PythonPlugin
+      - vivy_python::MemoryToolsPlugin
+    features:
+      vivy-python: [memory-tools]
+
+  - name: persona
+    crate: vivy-laputa
+    path: ../plugins/vivy-laputa
+    plugins: [vivy_laputa::LaputaPlugin]
+
+  - name: print
+    crate: rig-basics
+    plugins:
+      - rig_basics::print::PrintPlugin
+
+  - name: durable
+    crate: vivy-durable
+    path: ../plugins/vivy-durable
+    plugins: [vivy_durable::DurablePlugin, vivy_durable::AssistantContextPlugin]
+    features:
+      vivy-durable: [autodream]
+
+  - name: desktop
+    crate: vivy-diva-front
+    path: ../plugins/vivy-diva-front
+    plugins: [vivy_diva_front::DivaFrontPlugin]
