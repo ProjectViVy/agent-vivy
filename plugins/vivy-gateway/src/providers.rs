@@ -203,6 +203,33 @@ pub fn save_config(world: &mut World, config: ProvidersConfig) -> Result<(), Str
     Ok(())
 }
 
+/// Apply an explicitly selected default to an agent at its existing idle boundary.
+pub fn select_default(world: &mut World, agent: Entity) {
+    let config = &world.resource::<ProvidersState>().config;
+    let Some(model) = config.default_model.clone() else {
+        return;
+    };
+    let reasoning = config.default_thinking.as_ref().and_then(|level| {
+        world
+            .resource::<Models>()
+            .0
+            .catalog()
+            .resolve(&model)
+            .ok()
+            .and_then(|r| r.spec.reasoning.named(level).ok())
+            .map(|r| ReasoningSetting(r.reasoning))
+    });
+    world
+        .entity_mut(agent)
+        .insert((ModelChoice(model), PendingReconnect));
+    if let Some(reasoning) = reasoning {
+        world.entity_mut(agent).insert(reasoning);
+    } else {
+        world.entity_mut(agent).remove::<ReasoningSetting>();
+    }
+    reconnect(world);
+}
+
 pub fn save_key(world: &mut World, id: &str, key: &str) -> Result<(), String> {
     if !world
         .resource::<ProvidersState>()

@@ -1,6 +1,8 @@
 //! Desktop transport on the shared Rig runner. No separate agent execution loop.
 use rig_basics::print::{AppHeadlessExt, KeepRunning, Starting};
 use rig_harness::prelude::*;
+mod conversation;
+mod management;
 mod projection;
 pub mod protocol;
 mod transport;
@@ -85,6 +87,8 @@ impl Plugin for DivaFrontPlugin {
                 closing: None,
             });
         app.world_mut().spawn(KeepRunning);
+        app.world_mut().spawn(Answerer::default());
+        app.init_resource::<conversation::Events>();
         // Management must remain available before first-run provider setup.
         app.world_mut().spawn((Starting, AwaitingModel));
         app.add_systems(Update, poll.before(AgentLoop));
@@ -157,6 +161,7 @@ fn poll(world: &mut World) {
         let state = snapshot(world);
         emit(world, None, Payload::Ready(state));
     }
+    conversation::publish(world);
     for _ in 0..32 {
         let line = world.resource::<Input>().0.lock().unwrap().try_recv();
         let line = match line {
@@ -190,9 +195,22 @@ fn poll(world: &mut World) {
                 ErrorCode::IncompatibleVersion
             }
             Some(v)
-                if v.get("method")
-                    .and_then(Value::as_str)
-                    .is_some_and(|m| !matches!(m, "snapshot" | "shutdown")) =>
+                if v.get("method").and_then(Value::as_str).is_some_and(|m| {
+                    !matches!(
+                        m,
+                        "snapshot"
+                            | "shutdown"
+                            | "submit"
+                            | "admission"
+                            | "cancel"
+                            | "answer"
+                            | "history"
+                            | "providers_read"
+                            | "providers_reload"
+                            | "providers_save"
+                            | "provider_key"
+                    )
+                }) =>
             {
                 ErrorCode::UnsupportedOperation
             }
@@ -228,6 +246,31 @@ fn poll(world: &mut World) {
                 let mut output = world.resource_mut::<Output>();
                 output.closing = Some(output.sequence);
                 break;
+            }
+            method => {
+                let result = match method {
+                    Method::Submit(input) => conversation::submit(world, input, false),
+                    Method::Admission(input) => conversation::submit(world, input, true),
+                    Method::Cancel(input) => conversation::cancel(world, input, request.id.clone()),
+                    Method::Answer(input) => {
+                        let instance = world.resource::<Output>().instance.clone();
+                        conversation::answer(world, input, &instance)
+                    }
+                    Method::History(input) => conversation::history(world, input),
+                    Method::ProvidersRead => Ok(management::providers(world)),
+                    Method::ProvidersReload => management::reload(world),
+                    Method::ProvidersSave(input) => management::save(world, input),
+                    Method::ProviderKey(input) => management::key(world, input),
+                    _ => unreachable!(),
+                };
+                emit(
+                    world,
+                    id,
+                    match result {
+                        Ok(reply) => Payload::Reply(reply),
+                        Err(error) => Payload::Error(error),
+                    },
+                );
             }
         }
     }

@@ -407,3 +407,21 @@ instance/sequence. Management adapters retain each component's storage owner.
 - Remaining: M2 durable chat and recovery; M3 native host; all M4 management;
   M5 failure/UI acceptance; M6 artifact, installer and actual-provider acceptance.
   No completed desktop or installer is claimed.
+
+### Conversation and provider adapter increment (2026-11-02)
+
+- Added source=`diva` admission/reconciliation, pending-versus-committed replies,
+  receipt-gated admission/cancellation events, generation-fenced stop, instance-bound
+  questions, provisional stream projection and committed history pagination.
+  Message IDs come from saved task/operation identities. Model request/context
+  bodies and Dream internals are not returned as ordinary history.
+- Provider configuration and credential writes reuse the existing settings CAS
+  and credential owner. Explicit default selection reconnects at the idle boundary.
+- Four native scenarios pass: Unicode admission/dedup/conflict/history/reopen;
+  slow-model generation cancellation and stale answer; provider CAS/external edits/
+  write-only credentials; process death followed by admission reconciliation.
+  The transport smoke and five boundary tests also pass, as do the two contract
+  tests. Broader tool/fault/UI/installer acceptance remains outstanding.
+- The supplied desktop gateway was attempted with fresh disposable data; the first
+  Rig run failed before producing stream/tool evidence. Diagnosis remains open;
+  this is not a successful real-provider acceptance.

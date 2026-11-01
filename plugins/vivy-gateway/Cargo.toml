@@ -11,6 +11,7 @@ default = []
 openai = []
 anthropic = []
 tui = []
+protocol-types = ["dep:ts-rs"]
 
 [dependencies]
 # Must be the recipe's Rig revision: the agent holds one copy of each Rig crate.
@@ -21,6 +22,7 @@ bevy_log = "=0.20.0"
 bevy_tasks = "=0.20.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ts-rs = { version = "=12.0.1", features = ["no-serde-warnings"], optional = true }
 toml = "1"
 toml_edit = { version = "0.25", features = ["serde"] }
 url = "2"

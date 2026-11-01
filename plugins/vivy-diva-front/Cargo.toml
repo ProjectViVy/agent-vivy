@@ -13,5 +13,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ts-rs = { version = "=12.0.1", features = ["no-serde-warnings"] }
 vivy-basics = { path = "../vivy-basics", default-features = false }
-vivy-gateway = { path = "../vivy-gateway", default-features = false }
+vivy-gateway = { path = "../vivy-gateway", default-features = false, features = ["protocol-types"] }
 vivy-durable = { path = "../vivy-durable", features = ["runtime"] }

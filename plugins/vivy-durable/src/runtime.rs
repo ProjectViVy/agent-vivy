@@ -180,6 +180,40 @@ pub fn inspect_committed(world: &World, agent: Entity) -> Option<&DurableAgentSt
     committed(world, agent)
 }
 
+/// Reconcile an unconfirmed client send without admitting or dispatching it.
+pub fn admission(
+    world: &World,
+    agent: Entity,
+    source: &str,
+    key: &str,
+    text: &str,
+) -> io::Result<Option<Admission>> {
+    let Some(state) = inspect(world, agent) else {
+        return Err(invalid("not a durable agent"));
+    };
+    let Some(task) = state
+        .tasks
+        .iter()
+        .find(|t| t.source == source && t.request_key == key)
+    else {
+        return Ok(None);
+    };
+    if task.digest != digest(&Incoming::new(text, DeliveryMode::Steer)) {
+        return Err(invalid(
+            "request key already admitted with different content",
+        ));
+    }
+    Ok(Some(Admission {
+        task: task.id.clone(),
+        revision: task.admission_revision,
+        committed: committed(world, agent).is_some_and(|s| {
+            s.tasks
+                .iter()
+                .any(|t| t.id == task.id && t.digest == task.digest)
+        }),
+    }))
+}
+
 /// Idempotent local admission; a returned pending receipt is not yet durable.
 pub fn submit(
     world: &mut World,

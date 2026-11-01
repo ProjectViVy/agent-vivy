@@ -10,14 +10,142 @@ pub const MAX_FRAME: usize = 1024 * 1024;
 pub struct Request {
     pub v: u32,
     pub id: String,
+    #[serde(flatten)]
     pub method: Method,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "method", content = "params", rename_all = "snake_case")]
 pub enum Method {
     Snapshot,
     Shutdown,
+    Submit(SubmitParams),
+    Admission(SubmitParams),
+    Cancel(CancelParams),
+    Answer(AnswerParams),
+    History(HistoryParams),
+    ProvidersRead,
+    ProvidersReload,
+    ProvidersSave(ProvidersSave),
+    ProviderKey(ProviderKey),
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SubmitParams {
+    pub request_id: String,
+    pub text: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct CancelParams {
+    pub task: String,
+    #[ts(type = "number")]
+    pub generation: u64,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct AnswerParams {
+    pub instance: String,
+    pub question: String,
+    pub choices: Vec<String>,
+    pub text: Option<String>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryParams {
+    pub cursor: Option<String>,
+    pub limit: u32,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct AdmissionView {
+    pub request_id: String,
+    pub task: Option<String>,
+    pub phase: AdmissionPhase,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AdmissionPhase {
+    Missing,
+    Pending,
+    Committed,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct PendingOperation {
+    pub operation: String,
+    pub committed: bool,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct TaskInfo {
+    pub id: String,
+    pub request_id: String,
+    pub status: String,
+    #[ts(type = "number")]
+    pub generation: u64,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct HistoryPage {
+    pub messages: Vec<HistoryMessage>,
+    pub next_cursor: Option<String>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct HistoryMessage {
+    pub id: String,
+    pub task: String,
+    pub role: String,
+    pub text: String,
+    pub status: String,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct Question {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+    pub choices: Vec<Choice>,
+    pub free_text: bool,
+    pub multiple: bool,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct Choice {
+    pub id: String,
+    pub label: String,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct Live {
+    pub task: Option<String>,
+    pub text: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct ToolInfo {
+    pub id: String,
+    pub task: String,
+    pub name: String,
+    pub phase: String,
+    pub output: Option<String>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ProvidersSave {
+    #[ts(type = "number")]
+    pub generation: u64,
+    pub config: vivy_gateway::config::ProvidersConfig,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderKey {
+    #[ts(type = "number")]
+    pub generation: u64,
+    pub provider: String,
+    pub key: Option<String>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct ProvidersView {
+    #[ts(type = "number")]
+    pub generation: u64,
+    pub config: vivy_gateway::config::ProvidersConfig,
+    pub issue: Option<String>,
+    pub protocols: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -37,6 +165,14 @@ pub enum Payload {
     Ready(Snapshot),
     Reply(Reply),
     Error(Fault),
+    AdmissionCommitted(AdmissionView),
+    OperationCommitted(PendingOperation),
+    Changed {
+        #[ts(type = "number")]
+        revision: u64,
+    },
+    Questions(Vec<Question>),
+    Live(Live),
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -44,6 +180,11 @@ pub enum Payload {
 pub enum Reply {
     Snapshot(Snapshot),
     Shutdown { shutting_down: bool },
+    Admission(AdmissionView),
+    Operation(PendingOperation),
+    Answer { answered: bool },
+    History(HistoryPage),
+    Providers(ProvidersView),
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -59,6 +200,12 @@ pub struct Snapshot {
     pub model: Readiness,
     pub python: Readiness,
     pub memory: Readiness,
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub active_task: Option<String>,
+    pub tasks: Vec<TaskInfo>,
+    pub questions: Vec<Question>,
+    pub tools: Vec<ToolInfo>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -117,6 +264,28 @@ pub fn typescript() -> String {
         Readiness::decl(&cfg),
         ErrorCode::decl(&cfg),
         Fault::decl(&cfg),
+        SubmitParams::decl(&cfg),
+        CancelParams::decl(&cfg),
+        AnswerParams::decl(&cfg),
+        HistoryParams::decl(&cfg),
+        AdmissionView::decl(&cfg),
+        AdmissionPhase::decl(&cfg),
+        PendingOperation::decl(&cfg),
+        TaskInfo::decl(&cfg),
+        HistoryPage::decl(&cfg),
+        HistoryMessage::decl(&cfg),
+        Question::decl(&cfg),
+        Choice::decl(&cfg),
+        Live::decl(&cfg),
+        ToolInfo::decl(&cfg),
+        ProvidersSave::decl(&cfg),
+        ProviderKey::decl(&cfg),
+        ProvidersView::decl(&cfg),
+        vivy_gateway::config::ProvidersConfig::decl(&cfg),
+        vivy_gateway::config::Instance::decl(&cfg),
+        vivy_gateway::config::Protocol::decl(&cfg),
+        vivy_gateway::config::Credential::decl(&cfg),
+        vivy_gateway::config::Model::decl(&cfg),
     ];
     format!(
         "// Generated from vivy-diva-front Rust DTOs. Do not edit.\nexport const PROTOCOL_VERSION = {VERSION} as const;\n{}\n",

@@ -75,7 +75,22 @@ pub fn snapshot(world: &mut World, watermark: u64) -> Snapshot {
         state: format!("{memory_state:?}").to_lowercase(),
         issue: None,
     };
+    let durable = foreground.and_then(|e| vivy_durable::runtime::inspect_committed(world, e));
+    let revision = durable.map_or(0, |s| s.revision);
+    let active_task = durable.and_then(|s| s.active.clone());
+    let tasks = durable
+        .map(crate::conversation::task_info)
+        .unwrap_or_default();
+    let tools = durable
+        .map(crate::conversation::tool_info)
+        .unwrap_or_default();
+    let questions = crate::conversation::questions(world);
     Snapshot {
+        revision,
+        active_task,
+        tasks,
+        questions,
+        tools,
         session,
         assistant,
         plugins,

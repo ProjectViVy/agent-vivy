@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "protocol-types", derive(ts_rs::TS))]
 pub enum Protocol {
     Openai,
     Anthropic,
@@ -37,6 +38,7 @@ impl Protocol {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "source", rename_all = "lowercase", deny_unknown_fields)]
+#[cfg_attr(feature = "protocol-types", derive(ts_rs::TS))]
 pub enum Credential {
     #[default]
     Stored,
@@ -48,6 +50,7 @@ pub enum Credential {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "protocol-types", derive(ts_rs::TS))]
 pub struct Instance {
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,6 +99,7 @@ impl Instance {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "protocol-types", derive(ts_rs::TS))]
 pub struct Model {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,6 +172,7 @@ pub fn effort(name: &str) -> Option<Effort> {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, bevy_ecs::prelude::Resource)]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "protocol-types", derive(ts_rs::TS))]
 pub struct ProvidersConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,

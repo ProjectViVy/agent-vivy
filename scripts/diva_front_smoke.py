@@ -34,6 +34,8 @@ def main():
             assert event is not None, errors
             assert event["v"] == 1 and event["seq"] > sequence, event
             sequence = event["seq"]
+            if event["type"] not in ("ready", "reply", "error"):
+                return receive()
             return event
         def request(value):
             process.stdin.write(json.dumps(value, ensure_ascii=False) + "\n")

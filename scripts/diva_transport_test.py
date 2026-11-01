@@ -51,6 +51,8 @@ class Client:
             assert frame["instance"] == self.instance, frame
         self.instance = frame["instance"]
         self.sequence = frame["seq"]
+        if frame["type"] not in ("ready", "reply", "error"):
+            return self.receive()
         return frame
 
     def write(self, value):
