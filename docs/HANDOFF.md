@@ -36,6 +36,14 @@ tracked build products, sessions, obvious credential tokens or AI attribution
 markers. Existing protocol/instruction-file compatibility names remain functional.
 Local verification evidence stays ignored under `.workspace/promotion/`.
 
+## Diva typed transport continuation (2026-11-02)
+
+Implementation remains active on `feat/diva-desktop`. Rust is now the wire DTO
+source; `plugins/vivy-diva-front/contract` contains generated types and examples.
+The export example takes an explicit output directory; the contract test rejects
+stale checked-in output. Native handshake/boundary checks pass. M2–M6 remain
+pending; see the existing plan progress for exact evidence and branch bases.
+
 ## Diva transport boundary checks (2026-11-01)
 
 The desktop branch now distinguishes protocol-version and unsupported-operation

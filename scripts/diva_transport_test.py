@@ -97,6 +97,23 @@ class TransportTests(unittest.TestCase):
         second.process.stdin.close()
         self.assertEqual(second.process.wait(timeout=15), 0)
 
+    def test_first_run_reports_identity_and_readiness_without_starting_tools(self):
+        client, ready = self.start()
+        state = ready["data"]
+        self.assertEqual(state["watermark"], ready["seq"])
+        self.assertTrue(state["assistant"])
+        self.assertIn(state["assistant"], [a["id"] for a in state["agents"]])
+        self.assertFalse(state["model"]["configured"])
+        self.assertFalse(state["model"]["ready"])
+        self.assertTrue(state["model"]["compiled"])
+        self.assertIn(state["python"]["state"], ("unprepared", "checking"))
+        self.assertFalse(state["python"]["ready"])
+        self.assertTrue(all(p["compiled"] for p in state["plugins"]))
+        client.write(b'{"v":1,"id":"query","method":"snapshot"}\n')
+        snapshot = client.receive()
+        self.assertEqual(snapshot["data"]["watermark"], snapshot["seq"])
+        self.assertEqual(snapshot["data"]["assistant"], state["assistant"])
+
     def test_malformed_frames_recover_without_echoing_input(self):
         client, _ = self.start()
         for raw, code in [(b'\xff\n', "invalid_frame"),

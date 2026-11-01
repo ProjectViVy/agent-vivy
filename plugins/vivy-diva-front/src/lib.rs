@@ -1,28 +1,13 @@
 //! Desktop transport on the shared Rig runner. No separate agent execution loop.
 use rig_basics::print::{AppHeadlessExt, KeepRunning, Starting};
 use rig_harness::prelude::*;
-use serde::Deserialize;
-use serde_json::{Value, json};
-use std::io::{BufRead, Read, Write};
+mod projection;
+pub mod protocol;
+mod transport;
+use protocol::*;
+use serde_json::Value;
+use std::io::{BufRead, Read};
 use std::sync::{Mutex, mpsc};
-
-const VERSION: u32 = 1;
-const MAX_FRAME: usize = 1024 * 1024;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Request {
-    v: u32,
-    id: String,
-    method: Method,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum Method {
-    Snapshot,
-    Shutdown,
-}
 
 #[derive(Resource)]
 struct Input(Mutex<mpsc::Receiver<Result<String, String>>>);
@@ -35,6 +20,8 @@ struct Output {
     instance: String,
     sequence: u64,
     ready: bool,
+    writer: transport::Writer,
+    closing: Option<u64>,
 }
 
 #[derive(Default)]
@@ -87,11 +74,15 @@ impl Plugin for DivaFrontPlugin {
             drop(tx);
             wake.wake();
         });
+        let writer =
+            transport::Writer::start(std::io::stdout(), app.world().resource::<Wake>().clone());
         app.insert_resource(Input(Mutex::new(rx)))
             .insert_resource(Output {
                 instance: format!("{}-{}", std::process::id(), rig_harness::rig_core::now_ms()),
                 sequence: 0,
                 ready: false,
+                writer,
+                closing: None,
             });
         app.world_mut().spawn(KeepRunning);
         // Management must remain available before first-run provider setup.
@@ -101,43 +92,52 @@ impl Plugin for DivaFrontPlugin {
     }
 }
 
-fn emit(world: &mut World, kind: &str, id: Value, data: Value) {
+fn emit(world: &mut World, id: Option<String>, payload: Payload) {
     let mut output = world.resource_mut::<Output>();
     output.sequence += 1;
-    let frame = json!({"v":VERSION,"instance":output.instance,"seq":output.sequence,
-        "type":kind,"id":id,"data":data});
-    let mut stdout = std::io::stdout().lock();
-    if writeln!(stdout, "{frame}")
-        .and_then(|_| stdout.flush())
-        .is_err()
-    {
+    let frame = Frame {
+        v: VERSION,
+        instance: output.instance.clone(),
+        seq: output.sequence,
+        id,
+        payload,
+    };
+    if let Err(error) = output.writer.send(frame) {
+        eprintln!("{error}");
         drop(output);
         world.trigger(Exit(ExitReason::Quit));
     }
 }
 
-fn snapshot(world: &mut World) -> Value {
-    let session = world
-        .get_resource::<SessionPaths>()
-        .and_then(|paths| paths.0.id())
-        .map(|id| id.as_str().to_owned());
-    let mut plugins: Vec<_> = world
-        .query::<(&Name, &PluginSource)>()
-        .iter(world)
-        .map(|(name, source)| json!({"name":name.as_str(),"package":source.package}))
-        .collect();
-    plugins.sort_by_key(|p| p["name"].as_str().unwrap_or_default().to_owned());
-    let agents: Vec<_> = world
-        .query::<(&AgentId, Has<ActiveTurn>)>()
-        .iter(world)
-        .map(|(id, working)| json!({"id":id.0,"working":working}))
-        .collect();
-    json!({"session":session,"plugins":plugins,"agents":agents,
-        "core_version":env!("CARGO_PKG_VERSION"),"protocol_version":VERSION})
+fn snapshot(world: &mut World) -> Snapshot {
+    projection::snapshot(world, world.resource::<Output>().sequence + 1)
+}
+
+fn fault(world: &mut World, id: Option<String>, code: ErrorCode, message: impl Into<String>) {
+    emit(
+        world,
+        id,
+        Payload::Error(Fault {
+            code,
+            message: message.into(),
+        }),
+    );
 }
 
 fn poll(world: &mut World) {
     if !world.contains_resource::<SessionRestored>() {
+        return;
+    }
+    let output = world.resource::<Output>();
+    if let Some(error) = output.writer.failure() {
+        eprintln!("{error}");
+        world.trigger(Exit(ExitReason::Quit));
+        return;
+    }
+    if let Some(sequence) = output.closing {
+        if output.writer.written() >= sequence {
+            world.trigger(Exit(ExitReason::Quit));
+        }
         return;
     }
     if world
@@ -155,24 +155,21 @@ fn poll(world: &mut World) {
     if !world.resource::<Output>().ready {
         world.resource_mut::<Output>().ready = true;
         let state = snapshot(world);
-        emit(world, "ready", Value::Null, state);
+        emit(world, None, Payload::Ready(state));
     }
     for _ in 0..32 {
         let line = world.resource::<Input>().0.lock().unwrap().try_recv();
         let line = match line {
             Ok(Ok(line)) => line,
             Ok(Err(error)) => {
-                emit(
-                    world,
-                    "error",
-                    Value::Null,
-                    json!({"code":"invalid_frame","message":error}),
-                );
+                fault(world, None, ErrorCode::InvalidFrame, error);
                 continue;
             }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
-                world.trigger(Exit(ExitReason::Quit));
+                let mut output = world.resource_mut::<Output>();
+                output.closing = Some(output.sequence);
+                world.resource::<Wake>().wake();
                 break;
             }
         };
@@ -182,24 +179,24 @@ fn poll(world: &mut World) {
             .ok()
             .and_then(|v| v.get("id"))
             .filter(|v| v.as_str().is_some_and(|s| !s.is_empty() && s.len() <= 256))
-            .cloned()
-            .unwrap_or(Value::Null);
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let code = match value.as_ref().ok() {
             Some(v)
                 if v.get("v")
                     .and_then(Value::as_u64)
                     .is_some_and(|v| v != u64::from(VERSION)) =>
             {
-                "incompatible_version"
+                ErrorCode::IncompatibleVersion
             }
             Some(v)
                 if v.get("method")
                     .and_then(Value::as_str)
                     .is_some_and(|m| !matches!(m, "snapshot" | "shutdown")) =>
             {
-                "unsupported_operation"
+                ErrorCode::UnsupportedOperation
             }
-            _ => "invalid_request",
+            _ => ErrorCode::InvalidRequest,
         };
         let request = value
             .ok()
@@ -207,22 +204,29 @@ fn poll(world: &mut World) {
         let Some(request) =
             request.filter(|r| r.v == VERSION && !r.id.is_empty() && r.id.len() <= 256)
         else {
-            emit(
+            fault(
                 world,
-                "error",
                 id,
-                json!({"code":code,"message":"Expected protocol v1, a bounded nonempty id and a supported method"}),
+                code,
+                "Expected protocol v1, a bounded nonempty id and a supported method",
             );
             continue;
         };
         match request.method {
             Method::Snapshot => {
                 let state = snapshot(world);
-                emit(world, "reply", id, state);
+                emit(world, id, Payload::Reply(Reply::Snapshot(state)));
             }
             Method::Shutdown => {
-                emit(world, "reply", id, json!({"shutting_down":true}));
-                world.trigger(Exit(ExitReason::Quit));
+                emit(
+                    world,
+                    id,
+                    Payload::Reply(Reply::Shutdown {
+                        shutting_down: true,
+                    }),
+                );
+                let mut output = world.resource_mut::<Output>();
+                output.closing = Some(output.sequence);
                 break;
             }
         }

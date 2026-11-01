@@ -163,6 +163,23 @@ pub fn inspect(world: &World, agent: Entity) -> Option<&DurableAgentState> {
     world.get::<DurableAgentState>(agent)
 }
 
+/// The runtime-selected conversational agent, never the internal Dream worker.
+pub fn foreground(world: &World) -> Option<Entity> {
+    let entity = world.get_resource::<ShownAgent>()?.0?;
+    let state = world.get::<DurableAgentState>(entity)?;
+    #[cfg(feature = "autodream")]
+    if state.evolution.dream {
+        return None;
+    }
+    let _ = state;
+    Some(entity)
+}
+
+/// Read-only persisted projection. Pending ECS changes are deliberately excluded.
+pub fn inspect_committed(world: &World, agent: Entity) -> Option<&DurableAgentState> {
+    committed(world, agent)
+}
+
 /// Idempotent local admission; a returned pending receipt is not yet durable.
 pub fn submit(
     world: &mut World,

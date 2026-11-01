@@ -383,3 +383,27 @@ contract, M2 conversation, management pages, tray host or installer is verified.
   function and MSVC linker warnings remain.
 - This is a transport increment, not completion of M1 or desktop delivery. Type
   export and capability/readiness contracts remain next, followed by M2-M6.
+
+### Continued implementation (2026-11-02)
+
+The owner authorized continuous implementation of M1–M6 in the follow-up plan.
+Backend base: `fe9e98b` on `feat/diva-desktop`; desktop base: `4633adbb` on
+`feat/diva-core-integration`. No merge or push is authorized.
+
+Interface audit: the desktop consumes the exported Rust protocol and matching
+binary; admission acknowledgements must come from committed core state before
+removing desktop outbox records. Snapshot watermarks and stream events share one
+instance/sequence. Management adapters retain each component's storage owner.
+
+- M1: Rust DTOs now export TypeScript, protocol version and serialization examples.
+  Snapshot includes the runtime-selected foreground assistant, compiled plugin
+  inventory and separate model/Python/memory readiness. Initial Python detection
+  can be `checking`; it is not a prepared or ready environment.
+- Pipe writes use a bounded background queue. Saturation/disconnection terminates
+  the transport; normal shutdown/EOF drains queued replies before exiting.
+- Verification: 34 root tests passed; two Rust contract tests passed; five native
+  boundary tests and the native front smoke passed. The new handshake assertion
+  first failed against the base binary because the watermark was absent.
+- Remaining: M2 durable chat and recovery; M3 native host; all M4 management;
+  M5 failure/UI acceptance; M6 artifact, installer and actual-provider acceptance.
+  No completed desktop or installer is claimed.
