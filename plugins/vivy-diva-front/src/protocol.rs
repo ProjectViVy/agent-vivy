@@ -30,7 +30,7 @@ pub enum Method {
     ProviderKey(ProviderKey),
     ProviderTest(ProviderTest),
     PersonaRead,
-    PersonaUpdate(PersonaUpdate),
+    PersonaSaveFile(PersonaSaveFile),
     PersonaRollback(PersonaRollback),
     PromptsRead,
     PromptSave(PromptSave),
@@ -288,11 +288,12 @@ pub struct SkillName {
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
-pub struct PersonaUpdate {
+pub struct PersonaSaveFile {
     #[ts(type = "number")]
     pub revision: u64,
     pub expected_update_id: String,
     pub update_id: String,
+    pub name: String,
     pub text: String,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -312,11 +313,30 @@ pub struct PromptSave {
     pub text: String,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
+pub struct PersonaFileView {
+    pub name: String,
+    pub text: String,
+    pub required: bool,
+    pub auto: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
 pub struct PersonaView {
     #[ts(type = "number")]
     pub revision: u64,
     pub update_id: String,
+    pub directory: String,
     pub text: String,
+    pub files: Vec<PersonaFileView>,
+    pub unpublished: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct PersonaVersionView {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub update_id: String,
+    pub text: String,
+    pub sources: Vec<String>,
+    pub truncated: bool,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct PromptView {
@@ -340,7 +360,7 @@ pub enum ManagementResult {
     },
     Persona {
         current: PersonaView,
-        history: Vec<PersonaView>,
+        history: Vec<PersonaVersionView>,
     },
     Prompts {
         prompts: Vec<PromptView>,
@@ -656,10 +676,12 @@ pub fn typescript() -> String {
         SkillRemove::decl(&cfg),
         SkillDocument::decl(&cfg),
         SkillName::decl(&cfg),
-        PersonaUpdate::decl(&cfg),
+        PersonaSaveFile::decl(&cfg),
         PersonaRollback::decl(&cfg),
         PromptSave::decl(&cfg),
+        PersonaFileView::decl(&cfg),
         PersonaView::decl(&cfg),
+        PersonaVersionView::decl(&cfg),
         PromptView::decl(&cfg),
         ManagementResult::decl(&cfg),
         ManagementCompleted::decl(&cfg),

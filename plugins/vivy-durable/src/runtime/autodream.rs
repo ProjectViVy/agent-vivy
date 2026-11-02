@@ -537,10 +537,20 @@ fn status(world: &mut World, agent: Entity) -> Value {
     } else {
         dream_agent(world, agent)
     };
-    let persona = vivy_laputa::PersonaStore::new(&root(world))
+    let store = vivy_laputa::PersonaStore::new(&root(world));
+    let persona = store
         .read()
-        .map(|p| json!({"revision":p.revision,"persona_id":p.persona_id}))
-        .unwrap_or_else(|e| json!({"error":e.to_string()}));
+        .map(|p| {
+            json!({
+                "revision":p.revision,
+                "persona_id":p.persona_id,
+                "directory":store.directory().display().to_string(),
+                "files":vivy_laputa::ASSEMBLY_FILES,
+                "auto_files":vivy_laputa::AUTO_FILES,
+                "unpublished":p.unpublished,
+            })
+        })
+        .unwrap_or_else(|e| json!({"error":e.to_string(),"directory":store.directory().display().to_string(),"files":vivy_laputa::ASSEMBLY_FILES,"auto_files":vivy_laputa::AUTO_FILES}));
     let publication = vivy_python::managed::PublicationStore::new(
         &root(world),
         RigHome::of(world).root(),

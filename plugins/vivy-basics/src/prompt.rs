@@ -27,22 +27,7 @@ impl Plugin for VivyPromptPlugin {
     }
 }
 
-/// The persistent assistant has its own default role, on the same execution path.
-#[derive(Default)]
-pub struct AssistantPromptPlugin;
-
-impl Plugin for AssistantPromptPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<ProjectRoot>()
-            .init_resource::<RigHome>();
-        app.insert_resource(DefaultRole {
-            file: "ASSISTANT.md",
-            text: include_str!("../../../prompts/ASSISTANT.md"),
-        });
-        app.add_systems(AgentPass, default_prompt.in_set(PrepareSystems::Compose));
-    }
-}
-
+/// The persistent assistant gets its base identity from Laputa's persona files.
 /// Read when forming a new operation. The caller retains it for retries.
 /// Explicit project refusal also covers files created after startup discovery.
 pub fn load(world: &mut World, name: &str, fallback: &str) -> io::Result<String> {
@@ -121,7 +106,6 @@ pub fn inspect_file(
     name: &str,
 ) -> io::Result<(String, String, String)> {
     let fallback = match name {
-        "ASSISTANT.md" => include_str!("../../../prompts/ASSISTANT.md"),
         "RECAP.md" => include_str!("../../../prompts/RECAP.md"),
         "AUTODREAM.md" => include_str!("../../../prompts/AUTODREAM.md"),
         _ => return Err(io::Error::other("unsupported editable prompt")),

@@ -17,6 +17,10 @@ pub struct Job {
     pub evidence: Vec<String>,
     pub skill: Option<SkillRevision>,
     pub persona: Option<String>,
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default)]
+    pub file_digest: Option<String>,
     pub environment: Option<Publication>,
     pub checks: ValidationSpec,
     pub phase: String,
@@ -63,6 +67,8 @@ struct CandidateArgs {
     checks: Value,
     #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    file: Option<String>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -75,7 +81,7 @@ pub(super) fn install(app: &mut App) {
         .add_systems(First,tick.after(super::tick).before(crate::runtime::recover_inputs))
         .add_systems(Last,stop_workers.in_set(OnAppExitSystems).run_if(on_message::<rig_harness::AppExit>))
         .add_observer(delivered)
-        .add_open_tool("candidate_submit","Freeze a persona text file or pure-Python Skill directory, admit background checks, and automatically adopt the exact passing version. expected_base is the persona revision or workbench publication from dream_status. name is required for Skills. Submission is not validation success.",ToolOptions::default(),
+        .add_open_tool("candidate_submit","Freeze one persona core file (file must be IDENTITY.MD, RELATIONSHIP.MD, DREAM.MD or DARK.MD) or a pure-Python Skill directory, admit background checks, and automatically adopt the exact passing version. expected_base is the persona revision or workbench publication from dream_status. name is required for Skills. Submission is not validation success.",ToolOptions::default(),
             |e:On<ToolCalled<CandidateArgs>>,mut commands:Commands| {
                 let (call,agent,args)=(e.call,e.agent,serde_json::to_value(&e.args).unwrap_or(Value::Null));
                 commands.queue(move |world:&mut World| {
@@ -168,6 +174,8 @@ fn submit_candidate(
         evidence: args.evidence,
         skill: None,
         persona: None,
+        file: None,
+        file_digest: None,
         environment: None,
         checks: ValidationSpec::default(),
         phase: "admitted".into(),
@@ -188,15 +196,32 @@ fn submit_candidate(
     );
     match args.target.as_str() {
         "persona" => {
+            let file = args
+                .file
+                .as_deref()
+                .ok_or_else(|| invalid("persona candidates must name a core file"))?;
+            if !vivy_laputa::auto(file) {
+                return Err(invalid(
+                    "only IDENTITY.MD, RELATIONSHIP.MD, DREAM.MD and DARK.MD may be evolved automatically",
+                ));
+            }
             let current = vivy_laputa::PersonaStore::new(&root(world)).read()?;
             if current.revision.to_string() != job.expected_base {
                 return Err(invalid("stale persona base"));
             }
             let bytes = fs::read(source)?;
-            if bytes.len() > 64 * 1024 {
-                return Err(invalid("persona candidate exceeds 64 KiB"));
+            if bytes.len() > vivy_laputa::MAX_FILE_BYTES {
+                return Err(invalid(
+                    "persona candidate exceeds the per-file byte budget",
+                ));
             }
-            job.persona = Some(String::from_utf8(bytes).map_err(io::Error::other)?);
+            let text = String::from_utf8(bytes).map_err(io::Error::other)?;
+            if text.trim().is_empty() {
+                return Err(invalid("persona candidate must not be blank"));
+            }
+            job.file = Some(file.to_string());
+            job.file_digest = Some(vivy_laputa::digest_text(current.file(file)));
+            job.persona = Some(text);
         }
         "skill" => {
             let store = publication_store(world);
@@ -298,6 +323,17 @@ pub(super) fn detach(world: &mut World, agent: Entity, id: &str) -> io::Result<V
     let result = json!({"job":job.id,"phase":job.phase,"wait":"detached","job_cancelled":false});
     state.bump();
     Ok(result)
+}
+pub(super) fn persona_target(job: &Job) -> io::Result<(&str, &str)> {
+    let file = job
+        .file
+        .as_deref()
+        .ok_or_else(|| invalid("legacy persona candidate has no target file"))?;
+    let file_digest = job
+        .file_digest
+        .as_deref()
+        .ok_or_else(|| invalid("persona candidate is missing its file digest"))?;
+    Ok((file, file_digest))
 }
 fn reconcile(world: &World, job: &Job) -> io::Result<Option<Value>> {
     if job.target == "skill" {
@@ -455,7 +491,7 @@ fn tick(world: &mut World) {
                             }
                         } else if job.target == "persona" {
                             job.result = Some(
-                                json!({"passed":true,"assertions":1,"persona_digest":digest(&job.persona)}),
+                                json!({"passed":true,"assertions":1,"file":job.file,"file_digest":job.file_digest,"persona_digest":digest(&job.persona)}),
                             );
                             job.phase = "validated".into();
                         } else if let Some(running) =
@@ -508,15 +544,21 @@ fn tick(world: &mut World) {
                         let adopted = if job.target == "persona" {
                             let expected =
                                 job.expected_base.parse::<u64>().map_err(io::Error::other)?;
-                            let persona = vivy_laputa::PersonaStore::new(&root(world)).update(
+                            let (file, file_digest) = persona_target(&job)?;
+                            let store = vivy_laputa::PersonaStore::new(&root(world));
+                            let current = store.read()?;
+                            let persona = store.save_file_checked(
                                 expected,
+                                &current.last_update_id,
+                                file_digest,
                                 &job.update,
+                                file,
                                 job.persona
                                     .as_deref()
                                     .ok_or_else(|| invalid("missing frozen persona"))?,
                                 job.evidence.clone(),
                             )?;
-                            json!({"persona_revision":persona.revision})
+                            json!({"persona_revision":persona.revision,"file":file})
                         } else {
                             let receipt: ValidationReceipt = serde_json::from_value(
                                 job.result

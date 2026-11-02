@@ -45,24 +45,68 @@ the plan records actual runs and remaining limitations.
 
 The prompt refactor follows the request to let humans edit Markdown. Defaults
 live in `prompts/`; trusted `.rig/<name>.md` overrides user `RIG_HOME/<name>.md`,
-then the compiled default. `ASSISTANT.md`, `CODING.md`, `RECAP.md` and
-`AUTODREAM.md` configure prose for existing compiled consumers. New operations
-read current files; existing requests and persistent retries remain frozen.
-Invalid overrides report their path and stop the affected new operation. There
-is no watcher, template engine, prompt database or second execution path.
+then the compiled default. `CODING.md`, `RECAP.md` and `AUTODREAM.md` configure
+prose for existing compiled consumers. New operations read current files; existing
+requests and persistent retries remain frozen. Invalid overrides report their path
+and stop the affected new operation. There is no watcher, template engine, prompt
+database or second execution path.
 
-The persistent recipe now selects `AssistantPromptPlugin`; it previously reused
-the coding identity. Coding retains its separate recipe-selected role. Existing
-SYSTEM/CLI role replacement and APPEND/context files keep their startup semantics.
-Laputa remains the top persona authority: human Markdown enters via the existing
-revision-checked `/persona update` command, preserving evolution conflict detection
-and rollback. The refactor does not change saved-state schemas, Recap projection,
-tool schemas, lifecycle checks or Dream's persona exclusion.
+The persistent recipe no longer selects a separate assistant prompt plugin: the
+assistant's base instructions are the managed persona's `IDENTITY.MD`, while
+`CODING.md` remains the coding recipe's role. Existing SYSTEM/CLI role replacement
+and APPEND/context files keep their startup semantics. Laputa wraps its assembled
+persona around whatever base role remains, so replacing that role cannot erase the
+persona. Human Markdown enters through revision-checked persona saves, preserving
+evolution conflict detection and rollback. The refactor does not change saved-state
+schemas, Recap projection, tool schemas, lifecycle checks or Dream's persona
+exclusion.
 
 Source-only extraction would still require rebuilding after every edit. A larger
 prompt management service is unnecessary. Runtime file overrides reuse the
 existing project trust and prompt precedence model; this is the implementation
 choice for the requested decoupling. See [editing instructions](../prompts/README.md).
+
+## Laputa six-file persona store (2026-11-02)
+
+The persona is now Laputa's six real Markdown files rather than one text value.
+`MISSION.MD`, `IDENTITY.MD`, `RELATIONSHIP.MD` and `REDLINE.MD` are required;
+`DREAM.MD` and `DARK.MD` are optional. Sources live under
+`.vivy/laputa/personas/main/`. `IDENTITY.MD` absorbs the former `ASSISTANT.md`
+default; the other required files carry mission, long-term collaboration and
+safety boundaries. Diva's desktop Settings shows the same six files as **Core
+persona**, with per-file editing and protected-file confirmation.
+
+- Assembly is deterministic: the fixed order above, non-empty bodies joined by a
+  blank line, wrapped once in `<persona>...</persona>` and placed before the base
+  role. Empty optional files are skipped. `MISSION.MD` must be non-blank; each file
+  is limited to 32 KiB and the assembled text to 64 KiB.
+- The first save materializes all six source files and publishes revision 1.
+  Before any save, reads return the compiled defaults without writing. v1
+  `persona.json`/history entries migrate in memory: the old `text` becomes
+  `IDENTITY.MD`, the remaining files use defaults, and the next save publishes v2.
+- `persona.json` is now schema 2 and stores `files`, `sources_digest`,
+  `last_update_id`, `parent_update_id` and source labels. Each revision keeps a
+  complete six-file snapshot under `revisions/`. A single update ID is idempotent
+  only for identical files and sources.
+- Each save acquires the OS writer lock, reads current sources, checks
+  `revision` + `expected_update_id`, replaces exactly one file, validates the whole
+  set, writes the source file, publishes the immutable snapshot, then rewrites
+  `persona.json` and round-trips the read. Rollback restores every file from the
+  target revision and publishes a new revision; target `0` restores defaults.
+- Direct external edits are allowed and used by the next model operation. `read`
+  compares the on-disk digest with the published snapshot and reports
+  `unpublished` drift; saving any file publishes the current content. AutoDream
+  additions use a target-file digest and refuse a file that changed after the
+  candidate was prepared.
+- AutoDream may only propose `IDENTITY.MD`, `RELATIONSHIP.MD`, `DREAM.MD` or
+  `DARK.MD`. `MISSION.MD` and `REDLINE.MD` are human-only: admission rejects a
+  candidate targeting them, and legacy persona jobs without a target file fail
+  explicitly instead of guessing one.
+- The desktop uses `persona_read`, `persona_save_file` and `persona_rollback`;
+  the terminal commands are `/persona show [NAME]`,
+  `/persona update <revision> <NAME> <path>` and
+  `/persona rollback <revision> <target>`.
+
 
 ## D4 AutoDream implementation (2026-11-01)
 
@@ -144,11 +188,12 @@ build, and incompatible opens are refused without changing the logs. The local
 Rig checkpoint fork remains required; this change does not modify that fork or
 the production Rig revision.
 
-- `vivy-laputa` owns `.vivy/laputa/persona.json`, immutable update snapshots and
-  an OS writer lock. Missing persona is empty revision zero. CAS updates and
-  rollback publish atomically with update-ID reconciliation. Persona precedes
-  the base role; SYSTEM/CLI role replacement does not replace managed persona.
-  New model operations reload it; model retries reuse the frozen actual request.
+- `vivy-laputa` owns `.vivy/laputa/persona.json`, the six source files under
+  `personas/main/`, immutable revision snapshots and an OS writer lock. Missing
+  persona is the compiled six-file seed at revision zero. CAS updates and rollback
+  publish atomically with update-ID reconciliation. Persona precedes the base
+  role; SYSTEM/CLI role replacement does not replace managed persona. New model
+  operations reload it; model retries reuse the frozen actual request.
 - Required `vivy.assistant-context.v1` state shares D1's exact checkpoint receipts.
   Requests contain persona/instructions, the latest committed Recap, current
   task execution records and explicitly delivered pending input. Other tasks'
@@ -993,13 +1038,15 @@ implemented by this queue. Later hooks submit the same typed inputs.
 
 #### 7. Persona, Recap and memory integration
 
-The initial native persona representation is a versioned workspace
-`.vivy/laputa/persona.json`, with
-`schema_version`, `persona_id`, `revision`, `text`, `last_update_id` and source
-references. Laputa exposes read and compare-and-swap update operations. Updates
-validate the expected revision, write a complete replacement, then atomically publish
-it under an OS writer lock. An interrupted update is reconciled by update ID and
-revision. Tasks record the observed revision, not a second mutable persona copy.
+The native persona representation is a versioned workspace store: six Markdown
+sources under `.vivy/laputa/personas/main/`, with published metadata in
+`.vivy/laputa/persona.json` (`schema_version`, `persona_id`, `revision`, `files`,
+`last_update_id`, `parent_update_id`, `sources_digest` and source references).
+Laputa exposes read and compare-and-swap per-file update operations. Updates
+validate the expected revision and file digest, replace one file, then atomically
+publish a complete six-file snapshot under an OS writer lock. An interrupted
+update is reconciled by update ID and revision. Tasks record the observed
+revision, not a second mutable persona copy.
 The exact bytes used by an in-flight model request are part of its checkpoint.
 Keep immutable prior revisions for checked rollback, which creates a new
 revision. The current pointer/content is the only mutable persona authority.

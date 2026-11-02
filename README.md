@@ -73,9 +73,11 @@ Windows cannot replace a running executable.
 ## Persistent assistant
 
 `recipes/persistent-agent.yaml` selects the D4 assistant: durable tasks and timed
-wakes, Laputa persona, asynchronous Recap-only context, and AutoDream validation
-and adoption. Coding sessions and persistent assistants are separate recipes on
-the same core. The assistant does not yet delegate coding sessions or subagents.
+wakes, Laputa's six-file core persona, asynchronous Recap-only context, and
+AutoDream validation and adoption. Coding sessions and persistent assistants are
+separate recipes on the same core. The assistant does not yet delegate coding
+sessions or subagents. The persona is editable under
+`.vivy/laputa/personas/main/` and, for the desktop, under Settings → Core persona.
 
 This recipe still requires the local Rig checkpoint implementation recorded in
 the [handoff](docs/HANDOFF.md#d4-autodream-ad-2-2026-11-01); the ordinary upstream

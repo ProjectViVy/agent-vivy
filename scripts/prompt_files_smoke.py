@@ -29,8 +29,12 @@ class Gateway(Handler):
         if self.server.fail == kind:
             self.server.fail = None
             # The retry must survive an invalid edit and reuse its frozen text.
-            name = {'main': 'ASSISTANT.md', 'recap': 'RECAP.md', 'dream': 'AUTODREAM.md'}[kind]
-            (self.server.home/name).write_bytes(b'\xff')
+            if kind == 'main':
+                source = self.server.root/'.vivy/laputa/personas/main/IDENTITY.MD'
+                source.write_text('IDENTITY-AFTER', encoding='utf-8')
+            else:
+                name = {'recap': 'RECAP.md', 'dream': 'AUTODREAM.md'}[kind]
+                (self.server.home/name).write_bytes(b'\xff')
             return self.reply_error(503, 'synthetic prompt retry')
         return self.reply(body, text={'main': 'MAIN_OK', 'recap': 'RECAP_OK', 'dream': 'DREAM_OK'}[kind])
 
@@ -69,42 +73,45 @@ def main():
             root = Path(directory)
             environment, session = fixture(root, server, probe_environment(os.environ))
             home = server.home = root/'home'
+            server.root = root
             agent = JsonAgent(binary, root, environment)
             turn(agent, 'hello')
             assert 'a persistent assistant' in system(server.requests[-1])
             assert 'a coding agent' not in system(server.requests[-1])
 
-            (root/'PERSONA.md').write_text('PERSONA-MARKDOWN', encoding='utf-8')
-            agent.send('/persona update 0 PERSONA.md')
+            (root/'IDENTITY-EDIT.md').write_text('PERSONA-MARKDOWN', encoding='utf-8')
+            agent.send('/persona update 0 IDENTITY.MD IDENTITY-EDIT.md')
             agent.until(lambda e: e['type'] == 'notice' and 'revision 1' in e.get('text', ''))
-            (home/'ASSISTANT.md').write_text('ASSISTANT-ONE', encoding='utf-8-sig')
+            persona = root/'.vivy/laputa/personas/main'
+            (persona/'MISSION.MD').write_text('MISSION-EDIT', encoding='utf-8')
             (root/'.rig').mkdir()
-            (root/'.rig/ASSISTANT.md').write_text('UNTRUSTED-PROJECT', encoding='utf-8')
+            (root/'.rig/IDENTITY.MD').write_text('UNTRUSTED-PROJECT', encoding='utf-8')
             turn(agent, 'first edit')
             text = system(server.requests[-1])
-            assert text.index('PERSONA-MARKDOWN') < text.index('ASSISTANT-ONE')
+            assert text.index('MISSION-EDIT') < text.index('PERSONA-MARKDOWN')
             assert 'UNTRUSTED-PROJECT' not in text
 
-            (home/'ASSISTANT.md').write_text('ASSISTANT-TWO', encoding='utf-8')
+            (persona/'IDENTITY.MD').write_text('IDENTITY-TWO', encoding='utf-8')
             start = len(server.requests)
             server.fail = 'main'
             turn(agent, 'retry this request')
             requests = server.requests[start:]
             assert len(requests) == 2, len(requests)
             assert requests[0]['messages'] == requests[1]['messages']
-            assert 'ASSISTANT-TWO' in system(requests[1])
-            assert 'ASSISTANT-ONE' not in system(requests[1])
-            print('PASS assistant identity, Markdown edits, trust, persona order and frozen retry', flush=True)
+            assert 'IDENTITY-TWO' in system(requests[1])
+            assert 'IDENTITY-AFTER' not in system(requests[1])
+            print('PASS persona files, immediate edits, trust isolation and frozen retry', flush=True)
 
-            (home/'ASSISTANT.md').write_text('   ', encoding='utf-8')
             count = len(server.requests)
-            result, errors = turn(agent, 'invalid prompt')
-            assert len(server.requests) == count, 'invalid prompt reached the gateway'
-            assert 'empty' in json.dumps([result, errors, agent.events[-10:]]).lower()
-            (home/'ASSISTANT.md').write_text('ASSISTANT-THREE', encoding='utf-8')
-            turn(agent, 'repaired prompt')
-            assert 'ASSISTANT-THREE' in system(server.requests[-1])
-            print('PASS invalid prompt refuses before dispatch and a repaired file recovers', flush=True)
+            (persona/'MISSION.MD').write_text('   ', encoding='utf-8')
+            result, errors = turn(agent, 'invalid persona')
+            assert len(server.requests) == count, 'invalid persona reached the gateway'
+            assert 'blank' in json.dumps([result, errors, agent.events[-10:]]).lower()
+            (persona/'MISSION.MD').write_text('MISSION-EDIT', encoding='utf-8')
+            (persona/'IDENTITY.MD').write_text('IDENTITY-THREE', encoding='utf-8')
+            turn(agent, 'repaired persona')
+            assert 'IDENTITY-THREE' in system(server.requests[-1])
+            print('PASS a blank MISSION refuses before dispatch and repair recovers', flush=True)
 
             (home/'RECAP.md').write_text('RECAP-ONE: Return a short summary, without tools.', encoding='utf-8')
             server.fail = 'recap'
@@ -122,16 +129,16 @@ def main():
             wait_for(lambda: len([k for k in server.kinds[start:] if k == 'dream']) >= 2)
             dream = [r for r in server.requests[start:] if 'DREAM-ONE' in system(r)]
             assert len(dream) == 2 and dream[0]['messages'] == dream[1]['messages']
-            assert 'PERSONA-MARKDOWN' not in system(dream[0])
-            assert 'ASSISTANT-THREE' not in system(dream[0])
+            assert 'MISSION-EDIT' not in system(dream[0])
+            assert 'IDENTITY-THREE' not in system(dream[0])
             print('PASS editable Recap and Dream prompts, isolated roles and frozen retries', flush=True)
             wait_for(lambda: (s := saved(session, 'vivy.durable.v3')) and s['active'] is None)
             agent.close()
             agent = JsonAgent(binary, root, environment)
             turn(agent, 'after reopening')
-            assert 'ASSISTANT-THREE' in system(server.requests[-1])
-            assert 'PERSONA-MARKDOWN' in system(server.requests[-1])
-            print('PASS same-session reopen uses the current Markdown and retained persona', flush=True)
+            assert 'MISSION-EDIT' in system(server.requests[-1])
+            assert 'IDENTITY-THREE' in system(server.requests[-1])
+            print('PASS same-session reopen uses the current persona files', flush=True)
             agent.close()
             agent = None
     finally:

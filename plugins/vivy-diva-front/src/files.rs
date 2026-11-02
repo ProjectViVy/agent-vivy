@@ -2,7 +2,7 @@
 use crate::{emit, protocol::*};
 use rig_harness::prelude::*;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Mutex, mpsc},
 };
 
@@ -83,11 +83,47 @@ fn failure(message: impl ToString) -> Fault {
     }
 }
 #[cfg(feature = "persistent")]
-fn persona(value: vivy_laputa::Persona) -> PersonaView {
+fn persona(value: vivy_laputa::Persona, directory: &Path) -> PersonaView {
+    let text = value.text();
+    let files = vivy_laputa::ASSEMBLY_FILES
+        .iter()
+        .map(|name| {
+            let name = *name;
+            PersonaFileView {
+                name: name.into(),
+                text: value.file(name).into(),
+                required: vivy_laputa::required(name),
+                auto: vivy_laputa::auto(name),
+            }
+        })
+        .collect();
     PersonaView {
         revision: value.revision,
         update_id: value.last_update_id,
-        text: value.text,
+        directory: directory.display().to_string(),
+        text,
+        files,
+        unpublished: value.unpublished,
+    }
+}
+#[cfg(feature = "persistent")]
+fn persona_version(value: vivy_laputa::Persona, truncated: bool) -> PersonaVersionView {
+    let mut text = value.text();
+    let mut truncated = truncated;
+    if text.len() > 4096 {
+        let mut end = 4096;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        truncated = true;
+    }
+    PersonaVersionView {
+        revision: value.revision,
+        update_id: value.last_update_id,
+        text,
+        sources: value.sources,
+        truncated,
     }
 }
 fn run(
@@ -103,15 +139,17 @@ fn run(
     {
         let store = vivy_laputa::PersonaStore::new(&root);
         match &method {
-            Method::PersonaUpdate(input) => {
+            Method::PersonaSaveFile(input) => {
                 let current = store.read().map_err(failure)?;
                 if current.last_update_id != input.expected_update_id {
                     return Err(failure("persona update ID changed; reload before saving"));
                 }
                 store
-                    .update(
+                    .save_file(
                         input.revision,
+                        &input.expected_update_id,
                         &input.update_id,
+                        &input.name,
                         &input.text,
                         vec!["diva".into()],
                     )
@@ -126,15 +164,16 @@ fn run(
         }
         if matches!(
             method,
-            Method::PersonaRead | Method::PersonaUpdate(_) | Method::PersonaRollback(_)
+            Method::PersonaRead | Method::PersonaSaveFile(_) | Method::PersonaRollback(_)
         ) {
+            let revisions = store.revisions().map_err(failure)?;
+            let truncated = revisions.len() > 32;
             return Ok(ManagementResult::Persona {
-                current: persona(store.read().map_err(failure)?),
-                history: store
-                    .revisions()
-                    .map_err(failure)?
+                current: persona(store.read().map_err(failure)?, &store.directory()),
+                history: revisions
                     .into_iter()
-                    .map(persona)
+                    .take(32)
+                    .map(|value| persona_version(value, truncated))
                     .collect(),
             });
         }
@@ -293,7 +332,7 @@ fn run(
                 )
                 .map_err(failure)?;
             }
-            let prompts = ["ASSISTANT.md", "RECAP.md", "AUTODREAM.md"]
+            let prompts = ["RECAP.md", "AUTODREAM.md"]
                 .into_iter()
                 .map(|name| {
                     let (source, text, revision) =

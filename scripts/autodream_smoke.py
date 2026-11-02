@@ -129,7 +129,7 @@ class Gateway(Handler):
             if persona:
                 path = self.server.root/'.vivy/laputa/persona.json'
                 revision = json.loads(path.read_text())['revision'] if path.exists() else 0
-                call = {'target':'persona','source':'drafts/persona.txt','expected_base':str(revision)}
+                call = {'target':'persona','source':'drafts/persona.txt','file':'IDENTITY.MD','expected_base':str(revision)}
             else:
                 expected = 4 if 'BOOTSTRAP' in text else 99 if 'FAIL_CHECK' in text else 5
                 call = {'target':'skill','source':'drafts/calculator','name':'calculator',

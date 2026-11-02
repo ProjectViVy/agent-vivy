@@ -40,6 +40,36 @@ Provider setup now exposes three Rust-owned desktop presets; see the existing
 plan section "Curated provider setup" for defaults and verification. Existing
 user configurations remain authoritative.
 
+## Diva six-file core persona (2026-11-02)
+
+Settings no longer presents "persona and prompts" as peers. The `persona` section
+is now **Core persona** and shows Laputa's six Markdown files:
+`MISSION.MD`, `IDENTITY.MD`, `RELATIONSHIP.MD`, `REDLINE.MD` (required) and
+`DREAM.MD`, `DARK.MD` (optional). Sources live under
+`.vivy/laputa/personas/main/`; the compiled defaults remain in
+`prompts/persona/`. `IDENTITY.MD` absorbs the former `prompts/ASSISTANT.md`,
+whose plugin and trust entry are removed. `RECAP.md` and `AUTODREAM.md` remain
+internal prompts and are no longer shown in Settings.
+
+- `vivy-laputa` stores schema-2 metadata in `.vivy/laputa/persona.json`, keeps a
+  complete immutable six-file snapshot per revision, assembles in fixed order
+  behind one `<persona>` block, skips empty optional files, enforces a non-blank
+  `MISSION.MD`, 32 KiB per file and 64 KiB assembled, and migrates v1 text into
+  `IDENTITY.MD`. External edits are used by the next operation and reported as
+  `unpublished` until saved.
+- AutoDream candidates are file-scoped to `IDENTITY.MD`, `RELATIONSHIP.MD`,
+  `DREAM.MD` or `DARK.MD` and carry the target digest. `MISSION.MD` and
+  `REDLINE.MD` are rejected at admission; legacy fileless jobs fail explicitly.
+- The desktop protocol replaces `persona_update` with `persona_save_file` and
+  returns six-file views plus history; `prompts_read`/`prompt_save` remain for the
+  two internal prompts. The panel edits one file at a time, confirms saves to
+  protected files, preserves drafts on conflicts and supports revision rollback.
+
+Implemented and plugin-tested so far: the store v2, prompt-chain merge, AutoDream
+per-file flow, protocol/contract export and the desktop panel with its unit tests.
+The core artifact rebuild, `import-core`, native conversation smoke, desktop
+check/test/build and manual WebView verification remain to be run for this change.
+
 ## Diva management and native host continuation (2026-11-02)
 
 The active backend and desktop worktrees remain `.workspace/diva-integration`
@@ -409,7 +439,8 @@ Use a new session; do not resume D1 or coding sessions with the D2 binary.
 The default `start.cmd` still launches the coding recipe. No product face was
 changed by D2.
 
-Commands: `/persona show`, `/persona update <expected-revision> <text-file>`,
+Commands: `/persona show [NAME]`,
+`/persona update <expected-revision> <NAME> <text-file>`,
 `/persona rollback <expected-revision> <target-revision>`, `/recap status`, and
 `/recap refresh`. Management commands are not tasks or summary sources. Persona
 updates affect new operations, not retries. New input preempts background Recap;

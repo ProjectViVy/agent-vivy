@@ -218,7 +218,7 @@ fn poll(world: &mut World) {
                             | "provider_key"
                             | "provider_test"
                             | "persona_read"
-                            | "persona_update"
+                            | "persona_save_file"
                             | "persona_rollback"
                             | "prompts_read"
                             | "prompt_save"
@@ -344,7 +344,7 @@ fn poll(world: &mut World) {
                     | Method::SkillSave(_)
                     | Method::SkillRemove(_)
                     | Method::PersonaRead
-                    | Method::PersonaUpdate(_)
+                    | Method::PersonaSaveFile(_)
                     | Method::PersonaRollback(_)
                     | Method::PromptsRead
                     | Method::PromptSave(_)) => files::start(world, request.id.clone(), method),

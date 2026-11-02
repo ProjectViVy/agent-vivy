@@ -151,7 +151,7 @@ class ConversationTests(unittest.TestCase):
 
     def test_live_question_answer_and_rejection_after_settlement(self):
         path=self.root/'home/settings.toml';path.write_text(path.read_text().replace('default="never"','default="ask"'))
-        (self.root/'.rig').mkdir();(self.root/'.rig/ASSISTANT.md').write_text('Synthetic project instructions',encoding='utf-8')
+        (self.root/'.rig').mkdir();(self.root/'.rig/CODING.md').write_text('Synthetic project instructions',encoding='utf-8')
         c=self.start();state=self.state_until(c,lambda s:bool(s['questions']))
         question=state['questions'][0]
         params={'instance':c.ready['instance'],'question':question['id'],'choices':['no'],'text':None}
@@ -180,9 +180,10 @@ class ConversationTests(unittest.TestCase):
         c=self.start()
         view=c.request('providers_read')['data']
         presets={p['id']:p for p in view['presets']}
-        self.assertEqual(set(presets),{'deepseek','minimax','bailian'})
+        self.assertEqual(set(presets),{'deepseek','minimax','teakapi','bailian'})
         self.assertEqual(presets['deepseek']['variants'][0]['default_model'],'deepseek-flash')
         self.assertEqual(presets['minimax']['variants'][0]['instance']['preset'],'minimax')
+        self.assertEqual(presets['teakapi']['variants'][0]['default_model'],'deepseek-v4.1-flash')
         self.assertEqual(len(presets['bailian']['variants']),3)
         self.assertNotIn('deepseek',view['config']['instances'])
         config=dict(view['config']);config['default_model']='absent/Model'
@@ -328,24 +329,44 @@ class ConversationTests(unittest.TestCase):
         self.assertFalse((self.root/'home/skills/diva-test').exists())
         self.assertTrue(list((self.root/'home/skill-recovery').glob('removed-*/SKILL.md')))
 
-    def test_persona_and_prompt_persist_with_conflict_checks(self):
+    def test_persona_files_persist_with_conflict_checks(self):
         c=self.start()
-        def operation(method,params=None):
+        def operation(method,params=None,fail=False):
             reply=c.request(method,params)
             self.assertEqual(reply['type'],'reply',reply)
             op=reply['data']['operation']
-            event=c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==op)
-            self.assertIsNone(event['data']['error'],event)
-            return event['data']['result']
+            event=c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==op)['data']
+            if fail:self.assertIsNotNone(event['error'],event)
+            else:self.assertIsNone(event['error'],event)
+            return event.get('result')
         value=operation('persona_read')['data']['current']
-        updated=operation('persona_update',{'revision':value['revision'],'expected_update_id':value['update_id'],'update_id':'desktop-edit-1','text':'DIVA_PERSONA'})
-        self.assertEqual(updated['data']['current']['text'],'DIVA_PERSONA')
+        self.assertEqual([f['name'] for f in value['files']],
+            ['MISSION.MD','IDENTITY.MD','RELATIONSHIP.MD','REDLINE.MD','DREAM.MD','DARK.MD'])
+        self.assertEqual([f['name'] for f in value['files'] if f['auto']],
+            ['IDENTITY.MD','RELATIONSHIP.MD','DREAM.MD','DARK.MD'])
+        saved=operation('persona_save_file',{'revision':value['revision'],
+            'expected_update_id':value['update_id'],'update_id':'desktop-edit-1',
+            'name':'IDENTITY.MD','text':'DIVA_PERSONA'})
+        current=saved['data']['current']
+        self.assertEqual(current['revision'],1)
+        self.assertEqual(next(f for f in current['files'] if f['name']=='IDENTITY.MD')['text'],'DIVA_PERSONA')
+        operation('persona_save_file',{'revision':value['revision'],
+            'expected_update_id':value['update_id'],'update_id':'desktop-edit-2',
+            'name':'IDENTITY.MD','text':'STALE'},True)
+        operation('persona_save_file',{'revision':1,'expected_update_id':current['update_id'],
+            'update_id':'desktop-edit-3','name':'MISSION.MD','text':'   '},True)
+        self.assertEqual(operation('persona_read')['data']['current']['revision'],1)
         prompts=operation('prompts_read')['data']['prompts']
-        prompt=next(p for p in prompts if p['name']=='ASSISTANT.md')
-        operation('prompt_save',{'name':prompt['name'],'revision':prompt['revision'],'text':'DIVA_PROMPT'})
-        self.assertEqual((self.root/'home/ASSISTANT.md').read_text(),'DIVA_PROMPT')
-        value=operation('persona_read')['data']
-        self.assertEqual(value['current']['revision'],1)
-        self.assertEqual(len(value['history']),1)
+        self.assertEqual([p['name'] for p in prompts],['RECAP.md','AUTODREAM.md'])
+        recap=next(p for p in prompts if p['name']=='RECAP.md')
+        operation('prompt_save',{'name':recap['name'],'revision':recap['revision'],'text':'DIVA_PROMPT'})
+        self.assertEqual((self.root/'home/RECAP.md').read_text(),'DIVA_PROMPT')
+        rolled=operation('persona_rollback',{'revision':1,'target':1,'update_id':'desktop-rollback-1'})
+        self.assertEqual(rolled['data']['current']['revision'],2)
+        self.assertEqual(operation('persona_read')['data']['current']['unpublished'],False)
+        c.request('submit',{'request_id':'persona-order','text':'PERSONA_ORDER'})
+        self.state_until(c,lambda s:any(t['status']=='completed' for t in s['tasks']))
+        system='\n'.join(text_of(m) for m in self.server.requests[-1]['messages'] if m['role']=='system')
+        self.assertLess(system.index('Your mission is to help'),system.index('DIVA_PERSONA'))
 
 if __name__=='__main__': unittest.main()
