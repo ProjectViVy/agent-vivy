@@ -58,16 +58,22 @@ in `desktop-state/onboarding.json` and opens the role workspace from Settings.
 synchronously. Contract additions: `PersonaInitialize`, `PersonaOnboarded`,
 `PersonaView.name/initialized` and `ManagementResult::PersonaOnboarded`.
 
-Verification for this change: `vivy-laputa` 20, `vivy-durable --features
+Verification for this change: `vivy-laputa` 21, `vivy-durable --features
 autodream` 50, `vivy-diva-front --features persistent` 3 and `vivy-basics
 --features tui` 84 tests pass in the isolated scratch workspace, plus root
 `cargo test --workspace --locked`; `diva_conversation_test.py` passes 16 native
 cases (onboarding write, retry idempotency, fallback, MISSION-before-IDENTITY
 ordering and the existing six-file cases under a temporary `LAPUTA_HOME`),
 `prompt_files_smoke.py` passes four cases and `autodream_smoke.py --only live`
-reports `passed`. The core was rebuilt after these checks; artifact import and
-desktop re-verification follow the loop below. Legacy migration from a real
-desktop workspace was not exercised against `%LOCALAPPDATA%` in this run.
+reports `passed`. `PersonaSource` carries the resolved store rather than a bare
+root: a root-only copy silently skipped migration whenever `LAPUTA_HOME` was set.
+The core artifact from commit `6040884` was imported, and a desktop restart
+copied `%LOCALAPPDATA%/org.projectvivy.agentdiva/workspace/.vivy/laputa` into
+`%USERPROFILE%/.laputa` byte-for-byte, kept the old directory, and backfilled
+`onboarding.json`. Desktop `check`, 35 unit tests, the production build and
+`test:artifact` pass. The fresh-provider gate was not completed manually because
+the configured gateway returned HTTP 503; the upgrade path, the OnboardingView
+unit tests and the mock-gateway native cases cover the remaining flow.
 
 Contract, build and import loop after a core or protocol change:
 
