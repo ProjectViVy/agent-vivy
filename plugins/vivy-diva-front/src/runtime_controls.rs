@@ -37,8 +37,13 @@ pub fn python(world: &mut World, id: String, method: Method) -> Result<Reply, Fa
                 if world.resource::<Jobs>().python.is_some() {
                     return Err(fault("Python preparation is already pending"));
                 }
-                vivy_python::management::desktop_prepare(world, agent, input.managed)
-                    .map_err(fault)?;
+                vivy_python::management::desktop_prepare(
+                    world,
+                    agent,
+                    input.managed,
+                    input.memory,
+                )
+                .map_err(fault)?;
                 world.resource_mut::<Jobs>().python = Some((id.clone(), agent));
                 Ok(Reply::Operation(PendingOperation {
                     operation: id,

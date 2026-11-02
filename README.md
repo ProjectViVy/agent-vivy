@@ -81,7 +81,9 @@ sessions or subagents. The persona is global and editable under
 desktop under Settings → Core persona. On first launch the desktop tests a
 provider, asks once who you are and what your mission is, extracts the six files
 and writes them directly; an unclear description gets a random name and the
-built-in persona.
+built-in persona. A final workspace step then offers to prepare the Python
+workbench and native memory together, with memory pre-selected; either can be
+skipped and completed later under Settings → Runtime.
 
 This recipe still requires the local Rig checkpoint implementation recorded in
 the [handoff](docs/HANDOFF.md#d4-autodream-ad-2-2026-11-01); the ordinary upstream
@@ -309,7 +311,9 @@ provider configuration, Python and optional MemPalace in order. `/setup` reopens
 the guide; `/setup provider`, `/setup python` and `/setup memory` open one item.
 Skips and installation grants are remembered under `RIG_HOME/initialization`,
 indexed by canonical project path. They do not travel with the repository.
-MemPalace starts disabled. Consent to install does not grant project trust.
+MemPalace starts disabled. The desktop first-run workspace step pre-selects it;
+that choice is stored in the same project consent files, not in `settings.toml`.
+Consent to install does not grant project trust.
 
 Approving Python installs hash-locked dependencies and trusted Python Skills,
 validates them, then publishes `.vivy/workbench/current.json`. The same approved
@@ -420,7 +424,8 @@ memory = true
 
 Then `/python prepare` installs the full pinned upstream MemPalace and Chroma
 engine and explicitly downloads/probes pinned multilingual embeddinggemma ONNX
-assets. Normal memory calls stay offline. Configuration, state/locks, model cache,
+assets. The desktop onboarding workspace step enables the same path by default
+without editing this file. Normal memory calls stay offline. Configuration, state/locks, model cache,
 temporary files and palace data live under `memory_root`; no existing user palace
 is imported. Preparation probes use separate synthetic palaces under `probes/`.
 

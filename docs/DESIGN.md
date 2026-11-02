@@ -130,6 +130,12 @@ display name is persona metadata.
   `persona_initialize` runs asynchronously when a model is used and emits
   `persona_onboarded`; `fallback: true` writes synchronously. A repeated
   `update_id` returns the published persona instead of writing again.
+- After the persona, onboarding shows one combined workspace step. It reads
+  `python_read`, pre-selects native memory when `snapshot.memory` is off, and
+  sends a single `python_prepare {managed, memory}` to install Python and the
+  memory assets together. Either part can be skipped and completed later under
+  Settings → Runtime. Enabling memory precedes scope computation and is persisted
+  by the memory consent file, not by editing `settings.toml`.
 - The desktop records completion in `desktop-state/onboarding.json`, separate
   from core state. `open_persona_directory` resolves the same global root and
   opens `personas/main`. The terminal agent exposes

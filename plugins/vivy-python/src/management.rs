@@ -27,8 +27,13 @@ struct Preparations(
 pub fn desktop_report(world: &World, agent: Entity) -> vivy_basics::setup::Report {
     initialization::report(world, agent)
 }
-pub fn desktop_prepare(world: &mut World, agent: Entity, managed: bool) -> Result<(), String> {
-    initialization::approve_python(world, agent, managed)
+pub fn desktop_prepare(
+    world: &mut World,
+    agent: Entity,
+    managed: bool,
+    memory: bool,
+) -> Result<(), String> {
+    initialization::approve_python(world, agent, managed, memory)
 }
 pub fn desktop_cancel(world: &mut World, agent: Entity) -> Result<(), String> {
     let mut jobs = world.resource_mut::<Preparations>();

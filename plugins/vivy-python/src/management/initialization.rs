@@ -384,7 +384,14 @@ pub(super) fn approve_python(
     world: &mut World,
     agent: Entity,
     use_managed: bool,
+    memory: bool,
 ) -> Result<(), String> {
+    record_approval(world, use_managed, memory)?;
+    start_preparation(world, agent);
+    Ok(())
+}
+
+fn record_approval(world: &mut World, use_managed: bool, memory: bool) -> Result<(), String> {
     if !world.resource::<Preparations>().0.is_empty()
         || world.resource::<Initialization>().pending_save
     {
@@ -395,6 +402,18 @@ pub(super) fn approve_python(
     if use_managed {
         world.resource_mut::<Initialization>().managed = true;
     }
+    if memory && !world.resource::<PythonSettings>().memory {
+        {
+            let mut init = world.resource_mut::<Initialization>();
+            init.memory_ready = false;
+            if init.report.outcome == OutcomeState::Ready {
+                init.report.outcome = OutcomeState::NotInit;
+            }
+        }
+        world.resource_mut::<PythonSettings>().memory = true;
+    }
+    // Memory adds its own locked requirements to the authorized scope, so it
+    // must be enabled before the fingerprint is computed.
     let scope = scope(world);
     let mut decision = setup::decision(world, "python")?;
     decision.grant = Some(scope.clone());
@@ -407,9 +426,9 @@ pub(super) fn approve_python(
         memory.grant = Some(scope.clone());
         memory.scope = scope;
         memory.skipped = false;
+        memory.enabled = true;
         setup::remember(world, "memory", &memory)?;
     }
-    start_preparation(world, agent);
     Ok(())
 }
 #[cfg(feature = "managed-skills")]
@@ -526,6 +545,105 @@ fn open(world: &mut World, agent: Entity, memory: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn approval_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "vivy-approval-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+    fn approval_world(root: &Path) -> App {
+        let mut app = App::new();
+        app.insert_resource(ProjectRoot(root.to_path_buf()))
+            .insert_resource(RigHome(rig_harness::harness_protocol::Home::at(
+                &root.join("home"),
+            )))
+            .init_resource::<PythonSettings>()
+            .init_resource::<Initialization>()
+            .init_resource::<Preparations>();
+        app
+    }
+
+    #[test]
+    fn desktop_preparation_without_memory_keeps_memory_off() {
+        let root = approval_root("python-only");
+        let home = root.join("home");
+        let mut app = approval_world(&root);
+        let expected = scope(app.world());
+        record_approval(app.world_mut(), false, false).unwrap();
+        let python = setup::read(&home, &root, "python").unwrap();
+        let memory = setup::read(&home, &root, "memory").unwrap();
+        let enabled = app.world().resource::<PythonSettings>().memory;
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(!enabled);
+        assert_eq!(python.grant.as_deref(), Some(expected.as_str()));
+        assert!(memory.grant.is_none());
+        assert!(!memory.enabled);
+    }
+
+    #[test]
+    fn desktop_preparation_enables_memory_before_authorizing_scope() {
+        let root = approval_root("memory");
+        let home = root.join("home");
+        let mut app = approval_world(&root);
+        let python_only = scope(app.world());
+        {
+            let mut init = app.world_mut().resource_mut::<Initialization>();
+            init.report = Report::ready("previous python");
+            init.memory_ready = true;
+        }
+        record_approval(app.world_mut(), false, true).unwrap();
+        let enabled = app.world().resource::<PythonSettings>().memory;
+        let combined = scope(app.world());
+        let python = setup::read(&home, &root, "python").unwrap();
+        let memory = setup::read(&home, &root, "memory").unwrap();
+        let init = app.world().resource::<Initialization>();
+        let memory_ready = init.memory_ready;
+        let outcome = init.report.outcome;
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(enabled);
+        assert_ne!(combined, python_only);
+        assert_eq!(python.grant.as_deref(), Some(combined.as_str()));
+        assert_eq!(python.scope.as_str(), combined.as_str());
+        assert_eq!(memory.grant.as_deref(), Some(combined.as_str()));
+        assert!(memory.enabled);
+        assert!(!memory.skipped);
+        assert!(!memory_ready);
+        assert_eq!(outcome, OutcomeState::NotInit);
+    }
+
+    #[test]
+    fn desktop_preparation_refuses_to_overwrite_a_running_approval() {
+        let root = approval_root("busy");
+        let home = root.join("home");
+        let mut app = approval_world(&root);
+        let agent = app.world_mut().spawn_empty().id();
+        let (_sender, receiver) = mpsc::channel();
+        app.world_mut().resource_mut::<Preparations>().0.insert(
+            agent,
+            Preparation {
+                cancel: Arc::default(),
+                result: Mutex::new(receiver),
+                stage: Arc::new(Mutex::new("dependencies".into())),
+                checking: false,
+                last_stage: String::new(),
+            },
+        );
+        assert!(record_approval(app.world_mut(), false, true).is_err());
+        app.world_mut().resource_mut::<Preparations>().0.clear();
+        app.world_mut().resource_mut::<Initialization>().pending_save = true;
+        assert!(record_approval(app.world_mut(), false, true).is_err());
+        let python = setup::read(&home, &root, "python").unwrap();
+        let memory = setup::read(&home, &root, "memory").unwrap();
+        let enabled = app.world().resource::<PythonSettings>().memory;
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(!enabled);
+        assert!(python.grant.is_none());
+        assert!(!memory.enabled);
+    }
 
     #[test]
     fn memory_setup_waits_for_python_preparation_and_its_local_receipt() {

@@ -49,16 +49,28 @@ read, `<workspace>/.vivy/laputa` is copied once into the global root and the old
 directory is kept as a backup. A global six-file directory without `persona.json`
 is adopted at revision 0 and counts as initialized.
 
-First launch now gates on provider configuration, then one free-form introduction.
-The core extracts a draft with one tool-free completion and writes it directly;
-`REDLINE.MD` always comes from compiled defaults. Unclear drafts fall back to a
-random display name plus the compiled six files. The desktop persists completion
-in `desktop-state/onboarding.json`; an explicit reset records `forced: true` so
-the upgrade backfill does not mark an already initialized persona as complete,
-and finishing onboarding clears it. Settings can reopen the role workspace.
+First launch now gates on provider configuration, then one free-form introduction,
+then one combined Python workspace and native-memory step. The core extracts a
+draft with one tool-free completion and writes it directly; `REDLINE.MD` always
+comes from compiled defaults. Unclear drafts fall back to a random display name
+plus the compiled six files. The desktop persists completion in
+`desktop-state/onboarding.json`; an explicit reset records `forced: true` so the
+upgrade backfill does not mark an already initialized persona as complete, and
+finishing onboarding clears it. Settings can reopen the role workspace.
 `persona_initialize` is asynchronous on the model path; `fallback: true` writes
 synchronously. Contract additions: `PersonaInitialize`, `PersonaOnboarded`,
 `PersonaView.name/initialized` and `ManagementResult::PersonaOnboarded`.
+
+The workspace step reads `python_read` and offers one `python_prepare
+{managed, memory}` call that installs the Python workbench and, when requested,
+the native MemPalace assets. Native memory is pre-selected when it is currently
+off; either part can be skipped and completed later under Settings → Runtime.
+`PythonPrepare.memory` defaults to `false` on the wire so older callers remain
+valid. Enabling memory sets `PythonSettings.memory` before the scope is computed,
+then writes the per-project `python` and `memory` consent files under
+`RIG_HOME/initialization/<fingerprint>/`; the memory decision records
+`enabled: true` and the memory-inclusive grant, and `tick()` restores it on the
+next start.
 
 Verification for this change: `vivy-laputa` 21, `vivy-durable --features
 autodream` 50, `vivy-diva-front --features persistent` 3 and `vivy-basics

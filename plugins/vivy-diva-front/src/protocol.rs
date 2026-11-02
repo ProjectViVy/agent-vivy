@@ -247,6 +247,8 @@ pub struct McpTool {
 #[serde(deny_unknown_fields)]
 pub struct PythonPrepare {
     pub managed: bool,
+    #[serde(default)]
+    pub memory: bool,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct PythonReport {
@@ -762,6 +764,23 @@ mod tests {
             std::fs::read_to_string(root.join("examples.json")).unwrap(),
             examples()
         );
+    }
+    #[test]
+    fn python_prepare_defaults_to_python_only() {
+        let request: Request = serde_json::from_str(
+            r#"{"v":1,"id":"a","method":"python_prepare","params":{"managed":true}}"#,
+        )
+        .unwrap();
+        let Request { method, .. } = request;
+        let Method::PythonPrepare(input) = method else {
+            panic!("expected python_prepare");
+        };
+        assert!(input.managed);
+        assert!(!input.memory);
+        let explicit: PythonPrepare =
+            serde_json::from_str(r#"{"managed":false,"memory":true}"#).unwrap();
+        assert!(!explicit.managed);
+        assert!(explicit.memory);
     }
     #[test]
     fn envelope_round_trips_and_rejects_unknown_fields() {
