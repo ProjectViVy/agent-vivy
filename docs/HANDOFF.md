@@ -65,10 +65,17 @@ internal prompts and are no longer shown in Settings.
   two internal prompts. The panel edits one file at a time, confirms saves to
   protected files, preserves drafts on conflicts and supports revision rollback.
 
-Implemented and plugin-tested so far: the store v2, prompt-chain merge, AutoDream
-per-file flow, protocol/contract export and the desktop panel with its unit tests.
-The core artifact rebuild, `import-core`, native conversation smoke, desktop
-check/test/build and manual WebView verification remain to be run for this change.
+Verification completed for this change: 11 `vivy-laputa`, 49 `vivy-durable`,
+3 Front and 64 Basics tests plus 34 root workspace tests; contract export matches
+the core; the artifact built from core commit `4c44cf4`, `import-core` accepted it,
+and the desktop runs that core. `diva_conversation_test.py` passes 14 native cases
+(including six-file order, protected-file conflict, blank MISSION and rollback),
+`prompt_files_smoke.py` passes four cases, `assistant_context_smoke.py` reports
+`passed` and `autodream_smoke.py --only live` passes with per-file candidates.
+Desktop `check`, 27 unit tests and the production build pass. Manual WebView
+verification covered the six-file list and hints, per-file save, MISSION
+confirmation cancel/confirm, an external `unpublished` edit, history sources,
+rollback to an earlier revision, and persistence across an application restart.
 
 ## Diva management and native host continuation (2026-11-02)
 
@@ -89,7 +96,7 @@ plan's continuation section for commands and remaining gates.
 
 Independent review subsequently fixed credential-policy refresh, empty MCP tool
 filters, oversized history frames and uneditable managed candidate admission.
-Latest counts are 13 native conversation, 40 Python Rust, 3 Front and 8 Vue cases;
+Latest counts are 14 native conversation, 40 Python Rust, 3 Front and 27 desktop unit cases;
 the existing plan records the regression details and environment isolation policy.
 
 Readiness changes now refresh the shared snapshot without requiring a task.
