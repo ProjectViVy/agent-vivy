@@ -36,6 +36,24 @@ tracked build products, sessions, obvious credential tokens or AI attribution
 markers. Existing protocol/instruction-file compatibility names remain functional.
 Local verification evidence stays ignored under `.workspace/promotion/`.
 
+## Diva desktop plan recorded (2026-11-01; not implemented)
+
+The owner requested the [desktop integration plan](plans/2026-11-01-diva-desktop-integration.md)
+be written and left awaiting implementation, superseding the preceding request
+to implement immediately. Do not treat this documentation turn as implementation.
+
+Selected scope: thin Diva Front over the current Rust persistent core; Tauri-owned
+bundled process; close to tray; fresh dedicated data and fixed workspace; complete
+local management; Windows x64 installer. Automatic Recap and existing wakes stay
+active while hidden. Dream uses existing manual/tool triggers, without a new idle
+scheduler. No voice integration or migration of trial data is included.
+
+Backend work belongs here; desktop work belongs in the separate
+`.workspace/agent-diva-next` repository. The core still needs the local Rig
+checkpoint fork; see the plan for artifact and compatibility boundaries. All six
+milestones are pending. Only documentation diff/whitespace review applies now;
+no application build, runtime test or installer verification was performed.
+
 ## Local main consolidation (2026-11-01)
 
 At the owner's request, local `main` was fast-forwarded from `d834b7b` to

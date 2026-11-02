@@ -17,6 +17,22 @@ functional meaning. Historical design and verification records below remain
 available as evidence at their recorded scope; their old paths and commit IDs
 refer to the retained local experiment, not the new repository's ancestry.
 
+## Diva desktop integration direction (2026-11-01; planned)
+
+The owner selected a thin recipe-assembled Diva Front, hosted as a bundled child
+of the existing Tauri/Vue desktop application, with full local management and
+close-to-tray behavior. Use fresh dedicated data and one fixed assistant workspace.
+Reuse the existing persistent core, automatic Recap and scheduled wakes; manage
+existing Dream operations without adding periodic idle reflection. Voice and
+coding-session delegation remain outside this desktop integration scope.
+
+The [detailed plan](plans/2026-11-01-diva-desktop-integration.md) records interfaces,
+ownership, management behavior, installer delivery and acceptance. This selects
+the desktop product direction previously deferred below; it does not change the
+shared-core or independent-repository rules. **Implementation is pending:** the
+owner's latest instruction was to write the plan only. No new runtime or installer
+support is established by this documentation.
+
 ## Human-editable prompt files (2026-11-01)
 
 The prompt refactor follows the request to let humans edit Markdown. Defaults
