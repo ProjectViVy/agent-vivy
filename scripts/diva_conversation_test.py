@@ -155,6 +155,26 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(len(self.server.requests),3)
         self.assertTrue(all(r['model']=='EXACT/model-id' for r in self.server.requests))
 
+    def test_large_history_uses_byte_bounded_pages_without_losing_message_ids(self):
+        c=self.start()
+        for index in range(9):
+            accepted=c.request('submit',{'request_id':f'large-{index}','text':'x'*(500*1024)})
+            self.assertEqual(accepted['type'],'reply',accepted)
+            state=self.state_until(c,lambda s:len(s['tasks'])==index+1)
+            task=next(t for t in state['tasks'] if t['request_id']==f'large-{index}')
+            c.request('cancel',{'task':task['id'],'generation':task['generation']})
+            self.state_until(c,lambda s:all(t['status']=='cancelled' for t in s['tasks']))
+        cursor=None;ids=[];pages=0;truncated=0
+        while True:
+            frame=c.request('history',{'cursor':cursor,'limit':100})
+            self.assertLess(len(json.dumps(frame).encode()),4*1024*1024)
+            data=frame['data'];ids.extend(m['id'] for m in data['messages']);pages+=1
+            truncated+=sum(m['truncated'] for m in data['messages'])
+            cursor=data['next_cursor']
+            if cursor is None:break
+        self.assertEqual(len(ids),9);self.assertEqual(len(set(ids)),9)
+        self.assertEqual(truncated,9);self.assertGreater(pages,1)
+
     def test_provider_config_conflicts_and_secret_is_write_only(self):
         c=self.start()
         read=c.request('providers_read')

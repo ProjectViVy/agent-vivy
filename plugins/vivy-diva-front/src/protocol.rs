@@ -427,6 +427,7 @@ pub struct HistoryMessage {
     pub role: String,
     pub text: String,
     pub status: String,
+    pub truncated: bool,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct Question {
@@ -454,6 +455,7 @@ pub struct ToolInfo {
     pub name: String,
     pub phase: String,
     pub output: Option<String>,
+    pub truncated: bool,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]

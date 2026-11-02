@@ -274,6 +274,10 @@ impl Workbench {
     fn refresh_credential_policy(&self) {
         let generation = vivy_process::credential_policy_generation();
         if self.policy_generation.load(Ordering::Acquire) != generation {
+            if !worker::policy_requires_restart() {
+                self.policy_generation.store(generation, Ordering::Release);
+                return;
+            }
             self.stop();
             if let Ok(mut worker) = self.worker.try_lock() {
                 *worker = None;
@@ -523,7 +527,9 @@ impl PythonTool {
             }
         }
         if self.state.policy_generation.load(Ordering::Acquire) != generation {
-            *slot = None;
+            if worker::policy_requires_restart() {
+                *slot = None;
+            }
             self.state
                 .policy_generation
                 .store(generation, Ordering::Release);
@@ -808,30 +814,40 @@ mod tests {
         assert!(call(&tool, "42", None).unwrap().contains("42"));
     }
     #[test]
-    fn credential_policy_change_restarts_persistent_workers() {
+    fn credential_policy_change_preserves_an_isolated_worker() {
         if std::env::var_os("VIVY_POLICY_TEST_CHILD").is_none() {
             let status = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "tests::credential_policy_change_restarts_persistent_workers",
+                    "tests::credential_policy_change_preserves_an_isolated_worker",
                     "--nocapture",
                 ])
                 .env("VIVY_POLICY_TEST_CHILD", "1")
+                .env("VIVY_POLICY_EXPANSION_FIXTURE", "must-not-reach-python")
                 .status()
                 .unwrap();
             assert!(status.success());
             return;
         }
         let tool = PythonTool::for_directory(std::env::temp_dir());
+        assert!(call(&tool,"import os\n'ISOLATED' if 'VIVY_POLICY_EXPANSION_FIXTURE' not in os.environ else 'LEAKED'",None).unwrap().contains("ISOLATED"));
         call(&tool, "marker_before_policy = 42", None).unwrap();
-        vivy_process::register_credential_variables(&["VIVY_POLICY_EXPANSION_FIXTURE".into()]);
+        let home = tempfile::tempdir().unwrap();
+        let view = control::read(home.path()).unwrap();
+        let connections=serde_json::from_value(json!({"fixture":{"type":"stdio","command":"python","env":{"TOKEN":{"env":"VIVY_POLICY_EXPANSION_FIXTURE"}}}})).unwrap();
+        control::save(home.path(), &view.revision, &connections).unwrap();
+        assert!(
+            vivy_process::registered_credential_variables()
+                .contains(&"VIVY_POLICY_EXPANSION_FIXTURE".into())
+        );
+        tool.state.refresh_credential_policy();
         let result = call(
             &tool,
             "'STALE_POLICY' if 'marker_before_policy' in globals() else 'FRESH_POLICY'",
             None,
         )
         .unwrap();
-        assert!(result.contains("FRESH_POLICY"), "{result}");
+        assert!(result.contains("STALE_POLICY"), "{result}");
     }
     use super::*;
     fn call(

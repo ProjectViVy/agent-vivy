@@ -203,20 +203,25 @@ pub fn tool_info(state: &DurableAgentState) -> Vec<ToolInfo> {
         })
         .rev()
         .take(100)
-        .map(|o| ToolInfo {
-            id: o.id.clone(),
-            task: o.task.clone(),
-            name: o
-                .request
-                .pointer("/function/name")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("tool")
-                .into(),
-            phase: o.phase.clone(),
-            output: o
+        .map(|o| {
+            let output = o
                 .outcome
                 .as_ref()
-                .map(|v| rig_harness::rig_core::redact::text(&v.to_string()).into_owned()),
+                .map(|v| rig_harness::rig_core::redact::text(&v.to_string()).into_owned());
+            let truncated = output.as_ref().is_some_and(|s| s.len() > 4096);
+            ToolInfo {
+                id: o.id.clone(),
+                task: o.task.clone(),
+                name: o
+                    .request
+                    .pointer("/function/name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("tool")
+                    .into(),
+                phase: o.phase.clone(),
+                output: output.map(|s| preview(&s, 4096)),
+                truncated,
+            }
         })
         .collect()
 }
@@ -260,7 +265,8 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                 ),
                 task: task.id.clone(),
                 role: "user".into(),
-                text: task.input.text().into(),
+                text: preview(task.input.text(), 256 * 1024),
+                truncated: task.input.text().len() > 256 * 1024,
                 status: status.clone(),
             });
             for operation in state
@@ -292,7 +298,8 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                             ),
                             task: task.id.clone(),
                             role: "assistant".into(),
-                            text,
+                            truncated: text.len() > 256 * 1024,
+                            text: preview(&text, 256 * 1024),
                             status: if response.aborted.is_some() {
                                 "interrupted".into()
                             } else {
@@ -310,12 +317,56 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
             "history cursor exceeds committed projection",
         ));
     }
-    let end = (offset + params.limit as usize).min(messages.len());
+    let end = history_end(&messages, offset, params.limit as usize);
     let next_cursor = (end < messages.len()).then(|| encode_cursor(&format!("{identity}|{end}")));
     Ok(Reply::History(HistoryPage {
         messages: messages.drain(offset..end).collect(),
         next_cursor,
     }))
+}
+fn preview(text: &str, limit: usize) -> String {
+    let mut end = text.len().min(limit);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
+}
+fn history_end(messages: &[HistoryMessage], offset: usize, limit: usize) -> usize {
+    let mut size = 0;
+    let mut end = offset;
+    for message in messages.iter().skip(offset).take(limit) {
+        let length = serde_json::to_vec(message)
+            .expect("history DTO serialization")
+            .len();
+        if end > offset && size + length > 2 * 1024 * 1024 {
+            break;
+        }
+        size += length;
+        end += 1;
+    }
+    end
+}
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+    #[test]
+    fn page_budget_accounts_for_json_escaping_and_keeps_utf8() {
+        let text = "\u{0001}".repeat(256 * 1024);
+        let messages: Vec<_> = (0..9)
+            .map(|i| HistoryMessage {
+                id: i.to_string(),
+                task: "t".into(),
+                role: "user".into(),
+                text: text.clone(),
+                status: "completed".into(),
+                truncated: false,
+            })
+            .collect();
+        let end = history_end(&messages, 0, 100);
+        assert_eq!(end, 1);
+        assert!(serde_json::to_vec(&messages[..end]).unwrap().len() < 2 * 1024 * 1024);
+        assert_eq!(preview("中文", 4), "中");
+    }
 }
 fn encode_cursor(raw: &str) -> String {
     raw.bytes().map(|b| format!("{b:02x}")).collect()

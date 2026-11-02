@@ -53,6 +53,11 @@ Job Object tree. Six Vue runtime tests and production build pass. Browser checks
 use explicit synthetic IPC and are not native WebView2 evidence. See the existing
 plan's continuation section for commands and remaining gates.
 
+Independent review subsequently fixed credential-policy refresh, empty MCP tool
+filters, oversized history frames and uneditable managed candidate admission.
+Latest counts are 10 native conversation, 40 Python Rust, 3 Front and 7 Vue cases;
+the existing plan records the regression details and environment isolation policy.
+
 User-authorized desktop gateway files were read only for isolated live checks.
 StepFun's exact model failed with HTTP send errors even without inherited proxies;
 the supplied Qwen model returned HTTP 404 `model_not_found`. No credential values

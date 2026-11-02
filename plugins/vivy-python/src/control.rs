@@ -202,6 +202,16 @@ fn validate(connections: &BTreeMap<String, McpConnection>) -> Result<(), String>
             _ => {}
         }
         for value in c.env.values().chain(c.headers.values()) {
+            if worker::environment_name(&value.env)
+                || value
+                    .env
+                    .to_ascii_uppercase()
+                    .starts_with("VIVY_WORKBENCH_")
+            {
+                return Err(
+                    "MCP credential references cannot use reserved worker environment names".into(),
+                );
+            }
             if value.env.is_empty()
                 || !value
                     .env
@@ -241,6 +251,15 @@ pub fn save(
         .parse::<toml_edit::DocumentMut>()
         .map_err(|e| e.to_string())?
         .into_table();
+    // Monotonic registration protects all subsequently launched tools. Python
+    // workers inherit only OS runtime variables, so these new names require no
+    // worker reset and cannot interrupt unrelated calls.
+    let names = connections
+        .values()
+        .flat_map(|c| c.env.values().chain(c.headers.values()))
+        .map(|v| std::ffi::OsString::from(&v.env))
+        .collect::<Vec<_>>();
+    vivy_process::register_credential_variables(&names);
     if doc.get("python").is_none() {
         doc["python"] = toml_edit::Item::Table(toml_edit::Table::new());
     }

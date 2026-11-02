@@ -152,7 +152,12 @@ impl Desktop {
         if store.current()?.id != base {
             return Err(invalid("stale publication base"));
         }
-        let skill = store.freeze(name, source, 256 * 1024 * 1024)?;
+        // Admission must satisfy the same bounded text contract as the editor.
+        for (_, bytes) in source_files(source, 512 * 1024)? {
+            std::str::from_utf8(&bytes)
+                .map_err(|e| invalid(format!("desktop candidates require UTF-8 text: {e}")))?;
+        }
+        let skill = store.freeze(name, source, 512 * 1024)?;
         let bytes = encode(&Candidate {
             base: base.into(),
             skill,

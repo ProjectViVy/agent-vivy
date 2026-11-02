@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn desktop_rejects_uneditable_candidates_before_admission() {
+    let f = Fixture::new();
+    f.python();
+    let store = f.store();
+    let base = store.current().unwrap();
+    let desktop = desktop::Desktop::default();
+    let draft = f.draft(1);
+    fs::write(draft.join("large.txt"), vec![b'x'; 512 * 1024]).unwrap();
+    assert!(
+        desktop
+            .import(&store, &base.id, "calculator", &draft)
+            .is_err()
+    );
+    assert!(desktop.read(&store).unwrap().candidates.is_empty());
+    fs::write(draft.join("large.txt"), [255, 254]).unwrap();
+    assert!(
+        desktop
+            .import(&store, &base.id, "calculator", &draft)
+            .is_err()
+    );
+    assert!(desktop.read(&store).unwrap().candidates.is_empty());
+}
+
+#[test]
 fn desktop_candidates_require_live_validation_and_publish_with_cas() {
     let f = Fixture::new();
     f.python();

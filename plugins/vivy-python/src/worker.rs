@@ -4,6 +4,37 @@ use std::fs::{self, File};
 use std::path::Path;
 
 static GENERATION: AtomicU64 = AtomicU64::new(1);
+pub(super) fn environment_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_uppercase().as_str(),
+        "PATH"
+            | "PATHEXT"
+            | "SYSTEMROOT"
+            | "WINDIR"
+            | "COMSPEC"
+            | "TEMP"
+            | "TMP"
+            | "USERPROFILE"
+            | "HOMEDRIVE"
+            | "HOMEPATH"
+            | "APPDATA"
+            | "LOCALAPPDATA"
+            | "PROGRAMDATA"
+            | "PROGRAMFILES"
+            | "PROGRAMFILES(X86)"
+            | "PROGRAMW6432"
+            | "HOME"
+            | "LANG"
+            | "LC_ALL"
+            | "LC_CTYPE"
+            | "TZ"
+    )
+}
+pub(super) fn policy_requires_restart() -> bool {
+    vivy_process::registered_credential_variables()
+        .iter()
+        .any(|name| environment_name(&name.to_string_lossy()))
+}
 pub(super) fn diagnostic_tail(mut stream: impl Read) -> String {
     let mut tail = Vec::new();
     let mut buffer = [0; 4096];
@@ -219,6 +250,16 @@ impl Worker {
             (executable, skills)
         };
         let mut command = vivy_process::command(&executable);
+        // MCP secrets are resolved by the Rust host. Never give the Python
+        // namespace arbitrary inherited variables that may become credentials
+        // during a later settings edit.
+        command.env_clear();
+        for (name, value) in std::env::vars_os() {
+            if environment_name(&name.to_string_lossy()) {
+                command.env(name, value);
+            }
+        }
+        vivy_process::filter_credentials(&mut command, &[]);
         let bootstrap = format!(
             "import sys;sys.path.insert(0,{});from vivy_workbench.repl import main;main()",
             json!(source)

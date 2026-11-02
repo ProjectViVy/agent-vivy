@@ -482,3 +482,28 @@ instance/sequence. Management adapters retain each component's storage owner.
   CI separates frontend/bridge checks from explicit-artifact NSIS packaging.
   Installer generation and independent whole-implementation review are underway;
   these statements do not mark M1–M6 or final product acceptance complete.
+
+### Independent review fixes (2026-11-02)
+
+The read-only whole-implementation review found four substantive defects. Each
+was reproduced or covered by a focused regression before packaging:
+
+- MCP forms now distinguish all tools from an explicit empty allowlist. A mounted
+  Vue editor regression first failed on an unrelated timeout edit and now passes.
+- History pagination budgets serialized JSON bytes, including escaping. Very long
+  message/tool previews carry a truncation flag; originals remain in committed
+  records. Ten native conversation cases now pass, including nine 500 KiB user
+  admissions, cancellation and multi-page history with stable unique IDs.
+- Managed desktop import enforces its editor's 512 KiB UTF-8 contract before
+  candidate admission. Oversized/non-text input cannot poison the candidate list.
+- MCP save registers credential references with the process owner. Python workers
+  inherit an explicit OS-runtime environment, not arbitrary host variables. The
+  host continues resolving MCP references. Newly registered ordinary references
+  do not reset the worker or discard variables; reserved runtime-variable names
+  cannot be used as MCP credential references. A subprocess regression verifies
+  the secret is absent before and after save and the Python marker survives.
+
+Post-fix checks: Python Rust 40, Front contract/projection 3, root 34, native
+conversation 10, Python MCP 7, Python runtime 8, desktop bridge 10 plus one fixture,
+and Vue 7 pass. Production Vue compilation passes. Remaining external acceptance
+limitations above are unchanged; these are fixes, not a full release sign-off.
