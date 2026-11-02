@@ -10,7 +10,7 @@ pub use persona::{
 
 use rig_harness::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::PathBuf};
+use std::{fs, io};
 
 #[derive(Resource, Clone)]
 pub struct PersonaSource(pub PersonaStore);

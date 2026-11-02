@@ -401,6 +401,42 @@ fn composed_request_has_managed_persona_before_custom_role_and_new_operations_re
 }
 
 #[test]
+fn composed_requests_use_the_legacy_store_the_persona_source_migrates() {
+    use rig_core::test_utils::MockCompletionModel;
+    use rig_harness_test_support::{MemoryStore, app_on, connect, first_agent, reply, run_until};
+    let dir = Scratch::new();
+    let legacy = PersonaStore::at(dir.workspace().join(".vivy/laputa"));
+    save(
+        &legacy,
+        &legacy.read().unwrap(),
+        "one",
+        MISSION,
+        "LEGACY_MISSION",
+    );
+    let model = MockCompletionModel::from_stream_turns([reply("ok")]);
+    let (mut app, wakes) = app_on(&MemoryStore::default());
+    app.insert_resource(PersonaSource(PersonaStore::with_legacy(
+        &dir.workspace(),
+        dir.laputa(),
+    )))
+    .add_plugins((AgentPlugin, SessionLogPlugin, LaputaPlugin));
+    app.finish();
+    app.update();
+    let agent = first_agent(app.world_mut()).unwrap();
+    app.world_mut()
+        .entity_mut(agent)
+        .insert(connect(&model).unwrap());
+    app.world_mut()
+        .trigger(Deliver::new(agent, "hello", DeliveryMode::Queue));
+    run_until(&mut app, &wakes, |w| {
+        !w.entity(agent).contains::<ActiveTurn>() && model.request_count() == 1
+    });
+    let request = format!("{:?}", model.requests()[0].chat_history);
+    assert!(request.contains("LEGACY_MISSION"));
+    assert!(dir.laputa().join("persona.json").is_file());
+}
+
+#[test]
 fn laputa_root_prefers_explicit_home_then_the_user_profile() {
     use std::ffi::OsString;
     assert_eq!(
