@@ -307,7 +307,7 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                             _ => None,
                         })
                         .collect::<String>();
-                    if !text.is_empty() {
+                    if !text.is_empty() || !reasoning.is_empty() {
                         messages.push(HistoryMessage {
                             id: format!(
                                 "{session}:{}:{}",
