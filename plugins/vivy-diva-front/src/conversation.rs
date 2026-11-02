@@ -496,9 +496,10 @@ pub fn publish(world: &mut World) {
         .query::<(&ForAgent, &Partial)>()
         .iter(world)
         .filter(|(a, _)| a.0 == agent)
-        .fold((String::new(), String::new()), |(text, reasoning), (_, p)| {
-            (text + &p.text, reasoning + &p.reasoning)
-        });
+        .fold(
+            (String::new(), String::new()),
+            |(text, reasoning), (_, p)| (text + &p.text, reasoning + &p.reasoning),
+        );
     let task = runtime::inspect(world, agent).and_then(|s| s.active.clone());
     let live = Live {
         task,
