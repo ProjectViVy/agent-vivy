@@ -425,3 +425,60 @@ instance/sequence. Management adapters retain each component's storage owner.
 - The supplied desktop gateway was attempted with fresh disposable data; the first
   Rig run failed before producing stream/tool evidence. Diagnosis remains open;
   this is not a successful real-provider acceptance.
+
+### Management, desktop host and verification continuation (2026-11-02)
+
+- Domain adapters now cover Providers (including separate fixed text/stream/tool
+  probes), MCP, ordinary and managed Skills, Persona/prompts, Recap, Tasks/Dream
+  and Runtime/Python preparation. Reads do not initiate preparation, connections
+  or Dream. Long work returns an operation receipt and a separate result event.
+- MCP stdio/HTTP fields and environment references are typed. Unknown configuration
+  fields and literal credentials are rejected; absent tool filters differ from an
+  explicit empty allowlist. Worker controls use JSON messages, never generated
+  Python expressions. Reload waits on the affected server's existing call lock;
+  other workers compare current configuration before their next call.
+- Ordinary skill imports copy bounded validated directories into internal storage,
+  reject reparse points/path escape/name collisions, use revision checks and move
+  removals into recovery. Managed edits freeze new candidates; validation receipts
+  live only in the current process. Publish and rollback retain existing CAS.
+- Dream turn cancellation, validation-job cancellation and detach are separate
+  controls. Wake and effect evidence controls retain generation/revision checks;
+  completed UI controls wait for persisted receipts.
+- Tauri's fixed bundled child starts suspended, enters a kill-on-close Windows
+  Job Object and then resumes. The host persists its session before launch and its
+  outbox before writing stdin; it queries admissions after reconnect. Close hides,
+  tray Exit drains shutdown for up to ten seconds, single-instance activation shows
+  the existing window, and a crash requires explicit reconnect. Logs rotate and
+  retain redacted startup causes. No arbitrary process command is exposed to IPC.
+- Vue uses one conversation runtime, generated protocol DTOs, receipt-aware control
+  waits, interrupted provisional text, question/tool cards and disabled raw HTML.
+  History cursor expiry restarts projection reads; an in-flight snapshot cannot
+  resurrect a disconnected connection. Editors retain failed input and prompt only
+  when leaving dirty edits. Explicit test-mode IPC is absent from production output.
+- Executed: nine `diva_conversation_test.py` cases, five `diva_transport_test.py`
+  cases and `diva_front_smoke.py`; Python Rust 39, durable/autodream 47 and Front
+  contract 2 tests. Earlier affected basics 64 and root 34 tests passed. Native
+  Python MCP 7 and runtime 8 cases also passed (including real local stdio and
+  Streamable HTTP). No private sessions were read.
+- Desktop `cargo test --manifest-path bridge-tests/Cargo.toml --offline --
+  --include-ignored` with explicit `DIVA_TEST_CORE` passed 10 cases plus a fixture.
+  This includes write-failure no-send, committed admission dedup after a killed
+  core, session reuse, preserved malformed settings and concurrent session writer
+  rejection. Both normal drop and forced host death terminate Python descendants.
+  `npm test` passes 6 runtime cases; `npm run build` passes.
+- Browser mock checks: failed send retains draft, provider conflict retains editor
+  input, dirty leave offers Save/Discard/Stay, all eight pages render. Actual CSS
+  500x400, 680/681px breakpoint and 1100x760 have no page horizontal overflow.
+  This is Chrome synthetic IPC evidence, not Tauri/WebView2 or OS-scale acceptance.
+- The supplied StepFun endpoint/model failed native HTTP transport after five
+  retries, both inherited-proxy and no-proxy runs. The supplied Qwen endpoint's
+  exact model returned HTTP 404 `model_not_found`. Actual gateway acceptance is
+  still blocked. Native app automation reports an unavailable local control pipe;
+  no unrelated remote desktop was used. Standard-user install, WebView2 GUI,
+  125/150% native scale, hidden Recap/wake and upgrade acceptance remain pending.
+- Core exporter records backend/Rig revisions, protocol, recipe/lock hashes and
+  dependency licenses. Desktop import verifies every artifact file, and build
+  fails on absent/mismatched binary, Rust-generated types or dependency notices.
+  CI separates frontend/bridge checks from explicit-artifact NSIS packaging.
+  Installer generation and independent whole-implementation review are underway;
+  these statements do not mark M1–M6 or final product acceptance complete.

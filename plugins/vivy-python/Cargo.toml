@@ -7,7 +7,8 @@ publish = false
 
 [features]
 memory-tools = []
-managed-skills = ["dep:rig-memory", "dep:toml"]
+managed-skills = ["dep:rig-memory"]
+protocol-types = ["dep:ts-rs"]
 
 [dependencies]
 rig-harness = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776" }
@@ -17,7 +18,9 @@ serde_json = "1"
 vivy-process = { path = "../../crates/vivy-process" }
 vivy-basics = { path = "../vivy-basics", default-features = false }
 rig-memory = { git = "https://github.com/0xPlaygrounds/rig", rev = "fc556f982d501eea9d7167398a19386e4884e776", optional = true }
-toml = { version = "1.1", optional = true }
+toml = "1.1"
+toml_edit = { version = "0.25", features = ["serde"] }
+ts-rs = { version = "=12.0.1", optional = true, features = ["no-serde-warnings"] }
 
 [dev-dependencies]
 futures = "0.3"

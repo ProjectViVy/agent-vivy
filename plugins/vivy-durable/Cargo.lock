@@ -3086,7 +3086,6 @@ dependencies = [
 [[package]]
 name = "rig-basics"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "async-channel",
  "bevy_app",
@@ -3112,7 +3111,6 @@ dependencies = [
 [[package]]
 name = "rig-cassette"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "base64 0.22.1",
  "futures",
@@ -3125,7 +3123,6 @@ dependencies = [
 [[package]]
 name = "rig-core"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -3159,7 +3156,6 @@ dependencies = [
 [[package]]
 name = "rig-derive"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "convert_case 0.11.0",
  "proc-macro-crate",
@@ -3171,7 +3167,6 @@ dependencies = [
 [[package]]
 name = "rig-ecs"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -3194,7 +3189,6 @@ dependencies = [
 [[package]]
 name = "rig-harness"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "bevy",
  "bevy_app",
@@ -3221,12 +3215,10 @@ dependencies = [
 [[package]]
 name = "rig-harness-protocol"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 
 [[package]]
 name = "rig-harness-test-support"
 version = "0.0.0"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "bevy_ecs",
  "bevy_time",
@@ -3241,7 +3233,6 @@ dependencies = [
 [[package]]
 name = "rig-http"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "bytes",
  "futures",
@@ -3256,7 +3247,6 @@ dependencies = [
 [[package]]
 name = "rig-memory"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "base64 0.22.1",
  "memchr",
@@ -3270,7 +3260,6 @@ dependencies = [
 [[package]]
 name = "rig-reqwest"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "bytes",
  "futures",
@@ -3286,7 +3275,6 @@ dependencies = [
 [[package]]
 name = "rig-tools"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "base64 0.22.1",
  "futures",
@@ -3306,7 +3294,6 @@ dependencies = [
 [[package]]
 name = "rig-tui"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "base64 0.22.1",
  "bevy_app",
@@ -3336,7 +3323,6 @@ dependencies = [
 [[package]]
 name = "rig-tungstenite"
 version = "0.46.0-rc.1"
-source = "git+https://github.com/0xPlaygrounds/rig?rev=fc556f982d501eea9d7167398a19386e4884e776#fc556f982d501eea9d7167398a19386e4884e776"
 dependencies = [
  "futures",
  "rig-http",
@@ -4667,6 +4653,7 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "toml_edit",
  "vivy-basics",
  "vivy-process",
 ]
@@ -5220,3 +5207,131 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "rig"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-acp"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-agent"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-bedrock"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-candle"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-cassette-minimal"
+version = "0.0.0"
+
+[[patch.unused]]
+name = "rig-claude-cloak"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-defaults-test-support"
+version = "0.0.0"
+
+[[patch.unused]]
+name = "rig-fastembed"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-gemini-grpc"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-helixdb"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-history-conformance"
+version = "0.0.0"
+
+[[patch.unused]]
+name = "rig-inspect"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-lancedb"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-mcp-client"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-milvus"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-mongodb"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-neo4j"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-postgres"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-qdrant"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-rmcp"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-s3vectors"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-scylladb"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-service-tests"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-sqlite"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-steel"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-surrealdb"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-test-support"
+version = "0.0.0"
+
+[[patch.unused]]
+name = "rig-traffic"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-typesafeai"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-vectorize"
+version = "0.46.0-rc.1"
+
+[[patch.unused]]
+name = "rig-vertexai"
+version = "0.46.0-rc.1"

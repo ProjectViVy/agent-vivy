@@ -113,6 +113,65 @@ fn read(root: &Path, home: &Path, trusted: bool, name: &str, fallback: &str) -> 
     Ok(fallback.trim().to_owned())
 }
 
+/// Inspect an editable role through the same project/home/default precedence.
+pub fn inspect_file(
+    root: &Path,
+    home: &Path,
+    trusted: bool,
+    name: &str,
+) -> io::Result<(String, String, String)> {
+    let fallback = match name {
+        "ASSISTANT.md" => include_str!("../../../prompts/ASSISTANT.md"),
+        "RECAP.md" => include_str!("../../../prompts/RECAP.md"),
+        "AUTODREAM.md" => include_str!("../../../prompts/AUTODREAM.md"),
+        _ => return Err(io::Error::other("unsupported editable prompt")),
+    };
+    let text = read(root, home, trusted, name, fallback)?;
+    let source = if trusted && root.join(".rig").join(name).exists() {
+        "workspace"
+    } else if home.join(name).exists() {
+        "home"
+    } else {
+        "default"
+    };
+    let revision = crate::setup::fingerprint(format!("{source}\0{text}").as_bytes());
+    Ok((source.into(), text, revision))
+}
+
+/// Replace the effective override with optimistic conflict detection.
+pub fn save_file(
+    root: &Path,
+    home: &Path,
+    trusted: bool,
+    name: &str,
+    revision: &str,
+    text: &str,
+) -> io::Result<()> {
+    if text.trim().is_empty() || text.len() > 256 * 1024 {
+        return Err(io::Error::other(
+            "prompt must be nonempty and at most 256 KiB",
+        ));
+    }
+    std::fs::create_dir_all(home)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(home.join("prompt.lock"))?;
+    lock.lock()?;
+    let (source, _, current) = inspect_file(root, home, trusted, name)?;
+    if current != revision {
+        return Err(io::Error::other("prompt changed; reload before saving"));
+    }
+    let directory = if source == "workspace" {
+        root.join(".rig")
+    } else {
+        home.to_path_buf()
+    };
+    std::fs::create_dir_all(&directory)?;
+    rig_harness::rig_tools::fs::write_atomic(&directory.join(name), text.as_bytes())
+}
+
 fn default_prompt(
     mut calls: Query<
         (Entity, Option<&CallOf>, &mut ModelRequest),

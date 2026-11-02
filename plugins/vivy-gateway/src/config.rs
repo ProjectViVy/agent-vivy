@@ -174,11 +174,11 @@ pub fn effort(name: &str) -> Option<Effort> {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(feature = "protocol-types", derive(ts_rs::TS))]
 pub struct ProvidersConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_thinking: Option<String>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub instances: BTreeMap<String, Instance>,
 }
 

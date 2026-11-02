@@ -28,6 +28,336 @@ pub enum Method {
     ProvidersReload,
     ProvidersSave(ProvidersSave),
     ProviderKey(ProviderKey),
+    ProviderTest(ProviderTest),
+    PersonaRead,
+    PersonaUpdate(PersonaUpdate),
+    PersonaRollback(PersonaRollback),
+    PromptsRead,
+    PromptSave(PromptSave),
+    ManagedRead,
+    ManagedImport(ManagedImport),
+    ManagedEdit(ManagedEdit),
+    ManagedValidate(ManagedValidate),
+    ManagedCancel(ManagedId),
+    ManagedDependencies(ManagedId),
+    ManagedPublish(ManagedPublish),
+    ManagedRollback(ManagedRollback),
+    TasksRead,
+    WakeCancel(WakeCancel),
+    WakeSchedule(WakeSchedule),
+    Resolve(Resolve),
+    DreamRequest(DreamRequest),
+    DreamCancel(DreamCancel),
+    DreamDetach(DreamDetach),
+    DreamJobCancel(DreamDetach),
+    McpRead,
+    McpSave(McpSave),
+    McpControl(McpControl),
+    PythonRead,
+    PythonPrepare(PythonPrepare),
+    PythonCancel,
+    SkillsRead,
+    SkillsRefresh,
+    SkillImport(SkillImport),
+    SkillSave(SkillSave),
+    SkillRemove(SkillRemove),
+    RecapRead,
+    RecapRefresh,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderTest {
+    #[ts(type = "number")]
+    pub generation: u64,
+    pub reference: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ProbeCheck {
+    pub kind: String,
+    pub passed: bool,
+    pub detail: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct ProbeReport {
+    pub reference: String,
+    pub checks: Vec<ProbeCheck>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedImport {
+    pub base: String,
+    pub name: String,
+    pub source: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedEdit {
+    pub id: String,
+    pub files: std::collections::BTreeMap<String, String>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedValidate {
+    pub id: String,
+    pub checks: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedId {
+    pub id: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedPublish {
+    pub id: String,
+    pub update_id: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedRollback {
+    pub base: String,
+    pub target: String,
+    pub update_id: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct WakeCancel {
+    pub id: String,
+    #[ts(type = "number")]
+    pub generation: u64,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct WakeSchedule {
+    pub task: String,
+    #[ts(type = "number")]
+    pub generation: u64,
+    #[ts(type = "number | null")]
+    pub previous: Option<u64>,
+    #[ts(type = "number")]
+    pub deadline_ms: u64,
+    pub reason: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct Resolve {
+    pub operation: String,
+    #[ts(type = "number")]
+    pub generation: u64,
+    pub evidence: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct DreamRequest {
+    pub request_id: String,
+    pub reason: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct DreamCancel {
+    #[ts(type = "number")]
+    pub revision: u64,
+    #[ts(type = "number | null")]
+    pub dream_revision: Option<u64>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct DreamDetach {
+    pub job: String,
+    #[ts(type = "number")]
+    pub revision: u64,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct WakeView {
+    pub id: String,
+    pub task: String,
+    #[ts(type = "number")]
+    pub generation: u64,
+    #[ts(type = "number")]
+    pub task_generation: u64,
+    #[ts(type = "number")]
+    pub deadline_ms: u64,
+    pub reason: String,
+    pub phase: String,
+    pub delivered: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct DreamRequestView {
+    pub id: String,
+    pub task: Option<String>,
+    pub reasons: Vec<String>,
+    pub finished: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct DreamJobView {
+    pub id: String,
+    pub task: String,
+    pub target: String,
+    pub phase: String,
+    pub result: Option<String>,
+    pub error: Option<String>,
+    pub skipped: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct TasksView {
+    #[ts(type = "number")]
+    pub revision: u64,
+    #[ts(type = "number | null")]
+    pub dream_revision: Option<u64>,
+    pub wakes: Vec<WakeView>,
+    pub dreams: Vec<DreamRequestView>,
+    pub jobs: Vec<DreamJobView>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct McpSave {
+    pub revision: String,
+    pub connections: std::collections::BTreeMap<String, vivy_python::control::McpConnection>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum McpAction {
+    Inspect,
+    Reconnect,
+    Close,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct McpControl {
+    pub server: String,
+    pub action: McpAction,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct McpResult {
+    pub server: String,
+    pub state: String,
+    pub tools: Vec<McpTool>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct McpTool {
+    pub name: String,
+    pub description: String,
+    pub schema: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PythonPrepare {
+    pub managed: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct PythonReport {
+    pub outcome: String,
+    pub phase: Option<String>,
+    pub detail: String,
+    pub scope: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SkillImport {
+    pub source: String,
+    pub name: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SkillSave {
+    pub name: String,
+    pub revision: String,
+    pub text: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct SkillRemove {
+    pub name: String,
+    pub revision: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct SkillDocument {
+    pub name: String,
+    pub description: String,
+    pub text: String,
+    pub revision: String,
+    pub editable: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PersonaUpdate {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub expected_update_id: String,
+    pub update_id: String,
+    pub text: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PersonaRollback {
+    #[ts(type = "number")]
+    pub revision: u64,
+    #[ts(type = "number")]
+    pub target: u64,
+    pub update_id: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PromptSave {
+    pub name: String,
+    pub revision: String,
+    pub text: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct PersonaView {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub update_id: String,
+    pub text: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct PromptView {
+    pub name: String,
+    pub source: String,
+    pub revision: String,
+    pub text: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum ManagementResult {
+    ProviderTest(ProbeReport),
+    Managed(vivy_python::managed::desktop::ManagedView),
+    Mcp(vivy_python::control::McpView),
+    McpResult(McpResult),
+    Python(PythonReport),
+    Skills {
+        skills: Vec<SkillDocument>,
+    },
+    Persona {
+        current: PersonaView,
+        history: Vec<PersonaView>,
+    },
+    Prompts {
+        prompts: Vec<PromptView>,
+    },
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct ManagementCompleted {
+    pub operation: String,
+    pub result: Option<ManagementResult>,
+    pub error: Option<Fault>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct RecapView {
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub summary: String,
+    pub covered: std::collections::BTreeMap<String, usize>,
+    pub jobs: Vec<RecapJob>,
+    pub refresh_pending: bool,
+    pub error: Option<String>,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct RecapJob {
+    pub id: String,
+    pub phase: String,
+    pub spans: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -81,6 +411,7 @@ pub struct TaskInfo {
     pub id: String,
     pub request_id: String,
     pub status: String,
+    pub error: Option<String>,
     #[ts(type = "number")]
     pub generation: u64,
 }
@@ -162,6 +493,7 @@ pub struct Frame {
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Payload {
+    ManagementCompleted(ManagementCompleted),
     Ready(Snapshot),
     Reply(Reply),
     Error(Fault),
@@ -178,6 +510,9 @@ pub enum Payload {
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(untagged)]
 pub enum Reply {
+    Tasks(TasksView),
+    Python(PythonReport),
+    Recap(RecapView),
     Snapshot(Snapshot),
     Shutdown { shutting_down: bool },
     Admission(AdmissionView),
@@ -264,6 +599,52 @@ pub fn typescript() -> String {
         Readiness::decl(&cfg),
         ErrorCode::decl(&cfg),
         Fault::decl(&cfg),
+        ProviderTest::decl(&cfg),
+        ProbeCheck::decl(&cfg),
+        ProbeReport::decl(&cfg),
+        ManagedImport::decl(&cfg),
+        ManagedEdit::decl(&cfg),
+        ManagedValidate::decl(&cfg),
+        ManagedId::decl(&cfg),
+        ManagedPublish::decl(&cfg),
+        ManagedRollback::decl(&cfg),
+        vivy_python::managed::desktop::ManagedView::decl(&cfg),
+        vivy_python::managed::desktop::PublicationView::decl(&cfg),
+        vivy_python::managed::desktop::CandidateView::decl(&cfg),
+        WakeCancel::decl(&cfg),
+        WakeSchedule::decl(&cfg),
+        Resolve::decl(&cfg),
+        DreamRequest::decl(&cfg),
+        DreamCancel::decl(&cfg),
+        DreamDetach::decl(&cfg),
+        WakeView::decl(&cfg),
+        DreamRequestView::decl(&cfg),
+        DreamJobView::decl(&cfg),
+        TasksView::decl(&cfg),
+        McpSave::decl(&cfg),
+        McpControl::decl(&cfg),
+        McpAction::decl(&cfg),
+        McpResult::decl(&cfg),
+        McpTool::decl(&cfg),
+        vivy_python::control::McpView::decl(&cfg),
+        vivy_python::control::McpConnection::decl(&cfg),
+        vivy_python::control::McpTransport::decl(&cfg),
+        vivy_python::control::EnvReference::decl(&cfg),
+        PythonPrepare::decl(&cfg),
+        PythonReport::decl(&cfg),
+        SkillImport::decl(&cfg),
+        SkillSave::decl(&cfg),
+        SkillRemove::decl(&cfg),
+        SkillDocument::decl(&cfg),
+        PersonaUpdate::decl(&cfg),
+        PersonaRollback::decl(&cfg),
+        PromptSave::decl(&cfg),
+        PersonaView::decl(&cfg),
+        PromptView::decl(&cfg),
+        ManagementResult::decl(&cfg),
+        ManagementCompleted::decl(&cfg),
+        RecapView::decl(&cfg),
+        RecapJob::decl(&cfg),
         SubmitParams::decl(&cfg),
         CancelParams::decl(&cfg),
         AnswerParams::decl(&cfg),

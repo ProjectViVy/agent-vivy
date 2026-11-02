@@ -2,9 +2,11 @@
 use rig_basics::print::{AppHeadlessExt, KeepRunning, Starting};
 use rig_harness::prelude::*;
 mod conversation;
+mod files;
 mod management;
 mod projection;
 pub mod protocol;
+mod runtime_controls;
 mod transport;
 use protocol::*;
 use serde_json::Value;
@@ -89,6 +91,9 @@ impl Plugin for DivaFrontPlugin {
         app.world_mut().spawn(KeepRunning);
         app.world_mut().spawn(Answerer::default());
         app.init_resource::<conversation::Events>();
+        app.init_resource::<files::Jobs>();
+        app.init_resource::<vivy_python::managed::desktop::Desktop>();
+        app.init_resource::<runtime_controls::Jobs>();
         // Management must remain available before first-run provider setup.
         app.world_mut().spawn((Starting, AwaitingModel));
         app.add_systems(Update, poll.before(AgentLoop));
@@ -162,6 +167,8 @@ fn poll(world: &mut World) {
         emit(world, None, Payload::Ready(state));
     }
     conversation::publish(world);
+    files::poll(world);
+    runtime_controls::poll(world);
     for _ in 0..32 {
         let line = world.resource::<Input>().0.lock().unwrap().try_recv();
         let line = match line {
@@ -209,6 +216,41 @@ fn poll(world: &mut World) {
                             | "providers_reload"
                             | "providers_save"
                             | "provider_key"
+                            | "provider_test"
+                            | "persona_read"
+                            | "persona_update"
+                            | "persona_rollback"
+                            | "prompts_read"
+                            | "prompt_save"
+                            | "managed_read"
+                            | "managed_import"
+                            | "managed_edit"
+                            | "managed_validate"
+                            | "managed_cancel"
+                            | "managed_dependencies"
+                            | "managed_publish"
+                            | "managed_rollback"
+                            | "tasks_read"
+                            | "wake_cancel"
+                            | "wake_schedule"
+                            | "resolve"
+                            | "dream_request"
+                            | "dream_cancel"
+                            | "dream_detach"
+                            | "dream_job_cancel"
+                            | "mcp_read"
+                            | "mcp_save"
+                            | "mcp_control"
+                            | "python_read"
+                            | "python_prepare"
+                            | "python_cancel"
+                            | "skills_read"
+                            | "skills_refresh"
+                            | "skill_import"
+                            | "skill_save"
+                            | "skill_remove"
+                            | "recap_read"
+                            | "recap_refresh"
                     )
                 }) =>
             {
@@ -261,6 +303,47 @@ fn poll(world: &mut World) {
                     Method::ProvidersReload => management::reload(world),
                     Method::ProvidersSave(input) => management::save(world, input),
                     Method::ProviderKey(input) => management::key(world, input),
+                    Method::ProviderTest(input) => {
+                        runtime_controls::provider(world, request.id.clone(), input)
+                    }
+                    method @ (Method::TasksRead
+                    | Method::WakeCancel(_)
+                    | Method::WakeSchedule(_)
+                    | Method::Resolve(_)
+                    | Method::DreamRequest(_)
+                    | Method::DreamCancel(_)
+                    | Method::DreamDetach(_)
+                    | Method::DreamJobCancel(_)) => {
+                        runtime_controls::durable(world, request.id.clone(), method)
+                    }
+                    method @ (Method::PythonRead
+                    | Method::PythonPrepare(_)
+                    | Method::PythonCancel) => {
+                        runtime_controls::python(world, request.id.clone(), method)
+                    }
+                    Method::RecapRead => files::recap(world, false),
+                    Method::RecapRefresh => files::recap(world, true),
+                    method @ (Method::ManagedRead
+                    | Method::ManagedImport(_)
+                    | Method::ManagedEdit(_)
+                    | Method::ManagedValidate(_)
+                    | Method::ManagedCancel(_)
+                    | Method::ManagedDependencies(_)
+                    | Method::ManagedPublish(_)
+                    | Method::ManagedRollback(_)
+                    | Method::McpRead
+                    | Method::McpSave(_)
+                    | Method::McpControl(_)
+                    | Method::SkillsRead
+                    | Method::SkillsRefresh
+                    | Method::SkillImport(_)
+                    | Method::SkillSave(_)
+                    | Method::SkillRemove(_)
+                    | Method::PersonaRead
+                    | Method::PersonaUpdate(_)
+                    | Method::PersonaRollback(_)
+                    | Method::PromptsRead
+                    | Method::PromptSave(_)) => files::start(world, request.id.clone(), method),
                     _ => unreachable!(),
                 };
                 emit(

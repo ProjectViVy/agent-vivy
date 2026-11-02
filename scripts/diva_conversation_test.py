@@ -22,7 +22,10 @@ class Gateway(Handler):
             self.server.slow.set()
             self.server.release.wait(15)
         try:
-            self.reply(body, text='DIVA_COMMITTED_REPLY')
+            if any(t.get('function',{}).get('name')=='vivy_setup_ping' for t in body.get('tools',[])):
+                self.reply(body, tool='vivy_setup_ping',call={})
+            else:
+                self.reply(body, text='DIVA_COMMITTED_REPLY')
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
@@ -135,6 +138,23 @@ class ConversationTests(unittest.TestCase):
         answer=c.request('answer',{'instance':'old','question':'0','choices':[],'text':'yes'})
         self.assertEqual(answer['data']['code'],'stale_identity')
 
+    def test_explicit_provider_checks_are_independent_of_conversation(self):
+        c=self.start()
+        view=c.request('providers_read')['data']
+        accepted=c.request('provider_test',{'generation':view['generation'],'reference':'gateway/EXACT/model-id'})
+        self.assertEqual(accepted['type'],'reply',accepted)
+        operation=accepted['data']['operation']
+        result=next((e for e in c.log if e['type']=='management_completed' and e['data']['operation']==operation),None)
+        if result is None:
+            result=c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==operation)
+        self.assertIsNone(result['data']['error'],result)
+        checks=result['data']['result']['data']['checks']
+        self.assertEqual({v['kind'] for v in checks},{'text','stream','tools'})
+        self.assertTrue(all(v['passed'] for v in checks),checks)
+        self.assertEqual(c.request('snapshot')['data']['tasks'],[])
+        self.assertEqual(len(self.server.requests),3)
+        self.assertTrue(all(r['model']=='EXACT/model-id' for r in self.server.requests))
+
     def test_provider_config_conflicts_and_secret_is_write_only(self):
         c=self.start()
         read=c.request('providers_read')
@@ -168,5 +188,89 @@ class ConversationTests(unittest.TestCase):
         state=self.state_until(restored,lambda s:len(s['tasks'])==1)
         self.assertEqual(state['tasks'][0]['request_id'],'crash-1')
         self.assertEqual(len(state['tasks']),1)
+
+    def test_mcp_native_worker_control_lists_real_stdio_tools(self):
+        c=self.start()
+        def op(method,params=None):
+            reply=c.request(method,params)
+            self.assertEqual(reply['type'],'reply',reply)
+            event=c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==reply['data']['operation'],timeout=40)['data']
+            self.assertIsNone(event['error'],event)
+            return event['result']['data']
+        view=op('mcp_read')
+        config={'fixture':{'type':'stdio','command':sys.executable,'args':[str(Path(__file__).resolve().parents[1]/'plugins/vivy-python/tests/mcp_fixture.py')]}}
+        op('mcp_save',{'revision':view['revision'],'connections':config})
+        result=op('mcp_control',{'server':'fixture','action':'inspect'})
+        self.assertEqual(result['state'],'connected')
+        self.assertTrue(any(t['name']=='dataset' for t in result['tools']),result)
+        closed=op('mcp_control',{'server':'fixture','action':'close'})
+        self.assertEqual(closed['state'],'closed')
+
+    def test_mcp_config_reference_roundtrip_cas_and_idle_close(self):
+        c=self.start()
+        def op(method,params=None):
+            reply=c.request(method,params)
+            self.assertEqual(reply['type'],'reply',reply)
+            return c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==reply['data']['operation'])['data']
+        before=op('mcp_read')
+        self.assertIsNone(before['error'],before)
+        config={'fixture':{'type':'http','url':'http://127.0.0.1:9/mcp','enabled':False,'headers':{'Authorization':{'env':'DIVA_MCP_TEST_TOKEN'}},'env':{},'enabledTools':[],'disabledTools':[],'startupTimeoutMs':3000,'callTimeoutMs':6000}}
+        params={'revision':before['result']['data']['revision'],'connections':config}
+        saved=op('mcp_save',params)
+        self.assertIsNone(saved['error'],saved)
+        self.assertEqual(saved['result']['data']['connections'],config)
+        self.assertIsNotNone(op('mcp_save',params)['error'])
+        closed=op('mcp_control',{'server':'fixture','action':'close'})
+        self.assertIsNone(closed['error'],closed)
+        self.assertEqual(closed['result']['data']['state'],'not_running')
+        report=c.request('python_read')
+        self.assertEqual(report['type'],'reply',report)
+        self.assertIn('outcome',report['data'])
+
+    def test_skill_import_edit_conflict_and_recoverable_removal(self):
+        c=self.start()
+        source=self.root/'import-source';source.mkdir()
+        original='---\nname: diva-test\ndescription: Fixture\n---\noriginal'
+        (source/'SKILL.md').write_text(original)
+        def op(method,params=None,fail=False):
+            reply=c.request(method,params)
+            self.assertEqual(reply['type'],'reply',reply)
+            event=c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==reply['data']['operation'])['data']
+            if fail:self.assertIsNotNone(event['error'],event)
+            else:self.assertIsNone(event['error'],event)
+            return event.get('result')
+        result=op('skill_import',{'name':'diva-test','source':str(source)})
+        skill=next(s for s in result['data']['skills'] if s['name']=='diva-test')
+        self.assertTrue(skill['editable'])
+        op('skill_import',{'name':'diva-test','source':str(source)},True)
+        changed=original.replace('original','edited')
+        result=op('skill_save',{'name':skill['name'],'revision':skill['revision'],'text':changed})
+        updated=next(s for s in result['data']['skills'] if s['name']=='diva-test')
+        op('skill_remove',{'name':'../escape','revision':updated['revision']},True)
+        op('skill_save',{'name':skill['name'],'revision':skill['revision'],'text':original},True)
+        op('skill_remove',{'name':skill['name'],'revision':updated['revision']})
+        self.assertEqual((source/'SKILL.md').read_text(),original)
+        self.assertFalse((self.root/'home/skills/diva-test').exists())
+        self.assertTrue(list((self.root/'home/skill-recovery').glob('removed-*/SKILL.md')))
+
+    def test_persona_and_prompt_persist_with_conflict_checks(self):
+        c=self.start()
+        def operation(method,params=None):
+            reply=c.request(method,params)
+            self.assertEqual(reply['type'],'reply',reply)
+            op=reply['data']['operation']
+            event=c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==op)
+            self.assertIsNone(event['data']['error'],event)
+            return event['data']['result']
+        value=operation('persona_read')['data']['current']
+        updated=operation('persona_update',{'revision':value['revision'],'expected_update_id':value['update_id'],'update_id':'desktop-edit-1','text':'DIVA_PERSONA'})
+        self.assertEqual(updated['data']['current']['text'],'DIVA_PERSONA')
+        prompts=operation('prompts_read')['data']['prompts']
+        prompt=next(p for p in prompts if p['name']=='ASSISTANT.md')
+        operation('prompt_save',{'name':prompt['name'],'revision':prompt['revision'],'text':'DIVA_PROMPT'})
+        self.assertEqual((self.root/'home/ASSISTANT.md').read_text(),'DIVA_PROMPT')
+        value=operation('persona_read')['data']
+        self.assertEqual(value['current']['revision'],1)
+        self.assertEqual(len(value['history']),1)
 
 if __name__=='__main__': unittest.main()

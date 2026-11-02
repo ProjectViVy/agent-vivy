@@ -219,56 +219,80 @@ fn request(tools: bool) -> CompletionRequest {
     request
 }
 async fn probe(connection: Connection) -> Result<String, String> {
-    for tools in [false, true]
-        .into_iter()
-        .filter(|tools| !tools || connection.spec.tools)
-    {
-        let reply = connection
-            .handler
-            .0
-            .handle(
-                EffectKind::Completion {
-                    request: request(tools).into(),
-                    stream: true,
-                },
-                Dispatch::new(EffectId::from_raw(1), true),
-            )
-            .await;
-        let mut stream = match reply {
-            Reply::Stream(s) => s,
-            Reply::Outcome(Err(e)) => return Err(e.to_string()),
-            Reply::Outcome(Ok(_)) => return Err("Provider did not return a stream".into()),
-        };
-        let (mut streamed, mut tool, mut done) = (false, false, false);
-        while let Some(event) = stream.next().await {
-            match event.map_err(|e| e.to_string())? {
-                Relayed::Item(StreamItem::Event(event)) => {
-                    streamed = true;
-                    if let StreamEvent::End {
-                        content: rig_harness::rig_core::completion::AssistantContent::ToolCall(call),
-                        ..
-                    } = event
-                    {
-                        tool |= call.function.name.as_str() == "vivy_setup_ping"
-                            && call.function.arguments.is_empty();
-                    }
-                }
-                Relayed::Done(_) => {
-                    done = true;
-                    break;
-                }
-                _ => {}
-            }
-        }
-        if !streamed || !done {
-            return Err("Provider stream was empty or incomplete".into());
-        }
-        if tools && !tool {
-            return Err("Streaming succeeded, but the declared tool-call capability did not return the harmless probe".into());
-        }
+    probe_step(connection.clone(), true, false).await?;
+    if connection.spec.tools {
+        probe_step(connection, true, true).await?;
     }
     Ok("Provider verified: streaming and declared tool support passed.".into())
 }
+/// A harmless fixed request over the same compiled Rig connector used by chat.
+/// There is no session context, filesystem tool or executable tool implementation.
+pub async fn probe_step(
+    connection: Connection,
+    streaming: bool,
+    tools: bool,
+) -> Result<(), String> {
+    let reply = connection
+        .handler
+        .0
+        .handle(
+            EffectKind::Completion {
+                request: request(tools).into(),
+                stream: streaming,
+            },
+            Dispatch::new(EffectId::from_raw(1), streaming),
+        )
+        .await;
+    if !streaming {
+        return match reply {
+            Reply::Outcome(Ok(rig_harness::rig_core::effect::Answered::Completion(response)))
+                if !rig_harness::rig_core::message::AssistantMessage::new(
+                    response.choice.clone(),
+                )
+                .text()
+                .is_empty() =>
+            {
+                Ok(())
+            }
+            Reply::Outcome(Err(error)) => Err(error.to_string()),
+            _ => Err("Provider returned no completed text".into()),
+        };
+    }
+    let mut stream = match reply {
+        Reply::Stream(s) => s,
+        Reply::Outcome(Err(e)) => return Err(e.to_string()),
+        Reply::Outcome(Ok(_)) => return Err("Provider did not return a stream".into()),
+    };
+    let (mut streamed, mut tool, mut done) = (false, false, false);
+    while let Some(event) = stream.next().await {
+        match event.map_err(|e| e.to_string())? {
+            Relayed::Item(StreamItem::Event(event)) => {
+                streamed = true;
+                if let StreamEvent::End {
+                    content: rig_harness::rig_core::completion::AssistantContent::ToolCall(call),
+                    ..
+                } = event
+                {
+                    tool |= call.function.name.as_str() == "vivy_setup_ping"
+                        && call.function.arguments.is_empty();
+                }
+            }
+            Relayed::Done(_) => {
+                done = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+    if !streamed || !done {
+        return Err("Provider stream was empty or incomplete".into());
+    }
+    if tools && !tool {
+        return Err("Streaming succeeded, but the declared tool-call capability did not return the harmless probe".into());
+    }
+    Ok(())
+}
+
 fn poll(world: &mut World) {
     let jobs: Vec<_> = world
         .query::<(Entity, &Verification, Option<&Done<Result<String, String>>>)>()

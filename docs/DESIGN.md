@@ -30,8 +30,14 @@ The [detailed plan](plans/2026-11-01-diva-desktop-integration.md) records interf
 ownership, management behavior, installer delivery and acceptance. This selects
 the desktop product direction previously deferred below; it does not change the
 shared-core or independent-repository rules. The owner subsequently authorized
-implementation. The initial pipe transport is built and smoke-tested in the
-isolated desktop branch; full integration and installer support remain pending.
+implementation. The desktop branch now implements typed transport, durable chat,
+domain-owned management adapters and a Tauri host. Management filesystem work uses
+bounded background jobs; Python MCP controls use typed worker messages and the
+existing per-server call locks. Managed candidates use the existing immutable
+publication store, live validation receipts and publication CAS. The desktop owns
+only its stable session identity and unconfirmed-send outbox. Full native UI,
+installer lifecycle and real-provider acceptance remain distinct release gates;
+the plan records actual runs and remaining limitations.
 
 ## Human-editable prompt files (2026-11-01)
 

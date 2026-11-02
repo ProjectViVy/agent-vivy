@@ -7,6 +7,7 @@ use bevy_log::warn;
 pub use rig_basics::skills::Skill;
 use rig_basics::skills::{discover, message, roots};
 use rig_harness::prelude::*;
+pub mod local;
 
 /// Skills from the trusted places only.
 #[derive(Default)]

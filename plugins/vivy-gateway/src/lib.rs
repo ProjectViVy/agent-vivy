@@ -51,7 +51,7 @@ use serde::Deserialize;
 pub mod config;
 mod providers;
 mod redact;
-mod setup;
+pub mod setup;
 pub mod store;
 #[cfg(feature = "tui")]
 mod ui;

@@ -37,11 +37,34 @@ def main():
     for root,prefix in [(ROOT,'vivy'),(args.rig_path,'rig')]:
         for path in root.glob('LICENSE*'):
             if path.is_file(): shutil.copyfile(path,licenses/(prefix+'-'+path.name))
+    manifest=ROOT/'.generated/diva-agent-rig-dev/Cargo.toml'
+    cargo=json.loads(subprocess.check_output(['cargo','metadata','--format-version','1','--locked','--offline','--manifest-path',str(manifest)],cwd=ROOT))
+    notices=[]
+    for package in sorted(cargo['packages'],key=lambda p:(p['name'],p['version'])):
+        source=Path(package['manifest_path']).parent
+        target=licenses/(package['name']+'-'+package['version'])
+        candidates=set()
+        for pattern in ('LICENSE*','LICENCE*','COPYING*','NOTICE*','license*','licenses/*'):
+            candidates.update(p for p in source.glob(pattern) if p.is_file())
+        if package.get('license_file'):
+            candidates.add(source/package['license_file'])
+        names=[]
+        for path in sorted(candidates):
+            if not path.is_file(): continue
+            target.mkdir(exist_ok=True)
+            name=path.name
+            shutil.copyfile(path,target/name)
+            names.append(str((target/name).relative_to(output)).replace('\\','/'))
+        notices.append({'name':package['name'],'version':package['version'],'license':package.get('license'),
+            'repository':package.get('repository'),'notices':names})
+    (licenses/'dependencies.json').write_text(json.dumps(notices,indent=2)+'\n',encoding='utf-8')
+    file_hashes={str(path.relative_to(output)).replace('\\','/'):digest(path)
+        for path in output.rglob('*') if path.is_file() and path.name!='metadata.json'}
     metadata={
         'schema':1,'protocol_version':json.loads((output/'version.json').read_text()),
         'target':'x86_64-pc-windows-msvc',
         'backend_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
-        'rig_commit':RIG,'files':{name:digest(output/name) for name in files},
+        'rig_commit':RIG,'files':file_hashes,
     }
     (output/'metadata.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
     print(output)

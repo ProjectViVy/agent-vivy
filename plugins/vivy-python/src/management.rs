@@ -23,6 +23,23 @@ struct Preparations(
     u64,
 );
 
+/// Typed desktop entry points use the same initialization state and owned jobs.
+pub fn desktop_report(world: &World, agent: Entity) -> vivy_basics::setup::Report {
+    initialization::report(world, agent)
+}
+pub fn desktop_prepare(world: &mut World, agent: Entity, managed: bool) -> Result<(), String> {
+    initialization::approve_python(world, agent, managed)
+}
+pub fn desktop_cancel(world: &mut World, agent: Entity) -> Result<(), String> {
+    let mut jobs = world.resource_mut::<Preparations>();
+    let job = jobs
+        .0
+        .get_mut(&agent)
+        .ok_or("no Python initialization is running")?;
+    job.cancel.stop();
+    Ok(())
+}
+
 pub(super) fn install(app: &mut App) {
     initialization::install(app);
     app.init_resource::<Preparations>()

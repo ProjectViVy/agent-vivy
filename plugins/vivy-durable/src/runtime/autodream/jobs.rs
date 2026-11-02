@@ -312,7 +312,7 @@ fn reconcile(world: &World, job: &Job) -> io::Result<Option<Value>> {
         .activated(&job.update)
         .map(|p| p.map(|p| json!({"persona_revision":p.revision})))
 }
-fn cancel(world: &mut World, agent: Entity, id: &str) -> io::Result<Value> {
+pub(super) fn cancel(world: &mut World, agent: Entity, id: &str) -> io::Result<Value> {
     let snapshot = world
         .get::<DurableAgentState>(agent)
         .and_then(|s| s.evolution.jobs.iter().find(|j| j.id == id))

@@ -36,6 +36,28 @@ tracked build products, sessions, obvious credential tokens or AI attribution
 markers. Existing protocol/instruction-file compatibility names remain functional.
 Local verification evidence stays ignored under `.workspace/promotion/`.
 
+## Diva management and native host continuation (2026-11-02)
+
+The active backend and desktop worktrees remain `.workspace/diva-integration`
+and `.workspace/agent-diva-next`; do not use the original Vivy checkout. Typed
+admission/history and eight management areas now have implementations. Desktop
+source is on `feat/diva-core-integration` and consumes an explicit exported core
+artifact. No merge/push or release completion is claimed.
+
+Latest evidence: nine native conversation/management cases, five transport cases,
+native front smoke, 47 durable Rust tests, 39 Python Rust tests and two DTO contract
+tests pass. Desktop production bridge tests pass ten actual cases plus one
+subprocess fixture, including real-core outbox write failure, crash/reopen, retained
+invalid configuration and second writer rejection; forced host death closes the
+Job Object tree. Six Vue runtime tests and production build pass. Browser checks
+use explicit synthetic IPC and are not native WebView2 evidence. See the existing
+plan's continuation section for commands and remaining gates.
+
+User-authorized desktop gateway files were read only for isolated live checks.
+StepFun's exact model failed with HTTP send errors even without inherited proxies;
+the supplied Qwen model returned HTTP 404 `model_not_found`. No credential values
+were copied into records. Actual streamed/tool compatibility is still unverified.
+
 ## Diva typed transport continuation (2026-11-02)
 
 Implementation remains active on `feat/diva-desktop`. Rust is now the wire DTO

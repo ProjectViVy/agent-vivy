@@ -380,6 +380,38 @@ fn detect(
 fn open_python(world: &mut World, agent: Entity) {
     open(world, agent, false);
 }
+pub(super) fn approve_python(
+    world: &mut World,
+    agent: Entity,
+    use_managed: bool,
+) -> Result<(), String> {
+    if !world.resource::<Preparations>().0.is_empty()
+        || world.resource::<Initialization>().pending_save
+    {
+        return Err("Python initialization is running; wait or cancel before retrying".into());
+    }
+    #[cfg(feature = "managed-skills")]
+    retain_before_approval(world)?;
+    if use_managed {
+        world.resource_mut::<Initialization>().managed = true;
+    }
+    let scope = scope(world);
+    let mut decision = setup::decision(world, "python")?;
+    decision.grant = Some(scope.clone());
+    decision.scope = scope.clone();
+    decision.skipped = false;
+    decision.managed = managed(world);
+    setup::remember(world, "python", &decision)?;
+    if world.resource::<PythonSettings>().memory {
+        let mut memory = setup::decision(world, "memory")?;
+        memory.grant = Some(scope.clone());
+        memory.scope = scope;
+        memory.skipped = false;
+        setup::remember(world, "memory", &memory)?;
+    }
+    start_preparation(world, agent);
+    Ok(())
+}
 #[cfg(feature = "managed-skills")]
 pub(crate) fn retain_before_approval(world: &World) -> Result<(), String> {
     let store = crate::managed::PublicationStore::new(

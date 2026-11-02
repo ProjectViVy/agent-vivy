@@ -103,6 +103,10 @@ impl PersonaStore {
             .into_iter()
             .find(|p| p.last_update_id == id))
     }
+    /// The activated chain only; prepared but unpublished revisions stay private.
+    pub fn revisions(&self) -> io::Result<Vec<Persona>> {
+        self.ancestors(&self.read()?)
+    }
     pub fn update(
         &self,
         expected: u64,

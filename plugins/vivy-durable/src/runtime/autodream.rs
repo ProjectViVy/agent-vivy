@@ -206,7 +206,7 @@ pub fn request(world: &mut World, agent: Entity, key: &str, reason: &str) -> io:
     world.resource::<Wake>().wake();
     Ok(id)
 }
-fn dream_agent(world: &mut World, foreground: Entity) -> Option<Entity> {
+pub fn dream_agent(world: &mut World, foreground: Entity) -> Option<Entity> {
     let id = world.get::<AgentId>(foreground)?.0.clone();
     world
         .query::<(Entity, &DurableAgentState)>()
@@ -549,6 +549,90 @@ fn status(world: &mut World, agent: Entity) -> Value {
     .map(|p| json!({"publication":p.id,"environment":p.environment(),"skills":p.skills().ok()}))
     .unwrap_or_else(|e| json!({"error":e.to_string()}));
     json!({"foreground":committed(world,agent).map(|s|&s.evolution),"dream":selected.and_then(|e|committed(world,e).map(|s|&s.evolution)),"persona":persona,"workbench":publication,"error":world.resource::<Coordinator>().error})
+}
+/// Cancel the current Dream generation without detaching validation jobs.
+pub fn cancel_desktop(
+    world: &mut World,
+    foreground: Entity,
+    revision: u64,
+    dream_revision: Option<u64>,
+) -> io::Result<Vec<(Entity, u64)>> {
+    if !healthy(world) {
+        return Err(invalid("durable storage is not writable"));
+    }
+    let dream = dream_agent(world, foreground);
+    if world
+        .get::<DurableAgentState>(foreground)
+        .map(|s| s.revision)
+        != Some(revision)
+        || dream.and_then(|e| world.get::<DurableAgentState>(e).map(|s| s.revision))
+            != dream_revision
+    {
+        return Err(invalid("stale Dream revision; reload before cancelling"));
+    }
+    let mut revisions = vec![];
+    if let Some(dream) = dream {
+        world.trigger(StopTurn::new(dream));
+        let mut s = world.get_mut::<DurableAgentState>(dream).unwrap();
+        for task in &mut s.tasks {
+            if !matches!(
+                task.status,
+                Status::Completed | Status::Failed | Status::Cancelled
+            ) {
+                task.status = Status::Cancelled;
+                task.generation += 1;
+            }
+        }
+        s.bump();
+        revisions.push((dream, s.revision));
+    }
+    let mut s = world.get_mut::<DurableAgentState>(foreground).unwrap();
+    for r in &mut s.evolution.requests {
+        r.finished = true;
+    }
+    s.bump();
+    revisions.push((foreground, s.revision));
+    drop(s);
+    world.resource::<Wake>().wake();
+    Ok(revisions)
+}
+pub fn detach_desktop(
+    world: &mut World,
+    foreground: Entity,
+    id: &str,
+    revision: u64,
+) -> io::Result<(Entity, u64)> {
+    let dream = dream_agent(world, foreground).ok_or_else(|| invalid("no Dream task"))?;
+    if world.get::<DurableAgentState>(dream).map(|s| s.revision) != Some(revision) {
+        return Err(invalid("stale Dream revision; reload before detaching"));
+    }
+    jobs::detach(world, dream, id)?;
+    Ok((
+        dream,
+        world.get::<DurableAgentState>(dream).unwrap().revision,
+    ))
+}
+/// Cancel only the selected validation/publication job; detaching is independent.
+pub fn cancel_job_desktop(
+    world: &mut World,
+    foreground: Entity,
+    id: &str,
+    revision: u64,
+) -> io::Result<(Entity, u64)> {
+    let dream = dream_agent(world, foreground).ok_or_else(|| invalid("no Dream task"))?;
+    let state = world
+        .get::<DurableAgentState>(dream)
+        .ok_or_else(|| invalid("no Dream state"))?;
+    if state.revision != revision || !healthy(world) {
+        return Err(invalid(
+            "stale or unhealthy Dream state; reload before cancelling job",
+        ));
+    }
+    jobs::cancel(world, dream, id)?;
+    Ok((
+        dream,
+        world.get::<DurableAgentState>(dream).unwrap().revision,
+    ))
 }
 fn command(In(args): In<CommandArgs>, world: &mut World) {
     let (action, reason) = args

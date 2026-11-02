@@ -3512,6 +3512,7 @@ name = "vivy-diva-front"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
+ "bevy_tasks",
  "rig-basics",
  "rig-harness",
  "serde",
@@ -3520,6 +3521,8 @@ dependencies = [
  "vivy-basics",
  "vivy-durable",
  "vivy-gateway",
+ "vivy-laputa",
+ "vivy-python",
 ]
 
 [[package]]
@@ -3534,7 +3537,11 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "vivy-basics",
  "vivy-gateway",
+ "vivy-laputa",
+ "vivy-process",
+ "vivy-python",
 ]
 
 [[package]]
@@ -3557,6 +3564,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vivy-laputa"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "rig-harness",
+ "rig-memory",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "vivy-process"
 version = "0.1.0"
 dependencies = [
@@ -3564,6 +3583,22 @@ dependencies = [
  "rig-harness-protocol",
  "toml",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "vivy-python"
+version = "0.1.0"
+dependencies = [
+ "bevy_ecs",
+ "rig-harness",
+ "rig-memory",
+ "serde",
+ "serde_json",
+ "toml",
+ "toml_edit",
+ "ts-rs",
+ "vivy-basics",
+ "vivy-process",
 ]
 
 [[package]]

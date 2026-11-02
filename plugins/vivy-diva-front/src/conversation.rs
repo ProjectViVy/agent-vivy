@@ -175,6 +175,12 @@ pub fn task_info(state: &DurableAgentState) -> Vec<TaskInfo> {
             id: t.id.clone(),
             request_id: t.request_key.clone(),
             generation: t.generation,
+            error: t
+                .outcome
+                .as_ref()
+                .and_then(|v| v.pointer("/turn/failed"))
+                .and_then(serde_json::Value::as_str)
+                .map(|s| rig_harness::rig_core::redact::text(s).into_owned()),
             status: serde_json::to_value(&t.status)
                 .unwrap()
                 .as_str()

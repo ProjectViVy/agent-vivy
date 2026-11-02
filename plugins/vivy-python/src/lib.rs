@@ -21,9 +21,10 @@ use std::sync::{
 use std::time::Instant;
 use vivy_process::{Control, OwnedChild};
 
+pub mod control;
 #[cfg(feature = "managed-skills")]
 pub mod managed;
-mod management;
+pub mod management;
 #[cfg(feature = "memory-tools")]
 mod memory_tools;
 mod worker;
@@ -35,6 +36,8 @@ use worker::Worker;
 #[derive(Resource, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct PythonSettings {
+    #[serde(skip)]
+    control_home: PathBuf,
     executable: String,
     connections: HashMap<String, Value>,
     memory: bool,
@@ -68,6 +71,7 @@ struct PythonSettings {
 impl Default for PythonSettings {
     fn default() -> Self {
         Self {
+            control_home: PathBuf::new(),
             executable: "python".into(),
             connections: HashMap::new(),
             memory: false,
@@ -142,7 +146,7 @@ fn bind_calls(
     root: Res<ProjectRoot>,
     paths: Option<Res<SessionPaths>>,
     #[cfg(feature = "managed-skills")] pins: Query<&managed::PinnedCall>,
-    #[cfg(feature = "managed-skills")] home: Option<Res<RigHome>>,
+    home: Option<Res<RigHome>>,
 ) {
     for (call, request, agent, mut handler) in &mut calls {
         let name = request.call.function.name.as_str();
@@ -165,6 +169,10 @@ fn bind_calls(
         let (output, live) = CallOutput::new(&wake);
         commands.entity(call).insert(output);
         let mut configured = settings.clone();
+        configured.control_home = home
+            .as_ref()
+            .map(|h| h.0.root().to_path_buf())
+            .unwrap_or_default();
         configured.skills = management::skill_metadata(skills.as_deref());
         configured.agent = ids
             .get(agent.0)
@@ -249,6 +257,7 @@ fn stop_workers(workers: Res<Workbenches>) {
 
 #[derive(Default)]
 struct Workbench {
+    management: Mutex<Option<worker::ControlPort>>,
     status: Mutex<WorkbenchStatus>,
     worker: Mutex<Option<Worker>>,
     control: Mutex<Option<Control>>,
@@ -273,6 +282,10 @@ impl Workbench {
         }
     }
     fn stop(&self) {
+        self.management
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         self.stopped_status(PythonState::Stopped);
         if let Some(cancel) = self
             .active_cancel
@@ -530,6 +543,11 @@ impl PythonTool {
             Some(worker) => worker,
             None => Worker::start(&self.settings, &self.dir, cancellation).map_err(error)?,
         };
+        *self
+            .state
+            .management
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(worker.management.clone());
         cancellation.bind(worker.process.control());
         *self.state.status.lock().unwrap_or_else(|e| e.into_inner()) = WorkbenchStatus {
             python: PythonState::Running,

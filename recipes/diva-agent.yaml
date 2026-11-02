@@ -106,3 +106,5 @@ components:
     crate: vivy-diva-front
     path: ../plugins/vivy-diva-front
     plugins: [vivy_diva_front::DivaFrontPlugin]
+    features:
+      vivy-diva-front: [persistent]
