@@ -71,6 +71,18 @@ pub fn presets() -> Vec<DesktopPreset> {
             )],
         },
         DesktopPreset {
+            id: "teakapi".into(),
+            name: "TeakAPI".into(),
+            variants: vec![variant(
+                "standard",
+                "标准 API",
+                Protocol::Openai,
+                None,
+                "https://teakapi.xyz/v1",
+                &["deepseek-v4.1-flash"],
+            )],
+        },
+        DesktopPreset {
             id: "bailian".into(),
             name: "阿里云百炼".into(),
             variants: vec![
