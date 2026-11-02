@@ -53,7 +53,9 @@ First launch now gates on provider configuration, then one free-form introductio
 The core extracts a draft with one tool-free completion and writes it directly;
 `REDLINE.MD` always comes from compiled defaults. Unclear drafts fall back to a
 random display name plus the compiled six files. The desktop persists completion
-in `desktop-state/onboarding.json` and opens the role workspace from Settings.
+in `desktop-state/onboarding.json`; an explicit reset records `forced: true` so
+the upgrade backfill does not mark an already initialized persona as complete,
+and finishing onboarding clears it. Settings can reopen the role workspace.
 `persona_initialize` is asynchronous on the model path; `fallback: true` writes
 synchronously. Contract additions: `PersonaInitialize`, `PersonaOnboarded`,
 `PersonaView.name/initialized` and `ManagementResult::PersonaOnboarded`.
