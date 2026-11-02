@@ -36,6 +36,10 @@ tracked build products, sessions, obvious credential tokens or AI attribution
 markers. Existing protocol/instruction-file compatibility names remain functional.
 Local verification evidence stays ignored under `.workspace/promotion/`.
 
+Provider setup now exposes three Rust-owned desktop presets; see the existing
+plan section "Curated provider setup" for defaults and verification. Existing
+user configurations remain authoritative.
+
 ## Diva management and native host continuation (2026-11-02)
 
 The active backend and desktop worktrees remain `.workspace/diva-integration`

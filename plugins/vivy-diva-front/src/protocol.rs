@@ -483,6 +483,7 @@ pub struct ProviderKey {
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct ProvidersView {
+    pub presets: Vec<vivy_gateway::desktop_presets::DesktopPreset>,
     #[ts(type = "number")]
     pub generation: u64,
     pub config: vivy_gateway::config::ProvidersConfig,
@@ -675,6 +676,8 @@ pub fn typescript() -> String {
         ProvidersSave::decl(&cfg),
         ProviderKey::decl(&cfg),
         ProvidersView::decl(&cfg),
+        vivy_gateway::desktop_presets::DesktopPreset::decl(&cfg),
+        vivy_gateway::desktop_presets::DesktopVariant::decl(&cfg),
         vivy_gateway::config::ProvidersConfig::decl(&cfg),
         vivy_gateway::config::Instance::decl(&cfg),
         vivy_gateway::config::Protocol::decl(&cfg),

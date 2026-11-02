@@ -4,6 +4,7 @@ use rig_harness::prelude::*;
 pub fn providers(world: &World) -> Reply {
     let state = world.resource::<vivy_gateway::ProvidersState>();
     Reply::Providers(ProvidersView {
+        presets: vivy_gateway::desktop_presets::presets(),
         config: state.config.clone(),
         generation: state.generation,
         issue: state.issue.clone(),
@@ -37,6 +38,16 @@ pub fn save(world: &mut World, input: ProvidersSave) -> Result<Reply, Fault> {
         code: ErrorCode::InvalidRequest,
         message,
     })?;
+    if input
+        .config
+        .default_model
+        .as_ref()
+        .is_some_and(|m| !input.config.contains_model(m))
+    {
+        return Err(fault(
+            "default model must be an enabled configured model".into(),
+        ));
+    }
     vivy_gateway::save_config(world, input.config).map_err(fault)?;
     if let Some(agent) = vivy_durable::runtime::foreground(world) {
         vivy_gateway::select_default(world, agent);

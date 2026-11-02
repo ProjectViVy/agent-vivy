@@ -176,6 +176,20 @@ class ConversationTests(unittest.TestCase):
             if snapshot['model']['ready']:ready=True;break
         self.assertTrue(ready);self.assertEqual(snapshot['tasks'],[])
 
+    def test_curated_presets_and_invalid_default_are_read_only(self):
+        c=self.start()
+        view=c.request('providers_read')['data']
+        presets={p['id']:p for p in view['presets']}
+        self.assertEqual(set(presets),{'deepseek','minimax','bailian'})
+        self.assertEqual(presets['deepseek']['variants'][0]['default_model'],'deepseek-flash')
+        self.assertEqual(presets['minimax']['variants'][0]['instance']['preset'],'minimax')
+        self.assertEqual(len(presets['bailian']['variants']),3)
+        self.assertNotIn('deepseek',view['config']['instances'])
+        config=dict(view['config']);config['default_model']='absent/Model'
+        result=c.request('providers_save',{'generation':view['generation'],'config':config})
+        self.assertEqual(result['type'],'error')
+        self.assertEqual(c.request('providers_read')['data']['config'],view['config'])
+
     def test_explicit_provider_checks_are_independent_of_conversation(self):
         c=self.start()
         view=c.request('providers_read')['data']

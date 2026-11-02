@@ -204,6 +204,16 @@ pub fn valid_id(id: &str) -> bool {
 }
 
 impl ProvidersConfig {
+    pub fn contains_model(&self, reference: &str) -> bool {
+        reference.split_once('/').is_some_and(|(id, model)| {
+            self.instances.get(id).is_some_and(|instance| {
+                super::providers::rows(id, instance)
+                    .iter()
+                    .any(|row| row.id == model)
+            })
+        })
+    }
+
     /// The native launcher supplies only a first-run gateway hint; managed
     /// instances always win and the credential remains an environment reference.
     pub fn bootstrap(&mut self, url: &str, model: &str, dialect: Option<String>) -> bool {

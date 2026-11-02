@@ -558,3 +558,23 @@ Desktop packaging uses Tauri's release profile. No optimization claim is made.
   whitespace checks pass. Actual native UI automation again reports a missing
   local pipe; 125/150% native scale, tray/hidden work and clean standard-user /
   absent-WebView2 acceptance remain open. No complete release sign-off is claimed.
+
+### Curated provider setup (2026-11-02)
+
+Added Rust-owned desktop presets for DeepSeek, MiniMax and Alibaba Bailian.
+DeepSeek/`deepseek-flash` is the initial setup selection, without overwriting
+existing defaults. Bailian offers China/international standard API and China
+Coding Plan variants. MiniMax uses the existing Anthropic dialect; DeepSeek
+uses its OpenAI dialect. Endpoint/model IDs remain editable and exact.
+ProvidersView exports the presets with the generated contract. Reading presets
+does not create user instances. Default selection rejects missing/disabled models,
+including proper support for existing implicit Rig preset catalog rows.
+The editor saves configuration/credentials before committing a new default,
+retains failed input, and requires replacement credentials after endpoint changes.
+
+Checks: gateway 29 tests, Front 3, native conversation 14, Vue 12 and production
+Vue compilation pass. Tests cover read-only presets, invalid defaults, failed key
+writes, save ordering and variant switching. Official API docs were checked for
+preset addresses and IDs; no DeepSeek or MiniMax live credential run is claimed.
+The earlier Bailian live result does not establish every new model/endpoint.
+Native visual/scaling checks remain limited by the unavailable local UI pipe.

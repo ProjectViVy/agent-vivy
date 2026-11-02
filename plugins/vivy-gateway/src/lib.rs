@@ -363,3 +363,5 @@ mod tests {
         assert!(app.world().get::<ModelChoice>(fresh).is_none());
     }
 }
+
+pub mod desktop_presets;
