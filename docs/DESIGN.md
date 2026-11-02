@@ -22,6 +22,8 @@ refer to the retained local experiment, not the new repository's ancestry.
 The owner selected a thin recipe-assembled Diva Front, hosted as a bundled child
 of the existing Tauri/Vue desktop application, with full local management and
 close-to-tray behavior. Use fresh dedicated data and one fixed assistant workspace.
+The desktop host approves this workspace at launch (`--approve`), as requested
+by the owner; startup project-trust selection is not part of the desktop flow.
 Reuse the existing persistent core, automatic Recap and scheduled wakes; manage
 existing Dream operations without adding periodic idle reflection. Voice and
 coding-session delegation remain outside this desktop integration scope.

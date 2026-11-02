@@ -578,3 +578,14 @@ writes, save ordering and variant switching. Official API docs were checked for
 preset addresses and IDs; no DeepSeek or MiniMax live credential run is claimed.
 The earlier Bailian live result does not establish every new model/endpoint.
 Native visual/scaling checks remain limited by the unavailable local UI pipe.
+
+### Desktop workspace trust (2026-11-02)
+
+At the owner's request, Diva's native host now passes the existing `--approve`
+flag to its bundled core. Its fixed workspace resources load immediately, and
+startup no longer creates a project-trust question. Other assistant questions
+remain supported; standalone CLI trust behavior is unchanged. No core artifact
+change is required. The native bridge regression first reproduced unloaded
+project prompts, then passed for both `never` and `ask` settings across reopen.
+All 12 bridge checks (including the subprocess fixture) pass with the explicit
+matching core artifact. The development watcher rebuilds the native host.
