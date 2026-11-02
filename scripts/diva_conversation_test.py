@@ -22,7 +22,10 @@ class Gateway(Handler):
             self.server.slow.set()
             self.server.release.wait(15)
         try:
-            if any(t.get('function',{}).get('name')=='vivy_setup_ping' for t in body.get('tools',[])):
+            if any('READ_FIXTURE' in text_of(m) for m in body['messages']):
+                if body['messages'][-1]['role']=='tool':self.reply(body,text='READ_TOOL_FINISHED')
+                else:self.reply(body,tool='read',call={'path':'fixture.txt'})
+            elif any(t.get('function',{}).get('name')=='vivy_setup_ping' for t in body.get('tools',[])):
                 self.reply(body, tool='vivy_setup_ping',call={})
             else:
                 self.reply(body, text='DIVA_COMMITTED_REPLY')
@@ -137,6 +140,26 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(state['tasks'][0]['generation'],task['generation']+1)
         answer=c.request('answer',{'instance':'old','question':'0','choices':[],'text':'yes'})
         self.assertEqual(answer['data']['code'],'stale_identity')
+
+    def test_real_tool_execution_and_committed_projection(self):
+        (self.root/'fixture.txt').write_text('DIVA_LOCAL_TOOL_EVIDENCE',encoding='utf-8')
+        c=self.start();c.request('submit',{'request_id':'read-tool','text':'READ_FIXTURE'})
+        state=self.state_until(c,lambda s:any(t['status']=='completed' for t in s['tasks']))
+        tools=state['tools'];self.assertEqual(len(tools),1)
+        self.assertEqual(tools[0]['name'],'read');self.assertIn('DIVA_LOCAL_TOOL_EVIDENCE',tools[0]['output'])
+        self.assertEqual(c.request('history',{'cursor':None,'limit':100})['data']['messages'][-1]['text'],'READ_TOOL_FINISHED')
+
+    def test_live_question_answer_and_rejection_after_settlement(self):
+        path=self.root/'home/settings.toml';path.write_text(path.read_text().replace('default="never"','default="ask"'))
+        (self.root/'.rig').mkdir();(self.root/'.rig/ASSISTANT.md').write_text('Synthetic project instructions',encoding='utf-8')
+        c=self.start();state=self.state_until(c,lambda s:bool(s['questions']))
+        question=state['questions'][0]
+        params={'instance':c.ready['instance'],'question':question['id'],'choices':['no'],'text':None}
+        bad=c.request('answer',dict(params,choices=['invented']))
+        self.assertEqual(bad['data']['code'],'invalid_request')
+        answered=c.request('answer',params);self.assertEqual(answered['data']['answered'],True)
+        self.state_until(c,lambda s:not s['questions'])
+        self.assertEqual(c.request('answer',params)['data']['code'],'stale_identity')
 
     def test_explicit_provider_checks_are_independent_of_conversation(self):
         c=self.start()

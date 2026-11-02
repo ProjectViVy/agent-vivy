@@ -507,3 +507,10 @@ Post-fix checks: Python Rust 40, Front contract/projection 3, root 34, native
 conversation 10, Python MCP 7, Python runtime 8, desktop bridge 10 plus one fixture,
 and Vue 7 pass. Production Vue compilation passes. Remaining external acceptance
 limitations above are unchanged; these are fixes, not a full release sign-off.
+
+Two additional native cases pass (12 total): the model requests the actual Rig
+read tool against a disposable file and its committed result appears in history;
+an actual project-trust question accepts a current answer and rejects invalid or
+already-settled answers. Core distribution currently uses the tested dev-profile
+executable; metadata records the profile/compiler/lockfile version explicitly.
+Desktop packaging uses Tauri's release profile. No optimization claim is made.

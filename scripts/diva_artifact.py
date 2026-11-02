@@ -17,6 +17,7 @@ def main():
     p.add_argument('--binary',type=Path,required=True)
     p.add_argument('--rig-path',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--profile',choices=['dev','release'],default='dev')
     args=p.parse_args()
     actual=subprocess.check_output(['git','-C',str(args.rig_path),'rev-parse','HEAD'],text=True).strip()
     if actual != RIG: p.error('core requires the recorded Rig checkpoint fork')
@@ -63,6 +64,9 @@ def main():
     metadata={
         'schema':1,'protocol_version':json.loads((output/'version.json').read_text()),
         'target':'x86_64-pc-windows-msvc',
+        'profile':args.profile,
+        'rustc':subprocess.check_output(['rustc','--version'],text=True).strip(),
+        'cargo_lock_version':__import__('tomllib').loads((output/'Cargo.lock').read_text())['version'],
         'backend_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
         'rig_commit':RIG,'files':file_hashes,
     }
