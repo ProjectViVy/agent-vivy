@@ -223,6 +223,7 @@ fn poll(world: &mut World) {
                             | "prompts_read"
                             | "prompt_save"
                             | "managed_read"
+                            | "managed_open"
                             | "managed_import"
                             | "managed_edit"
                             | "managed_validate"
@@ -245,6 +246,7 @@ fn poll(world: &mut World) {
                             | "python_prepare"
                             | "python_cancel"
                             | "skills_read"
+                            | "skill_read"
                             | "skills_refresh"
                             | "skill_import"
                             | "skill_save"
@@ -324,6 +326,7 @@ fn poll(world: &mut World) {
                     Method::RecapRead => files::recap(world, false),
                     Method::RecapRefresh => files::recap(world, true),
                     method @ (Method::ManagedRead
+                    | Method::ManagedOpen(_)
                     | Method::ManagedImport(_)
                     | Method::ManagedEdit(_)
                     | Method::ManagedValidate(_)
@@ -335,6 +338,7 @@ fn poll(world: &mut World) {
                     | Method::McpSave(_)
                     | Method::McpControl(_)
                     | Method::SkillsRead
+                    | Method::SkillRead(_)
                     | Method::SkillsRefresh
                     | Method::SkillImport(_)
                     | Method::SkillSave(_)

@@ -161,6 +161,21 @@ class ConversationTests(unittest.TestCase):
         self.state_until(c,lambda s:not s['questions'])
         self.assertEqual(c.request('answer',params)['data']['code'],'stale_identity')
 
+    def test_first_provider_configuration_emits_readiness_change_without_chat(self):
+        settings=self.root/'home/settings.toml';settings.write_text('[trust]\ndefault="never"\n')
+        c=self.start();self.assertFalse(c.ready['data']['model']['ready'])
+        view=c.request('providers_read')['data'];watermark=c.log[-1]['seq']
+        config={'default_model':'fixture/exact','instances':{'fixture':{'protocol':'openai','base_url':f'http://127.0.0.1:{self.server.server_port}/v1','credential':{'source':'none'},'models':[{'id':'exact','context_window':32000,'max_output_tokens':2048}]}}}
+        result=c.request('providers_save',{'generation':view['generation'],'config':config})
+        self.assertEqual(result['type'],'reply',result)
+        ready=False
+        for _ in range(5):
+            changed=next((e for e in c.log if e['seq']>watermark and e['type']=='changed'),None)
+            if changed is None:changed=c.until(lambda e:e['type']=='changed')
+            watermark=changed['seq'];snapshot=c.request('snapshot')['data']
+            if snapshot['model']['ready']:ready=True;break
+        self.assertTrue(ready);self.assertEqual(snapshot['tasks'],[])
+
     def test_explicit_provider_checks_are_independent_of_conversation(self):
         c=self.start()
         view=c.request('providers_read')['data']
@@ -285,10 +300,13 @@ class ConversationTests(unittest.TestCase):
         result=op('skill_import',{'name':'diva-test','source':str(source)})
         skill=next(s for s in result['data']['skills'] if s['name']=='diva-test')
         self.assertTrue(skill['editable'])
+        self.assertEqual(skill['text'],'')
+        self.assertEqual(op('skill_read',{'name':'diva-test'})['data']['text'].replace('\r\n','\n'),original)
         op('skill_import',{'name':'diva-test','source':str(source)},True)
         changed=original.replace('original','edited')
         result=op('skill_save',{'name':skill['name'],'revision':skill['revision'],'text':changed})
         updated=next(s for s in result['data']['skills'] if s['name']=='diva-test')
+        self.assertEqual(op('skill_read',{'name':'diva-test'})['data']['text'].replace('\r\n','\n'),changed)
         op('skill_remove',{'name':'../escape','revision':updated['revision']},True)
         op('skill_save',{'name':skill['name'],'revision':skill['revision'],'text':original},True)
         op('skill_remove',{'name':skill['name'],'revision':updated['revision']})

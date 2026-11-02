@@ -110,11 +110,6 @@ impl Desktop {
                     .and_then(|s| s.to_str())
                     .ok_or_else(|| invalid("invalid candidate path"))?;
                 let c = candidate(store, id)?;
-                let source = Path::new(&c.skill.file).parent().unwrap();
-                let files = source_files(source, 512 * 1024)?
-                    .into_iter()
-                    .map(|(p, b)| Ok((p, String::from_utf8(b).map_err(io::Error::other)?)))
-                    .collect::<io::Result<_>>()?;
                 let state = self.0.lock().unwrap();
                 let receipt = state.validated.get(id).map(|(_, r)| r);
                 result.candidates.push(CandidateView {
@@ -123,7 +118,7 @@ impl Desktop {
                     base: c.base,
                     revision: c.skill.revision,
                     dependencies: c.skill.dependencies,
-                    files,
+                    files: BTreeMap::new(),
                     state: if state.running.contains_key(id) {
                         "validating"
                     } else if receipt.is_some_and(|r| r.passed) {
@@ -135,12 +130,36 @@ impl Desktop {
                     }
                     .into(),
                     result: receipt.map(|r| {
-                        rig_harness::rig_core::redact::text(&r.evidence.to_string()).into_owned()
+                        let text = rig_harness::rig_core::redact::text(&r.evidence.to_string())
+                            .into_owned();
+                        let mut end = text.len().min(4096);
+                        while !text.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        if end < text.len() {
+                            format!("{}\n[Validation evidence preview truncated]", &text[..end])
+                        } else {
+                            text
+                        }
                     }),
                 });
             }
         }
         Ok(result)
+    }
+    pub fn open(&self, store: &PublicationStore, id: &str) -> io::Result<CandidateView> {
+        let c = candidate(store, id)?;
+        let mut row = self
+            .read(store)?
+            .candidates
+            .into_iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| invalid("candidate not found"))?;
+        row.files = source_files(Path::new(&c.skill.file).parent().unwrap(), 512 * 1024)?
+            .into_iter()
+            .map(|(p, b)| Ok((p, String::from_utf8(b).map_err(io::Error::other)?)))
+            .collect::<io::Result<_>>()?;
+        Ok(row)
     }
     pub fn import(
         &self,

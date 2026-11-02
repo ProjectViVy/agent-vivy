@@ -11,6 +11,11 @@ pub struct Events {
     revision: u64,
     questions: Vec<Question>,
     live: Option<Live>,
+    readiness: Option<(
+        bool,
+        u64,
+        Option<vivy_basics::workbench_status::WorkbenchStatus>,
+    )>,
 }
 
 fn error(code: ErrorCode, message: impl Into<String>) -> Fault {
@@ -399,6 +404,25 @@ pub fn publish(world: &mut World) {
     };
     let state = runtime::inspect_committed(world, agent).cloned();
     let mut events = world.remove_resource::<Events>().unwrap();
+    let readiness = (
+        world.get::<Connection>(agent).is_some(),
+        world
+            .get_resource::<vivy_gateway::ProvidersState>()
+            .map_or(0, |s| s.generation),
+        world
+            .get::<vivy_basics::workbench_status::WorkbenchStatus>(agent)
+            .copied(),
+    );
+    if events.readiness.as_ref() != Some(&readiness) {
+        events.readiness = Some(readiness);
+        emit(
+            world,
+            None,
+            Payload::Changed {
+                revision: state.as_ref().map_or(0, |s| s.revision),
+            },
+        );
+    }
     if let Some(state) = state {
         events.admissions.retain(|key, task| {
             if state

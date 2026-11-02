@@ -36,6 +36,8 @@ fn desktop_candidates_require_live_validation_and_publish_with_cas() {
         .import(&store, &base, "calculator", &source)
         .unwrap();
     let first = manager.read(&store).unwrap().candidates.remove(0);
+    assert!(first.files.is_empty());
+    assert!(!manager.open(&store, &first.id).unwrap().files.is_empty());
     assert!(
         manager
             .publish(&store, &first.id, "before-validation")

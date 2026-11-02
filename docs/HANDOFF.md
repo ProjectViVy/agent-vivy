@@ -55,13 +55,26 @@ plan's continuation section for commands and remaining gates.
 
 Independent review subsequently fixed credential-policy refresh, empty MCP tool
 filters, oversized history frames and uneditable managed candidate admission.
-Latest counts are 10 native conversation, 40 Python Rust, 3 Front and 7 Vue cases;
+Latest counts are 13 native conversation, 40 Python Rust, 3 Front and 8 Vue cases;
 the existing plan records the regression details and environment isolation policy.
+
+Readiness changes now refresh the shared snapshot without requiring a task.
+Skill inventories fetch source only when selected. Five artifact-import rejection
+tests pass. A short-path clean source/archive build produced a per-user NSIS;
+installation, reopening, forced host death, a 0.1.0-to-0.1.1 test upgrade and
+default uninstall preserved the disposable session/workspace as expected.
+These installation checks used the existing Administrator account and installed
+WebView2. Native UI automation still fails with a missing local control pipe.
 
 User-authorized desktop gateway files were read only for isolated live checks.
 StepFun's exact model failed with HTTP send errors even without inherited proxies;
-the supplied Qwen model returned HTTP 404 `model_not_found`. No credential values
-were copied into records. Actual streamed/tool compatibility is still unverified.
+the supplied Qwen model returned HTTP 404 `model_not_found`. A subsequent read-only
+model-list request returned the exact ID `qwen3.8-omni-flash`. With that ID, the
+native core completed streamed chat, a real read-tool call and committed the
+expected fixture result. The explicit text, stream and tool probes each passed.
+No credential values were copied into records or original gateway files changed.
+Native WebView2 interaction/scaling, hidden Recap/wake and clean standard-user
+acceptance remain unverified; the complete M1–M6 acceptance is not signed off.
 
 ## Diva typed transport continuation (2026-11-02)
 

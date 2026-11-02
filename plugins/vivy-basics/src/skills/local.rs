@@ -179,6 +179,11 @@ pub fn import(
             issues.join("; ")
         )));
     }
+    if fs::read_to_string(stage.join("SKILL.md"))?.len() > 256 * 1024 {
+        return Err(err(
+            "skill Markdown exceeds 256 KiB; staged copy retained in recovery",
+        ));
+    }
     fs::rename(stage, base.join(expected_name))
 }
 pub fn save(home: &Path, skill: &str, revision: &str, text: &str) -> io::Result<()> {

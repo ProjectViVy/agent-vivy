@@ -140,6 +140,28 @@ fn run(
         }
     }
     match method {
+        Method::ManagedOpen(p) => Ok(ManagementResult::ManagedCandidate(
+            managed
+                .open(
+                    &vivy_python::managed::PublicationStore::new(&root, &home),
+                    &p.id,
+                )
+                .map_err(failure)?,
+        )),
+        Method::SkillRead(p) => {
+            let s = vivy_basics::skills::local::list(&root, &home, trusted)
+                .map_err(failure)?
+                .into_iter()
+                .find(|s| s.name == p.name)
+                .ok_or_else(|| failure("skill not found"))?;
+            Ok(ManagementResult::Skill(SkillDocument {
+                name: s.name,
+                description: s.description,
+                text: s.text,
+                revision: s.revision,
+                editable: s.editable,
+            }))
+        }
         Method::ManagedRead
         | Method::ManagedImport(_)
         | Method::ManagedEdit(_)
@@ -252,7 +274,7 @@ fn run(
                     .map(|s| SkillDocument {
                         name: s.name,
                         description: s.description,
-                        text: s.text,
+                        text: String::new(),
                         revision: s.revision,
                         editable: s.editable,
                     })

@@ -76,6 +76,19 @@ pub fn snapshot(world: &mut World, watermark: u64) -> Snapshot {
         issue: None,
     };
     let durable = foreground.and_then(|e| vivy_durable::runtime::inspect_committed(world, e));
+    let shell_status = vivy_basics::shell::availability(world);
+    let shell = Readiness {
+        compiled: shell_status.is_some(),
+        configured: shell_status.as_ref().is_some_and(|r| r.is_ok()),
+        ready: shell_status.as_ref().is_some_and(|r| r.is_ok()),
+        state: if shell_status.as_ref().is_some_and(|r| r.is_ok()) {
+            "available"
+        } else {
+            "unavailable"
+        }
+        .into(),
+        issue: shell_status.and_then(Result::err),
+    };
     let revision = durable.map_or(0, |s| s.revision);
     let active_task = durable.and_then(|s| s.active.clone());
     let tasks = durable
@@ -100,6 +113,7 @@ pub fn snapshot(world: &mut World, watermark: u64) -> Snapshot {
         watermark,
         model,
         python,
+        shell,
         memory,
     }
 }

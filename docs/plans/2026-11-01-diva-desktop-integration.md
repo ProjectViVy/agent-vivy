@@ -514,3 +514,47 @@ an actual project-trust question accepts a current answer and rejects invalid or
 already-settled answers. Core distribution currently uses the tested dev-profile
 executable; metadata records the profile/compiler/lockfile version explicitly.
 Desktop packaging uses Tauri's release profile. No optimization claim is made.
+
+### Packaging and cross-page follow-up (2026-11-02)
+
+- Readiness changes now invalidate the shared snapshot even without a chat task;
+  a first-provider configuration native case verifies the notification (13 native
+  conversation cases total). Runtime reports Git Bash through the shell owner's
+  actual read-only executable resolver, independently of Python and memory.
+- Ordinary/managed skill inventory responses contain metadata; selected Markdown
+  and candidate source files are fetched separately. Validation evidence previews
+  are bounded. This avoids multiplying full source trees in a single pipe frame.
+  Ordinary imports also reject Markdown beyond their editor limit before admission.
+- A reconnect can start a new synchronization before the old request finishes;
+  an old completion cannot clear the new synchronization. The Vue suite now has
+  8 passing tests. Five artifact-import tests reject incompatible versions, wrong
+  checksums, missing notices and path escape before altering desktop files.
+- Release NSIS generation passed (13.15 MiB at this checkpoint). A clean source
+  archive was expanded to `C:/dd-src`, consumed only `C:/diva-delivery/core`, and
+  built successfully with fresh `CARGO_TARGET_DIR=C:/dd-build`. Online npm stalled;
+  cached offline npm installation succeeded in two minutes; clean Rust release
+  compilation took 2m28s. This is local evidence, not a hosted CI run.
+- Silent current-user installation to `C:/diva-delivery/installed` succeeded and
+  created the expected HKCU registration. With PATH restricted to Windows system
+  directories, the installed WebView loaded the UI and launched the bundled core.
+  Forced desktop-process death removed that actual core. Reopening kept the same
+  desktop session and one live owned core after four seconds. These runs used the
+  existing Administrator profile, not a clean standard-user account; they do not
+  establish visual correctness or absence of development tools on the machine.
+- A test-only 0.1.1 NSIS upgraded 0.1.0 in place. The desktop session and an owned
+  workspace marker survived; HKCU reported 0.1.1. Silent default uninstall exited
+  successfully and retained both. This does not replace standard-user acceptance.
+- Live gateway acceptance subsequently succeeded. The authorized Qwen endpoint's
+  model listing returned `qwen3.8-omni-flash`; the supplied mixed-case ID is not
+  accepted by that endpoint. Using the returned ID unchanged, the native core
+  streamed an answer, executed the actual read tool on a disposable fixture, and
+  committed the expected file text. Independent explicit provider probes also
+  passed text, streaming and tools. Original credential/config files were not
+  modified. StepFun transport remains unsuccessful in this environment.
+- Final focused checks pass: basics 64, Python Rust 40, Front 3, native conversation
+  13, transport 5, front smoke, Vue 8 and artifact import 5. Earlier root 34,
+  durable/autodream 47, Python MCP/runtime 7/8 and desktop bridge 10 plus its
+  subprocess fixture remain the recorded regression evidence. Formatting and
+  whitespace checks pass. Actual native UI automation again reports a missing
+  local pipe; 125/150% native scale, tray/hidden work and clean standard-user /
+  absent-WebView2 acceptance remain open. No complete release sign-off is claimed.

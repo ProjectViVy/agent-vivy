@@ -35,6 +35,7 @@ pub enum Method {
     PromptsRead,
     PromptSave(PromptSave),
     ManagedRead,
+    ManagedOpen(ManagedId),
     ManagedImport(ManagedImport),
     ManagedEdit(ManagedEdit),
     ManagedValidate(ManagedValidate),
@@ -57,6 +58,7 @@ pub enum Method {
     PythonPrepare(PythonPrepare),
     PythonCancel,
     SkillsRead,
+    SkillRead(SkillName),
     SkillsRefresh,
     SkillImport(SkillImport),
     SkillSave(SkillSave),
@@ -281,6 +283,11 @@ pub struct SkillDocument {
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+pub struct SkillName {
+    pub name: String,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct PersonaUpdate {
     #[ts(type = "number")]
     pub revision: u64,
@@ -321,6 +328,8 @@ pub struct PromptView {
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum ManagementResult {
+    ManagedCandidate(vivy_python::managed::desktop::CandidateView),
+    Skill(SkillDocument),
     ProviderTest(ProbeReport),
     Managed(vivy_python::managed::desktop::ManagedView),
     Mcp(vivy_python::control::McpView),
@@ -536,6 +545,7 @@ pub struct Snapshot {
     pub agents: Vec<AgentInfo>,
     pub model: Readiness,
     pub python: Readiness,
+    pub shell: Readiness,
     pub memory: Readiness,
     #[ts(type = "number")]
     pub revision: u64,
@@ -638,6 +648,7 @@ pub fn typescript() -> String {
         SkillSave::decl(&cfg),
         SkillRemove::decl(&cfg),
         SkillDocument::decl(&cfg),
+        SkillName::decl(&cfg),
         PersonaUpdate::decl(&cfg),
         PersonaRollback::decl(&cfg),
         PromptSave::decl(&cfg),
