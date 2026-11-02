@@ -271,6 +271,7 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                 task: task.id.clone(),
                 role: "user".into(),
                 text: preview(task.input.text(), 256 * 1024),
+                reasoning: String::new(),
                 truncated: task.input.text().len() > 256 * 1024,
                 status: status.clone(),
             });
@@ -290,10 +291,20 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                     .effect_result()
                     .map_err(|e| error(ErrorCode::StorageFailure, e.to_string()))?
                 {
-                    let text = rig_harness::rig_core::message::AssistantMessage::new(
+                    let reply = rig_harness::rig_core::message::AssistantMessage::new(
                         response.choice.clone(),
-                    )
-                    .text();
+                    );
+                    let text = reply.text();
+                    let reasoning = reply
+                        .content
+                        .iter()
+                        .filter_map(|part| match part {
+                            rig_harness::rig_core::message::AssistantContent::Reasoning(
+                                reasoning,
+                            ) => Some(reasoning.text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<String>();
                     if !text.is_empty() {
                         messages.push(HistoryMessage {
                             id: format!(
@@ -305,6 +316,7 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                             role: "assistant".into(),
                             truncated: text.len() > 256 * 1024,
                             text: preview(&text, 256 * 1024),
+                            reasoning: preview(&reasoning, 256 * 1024),
                             status: if response.aborted.is_some() {
                                 "interrupted".into()
                             } else {
@@ -363,6 +375,7 @@ mod projection_tests {
                 task: "t".into(),
                 role: "user".into(),
                 text: text.clone(),
+                reasoning: String::new(),
                 status: "completed".into(),
                 truncated: false,
             })
@@ -479,16 +492,21 @@ pub fn publish(world: &mut World) {
         events.questions = questions.clone();
         emit(world, None, Payload::Questions(questions));
     }
-    let text = world
+    let (text, reasoning) = world
         .query::<(&ForAgent, &Partial)>()
         .iter(world)
         .filter(|(a, _)| a.0 == agent)
-        .map(|(_, p)| p.text.as_str())
-        .collect::<String>();
+        .fold((String::new(), String::new()), |(text, reasoning), (_, p)| {
+            (text + &p.text, reasoning + &p.reasoning)
+        });
     let task = runtime::inspect(world, agent).and_then(|s| s.active.clone());
-    let live = Live { task, text };
+    let live = Live {
+        task,
+        text,
+        reasoning,
+    };
     if events.live.as_ref() != Some(&live) {
-        if events.live.is_some() || !live.text.is_empty() {
+        if events.live.is_some() || !live.text.is_empty() || !live.reasoning.is_empty() {
             emit(world, None, Payload::Live(live.clone()));
         }
         events.live = Some(live);

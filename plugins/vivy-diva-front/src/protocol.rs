@@ -435,6 +435,7 @@ pub struct HistoryMessage {
     pub task: String,
     pub role: String,
     pub text: String,
+    pub reasoning: String,
     pub status: String,
     pub truncated: bool,
 }
@@ -456,6 +457,7 @@ pub struct Choice {
 pub struct Live {
     pub task: Option<String>,
     pub text: String,
+    pub reasoning: String,
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct ToolInfo {
