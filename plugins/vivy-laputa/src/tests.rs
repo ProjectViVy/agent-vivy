@@ -373,7 +373,7 @@ fn composed_request_has_managed_persona_before_custom_role_and_new_operations_re
     );
     let model = MockCompletionModel::from_stream_turns([reply("one"), reply("two")]);
     let (mut app, wakes) = app_on(&MemoryStore::default());
-    app.insert_resource(PersonaSource(dir.laputa()))
+    app.insert_resource(PersonaSource(PersonaStore::at(dir.laputa())))
         .add_plugins((AgentPlugin, SessionLogPlugin, LaputaPlugin));
     app.finish();
     app.update();

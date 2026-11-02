@@ -33,11 +33,7 @@ pub fn start(world: &mut World, id: String, method: Method) -> Result<Reply, Fau
     let laputa = world
         .get_resource::<vivy_laputa::PersonaSource>()
         .map(|source| source.0.clone())
-        .unwrap_or_else(|| {
-            vivy_laputa::PersonaStore::global(&root)
-                .root()
-                .to_path_buf()
-        });
+        .unwrap_or_else(|| vivy_laputa::PersonaStore::global(&root));
     let home = RigHome::of(world).root().to_path_buf();
     let trusted = world
         .get_resource::<vivy_basics::trust::ProjectTrust>()
@@ -146,7 +142,7 @@ fn persona_version(value: vivy_laputa::Persona, truncated: bool) -> PersonaVersi
 fn run(
     root: PathBuf,
     home: PathBuf,
-    laputa: PathBuf,
+    laputa: vivy_laputa::PersonaStore,
     trusted: bool,
     method: Method,
     target: Option<vivy_python::control::Target>,
@@ -155,7 +151,7 @@ fn run(
 ) -> Result<ManagementResult, Fault> {
     #[cfg(feature = "persistent")]
     {
-        let store = vivy_laputa::PersonaStore::at(laputa);
+        let store = laputa;
         match &method {
             Method::PersonaSaveFile(input) => {
                 let current = store.read().map_err(failure)?;

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, io, path::PathBuf};
 
 #[derive(Resource, Clone)]
-pub struct PersonaSource(pub PathBuf);
+pub struct PersonaSource(pub PersonaStore);
 #[derive(Component, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PersonaRevision {
     pub persona_id: String,
@@ -51,9 +51,7 @@ fn source(world: &mut World) {
             .get_resource::<ProjectRoot>()
             .map(|r| r.0.clone())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-        world.insert_resource(PersonaSource(
-            PersonaStore::global(&workspace).root().to_path_buf(),
-        ));
+        world.insert_resource(PersonaSource(PersonaStore::global(&workspace)));
     }
 }
 
@@ -70,7 +68,7 @@ fn compose(
         let Some(prompt) = &mut request.prompt else {
             continue;
         };
-        match PersonaStore::at(source.0.clone()).read() {
+        match source.0.read() {
             Ok(persona) => {
                 let text = persona.text();
                 if !text.is_empty() {
@@ -97,7 +95,7 @@ fn compose(
 
 fn command(In(args): In<CommandArgs>, world: &mut World) {
     source(world);
-    let store = PersonaStore::at(world.resource::<PersonaSource>().0.clone());
+    let store = world.resource::<PersonaSource>().0.clone();
     let mut parts = args.args.split_whitespace();
     let action = parts.next().unwrap_or("");
     let result = (|| -> io::Result<String> {

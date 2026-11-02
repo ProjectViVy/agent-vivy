@@ -109,6 +109,7 @@ fn environment_root() -> PathBuf {
     )
 }
 
+#[derive(Clone)]
 pub struct PersonaStore {
     root: PathBuf,
     legacy: Option<PathBuf>,

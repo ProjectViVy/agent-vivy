@@ -344,7 +344,7 @@ struct PersonaJob {
 #[cfg(feature = "persistent")]
 fn persona_store(world: &World) -> vivy_laputa::PersonaStore {
     match world.get_resource::<vivy_laputa::PersonaSource>() {
-        Some(source) => vivy_laputa::PersonaStore::at(source.0.clone()),
+        Some(source) => source.0.clone(),
         None => {
             let root = world
                 .get_resource::<ProjectRoot>()

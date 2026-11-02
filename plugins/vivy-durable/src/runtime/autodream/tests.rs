@@ -33,7 +33,9 @@ impl Drop for Fixture {
 fn app(disk: &MemoryStore, model: &MockCompletionModel, root: &Fixture) -> (App, Entity) {
     let (mut app, _) = app_on(disk);
     app.insert_resource(ProjectRoot(root.0.clone()));
-    app.insert_resource(vivy_laputa::PersonaSource(root.0.join("laputa")));
+    app.insert_resource(vivy_laputa::PersonaSource(vivy_laputa::PersonaStore::at(
+        root.0.join("laputa"),
+    )));
     app.insert_resource(RigHome(rig_harness::harness_protocol::Home::at(
         root.0.join("home"),
     )));
@@ -119,7 +121,9 @@ fn skill_job_waits_resumes_uses_published_code_and_collects_actual_feedback() {
     ]);
     let (mut app, _) = app_on(&disk);
     app.insert_resource(ProjectRoot(root.0.clone()))
-        .insert_resource(vivy_laputa::PersonaSource(root.0.join("laputa")))
+        .insert_resource(vivy_laputa::PersonaSource(vivy_laputa::PersonaStore::at(
+            root.0.join("laputa"),
+        )))
         .insert_resource(RigHome(rig_harness::harness_protocol::Home::at(
             root.0.join("home"),
         )));

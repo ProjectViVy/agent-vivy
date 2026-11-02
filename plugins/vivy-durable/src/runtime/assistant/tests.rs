@@ -261,7 +261,7 @@ fn foreground_retry_keeps_the_persona_and_request_frozen_before_the_failure() {
         .save_file(0, "", "one", vivy_laputa::MISSION, "PERSONA_BEFORE", vec![])
         .unwrap();
     let (mut app, _) = app_on(&disk);
-    app.insert_resource(vivy_laputa::PersonaSource(laputa))
+    app.insert_resource(vivy_laputa::PersonaSource(vivy_laputa::PersonaStore::at(laputa)))
         .add_plugins((
             AgentPlugin,
             SessionLogPlugin,
