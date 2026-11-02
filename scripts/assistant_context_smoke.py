@@ -116,7 +116,8 @@ def fixture(root, server, env, number=1, memory_assets=None):
         config += '[python]\nmemory=true\nexecutable=' + json.dumps(publication['executable']) + '\nmemory_root=' + json.dumps(str(memory_assets/'native')) + '\n'
     (home/'settings.toml').write_text(config, encoding='utf-8')
     session = home/'sessions'/f'1793530000-{9500+number}'
-    environment = dict(env, RIG_HOME=str(home), RIG_SESSION=session.name, RIG_SECRET_GATEWAY='synthetic-d2')
+    environment = dict(env, RIG_HOME=str(home), RIG_SESSION=session.name, RIG_SECRET_GATEWAY='synthetic-d2',
+                       LAPUTA_HOME=str(root/'laputa'))
     return environment, session
 
 

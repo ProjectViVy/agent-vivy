@@ -58,6 +58,10 @@ def publication_id(root):
 
 def prepared_fixture(root, server, env):
     environment, session = fixture(root, server, env)
+    persona = root/'laputa/personas/main'
+    persona.mkdir(parents=True)
+    for source in (ROOT/'prompts/persona').glob('*.MD'):
+        (persona/source.name).write_text(source.read_text(encoding='utf-8'), encoding='utf-8')
     workbench = root/'.vivy/workbench'
     workbench.mkdir(parents=True)
     value = {'identity':'synthetic-python', 'scope':'synthetic-d4', 'executable':sys.executable,
@@ -127,7 +131,7 @@ class Gateway(Handler):
             return self.reply(body, tool='dream_status', call={})
         if 'candidate_submit' not in previous:
             if persona:
-                path = self.server.root/'.vivy/laputa/persona.json'
+                path = self.server.root/'laputa/persona.json'
                 revision = json.loads(path.read_text())['revision'] if path.exists() else 0
                 call = {'target':'persona','source':'drafts/persona.txt','file':'IDENTITY.MD','expected_base':str(revision)}
             else:

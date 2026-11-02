@@ -70,8 +70,9 @@ choice for the requested decoupling. See [editing instructions](../prompts/READM
 
 The persona is now Laputa's six real Markdown files rather than one text value.
 `MISSION.MD`, `IDENTITY.MD`, `RELATIONSHIP.MD` and `REDLINE.MD` are required;
-`DREAM.MD` and `DARK.MD` are optional. Sources live under
-`.vivy/laputa/personas/main/`. `IDENTITY.MD` absorbs the former `ASSISTANT.md`
+`DREAM.MD` and `DARK.MD` are optional. Sources live under the global Laputa root
+at `personas/main/`; older workspaces are migrated as described below. `IDENTITY.MD`
+absorbs the former `ASSISTANT.md`
 default; the other required files carry mission, long-term collaboration and
 safety boundaries. Diva's desktop Settings shows the same six files as **Core
 persona**, with per-file editing and protected-file confirmation.
@@ -106,6 +107,34 @@ persona**, with per-file editing and protected-file confirmation.
   the terminal commands are `/persona show [NAME]`,
   `/persona update <revision> <NAME> <path>` and
   `/persona rollback <revision> <target>`.
+
+## Global Laputa home and first-run onboarding (2026-11-02)
+
+Laputa is now a user-level directory shared by every Diva workspace. A non-empty
+`LAPUTA_HOME` wins; otherwise the process uses `<USERPROFILE|HOME>/.laputa`. The
+role workspace is `<root>/personas/main/`; `persona.json`, `revisions/` and the
+writer lock live directly under the root. The compiled role ID remains `main`;
+display name is persona metadata.
+
+- On first read, legacy `<workspace>/.vivy/laputa` is copied once into the global
+  root (revisions, six sources, then `persona.json` as the completion marker).
+  The old directory is retained as a backup. A global six-file directory without
+  `persona.json` is adopted at revision 0, reads the files, and counts as
+  initialized without overwriting them.
+- First-start onboarding is explicit: the desktop tests the selected provider,
+  accepts one free-form introduction, extracts one tool-free completion into the
+  five writable files, and writes them directly. `REDLINE.MD` always comes from
+  the compiled default; the model cannot weaken it. An unclear or unparsable
+  draft falls back to a random neutral display name plus the compiled six files.
+- `persona.json` stores `display_name` and views expose `name`/`initialized`.
+  `persona_initialize` runs asynchronously when a model is used and emits
+  `persona_onboarded`; `fallback: true` writes synchronously. A repeated
+  `update_id` returns the published persona instead of writing again.
+- The desktop records completion in `desktop-state/onboarding.json`, separate
+  from core state. `open_persona_directory` resolves the same global root and
+  opens `personas/main`. The terminal agent exposes
+  `/persona init [default|force]`; an existing persona is never overwritten
+  without `force`, and `default` skips the model.
 
 
 ## D4 AutoDream implementation (2026-11-01)
@@ -188,7 +217,7 @@ build, and incompatible opens are refused without changing the logs. The local
 Rig checkpoint fork remains required; this change does not modify that fork or
 the production Rig revision.
 
-- `vivy-laputa` owns `.vivy/laputa/persona.json`, the six source files under
+- `vivy-laputa` owns `<LAPUTA_HOME>/persona.json`, the six source files under
   `personas/main/`, immutable revision snapshots and an OS writer lock. Missing
   persona is the compiled six-file seed at revision zero. CAS updates and rollback
   publish atomically with update-ID reconciliation. Persona precedes the base

@@ -1,4 +1,5 @@
 use super::*;
+use crate::persona::defaults;
 use rig_memory::{DirFiles, Files};
 use std::{
     path::PathBuf,
@@ -15,11 +16,17 @@ impl Scratch {
             NEXT.fetch_add(1, Ordering::Relaxed)
         )))
     }
+    fn workspace(&self) -> PathBuf {
+        self.0.join("workspace")
+    }
+    fn laputa(&self) -> PathBuf {
+        self.0.join("laputa")
+    }
     fn store(&self) -> PersonaStore {
-        PersonaStore::new(&self.0)
+        PersonaStore::at(self.laputa())
     }
     fn files(&self) -> DirFiles {
-        DirFiles::new(self.0.join(".vivy/laputa"))
+        DirFiles::new(self.laputa())
     }
 }
 impl Drop for Scratch {
@@ -57,7 +64,7 @@ fn absence_is_a_seed_and_saving_publishes_six_files() {
     assert_eq!((seed.persona_id.as_str(), seed.revision), (PERSONA_ID, 0));
     assert!(seed.text().contains("You are Vivy"));
     assert!(seed.text().starts_with("Your mission is"));
-    assert!(!dir.0.join(".vivy").exists(), "reading must not write");
+    assert!(!dir.laputa().exists(), "reading must not write");
 
     let one = store
         .save_file(0, "", "one", IDENTITY, "IDENTITY_ONE", vec!["human".into()])
@@ -322,15 +329,15 @@ fn current_metadata_must_match_its_immutable_revision() {
 #[test]
 fn concurrent_updates_have_exactly_one_winner() {
     let dir = Scratch::new();
-    std::fs::create_dir_all(&dir.0).unwrap();
+    std::fs::create_dir_all(dir.laputa()).unwrap();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
     let handles: Vec<_> = (0..2)
         .map(|n| {
-            let root = dir.0.clone();
+            let root = dir.laputa();
             let b = barrier.clone();
             std::thread::spawn(move || {
                 b.wait();
-                PersonaStore::new(&root).save_file(
+                PersonaStore::at(root).save_file(
                     0,
                     "",
                     &n.to_string(),
@@ -348,7 +355,7 @@ fn concurrent_updates_have_exactly_one_winner() {
             .count(),
         1
     );
-    assert_eq!(PersonaStore::new(&dir.0).read().unwrap().revision, 1);
+    assert_eq!(PersonaStore::at(dir.laputa()).read().unwrap().revision, 1);
 }
 
 #[test]
@@ -366,7 +373,7 @@ fn composed_request_has_managed_persona_before_custom_role_and_new_operations_re
     );
     let model = MockCompletionModel::from_stream_turns([reply("one"), reply("two")]);
     let (mut app, wakes) = app_on(&MemoryStore::default());
-    app.insert_resource(PersonaSource(dir.0.clone()))
+    app.insert_resource(PersonaSource(dir.laputa()))
         .add_plugins((AgentPlugin, SessionLogPlugin, LaputaPlugin));
     app.finish();
     app.update();
@@ -391,4 +398,171 @@ fn composed_request_has_managed_persona_before_custom_role_and_new_operations_re
     assert!(second.contains("PERSONA_SECOND"));
     assert!(!second.contains("PERSONA_FIRST"));
     assert!(second.contains("<persona>"));
+}
+
+#[test]
+fn laputa_root_prefers_explicit_home_then_the_user_profile() {
+    use std::ffi::OsString;
+    assert_eq!(
+        root_from(
+            Some(OsString::from("C:/laputa")),
+            Some(OsString::from("C:/Users/x"))
+        ),
+        PathBuf::from("C:/laputa")
+    );
+    assert_eq!(
+        root_from(None, Some(OsString::from("/home/x"))),
+        PathBuf::from("/home/x/.laputa")
+    );
+    assert_eq!(
+        root_from(Some(OsString::new()), Some(OsString::from("/home/x"))),
+        PathBuf::from("/home/x/.laputa")
+    );
+    assert_eq!(root_from(None, None), PathBuf::from(".laputa"));
+}
+
+#[test]
+fn legacy_workspace_persona_is_copied_once_and_kept_as_a_backup() {
+    let dir = Scratch::new();
+    let legacy = PersonaStore::at(dir.workspace().join(".vivy/laputa"));
+    let one = save(&legacy, &legacy.read().unwrap(), "one", IDENTITY, "LEGACY");
+    let store = PersonaStore::with_legacy(&dir.workspace(), dir.laputa());
+
+    let migrated = store.read().unwrap();
+    assert_eq!(migrated.revision, 1);
+    assert_eq!(migrated.file(IDENTITY), "LEGACY");
+    assert!(dir.laputa().join("migration.json").is_file());
+    assert!(legacy.directory().join(IDENTITY).is_file(), "legacy kept");
+    assert_eq!(store.read().unwrap(), migrated);
+
+    let two = save(&store, &migrated, "two", RELATIONSHIP, "R");
+    assert_eq!(two.revision, 2, "revision history must come along");
+    assert_eq!(
+        store.update(&one.last_update_id).unwrap().unwrap().files,
+        one.files
+    );
+}
+
+#[test]
+fn an_external_six_file_persona_is_adopted_at_revision_zero() {
+    let dir = Scratch::new();
+    let store = dir.store();
+    std::fs::create_dir_all(store.directory()).unwrap();
+    for (name, text) in [
+        (MISSION, "EXTERNAL_MISSION"),
+        (IDENTITY, "EXTERNAL_IDENTITY"),
+        (RELATIONSHIP, "EXTERNAL_RELATIONSHIP"),
+        (REDLINE, "EXTERNAL_REDLINE"),
+        (DREAM, ""),
+        (DARK, ""),
+    ] {
+        std::fs::write(store.directory().join(name), text).unwrap();
+    }
+
+    assert!(store.initialized().unwrap());
+    let external = store.read().unwrap();
+    assert_eq!(external.revision, 0);
+    assert_eq!(external.name(), "Vivy");
+    assert_eq!(external.file(MISSION), "EXTERNAL_MISSION");
+    assert!(!external.unpublished);
+
+    let one = save(&store, &external, "one", IDENTITY, "EDITED_IDENTITY");
+    assert_eq!(one.revision, 1);
+    assert_eq!(one.file(MISSION), "EXTERNAL_MISSION");
+    assert_eq!(one.file(IDENTITY), "EDITED_IDENTITY");
+}
+
+#[test]
+fn save_all_publishes_one_revision_with_a_display_name() {
+    let dir = Scratch::new();
+    let store = dir.store();
+    let mut files = defaults();
+    files.insert(MISSION.into(), "MY_MISSION".into());
+    files.insert(IDENTITY.into(), "I am Nova.".into());
+
+    let one = store
+        .save_all(
+            0,
+            "",
+            "onboard",
+            &files,
+            vec!["onboarding".into()],
+            Some("Nova"),
+        )
+        .unwrap();
+    assert_eq!(one.revision, 1);
+    assert_eq!(one.name(), "Nova");
+    assert_eq!(one.files, files);
+    assert!(store.initialized().unwrap());
+
+    let retried = store
+        .save_all(
+            0,
+            "",
+            "onboard",
+            &files,
+            vec!["onboarding".into()],
+            Some("Nova"),
+        )
+        .unwrap();
+    assert_eq!(retried, one);
+    assert!(
+        store
+            .save_all(0, "", "onboard", &files, vec!["other".into()], Some("Nova"))
+            .is_err()
+    );
+    assert!(
+        store
+            .save_all(0, "", "again", &files, vec![], Some("Other"))
+            .is_err()
+    );
+    assert_eq!(store.read().unwrap(), one);
+    assert!(store.update("onboard").unwrap().is_some());
+    assert!(store.update("missing").unwrap().is_none());
+}
+
+#[test]
+fn save_all_rejects_blank_mission_and_oversized_files() {
+    let dir = Scratch::new();
+    let store = dir.store();
+    let mut blank = defaults();
+    blank.insert(MISSION.into(), " \n ".into());
+    assert!(
+        store
+            .save_all(0, "", "blank", &blank, vec![], None)
+            .is_err()
+    );
+    let mut oversized = defaults();
+    oversized.insert(IDENTITY.into(), "x".repeat(MAX_FILE_BYTES + 1));
+    assert!(
+        store
+            .save_all(0, "", "big", &oversized, vec![], None)
+            .is_err()
+    );
+    assert_eq!(store.read().unwrap().revision, 0);
+    assert!(!store.initialized().unwrap());
+}
+
+#[test]
+fn onboarding_writes_once_and_only_force_overwrites() {
+    let dir = Scratch::new();
+    let store = dir.store();
+    let draft = onboarding::fallback();
+    let one = onboarding::write(&store, &draft, "first", false).unwrap();
+    assert_eq!(one.revision, 1);
+    assert_eq!(one.name(), draft.name.as_str());
+    assert_eq!(one.sources, vec!["onboarding".to_string()]);
+
+    assert_eq!(
+        onboarding::write(&store, &draft, "first", false).unwrap(),
+        one
+    );
+    let other = onboarding::fallback();
+    assert!(
+        onboarding::write(&store, &other, "second", false).is_err(),
+        "an initialized persona must not be overwritten"
+    );
+    let forced = onboarding::write(&store, &other, "second", true).unwrap();
+    assert_eq!(forced.revision, 2);
+    assert_eq!(forced.name(), other.name.as_str());
 }

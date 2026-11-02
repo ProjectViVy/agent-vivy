@@ -30,6 +30,14 @@ pub fn start(world: &mut World, id: String, method: Method) -> Result<Reply, Fau
         ));
     }
     let root = world.resource::<ProjectRoot>().0.clone();
+    let laputa = world
+        .get_resource::<vivy_laputa::PersonaSource>()
+        .map(|source| source.0.clone())
+        .unwrap_or_else(|| {
+            vivy_laputa::PersonaStore::global(&root)
+                .root()
+                .to_path_buf()
+        });
     let home = RigHome::of(world).root().to_path_buf();
     let trusted = world
         .get_resource::<vivy_basics::trust::ProjectTrust>()
@@ -59,7 +67,7 @@ pub fn start(world: &mut World, id: String, method: Method) -> Result<Reply, Fau
     world.resource_mut::<Jobs>().active += 1;
     let operation = id.clone();
     std::thread::spawn(move || {
-        let result = run(root, home, trusted, method, target, managed, staged);
+        let result = run(root, home, laputa, trusted, method, target, managed, staged);
         let (result, error) = match result {
             Ok(result) => (Some(result), None),
             Err(error) => (None, Some(error)),
@@ -83,8 +91,9 @@ fn failure(message: impl ToString) -> Fault {
     }
 }
 #[cfg(feature = "persistent")]
-fn persona(value: vivy_laputa::Persona, directory: &Path) -> PersonaView {
+fn persona(value: vivy_laputa::Persona, directory: &Path, initialized: bool) -> PersonaView {
     let text = value.text();
+    let name = value.name().to_string();
     let files = vivy_laputa::ASSEMBLY_FILES
         .iter()
         .map(|name| {
@@ -101,10 +110,18 @@ fn persona(value: vivy_laputa::Persona, directory: &Path) -> PersonaView {
         revision: value.revision,
         update_id: value.last_update_id,
         directory: directory.display().to_string(),
+        name,
+        initialized,
         text,
         files,
         unpublished: value.unpublished,
     }
+}
+#[cfg(feature = "persistent")]
+pub(crate) fn persona_view(store: &vivy_laputa::PersonaStore) -> Result<PersonaView, Fault> {
+    let current = store.read().map_err(failure)?;
+    let initialized = store.initialized().map_err(failure)?;
+    Ok(persona(current, &store.directory(), initialized))
 }
 #[cfg(feature = "persistent")]
 fn persona_version(value: vivy_laputa::Persona, truncated: bool) -> PersonaVersionView {
@@ -129,6 +146,7 @@ fn persona_version(value: vivy_laputa::Persona, truncated: bool) -> PersonaVersi
 fn run(
     root: PathBuf,
     home: PathBuf,
+    laputa: PathBuf,
     trusted: bool,
     method: Method,
     target: Option<vivy_python::control::Target>,
@@ -137,7 +155,7 @@ fn run(
 ) -> Result<ManagementResult, Fault> {
     #[cfg(feature = "persistent")]
     {
-        let store = vivy_laputa::PersonaStore::new(&root);
+        let store = vivy_laputa::PersonaStore::at(laputa);
         match &method {
             Method::PersonaSaveFile(input) => {
                 let current = store.read().map_err(failure)?;
@@ -168,8 +186,9 @@ fn run(
         ) {
             let revisions = store.revisions().map_err(failure)?;
             let truncated = revisions.len() > 32;
+            let current = persona_view(&store)?;
             return Ok(ManagementResult::Persona {
-                current: persona(store.read().map_err(failure)?, &store.directory()),
+                current,
                 history: revisions
                     .into_iter()
                     .take(32)

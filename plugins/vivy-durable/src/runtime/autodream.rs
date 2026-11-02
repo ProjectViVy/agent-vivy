@@ -131,6 +131,12 @@ fn root(world: &World) -> PathBuf {
         .map(|p| p.0.clone())
         .unwrap_or_else(|| PathBuf::from(workspace()))
 }
+pub(super) fn persona_store(world: &World) -> vivy_laputa::PersonaStore {
+    match world.get_resource::<vivy_laputa::PersonaSource>() {
+        Some(source) => vivy_laputa::PersonaStore::at(source.0.clone()),
+        None => vivy_laputa::PersonaStore::global(&root(world)),
+    }
+}
 fn acquire(world: &mut World) -> io::Result<()> {
     if world.resource::<Coordinator>().lock.is_some() {
         return Ok(());
@@ -537,7 +543,7 @@ fn status(world: &mut World, agent: Entity) -> Value {
     } else {
         dream_agent(world, agent)
     };
-    let store = vivy_laputa::PersonaStore::new(&root(world));
+    let store = persona_store(world);
     let persona = store
         .read()
         .map(|p| {

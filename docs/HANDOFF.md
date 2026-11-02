@@ -40,18 +40,67 @@ Provider setup now exposes three Rust-owned desktop presets; see the existing
 plan section "Curated provider setup" for defaults and verification. Existing
 user configurations remain authoritative.
 
+## Global Laputa home and first-run onboarding (2026-11-02)
+
+The persona root is now global: a non-empty `LAPUTA_HOME`, otherwise
+`%USERPROFILE%/.laputa` (`$HOME/.laputa`). The role workspace is
+`<root>/personas/main`; `persona.json` and `revisions/` stay at the root. On first
+read, `<workspace>/.vivy/laputa` is copied once into the global root and the old
+directory is kept as a backup. A global six-file directory without `persona.json`
+is adopted at revision 0 and counts as initialized.
+
+First launch now gates on provider configuration, then one free-form introduction.
+The core extracts a draft with one tool-free completion and writes it directly;
+`REDLINE.MD` always comes from compiled defaults. Unclear drafts fall back to a
+random display name plus the compiled six files. The desktop persists completion
+in `desktop-state/onboarding.json` and opens the role workspace from Settings.
+`persona_initialize` is asynchronous on the model path; `fallback: true` writes
+synchronously. Contract additions: `PersonaInitialize`, `PersonaOnboarded`,
+`PersonaView.name/initialized` and `ManagementResult::PersonaOnboarded`.
+
+Verification for this change: `vivy-laputa` 20, `vivy-durable --features
+autodream` 50, `vivy-diva-front --features persistent` 3 and `vivy-basics
+--features tui` 84 tests pass in the isolated scratch workspace, plus root
+`cargo test --workspace --locked`; `diva_conversation_test.py` passes 16 native
+cases (onboarding write, retry idempotency, fallback, MISSION-before-IDENTITY
+ordering and the existing six-file cases under a temporary `LAPUTA_HOME`),
+`prompt_files_smoke.py` passes four cases and `autodream_smoke.py --only live`
+reports `passed`. The core was rebuilt after these checks; artifact import and
+desktop re-verification follow the loop below. Legacy migration from a real
+desktop workspace was not exercised against `%LOCALAPPDATA%` in this run.
+
+Contract, build and import loop after a core or protocol change:
+
+- Regenerate `plugins/vivy-diva-front/contract/` with a temporary
+  `export_contract` example in `.generated/diva-agent-rig-dev/examples/`:
+  `cargo run --manifest-path .generated/diva-agent-rig-dev/Cargo.toml --example export_contract -- plugins/vivy-diva-front/contract`.
+- Build the core with
+  `CARGO_TARGET_DIR=C:/vtd0 CARGO_PROFILE_DEV_DEBUG=0 cargo run -p vivy -- build recipes/diva-agent.yaml --rig-path <rig-checkout>`.
+- Commit the tracked core tree first; `scripts/diva_artifact.py` refuses a dirty
+  tree. Then export `.generated/artifacts/diva-core` with the built binary and run
+  `npm run import-core -- ../diva-integration/.generated/artifacts/diva-core` in
+  the desktop checkout.
+- The desktop bridge starts `src-tauri/target/debug/diva-core.exe`, not the copy
+  under `src-tauri/binaries/`. Replace that executable and restart the app after
+  importing, or the UI keeps talking to the previous protocol.
+- All smoke scripts set a temporary `LAPUTA_HOME`. Never point them at the real
+  user home directory. `diva_conversation_test.py` covers onboarding, retry
+  idempotency, fallback and MISSION ordering; `prompt_files_smoke.py` and
+  `autodream_smoke.py` cover prompt editing and per-file persona candidates.
+
 ## Diva six-file core persona (2026-11-02)
 
 Settings no longer presents "persona and prompts" as peers. The `persona` section
 is now **Core persona** and shows Laputa's six Markdown files:
 `MISSION.MD`, `IDENTITY.MD`, `RELATIONSHIP.MD`, `REDLINE.MD` (required) and
-`DREAM.MD`, `DARK.MD` (optional). Sources live under
-`.vivy/laputa/personas/main/`; the compiled defaults remain in
+`DREAM.MD`, `DARK.MD` (optional). Sources live under `<LAPUTA_HOME>/personas/main/`
+(legacy workspace directories are copied on first read); the compiled defaults
+remain in
 `prompts/persona/`. `IDENTITY.MD` absorbs the former `prompts/ASSISTANT.md`,
 whose plugin and trust entry are removed. `RECAP.md` and `AUTODREAM.md` remain
 internal prompts and are no longer shown in Settings.
 
-- `vivy-laputa` stores schema-2 metadata in `.vivy/laputa/persona.json`, keeps a
+- `vivy-laputa` stores schema-2 metadata in `<LAPUTA_HOME>/persona.json`, keeps a
   complete immutable six-file snapshot per revision, assembles in fixed order
   behind one `<persona>` block, skips empty optional files, enforces a non-blank
   `MISSION.MD`, 32 KiB per file and 64 KiB assembled, and migrates v1 text into

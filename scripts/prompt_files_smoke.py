@@ -30,7 +30,7 @@ class Gateway(Handler):
             self.server.fail = None
             # The retry must survive an invalid edit and reuse its frozen text.
             if kind == 'main':
-                source = self.server.root/'.vivy/laputa/personas/main/IDENTITY.MD'
+                source = self.server.root/'laputa/personas/main/IDENTITY.MD'
                 source.write_text('IDENTITY-AFTER', encoding='utf-8')
             else:
                 name = {'recap': 'RECAP.md', 'dream': 'AUTODREAM.md'}[kind]
@@ -82,7 +82,7 @@ def main():
             (root/'IDENTITY-EDIT.md').write_text('PERSONA-MARKDOWN', encoding='utf-8')
             agent.send('/persona update 0 IDENTITY.MD IDENTITY-EDIT.md')
             agent.until(lambda e: e['type'] == 'notice' and 'revision 1' in e.get('text', ''))
-            persona = root/'.vivy/laputa/personas/main'
+            persona = root/'laputa/personas/main'
             (persona/'MISSION.MD').write_text('MISSION-EDIT', encoding='utf-8')
             (root/'.rig').mkdir()
             (root/'.rig/IDENTITY.MD').write_text('UNTRUSTED-PROJECT', encoding='utf-8')

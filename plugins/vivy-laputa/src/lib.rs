@@ -1,9 +1,11 @@
 //! Laputa persona authority: six core files, assembly and injection.
+mod onboarding;
 mod persona;
+pub use onboarding::{Draft, PROMPT, extract, fallback, parse, write};
 pub use persona::{
     ASSEMBLY_FILES, AUTO_FILES, DARK, DREAM, IDENTITY, MAX_FILE_BYTES, MAX_PERSONA_BYTES, MISSION,
     OPTIONAL_FILES, PERSONA_ID, Persona, PersonaStore, REDLINE, RELATIONSHIP, auto, digest_files,
-    digest_text, required,
+    digest_text, required, root_from,
 };
 
 use rig_harness::prelude::*;
@@ -45,11 +47,13 @@ impl Plugin for LaputaPlugin {
 
 fn source(world: &mut World) {
     if !world.contains_resource::<PersonaSource>() {
-        let root = world
+        let workspace = world
             .get_resource::<ProjectRoot>()
             .map(|r| r.0.clone())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-        world.insert_resource(PersonaSource(root));
+        world.insert_resource(PersonaSource(
+            PersonaStore::global(&workspace).root().to_path_buf(),
+        ));
     }
 }
 
@@ -66,7 +70,7 @@ fn compose(
         let Some(prompt) = &mut request.prompt else {
             continue;
         };
-        match PersonaStore::new(&source.0).read() {
+        match PersonaStore::at(source.0.clone()).read() {
             Ok(persona) => {
                 let text = persona.text();
                 if !text.is_empty() {
@@ -93,7 +97,7 @@ fn compose(
 
 fn command(In(args): In<CommandArgs>, world: &mut World) {
     source(world);
-    let store = PersonaStore::new(&world.resource::<PersonaSource>().0);
+    let store = PersonaStore::at(world.resource::<PersonaSource>().0.clone());
     let mut parts = args.args.split_whitespace();
     let action = parts.next().unwrap_or("");
     let result = (|| -> io::Result<String> {

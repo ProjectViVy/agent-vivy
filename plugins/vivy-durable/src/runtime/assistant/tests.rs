@@ -255,12 +255,13 @@ fn foreground_retry_keeps_the_persona_and_request_frozen_before_the_failure() {
     let model = MockCompletionModel::from_stream_turns([vec![failure], reply("done")]);
     let root = std::env::temp_dir().join(format!("d2-retry-persona-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = vivy_laputa::PersonaStore::new(&root);
+    let laputa = root.join("laputa");
+    let store = vivy_laputa::PersonaStore::at(laputa.clone());
     let one = store
         .save_file(0, "", "one", vivy_laputa::MISSION, "PERSONA_BEFORE", vec![])
         .unwrap();
     let (mut app, _) = app_on(&disk);
-    app.insert_resource(vivy_laputa::PersonaSource(root.clone()))
+    app.insert_resource(vivy_laputa::PersonaSource(laputa))
         .add_plugins((
             AgentPlugin,
             SessionLogPlugin,

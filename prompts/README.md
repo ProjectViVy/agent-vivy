@@ -10,6 +10,7 @@ directory, or into `.rig/` in its trusted working directory:
 | `CODING.md` | Coding agent's base instructions; a separate recipe |
 | `RECAP.md` | Instructions for summarizing prior events, with no tools |
 | `AUTODREAM.md` | Internal evolution role, without conversational persona |
+| `ONBOARDING.md` | One tool-free persona extraction during first-run onboarding |
 
 For each file, the trusted project's `.rig/` override wins over `RIG_HOME`, which
 wins over the compiled default. An untrusted project's files are ignored, including
@@ -33,10 +34,11 @@ its separate, persona-free role.
 
 ## Editing persona
 
-Personal instructions live in Laputa's six core files under the workspace:
+Personal instructions live in Laputa's global six core files. The root is
+`LAPUTA_HOME` when set, otherwise `~/.laputa`; each role has a workspace:
 
 ```text
-.vivy/laputa/personas/main/
+<laputa>/personas/main/
   MISSION.MD        # required; never changed automatically
   IDENTITY.MD       # required; AutoDream may evolve it
   RELATIONSHIP.MD   # required; AutoDream may evolve it
@@ -69,5 +71,8 @@ revision and publishes a new revision; target `0` restores the compiled defaults
 
 AutoDream may only propose changes to `IDENTITY.MD`, `RELATIONSHIP.MD`,
 `DREAM.MD` and `DARK.MD`; `MISSION.MD` and `REDLINE.MD` are reported for human
-review instead. Do not edit `.vivy/laputa/persona.json` or `revisions/` by hand;
-they are the integrity-checked published snapshots.
+review instead. Do not edit `<laputa>/persona.json` or `revisions/` by hand;
+they are the integrity-checked published snapshots. `ONBOARDING.md` is compiled
+into the executable and is not overridable: first-run onboarding uses it once to
+extract the user's introduction, then writes the six files directly and keeps the
+compiled `REDLINE.MD`.

@@ -76,8 +76,12 @@ Windows cannot replace a running executable.
 wakes, Laputa's six-file core persona, asynchronous Recap-only context, and
 AutoDream validation and adoption. Coding sessions and persistent assistants are
 separate recipes on the same core. The assistant does not yet delegate coding
-sessions or subagents. The persona is editable under
-`.vivy/laputa/personas/main/` and, for the desktop, under Settings → Core persona.
+sessions or subagents. The persona is global and editable under
+`<LAPUTA_HOME>/personas/main/` (default `~/.laputa/personas/main/`), and for the
+desktop under Settings → Core persona. On first launch the desktop tests a
+provider, asks once who you are and what your mission is, extracts the six files
+and writes them directly; an unclear description gets a random name and the
+built-in persona.
 
 This recipe still requires the local Rig checkpoint implementation recorded in
 the [handoff](docs/HANDOFF.md#d4-autodream-ad-2-2026-11-01); the ordinary upstream

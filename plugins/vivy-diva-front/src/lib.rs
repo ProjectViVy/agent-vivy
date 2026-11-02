@@ -220,6 +220,7 @@ fn poll(world: &mut World) {
                             | "persona_read"
                             | "persona_save_file"
                             | "persona_rollback"
+                            | "persona_initialize"
                             | "prompts_read"
                             | "prompt_save"
                             | "managed_read"
@@ -307,6 +308,9 @@ fn poll(world: &mut World) {
                     Method::ProviderKey(input) => management::key(world, input),
                     Method::ProviderTest(input) => {
                         runtime_controls::provider(world, request.id.clone(), input)
+                    }
+                    Method::PersonaInitialize(input) => {
+                        runtime_controls::persona(world, request.id.clone(), input)
                     }
                     method @ (Method::TasksRead
                     | Method::WakeCancel(_)

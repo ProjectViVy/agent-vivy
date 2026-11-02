@@ -33,6 +33,7 @@ impl Drop for Fixture {
 fn app(disk: &MemoryStore, model: &MockCompletionModel, root: &Fixture) -> (App, Entity) {
     let (mut app, _) = app_on(disk);
     app.insert_resource(ProjectRoot(root.0.clone()));
+    app.insert_resource(vivy_laputa::PersonaSource(root.0.join("laputa")));
     app.insert_resource(RigHome(rig_harness::harness_protocol::Home::at(
         root.0.join("home"),
     )));
@@ -118,6 +119,7 @@ fn skill_job_waits_resumes_uses_published_code_and_collects_actual_feedback() {
     ]);
     let (mut app, _) = app_on(&disk);
     app.insert_resource(ProjectRoot(root.0.clone()))
+        .insert_resource(vivy_laputa::PersonaSource(root.0.join("laputa")))
         .insert_resource(RigHome(rig_harness::harness_protocol::Home::at(
             root.0.join("home"),
         )));
@@ -198,7 +200,7 @@ fn skill_job_waits_resumes_uses_published_code_and_collects_actual_feedback() {
 #[test]
 fn explicit_dream_is_independent_persona_free_and_records_no_change() {
     let root = Fixture::new();
-    vivy_laputa::PersonaStore::new(&root.0)
+    vivy_laputa::PersonaStore::at(root.0.join("laputa"))
         .save_file(
             0,
             "",
@@ -271,6 +273,16 @@ fn explicit_dream_is_independent_persona_free_and_records_no_change() {
 #[test]
 fn persona_candidate_is_adopted_and_completed_wait_returns_its_receipt() {
     let root = Fixture::new();
+    vivy_laputa::PersonaStore::at(root.0.join("laputa"))
+        .save_file(
+            0,
+            "",
+            "initial",
+            vivy_laputa::MISSION,
+            "PERSONA_INITIAL",
+            vec![],
+        )
+        .unwrap();
     let path = root.0.join("persona.txt");
     std::fs::write(&path, "NEW_PERSONA_CANARY").unwrap();
     let disk = MemoryStore::default();
@@ -278,7 +290,7 @@ fn persona_candidate_is_adopted_and_completed_wait_returns_its_receipt() {
         calls(
             "candidate",
             "candidate_submit",
-            json!({"target":"persona","source":path,"expected_base":"0","evidence":[],"checks":{},"file":"IDENTITY.MD"}),
+            json!({"target":"persona","source":path,"expected_base":"1","evidence":[],"checks":{},"file":"IDENTITY.MD"}),
         ),
         calls("wait-job", "validation_wait", json!({"job":"job:1"})),
         calls(
@@ -313,7 +325,7 @@ fn persona_candidate_is_adopted_and_completed_wait_returns_its_receipt() {
                     && json!(o.outcome).to_string().contains("published"))
     );
     assert_eq!(
-        vivy_laputa::PersonaStore::new(&root.0)
+        vivy_laputa::PersonaStore::at(root.0.join("laputa"))
             .read()
             .unwrap()
             .file(vivy_laputa::IDENTITY),
@@ -388,7 +400,7 @@ fn persona_candidate_cannot_target_a_human_only_file() {
         "{state:#?}"
     );
     assert_eq!(
-        vivy_laputa::PersonaStore::new(&root.0)
+        vivy_laputa::PersonaStore::at(root.0.join("laputa"))
             .read()
             .unwrap()
             .revision,
@@ -437,5 +449,48 @@ fn legacy_persona_job_without_a_target_file_cannot_publish() {
             .to_string()
             .contains("legacy persona candidate has no target file"),
         "{error}"
+    );
+}
+
+#[test]
+fn persona_candidates_require_an_initialized_persona() {
+    let root = Fixture::new();
+    let path = root.0.join("persona.txt");
+    std::fs::write(&path, "UNINITIALIZED_CANARY").unwrap();
+    let disk = MemoryStore::default();
+    let model = MockCompletionModel::from_stream_turns([
+        calls(
+            "candidate",
+            "candidate_submit",
+            json!({"target":"persona","source":path,"expected_base":"0","evidence":[],"checks":{},"file":"IDENTITY.MD"}),
+        ),
+        calls(
+            "finish",
+            "task_control",
+            json!({"action":"finish_silently","task":"task:1","generation":0}),
+        ),
+        reply("foreground after refusal"),
+        reply("summary"),
+    ]);
+    let (mut app, main) = app(&disk, &model, &root);
+    request(
+        app.world_mut(),
+        main,
+        "persona-uninitialized",
+        "Try to evolve an absent persona",
+    )
+    .unwrap();
+    until(&mut app, |w| {
+        committed(w, main).is_some_and(|s| s.evolution.requests[0].finished)
+    });
+    let dream = dream_agent(app.world_mut(), main).unwrap();
+    let state = committed(app.world(), dream).unwrap();
+    assert!(state.evolution.jobs.is_empty(), "{state:#?}");
+    assert!(
+        state
+            .operations
+            .iter()
+            .any(|o| json!(o.outcome).to_string().contains("initialized")),
+        "{state:#?}"
     );
 }

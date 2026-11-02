@@ -32,6 +32,7 @@ pub enum Method {
     PersonaRead,
     PersonaSaveFile(PersonaSaveFile),
     PersonaRollback(PersonaRollback),
+    PersonaInitialize(PersonaInitialize),
     PromptsRead,
     PromptSave(PromptSave),
     ManagedRead,
@@ -307,6 +308,20 @@ pub struct PersonaRollback {
 }
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
+pub struct PersonaInitialize {
+    pub description: String,
+    pub update_id: String,
+    #[serde(default)]
+    pub fallback: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct PersonaOnboarded {
+    pub current: PersonaView,
+    pub name: String,
+    pub fallback: bool,
+}
+#[derive(Debug, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 pub struct PromptSave {
     pub name: String,
     pub revision: String,
@@ -325,6 +340,8 @@ pub struct PersonaView {
     pub revision: u64,
     pub update_id: String,
     pub directory: String,
+    pub name: String,
+    pub initialized: bool,
     pub text: String,
     pub files: Vec<PersonaFileView>,
     pub unpublished: bool,
@@ -362,6 +379,7 @@ pub enum ManagementResult {
         current: PersonaView,
         history: Vec<PersonaVersionView>,
     },
+    PersonaOnboarded(PersonaOnboarded),
     Prompts {
         prompts: Vec<PromptView>,
     },
@@ -678,6 +696,8 @@ pub fn typescript() -> String {
         SkillName::decl(&cfg),
         PersonaSaveFile::decl(&cfg),
         PersonaRollback::decl(&cfg),
+        PersonaInitialize::decl(&cfg),
+        PersonaOnboarded::decl(&cfg),
         PromptSave::decl(&cfg),
         PersonaFileView::decl(&cfg),
         PersonaView::decl(&cfg),

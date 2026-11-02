@@ -18,6 +18,17 @@ class Gateway(Handler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['content-length'])))
         self.server.requests.append(body)
+        system = ' '.join(text_of(m) for m in body['messages'] if m['role'] == 'system')
+        if 'Laputa persona draft' in system:
+            description = text_of(body['messages'][-1])
+            if 'VAGUE' in description:
+                return self.reply(body, text='{"sufficient": false, "name": ""}')
+            return self.reply(body, text=json.dumps({
+                'sufficient': True, 'name': 'Lumen',
+                'MISSION.MD': 'ONBOARD_MISSION',
+                'IDENTITY.MD': 'ONBOARD_IDENTITY',
+                'RELATIONSHIP.MD': 'ONBOARD_RELATIONSHIP',
+                'DREAM.MD': '', 'DARK.MD': ''}))
         if any('SLOW_CASE' in text_of(m) for m in body['messages']):
             self.server.slow.set()
             self.server.release.wait(15)
@@ -36,6 +47,7 @@ class Client:
     def __init__(self, root, session=None, credential=None):
         env = {k:v for k,v in os.environ.items() if not k.startswith(('RIG_', 'VIVY_'))}
         env['RIG_HOME'] = str(root/'home')
+        env['LAPUTA_HOME'] = str(root/'laputa')
         env['RIG_SECRET_GATEWAY'] = credential or 'synthetic-diva'
         if session: env['RIG_SESSION'] = session
         self.p = subprocess.Popen([str(BINARY), '--diva'], cwd=root, env=env,
@@ -368,5 +380,52 @@ class ConversationTests(unittest.TestCase):
         self.state_until(c,lambda s:any(t['status']=='completed' for t in s['tasks']))
         system='\n'.join(text_of(m) for m in self.server.requests[-1]['messages'] if m['role']=='system')
         self.assertLess(system.index('Your mission is to help'),system.index('DIVA_PERSONA'))
+
+    def initialize(self,c,update_id,description='I want a calm engineer who helps me ship.'):
+        reply=c.request('persona_initialize',{'description':description,'update_id':update_id})
+        self.assertEqual(reply['type'],'reply',reply)
+        op=reply['data']['operation']
+        event=next((e['data'] for e in reversed(c.log)
+            if e['type']=='management_completed' and e['data']['operation']==op),None)
+        if event is None:
+            event=c.until(lambda e:e['type']=='management_completed' and e['data']['operation']==op)['data']
+        self.assertIsNone(event['error'],event)
+        return event['result']
+
+    def test_persona_initialization_writes_global_files_once(self):
+        c=self.start()
+        start=len(self.server.requests)
+        result=self.initialize(c,'onboard-1')
+        self.assertEqual(result['kind'],'persona_onboarded')
+        self.assertEqual(result['data']['name'],'Lumen')
+        self.assertTrue(result['data']['current']['initialized'])
+        draft=[r for r in self.server.requests[start:]
+            if any('Laputa persona draft' in text_of(m) for m in r['messages'])]
+        self.assertEqual(len(draft),1,draft)
+        self.assertFalse(draft[0].get('tools'))
+        self.assertEqual([m['role'] for m in draft[0]['messages']],['system','user'])
+        laputa=self.root/'laputa'
+        workspace=laputa/'personas/main'
+        self.assertEqual((workspace/'MISSION.MD').read_text(encoding='utf-8'),'ONBOARD_MISSION')
+        self.assertEqual((workspace/'IDENTITY.MD').read_text(encoding='utf-8'),'ONBOARD_IDENTITY')
+        self.assertTrue((laputa/'persona.json').is_file())
+        retried=self.initialize(c,'onboard-1')
+        self.assertEqual(retried['data']['current']['revision'],1)
+        c.request('submit',{'request_id':'after-onboarding','text':'hello'})
+        self.state_until(c,lambda s:any(t['status']=='completed' for t in s['tasks']))
+        system=' '.join(text_of(m) for m in self.server.requests[-1]['messages'] if m['role']=='system')
+        self.assertLess(system.index('ONBOARD_MISSION'),system.index('ONBOARD_IDENTITY'))
+
+    def test_vague_introduction_uses_a_random_name_and_default_persona(self):
+        c=self.start()
+        result=self.initialize(c,'onboard-vague','VAGUE')
+        self.assertTrue(result['data']['fallback'])
+        name=result['data']['name']
+        self.assertTrue(name and name!='Vivy',result)
+        files={f['name']:f['text'] for f in result['data']['current']['files']}
+        self.assertTrue(files['MISSION.MD'].startswith('Your mission is to help'))
+        self.assertTrue(files['IDENTITY.MD'].startswith('You are '))
+        self.assertNotIn('Vivy',files['IDENTITY.MD'])
+        self.assertTrue(files['REDLINE.MD'].startswith('Never claim work'))
 
 if __name__=='__main__': unittest.main()

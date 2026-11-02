@@ -205,7 +205,13 @@ fn submit_candidate(
                     "only IDENTITY.MD, RELATIONSHIP.MD, DREAM.MD and DARK.MD may be evolved automatically",
                 ));
             }
-            let current = vivy_laputa::PersonaStore::new(&root(world)).read()?;
+            let store = persona_store(world);
+            if !store.initialized()? {
+                return Err(invalid(
+                    "persona candidates require an initialized Laputa persona",
+                ));
+            }
+            let current = store.read()?;
             if current.revision.to_string() != job.expected_base {
                 return Err(invalid("stale persona base"));
             }
@@ -341,7 +347,7 @@ fn reconcile(world: &World, job: &Job) -> io::Result<Option<Value>> {
             .activated(&job.update)
             .map(|p| p.map(|p| json!({"publication":p.id})));
     }
-    let store = vivy_laputa::PersonaStore::new(&root(world));
+    let store = persona_store(world);
     // update is idempotent over activated ancestry; call it only when the active
     // lineage proves the ID or at the publication step below.
     store
@@ -545,7 +551,7 @@ fn tick(world: &mut World) {
                             let expected =
                                 job.expected_base.parse::<u64>().map_err(io::Error::other)?;
                             let (file, file_digest) = persona_target(&job)?;
-                            let store = vivy_laputa::PersonaStore::new(&root(world));
+                            let store = persona_store(world);
                             let current = store.read()?;
                             let persona = store.save_file_checked(
                                 expected,
