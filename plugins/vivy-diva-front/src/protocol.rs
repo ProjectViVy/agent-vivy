@@ -437,6 +437,8 @@ pub struct HistoryMessage {
     pub text: String,
     pub reasoning: String,
     pub status: String,
+    #[ts(type = "number")]
+    pub step: u64,
     pub truncated: bool,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -465,6 +467,8 @@ pub struct ToolInfo {
     pub task: String,
     pub name: String,
     pub phase: String,
+    #[ts(type = "number")]
+    pub step: u64,
     pub output: Option<String>,
     pub truncated: bool,
 }

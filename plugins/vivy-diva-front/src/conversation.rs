@@ -224,6 +224,7 @@ pub fn tool_info(state: &DurableAgentState) -> Vec<ToolInfo> {
                     .unwrap_or("tool")
                     .into(),
                 phase: o.phase.clone(),
+                step: o.step,
                 output: output.map(|s| preview(&s, 4096)),
                 truncated,
             }
@@ -272,6 +273,7 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                 role: "user".into(),
                 text: preview(task.input.text(), 256 * 1024),
                 reasoning: String::new(),
+                step: 0,
                 truncated: task.input.text().len() > 256 * 1024,
                 status: status.clone(),
             });
@@ -317,6 +319,7 @@ pub fn history(world: &World, params: HistoryParams) -> Result<Reply, Fault> {
                             truncated: text.len() > 256 * 1024,
                             text: preview(&text, 256 * 1024),
                             reasoning: preview(&reasoning, 256 * 1024),
+                            step: operation.step,
                             status: if response.aborted.is_some() {
                                 "interrupted".into()
                             } else {
@@ -377,6 +380,7 @@ mod projection_tests {
                 text: text.clone(),
                 reasoning: String::new(),
                 status: "completed".into(),
+                step: 0,
                 truncated: false,
             })
             .collect();
