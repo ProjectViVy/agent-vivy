@@ -18,9 +18,8 @@
 //! `${@:N}` (from the Nth) and `${@:N:L}` (L from the Nth). Arguments split
 //! at spaces outside `"…"` or `'…'`. Values are not substituted again.
 //!
-//! Unlike Pi, a project's templates load without a trust step, as Rig's
-//! project skills do: a template only sends text the user can read, as the
-//! user's message.
+//! As in Pi, a project's templates load once the project is trusted; a
+//! template only sends text the user can read, as the user's message.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
