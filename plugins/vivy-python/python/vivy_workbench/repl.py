@@ -769,6 +769,41 @@ async def _handle_mcp_status(req: dict[str, Any], ns: dict[str, Any]) -> None:
     _send({"event": "done", "id": req["id"], "status": "ok", "connections": connections})
 
 
+async def _mcp_control(req: dict[str, Any]) -> None:
+    from . import mcp
+    try:
+        action, server = req["action"], req["server"]
+        if not server:
+            raise ValueError("MCP management requires a server ID")
+        if action in ("apply", "close", "reconnect"):
+            # Registry ownership and per-server locks defer replacement until
+            # that server's current invocation ends, without resetting Python.
+            await mcp.reload(server)
+        if action in ("inspect", "reconnect"):
+            tools = await mcp.list_tools(server)
+            data = {"server": server, "state": "connected", "tools": tools}
+        elif action in ("close", "apply"):
+            data = {"server": server, "state": "closed", "tools": []}
+        else:
+            raise ValueError("unsupported MCP management action")
+        _send({"event": "control_result", "id": req["id"], "data": data, "error": None})
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        _send({"event": "control_result", "id": req["id"], "data": None,
+               "error": f"{type(exc).__name__}: {exc}"})
+
+
+def _spawn_mcp_control(req: dict[str, Any]) -> None:
+    if len(_mcp_status_tasks) >= 16:
+        _send({"event": "control_result", "id": req["id"], "data": None,
+               "error": "MCP management queue is full"})
+        return
+    task = asyncio.get_running_loop().create_task(_mcp_control(req))
+    _mcp_status_tasks.add(task)
+    task.add_done_callback(_mcp_status_tasks.discard)
+
+
 async def _handle_request(
     handler: Callable[[dict[str, Any], dict[str, Any]], Awaitable[None]],
     req: dict[str, Any],
@@ -875,6 +910,7 @@ async def _serve(queue: asyncio.Queue[dict[str, Any]], ns: dict[str, Any]) -> No
 
 
 _REQUIRED_FIELDS = {
+    "mcp_control": ("id", "action", "server"),
     "execute": ("id", "code"),
     "memory": ("id", "action"),
     "list_names": ("id",),
@@ -917,6 +953,9 @@ def _handle_request_line(raw: bytes, queue: asyncio.Queue[dict[str, Any]]) -> No
     missing = [f for f in _REQUIRED_FIELDS[rtype] if not isinstance(req.get(f), str)]
     if missing:
         _protocol_error(f"{rtype} request needs string fields: {', '.join(missing)}")
+        return
+    if rtype == "mcp_control":
+        _loop.call_soon_threadsafe(_spawn_mcp_control, req)
         return
     if rtype == "execute":
         with _interrupt_lock:

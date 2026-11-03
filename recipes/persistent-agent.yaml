@@ -8,12 +8,6 @@ rig:
   git: https://github.com/0xPlaygrounds/rig
   rev: fc556f982d501eea9d7167398a19386e4884e776
 components:
-  - name: prompt
-    crate: vivy-basics
-    path: ../plugins/vivy-basics
-    plugins:
-      - vivy_basics::prompt::AssistantPromptPlugin
-
   # Pi's project trust: the project's own skills, prompt templates and
   # system-prompt files load once the user trusts it (--approve, /trust, or
   # the start question). Rig's skills, without untrusted project skills.

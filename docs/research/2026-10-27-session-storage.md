@@ -423,7 +423,7 @@ Historical comparison below: source checkouts inspected read-only. The
   and `packages/durable/{README.md,src/storage,src/session}`.
 - Rig `55cd481a2421fd5da468b5bd6afc6ac876883599`:
   `crates/{rig-memory,rig-ecs,rig-harness,rig-sqlite}/src`.
-- vivy-test: `recipes/coding-agent.yaml`, `plugins/vivy-basics/src/prompt.rs`,
+- agent-vivy: `recipes/coding-agent.yaml`, `plugins/vivy-basics/src/prompt.rs`,
   `docs/PI-BASELINE.md`, and the Python workbench documentation.
 
 These are pinned local source findings, not new runtime tests. No user sessions,
@@ -496,7 +496,7 @@ official inbox implementation schedule.
 ## Historical implementation comparison (2026-10-27)
 
 The owner's follow-up correctly notes that **Go Vivy uses SQLite**. The Rig
-file-store row below describes the current **vivy-test experiment**, not the
+file-store row below describes the current **agent-vivy experiment**, not the
 older Go product. The earlier source-only inventory also identifies an optional
 PostgreSQL backend. At Go revision `9cd2801f8090723a652d3e835f72d83715b82121`,
 the SQLite backend uses a single database connection, applies migrations on

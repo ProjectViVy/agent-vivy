@@ -3,7 +3,7 @@
 Date: 2026-10-27. This is an inventory and decision aid, not an implementation
 plan, a new acceptance gate, or an authorization to remove features. The owner
 requested the Go product, feature branches and remake donors to be checked
-against the current vivy-test direction. The earlier migration assessment did
+against the current agent-vivy direction. The earlier migration assessment did
 not list A2A and several other surfaces; this inventory corrects that omission.
 Owner decisions in the 2026-10-27 refinement supersede the earlier tentative
 dispositions; the rows below are updated, and the reference findings are in §8.
@@ -44,7 +44,7 @@ The **scope** column describes decisions actually made for the new Vivy:
   compatibility target from the current scope. A later phase may make a new
   choice; the user-visible problem can still have a replacement.
 
-The **target** column describes source/recipe state in vivy-test, not a promise
+The **target** column describes source/recipe state in agent-vivy, not a promise
 of behavior parity: **Yes** = implemented and selected for the stated narrow
 behavior; **Partial** = a meaningful piece exists; **No** = no selected
 implementation found; **Reference** = upstream source exists but is not selected.
@@ -69,8 +69,8 @@ their status into an imaginary single release.
 | G4 | [ACP branch](https://github.com/ProjectViVy/agent-vivy/tree/21c5b8bb49edd1502a033b0ca557737e102b9551) and main's `plugins/acp`; [remote SSH planning branch](https://github.com/ProjectViVy/agent-vivy/blob/0cf252a1c883b829714577d916a6ce944a670f56/docs/superpowers/plans/code-ssh/index.md). |
 | G5 | GitHub issues, including [#2 A2A](https://github.com/ProjectViVy/agent-vivy/issues/2), [#12 Plan/Goal](https://github.com/ProjectViVy/agent-vivy/issues/12), [#13 hooks](https://github.com/ProjectViVy/agent-vivy/issues/13), [#57 assistant/worker](https://github.com/ProjectViVy/agent-vivy/issues/57), [#58 unified memory](https://github.com/ProjectViVy/agent-vivy/issues/58), [#60 offload](https://github.com/ProjectViVy/agent-vivy/issues/60), [#62 context inspection](https://github.com/ProjectViVy/agent-vivy/issues/62), [#63 Obsidian](https://github.com/ProjectViVy/agent-vivy/issues/63), [#64 skill evolution](https://github.com/ProjectViVy/agent-vivy/issues/64), [#66 companion entry](https://github.com/ProjectViVy/agent-vivy/issues/66), [#72 evolution](https://github.com/ProjectViVy/agent-vivy/issues/72), and [#93 runtime experiments](https://github.com/ProjectViVy/agent-vivy/issues/93). Open/closed issue status alone is not proof of a shipped product. |
 | G6 | Remote `stable` `0e795b0c600979f606ee90f45600fb01d2981a45`: read-only GitHub tree and 34 commit summaries since locally recorded `83029dc0`, plus the current source inventory under `internal`, `plugins` and `ui`. Those commits include child context/workspace, retry, failed tool continuation and steering corrections. It was not checked out or fully built. |
-| N1 | vivy-test `recipes/coding-agent.yaml`, `plugins/vivy-basics`, `plugins/vivy-gateway`, `plugins/vivy-python`, launcher and README. |
-| N2 | vivy-test DESIGN's 2026-10-27 two-harness and memory decisions; HANDOFF; PI-BASELINE. |
+| N1 | agent-vivy `recipes/coding-agent.yaml`, `plugins/vivy-basics`, `plugins/vivy-gateway`, `plugins/vivy-python`, launcher and README. |
+| N2 | agent-vivy DESIGN's 2026-10-27 two-harness and memory decisions; HANDOFF; PI-BASELINE. |
 | N3 | Pinned Rig `55cd481a`: `corpus/base/src/session_goal.rs`, `corpus/sn/src/hook_scripts.rs`, `corpus/fh/src/lsp_tools.rs`, `corpus/base/src/checkpoint_rewind.rs`, `rig-basics` remote/checkpoint, harness and TUI. Corpus examples are reference source until selected and tested. |
 | N4 | Pinned Pi `f321e5bd`: coding-agent and `packages/durable` as behavior references. |
 | N5 | Prime `c4c238ca`: Python REPL protocol/event loop and MCP lifecycle reference; mysoul source and its pinned MemPalace `f41e8e75` as documented in DESIGN. No Prime/MemPalace/mysoul end-to-end integration is asserted. |
@@ -88,13 +88,13 @@ the final [issue #2 comment](https://github.com/ProjectViVy/agent-vivy/issues/2#
 records owner acceptance on that branch and keeps merge as a separate gate. The
 branch is not an ancestor of inspected `origin/main`, and no `a2a-server`
 module appears in the inspected remote stable plugin tree. The branch evidence
-does not establish a selected server in either Go main/stable or vivy-test.
+does not establish a selected server in either Go main/stable or agent-vivy.
 
 ## 1. Execution, tasks and composition
 
 | Feature / user-visible behavior | Go evidence | Scope | Target | Boundary / gap |
 | --- | --- | --- | --- | --- |
-| One YAML-selected, statically assembled executable | G1 `sdk/internal/assembly`, G2 | Keep | Yes | vivy-test recipe selects compiled Rust plugins; it does not implement Go Generation compatibility. |
+| One YAML-selected, statically assembled executable | G1 `sdk/internal/assembly`, G2 | Keep | Yes | agent-vivy recipe selects compiled Rust plugins; it does not implement Go Generation compatibility. |
 | Interactive coding agent: model/tool/model loop | G1 `runtime/engine.go` | Keep | Yes | Rig coding path exists; see PI-BASELINE for tested scenarios and remaining parity. |
 | Token/reasoning streaming and final result | G1 engine/mapper, G6 | Keep | Partial | Basic scripted streaming exists; exact gateway/reasoning/event behavior requires selected-endpoint verification. |
 | Tool-call error returned to model, continue or report | G1 `tool_failure.go`, G6 | Keep | Partial | Offline failure scenarios exist; long-running and provider-specific failure paths remain bounded checks. |
@@ -158,7 +158,7 @@ does not establish a selected server in either Go main/stable or vivy-test.
 | File read/write/edit, list and local search | G1 `internal/tools`; N1 | Keep | Yes | Coding recipe selects Rig tools plus search/list. Exact tool schemas and full limits differ. |
 | Shell / terminal command execution | G1 bash/execute/jobs; N1 | Keep | Yes | Git Bash and process cleanup exist on Windows; this is not an OS sandbox. |
 | Multiple edits, patch and shell output spill | G1 `multiedit`, patch, spill | Decide | Partial | Current editing exists; Go-specific multi-edit and recoverable spill behavior not fully checked. |
-| LSP diagnostics, definition, references, hover and symbols | G1 `plugins/coding/lsp`, VC-3; N3 Rig corpus | Keep | Reference | Optional/non-core; Rig's example is not selected or Windows-validated in vivy-test. |
+| LSP diagnostics, definition, references, hover and symbols | G1 `plugins/coding/lsp`, VC-3; N3 Rig corpus | Keep | Reference | Optional/non-core; Rig's example is not selected or Windows-validated in agent-vivy. |
 | LSP rename | G1 `plugins/coding/lsp`, VC-3 | Decide | No | Rig's inspected five-tool example does not include rename; choose separately if needed. |
 | Task notes, structured scratch and sequential-thinking tool | G1 `notes.go`, `sequential_thinking.go` | Decide | No | Workspace files/Plan are available; these specific Go tools are not selected. |
 | Ask-user questions and structured choices | G1 `askuser.go`, question RPC | Decide | Partial | Rig terminal questions and Plan review exist; old structured question/recovery semantics are not established. |
@@ -171,7 +171,7 @@ does not establish a selected server in either Go main/stable or vivy-test.
 | Python↔Rust host callbacks and nonblocking cancellation | N5 Prime protocol | Keep | No | Prime synthetic protocol probe is not evidence of an integrated host. |
 | Python result bounds, errors and worker cleanup | N1 worker and Rust wrapper | Keep | Partial | Basic limits/error handling exist; long-lived resource and durable recovery remain. |
 | MCP stdio/HTTP connection and managed lifecycle | G1 MCP backend; N5 Prime | Keep | No | Python MCP client is planned; server crash/reconnect/reload need explicit handling. |
-| MCP tool discovery, schema and invocation | G1 `mcpadapter`, MCPHost | Keep | No | Actual native tool discovery/call has not been integrated in vivy-test. |
+| MCP tool discovery, schema and invocation | G1 `mcpadapter`, MCPHost | Keep | No | Actual native tool discovery/call has not been integrated in agent-vivy. |
 | MCP resources, templates, prompts, elicitation and OAuth | G1 MCP resource RPC; G5 #13 | Decide | No | Do not infer all optional MCP features from a basic tool call. |
 | PEN external capability packages, including tools, Skills and connectors | G1 bundles; G2 toolkits; G5 #20/#67; owner, 2026-10-30 | Keep | No | Import delivers a complete capability; MCP is one possible interface. Exact manifest/runners and import behavior remain open; this does not select every legacy toolkit entry. |
 | Minecraft PEN: independent multiplayer first, client control retained | Owner, 2026-10-30 | Keep | No | Independent-player multiplayer is primary. Client operation remains a second design route; edition/version, connector and auxiliary-mod policy are undecided. |
@@ -290,7 +290,7 @@ The current `task_parallel` and `task_chain` do not implement that product.
 
 Inspected Prime `c4c238ca025e382d96fb5f37e6328ca77fb82ef3` and Rig
 `55cd481a2421fd5da468b5bd6afc6ac876883599`. These are source observations,
-not tests run against the user's data or proof of integration in vivy-test.
+not tests run against the user's data or proof of integration in agent-vivy.
 
 ### History search
 
@@ -306,7 +306,7 @@ transcript display (`pa-core/src/session/window.rs`,
 message full-text or semantic search. No separate full-history search was found
 in the searched source; do not infer that none could exist in another surface.
 
-vivy-test already selects Rig's session picker and resume/tree commands. A
+agent-vivy already selects Rig's session picker and resume/tree commands. A
 separately selected search over complete messages would need its own source,
 scope and index/query behavior; full MemPalace retrieval is not automatically
 the authoritative searchable conversation transcript. No search implementation
@@ -327,7 +327,7 @@ compaction usage is not yet reliable. These are useful usage views, not a full
 categorized inspection of every actual request block, injected memory source,
 tool schema and selection reason. Such attribution would need its own measured
 capturing/projection seam if selected for the layered Vivy context. Existing
-vivy-test usage/footer is a partial basis; neither an exact per-layer inspector
+agent-vivy usage/footer is a partial basis; neither an exact per-layer inspector
 nor a new context store has been implemented.
 
 ### File rewind
@@ -349,7 +349,7 @@ untracked files, under `refs/rig/checkpoints/<session>/<turn>` using a temporary
 index. `/rewind` can restore files and conversation together or separately;
 it asks before overwriting detected user edits. Its restore removes files absent
 from the target tree and checks out changed files. It needs a Git worktree and
-explicitly does not capture ignored files. Current vivy-test selects Rig's
+explicitly does not capture ignored files. Current agent-vivy selects Rig's
 conversation rewind but **not** this file-rewind corpus plugin. It is a source
 candidate, not proof of Windows support or safe coordination with another
 durable writer. `rig-basics::checkpoint::CheckpointPlugin` is a different
@@ -360,7 +360,7 @@ per-call change-observation facility and is also not selected by the recipe.
 Rig's `corpus/fh/src/lsp_tools.rs` offers diagnostics, definition, references,
 hover and workspace symbols, starts configured servers on demand, and manages
 server lifecycle. It is in the non-published `corpus-fh` example crate, not a
-selected vivy-test plugin; that crate carries additional dependencies. Its
+selected agent-vivy plugin; that crate carries additional dependencies. Its
 source test uses a fake server, and this investigation did not run it or verify
 native Windows behavior. No rename tool is present in that five-tool example.
 
@@ -397,5 +397,5 @@ to reading the inventory and do not silently change the agreed scope:
    actual new behavior. Legacy data and multi-platform deployment compatibility
    are excluded from the current target.
 
-No Go app or Vivy-test product was built or run for this source inventory. The
+No Go app or agent-vivy product was built or run for this source inventory. The
 recorded A2A branch tests are historical branch evidence, not tests run here.

@@ -10,14 +10,14 @@ no experiment branches, tags, Git history, session data or build products are
 imported. Product-facing identity is now Vivy. Keep the existing GNU GPL v3
 license and third-party notices.
 
-The retained local `vivy-test` repository/worktrees contain historical evidence,
+The retained local experiment repository/worktrees contain historical evidence,
 the active trial data and the local Rig checkpoint implementation. Paths and
 commit IDs in the dated entries below belong to that historical repository.
 The source snapshot was taken from its merged main `4efdd3f`. No old `.git`
 directory or reference repository is part of the official upload. The D4 build
 still needs Rig checkpoint commit `810d7dfd`; publication of that separate fork
 is not included in this repository migration. Its local path remains
-`C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable` for verification.
+`<repo>/.workspace/rig-durable` for verification.
 
 Promotion verification passed 34 root tests and 85 basics tests with terminal
 support. Both recipes built from this new checkout using the unchanged local
@@ -35,6 +35,183 @@ Formatting and whitespace checks passed. The 180-file publication audit found no
 tracked build products, sessions, obvious credential tokens or AI attribution
 markers. Existing protocol/instruction-file compatibility names remain functional.
 Local verification evidence stays ignored under `.workspace/promotion/`.
+
+Provider setup now exposes three Rust-owned desktop presets; see the existing
+plan section "Curated provider setup" for defaults and verification. Existing
+user configurations remain authoritative.
+
+## Global Laputa home and first-run onboarding (2026-11-02)
+
+The persona root is now global: a non-empty `LAPUTA_HOME`, otherwise
+`%USERPROFILE%/.laputa` (`$HOME/.laputa`). The role workspace is
+`<root>/personas/main`; `persona.json` and `revisions/` stay at the root. On first
+read, `<workspace>/.vivy/laputa` is copied once into the global root and the old
+directory is kept as a backup. A global six-file directory without `persona.json`
+is adopted at revision 0 and counts as initialized.
+
+First launch now gates on provider configuration, then one free-form introduction,
+then one combined Python workspace and native-memory step. The core extracts a
+draft with one tool-free completion and writes it directly; `REDLINE.MD` always
+comes from compiled defaults. Unclear drafts fall back to a random display name
+plus the compiled six files. The desktop persists completion in
+`desktop-state/onboarding.json`; an explicit reset records `forced: true` so the
+upgrade backfill does not mark an already initialized persona as complete, and
+finishing onboarding clears it. Settings can reopen the role workspace.
+`persona_initialize` is asynchronous on the model path; `fallback: true` writes
+synchronously. Contract additions: `PersonaInitialize`, `PersonaOnboarded`,
+`PersonaView.name/initialized` and `ManagementResult::PersonaOnboarded`.
+
+The workspace step reads `python_read` and offers one `python_prepare
+{managed, memory}` call that installs the Python workbench and, when requested,
+the native MemPalace assets. Native memory is pre-selected when it is currently
+off; either part can be skipped and completed later under Settings → Runtime.
+`PythonPrepare.memory` defaults to `false` on the wire so older callers remain
+valid. Enabling memory sets `PythonSettings.memory` before the scope is computed,
+then writes the per-project `python` and `memory` consent files under
+`RIG_HOME/initialization/<fingerprint>/`; the memory decision records
+`enabled: true` and the memory-inclusive grant, and `tick()` restores it on the
+next start.
+
+Verification for this change: `vivy-laputa` 21, `vivy-durable --features
+autodream` 50, `vivy-diva-front --features persistent` 3 and `vivy-basics
+--features tui` 84 tests pass in the isolated scratch workspace, plus root
+`cargo test --workspace --locked`; `diva_conversation_test.py` passes 16 native
+cases (onboarding write, retry idempotency, fallback, MISSION-before-IDENTITY
+ordering and the existing six-file cases under a temporary `LAPUTA_HOME`),
+`prompt_files_smoke.py` passes four cases and `autodream_smoke.py --only live`
+reports `passed`. `PersonaSource` carries the resolved store rather than a bare
+root: a root-only copy silently skipped migration whenever `LAPUTA_HOME` was set.
+The core artifact from commit `6040884` was imported, and a desktop restart
+copied `%LOCALAPPDATA%/org.projectvivy.agentdiva/workspace/.vivy/laputa` into
+`%USERPROFILE%/.laputa` byte-for-byte, kept the old directory, and backfilled
+`onboarding.json`. Desktop `check`, 35 unit tests, the production build and
+`test:artifact` pass. The fresh-provider gate was not completed manually because
+the configured gateway returned HTTP 503; the upgrade path, the OnboardingView
+unit tests and the mock-gateway native cases cover the remaining flow.
+
+Contract, build and import loop after a core or protocol change:
+
+- Regenerate `plugins/vivy-diva-front/contract/` with a temporary
+  `export_contract` example in `.generated/diva-agent-rig-dev/examples/`:
+  `cargo run --manifest-path .generated/diva-agent-rig-dev/Cargo.toml --example export_contract -- plugins/vivy-diva-front/contract`.
+- Build the core with
+  `CARGO_TARGET_DIR=C:/vtd0 CARGO_PROFILE_DEV_DEBUG=0 cargo run -p vivy -- build recipes/diva-agent.yaml --rig-path <rig-checkout>`.
+- Commit the tracked core tree first; `scripts/diva_artifact.py` refuses a dirty
+  tree. Then export `.generated/artifacts/diva-core` with the built binary and run
+  `npm run import-core -- ../diva-integration/.generated/artifacts/diva-core` in
+  the desktop checkout.
+- The desktop bridge starts `src-tauri/target/debug/diva-core.exe`, not the copy
+  under `src-tauri/binaries/`. Replace that executable and restart the app after
+  importing, or the UI keeps talking to the previous protocol.
+- All smoke scripts set a temporary `LAPUTA_HOME`. Never point them at the real
+  user home directory. `diva_conversation_test.py` covers onboarding, retry
+  idempotency, fallback and MISSION ordering; `prompt_files_smoke.py` and
+  `autodream_smoke.py` cover prompt editing and per-file persona candidates.
+
+## Diva six-file core persona (2026-11-02)
+
+Settings no longer presents "persona and prompts" as peers. The `persona` section
+is now **Core persona** and shows Laputa's six Markdown files:
+`MISSION.MD`, `IDENTITY.MD`, `RELATIONSHIP.MD`, `REDLINE.MD` (required) and
+`DREAM.MD`, `DARK.MD` (optional). Sources live under `<LAPUTA_HOME>/personas/main/`
+(legacy workspace directories are copied on first read); the compiled defaults
+remain in
+`prompts/persona/`. `IDENTITY.MD` absorbs the former `prompts/ASSISTANT.md`,
+whose plugin and trust entry are removed. `RECAP.md` and `AUTODREAM.md` remain
+internal prompts and are no longer shown in Settings.
+
+- `vivy-laputa` stores schema-2 metadata in `<LAPUTA_HOME>/persona.json`, keeps a
+  complete immutable six-file snapshot per revision, assembles in fixed order
+  behind one `<persona>` block, skips empty optional files, enforces a non-blank
+  `MISSION.MD`, 32 KiB per file and 64 KiB assembled, and migrates v1 text into
+  `IDENTITY.MD`. External edits are used by the next operation and reported as
+  `unpublished` until saved.
+- AutoDream candidates are file-scoped to `IDENTITY.MD`, `RELATIONSHIP.MD`,
+  `DREAM.MD` or `DARK.MD` and carry the target digest. `MISSION.MD` and
+  `REDLINE.MD` are rejected at admission; legacy fileless jobs fail explicitly.
+- The desktop protocol replaces `persona_update` with `persona_save_file` and
+  returns six-file views plus history; `prompts_read`/`prompt_save` remain for the
+  two internal prompts. The panel edits one file at a time, confirms saves to
+  protected files, preserves drafts on conflicts and supports revision rollback.
+
+Verification completed for this change: 11 `vivy-laputa`, 49 `vivy-durable`,
+3 Front and 64 Basics tests plus 34 root workspace tests; contract export matches
+the core; the artifact built from core commit `4c44cf4`, `import-core` accepted it,
+and the desktop runs that core. `diva_conversation_test.py` passes 14 native cases
+(including six-file order, protected-file conflict, blank MISSION and rollback),
+`prompt_files_smoke.py` passes four cases, `assistant_context_smoke.py` reports
+`passed` and `autodream_smoke.py --only live` passes with per-file candidates.
+Desktop `check`, 27 unit tests and the production build pass. Manual WebView
+verification covered the six-file list and hints, per-file save, MISSION
+confirmation cancel/confirm, an external `unpublished` edit, history sources,
+rollback to an earlier revision, and persistence across an application restart.
+
+## Diva management and native host continuation (2026-11-02)
+
+The active backend and desktop worktrees remain `.workspace/diva-integration`
+and `.workspace/agent-diva-next`; do not use the original Vivy checkout. Typed
+admission/history and eight management areas now have implementations. Desktop
+source is on `feat/diva-core-integration` and consumes an explicit exported core
+artifact. No merge/push or release completion is claimed.
+
+Latest evidence: nine native conversation/management cases, five transport cases,
+native front smoke, 47 durable Rust tests, 39 Python Rust tests and two DTO contract
+tests pass. Desktop production bridge tests pass ten actual cases plus one
+subprocess fixture, including real-core outbox write failure, crash/reopen, retained
+invalid configuration and second writer rejection; forced host death closes the
+Job Object tree. Six Vue runtime tests and production build pass. Browser checks
+use explicit synthetic IPC and are not native WebView2 evidence. See the existing
+plan's continuation section for commands and remaining gates.
+
+Independent review subsequently fixed credential-policy refresh, empty MCP tool
+filters, oversized history frames and uneditable managed candidate admission.
+Latest counts are 14 native conversation, 40 Python Rust, 3 Front and 27 desktop unit cases;
+the existing plan records the regression details and environment isolation policy.
+
+Readiness changes now refresh the shared snapshot without requiring a task.
+Skill inventories fetch source only when selected. Five artifact-import rejection
+tests pass. A short-path clean source/archive build produced a per-user NSIS;
+installation, reopening, forced host death, a 0.1.0-to-0.1.1 test upgrade and
+default uninstall preserved the disposable session/workspace as expected.
+These installation checks used the existing Administrator account and installed
+WebView2. Native UI automation still fails with a missing local control pipe.
+
+User-authorized desktop gateway files were read only for isolated live checks.
+StepFun's exact model failed with HTTP send errors even without inherited proxies;
+the supplied Qwen model returned HTTP 404 `model_not_found`. A subsequent read-only
+model-list request returned the exact ID `qwen3.8-omni-flash`. With that ID, the
+native core completed streamed chat, a real read-tool call and committed the
+expected fixture result. The explicit text, stream and tool probes each passed.
+No credential values were copied into records or original gateway files changed.
+Native WebView2 interaction/scaling, hidden Recap/wake and clean standard-user
+acceptance remain unverified; the complete M1–M6 acceptance is not signed off.
+
+## Diva typed transport continuation (2026-11-02)
+
+Implementation remains active on `feat/diva-desktop`. Rust is now the wire DTO
+source; `plugins/vivy-diva-front/contract` contains generated types and examples.
+The export example takes an explicit output directory; the contract test rejects
+stale checked-in output. Native handshake/boundary checks pass. M2–M6 remain
+pending; see the existing plan progress for exact evidence and branch bases.
+
+## Diva transport boundary checks (2026-11-01)
+
+The desktop branch now distinguishes protocol-version and unsupported-operation
+errors, bounds reflected IDs, preserves pipe-read error causes, and rejects EOF
+without a JSON Lines terminator. Four actual-process boundary tests, the existing
+front smoke and all 34 root workspace tests passed. The plan's progress section
+records reproduction and remaining work. This does not complete M1: type export
+and readiness projection are still pending, as are conversation, desktop hosting,
+management and installer milestones. No desktop repository changes were made.
+
+## Diva implementation started (2026-11-01)
+
+The owner subsequently authorized implementation. Work is isolated on
+`feat/diva-desktop` in `.workspace/diva-integration`. Initial desktop transport
+and recipe build and pass a native pipe smoke; integration remains incomplete.
+See the [plan progress](plans/2026-11-01-diva-desktop-integration.md#7-implementation-progress-2026-11-01)
+for exact evidence and next steps. Do not treat this as a completed desktop,
+conversation or installer. Existing trial data/processes and desktop UI are untouched.
 
 ## Diva desktop plan recorded (2026-11-01; not implemented)
 
@@ -63,7 +240,7 @@ Python workbench and initialization were already integrated; D0-D4, setup repair
 and editable prompts are now included. All seven registered worktrees had clean
 tracked/untracked status at the audit. No remote push or history rewrite occurred.
 
-Continue product work in `C:/Users/Administrator/Desktop/vivy-test` on `main`.
+Continue product work in `<repo>` on `main`.
 Earlier worktree paths below describe historical execution/evidence locations.
 Worktree directories, branch references and ignored data were retained: the
 interactive trial still uses the `aedb` worktree's executable and session data.
@@ -116,7 +293,7 @@ edits to these new prompt files require no restart.
 ## D4 AutoDream AD-2 (2026-11-01)
 
 Branch `feat/d4-autodream`, based on `334ed9e`, in
-`C:/Users/Administrator/.codex/worktrees/aedb/vivy-test`. Use **new D4 sessions**:
+`<worktree>`. Use **new D4 sessions**:
 the durable state is now `vivy.durable.v3`. Main, production Rig pins and the
 local checkpoint fork (`810d7dfd`) remain unchanged. No merge/push is included.
 
@@ -247,7 +424,7 @@ interactive trial was reopened with the repaired binary and original session.
 ## D3 persistent waits and wakes (2026-11-01)
 
 Branch `feat/d3-durable-wake`, based on D2 `c0bad0d`, in
-`C:/Users/Administrator/.codex/worktrees/aedb/vivy-test`. Use **new D3 sessions**.
+`<worktree>`. Use **new D3 sessions**.
 The D2 executable is preserved at `.workspace/d3/baseline/persistent-agent.exe`;
 keep its sessions with that binary. Main and the local Rig checkpoint fork
 (`810d7dfd`) are unchanged. No merge or push is included.
@@ -256,8 +433,8 @@ keep its sessions with that binary. Main and the local Rig checkpoint fork
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 $env:PYTHONUTF8 = '1'
-cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
+C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
 ```
 
 The regular coding `start.cmd` remains unchanged. Use the existing gateway
@@ -328,8 +505,8 @@ historical. A D1 executable is preserved in `.workspace/d2/baseline/`.
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 $env:PYTHONUTF8 = '1'
-cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
+C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
 ```
 
 Configure a real gateway through the existing settings/provider flow, including
@@ -338,7 +515,8 @@ Use a new session; do not resume D1 or coding sessions with the D2 binary.
 The default `start.cmd` still launches the coding recipe. No product face was
 changed by D2.
 
-Commands: `/persona show`, `/persona update <expected-revision> <text-file>`,
+Commands: `/persona show [NAME]`,
+`/persona update <expected-revision> <NAME> <text-file>`,
 `/persona rollback <expected-revision> <target-revision>`, `/recap status`, and
 `/recap refresh`. Management commands are not tasks or summary sources. Persona
 updates affect new operations, not retries. New input preempts background Recap;
@@ -397,9 +575,9 @@ historical for the pinned upstream. The new path explicitly requires the editabl
 Rig fork; no production pins or checked-in recipe locks were replaced.
 
 Implementation is in the existing Vivy feature worktree
-`C:/Users/Administrator/.codex/worktrees/aedb/vivy-test`, branch
+`<worktree>`, branch
 `feat/d0-rig-probes`; Rig is
-`C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable`, branch
+`<repo>/.workspace/rig-durable`, branch
 `feat/durable-checkpoints`, checkpoint implementation commit `810d7dfd`.
 The original Vivy main checkout is unchanged. No push
 or PR is part of this delivery. Run from the feature worktree:
@@ -408,8 +586,8 @@ or PR is part of this delivery. Run from the feature worktree:
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 cargo build --offline -p vivy
-C:/vtd0/debug/vivy.exe build recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable -- -p "hello"
+C:/vtd0/debug/vivy.exe build recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
+C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable -- -p "hello"
 ```
 
 The last command uses the normal gateway settings and environment-variable
@@ -425,9 +603,9 @@ Reproduce offline Rust and synthetic loopback acceptance:
 
 ```powershell
 $env:PYTHONUTF8 = '1'
-python scripts/rig_fork_probe.py --runtime --rig C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-python scripts/checkpoint_smoke.py C:/vtd0/debug/vivy.exe C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-python scripts/durable_runtime_smoke.py C:/vtd0/debug/vivy.exe C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+python scripts/rig_fork_probe.py --runtime --rig <repo>/.workspace/rig-durable
+python scripts/checkpoint_smoke.py C:/vtd0/debug/vivy.exe <repo>/.workspace/rig-durable
+python scripts/durable_runtime_smoke.py C:/vtd0/debug/vivy.exe <repo>/.workspace/rig-durable
 ```
 
 Executed evidence is summarized in the [plan](plans/2026-10-31-d0-rig-probes.md)
@@ -491,7 +669,7 @@ storage work, then implement and inspect the assistant's actual model inputs in 
 ## Rig fork: saved serialization failure (2026-10-31)
 
 The owner authorizes modifying `mastwet/rig` for the missing D0 seams. The editable
-checkout is `C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable`, branch
+checkout is `<repo>/.workspace/rig-durable`, branch
 `feat/durable-checkpoints`, based on audited Rig `fc556f982d501eea9d7167398a19386e4884e776`.
 This permission supersedes earlier no-upstream-patch instructions for these fixes;
 the existing reference checkout remains unchanged. Nothing has been pushed.
@@ -510,7 +688,7 @@ Vivy validates this with an isolated manifest, without changing its production p
 ```powershell
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
-python scripts/rig_fork_probe.py --rig C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+python scripts/rig_fork_probe.py --rig <repo>/.workspace/rig-durable
 ```
 
 Omitting `--rig` runs the same acceptance tests on pinned upstream and reproduces
@@ -1167,7 +1345,7 @@ mysoul remains read-only reference material; no sessions or memory data are
 copied. Next work requires a bounded implementation scope, not another broad
 capability inventory. Today's save contains documentation only.
 
-Repository: `https://github.com/mastwet/vivy-test`.
+Repository: `https://github.com/ProjectViVy/agent-vivy`.
 The owner's subsequent Go/remake migration assessment is recorded in
 [research section 18](research/2026-10-25-hybrid-agent-workbench-decisions.md#18-go-vivy-migration-assessment).
 It checks pinned source sizes and donor overlap, proposes a minimum behavior
@@ -1188,7 +1366,7 @@ The owner requested a broad feature-by-feature reconciliation, including A2A.
 separates owner scope decisions from actual target implementation, covers all
 16 remake lanes plus A2A/ACP/SSH and lists unresolved product choices. A2A has
 accepted server source/evidence on its Go feature branch but is not selected in
-vivy-test; its server and an outbound A2A client are separate capabilities.
+agent-vivy; its server and an outbound A2A client are separate capabilities.
 Use that inventory rather than treating older suggestions to defer as decisions.
 
 Latest owner decisions narrow the inventory: no legacy data or deployment
@@ -1228,9 +1406,9 @@ The later owner-approved collaborative Plan addition is implemented in
 terminal mode markers, explicit plan submission and user review/feedback;
 see DESIGN's "Collaborative Plan mode" and README usage. Goal and automatic
 evolution remain separate work.
-The owner-approved 2026-10-26 terminal refresh selects a compact vivy-test screen
+The owner-approved 2026-10-26 terminal refresh selects a compact agent-vivy screen
 on Rig's public widgets, a persistent footer and a branded default identity.
-See DESIGN's "Compact vivy-test terminal" and the verification appendix below.
+See DESIGN's "Compact agent-vivy terminal" and the verification appendix below.
 Read [DESIGN.md](DESIGN.md) for decisions and [PI-BASELINE.md](PI-BASELINE.md) for
 coverage. Those documents replace the need to reconstruct the chat history.
 
@@ -1253,7 +1431,7 @@ Do not copy old reference folders from the original Vivy checkout. Do not clone
 Vivy: it is undergoing separate repair, and this repository must not inherit its
 build, runtime, SDK or working-process dependencies.
 
-Run from the `vivy-test` root, only for reference directories that do not already
+Run from the `agent-vivy` root, only for reference directories that do not already
 exist. If a checkout already exists, inspect its status and remote before making
 changes; do not overwrite somebody's work.
 
@@ -1274,7 +1452,7 @@ normal dependency decision after reviewing the relevant changes.
 
 The commands above are setup instructions when references are missing. No upstream dependencies need
 installation just to read source. Read each reference repository's own
-instructions before running its tooling. Keep product changes in `vivy-test`.
+instructions before running its tooling. Keep product changes in `agent-vivy`.
 
 ## Where to look first
 
@@ -1364,7 +1542,7 @@ them. Subscription login/OAuth/token refresh and other native protocols are
 excluded. DESIGN records this scope; the research records Rig's registration
 boundary and an offline API-construction probe, with no live-provider claim.
 Provider management commit `de10ee3` was fast-forward merged into local `main`
-in `vivy-test` on 2026-10-26. The baseline selects ProvidersPlugin, two protocol
+in `agent-vivy` on 2026-10-26. The baseline selects ProvidersPlugin, two protocol
 features and the full TUI editor. README documents commands and configuration;
 the existing research document records verification and review corrections.
 The native launcher and baseline agent were rebuilt from this main checkout.
@@ -1541,7 +1719,7 @@ branded startup/title, Plan-visible drafts, Unicode multiline continuation,
 actual shell output, exit-7 failure cause, running output and Esc cancellation.
 Synthetic terminal streams were rasterized and visually inspected at both sizes;
 the images are ignored test artifacts, not screenshots of a real-provider task.
-The scripted gateway checked that requests use the vivy-test default identity.
+The scripted gateway checked that requests use the agent-vivy default identity.
 The existing Plan terminal script passed approval/write, feedback, scrolling,
 modal exit and restart/resume. Subagent acceptance passed child views, usage,
 parallel/chain workflows and cancellation of four shell descendants. The

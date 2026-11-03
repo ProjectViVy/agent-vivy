@@ -103,7 +103,15 @@ pub(in crate::runtime) fn validate(s: &DurableAgentState) -> io::Result<()> {
             "persona" => {
                 if j.skill.is_some()
                     || j.environment.is_some()
-                    || j.persona.as_ref().is_none_or(|p| p.len() > 64 * 1024)
+                    || j.file
+                        .as_deref()
+                        .is_none_or(|file| !vivy_laputa::auto(file))
+                    || j.file_digest
+                        .as_deref()
+                        .is_none_or(|digest| digest.is_empty())
+                    || j.persona.as_ref().is_none_or(|p| {
+                        p.trim().is_empty() || p.len() > vivy_laputa::MAX_FILE_BYTES
+                    })
                     || j.expected_base.parse::<u64>().is_err()
                 {
                     return Err(invalid("invalid frozen persona candidate"));

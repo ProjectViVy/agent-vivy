@@ -22,6 +22,12 @@ impl rig_harness::prelude::Plugin for ShellTool {
 
 #[cfg(windows)]
 pub use native::ShellTool;
+#[cfg(windows)]
+pub use native::availability;
+#[cfg(not(windows))]
+pub fn availability(_: &rig_harness::prelude::World) -> Option<Result<(), String>> {
+    None
+}
 
 #[cfg(windows)]
 mod native {
@@ -47,6 +53,12 @@ mod native {
     #[serde(default, deny_unknown_fields)]
     struct ShellSettings {
         executable: String,
+    }
+    /// Read-only discovery using exactly the execution path's resolver.
+    pub fn availability(world: &World) -> Option<Result<(), String>> {
+        world
+            .get_resource::<ShellSettings>()
+            .map(|s| bash(&s.executable).map(|_| ()).map_err(|e| e.to_string()))
     }
 
     #[derive(Default)]

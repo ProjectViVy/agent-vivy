@@ -51,11 +51,13 @@ use serde::Deserialize;
 pub mod config;
 mod providers;
 mod redact;
-mod setup;
+pub mod setup;
 pub mod store;
 #[cfg(feature = "tui")]
 mod ui;
-pub use providers::{ProvidersPlugin, ProvidersState, reload, remove_key, save_config, save_key};
+pub use providers::{
+    ProvidersPlugin, ProvidersState, reload, remove_key, save_config, save_key, select_default,
+};
 
 /// The vendor the gateway's model is listed under.
 pub const VENDOR: &str = "gateway";
@@ -361,3 +363,5 @@ mod tests {
         assert!(app.world().get::<ModelChoice>(fresh).is_none());
     }
 }
+
+pub mod desktop_presets;

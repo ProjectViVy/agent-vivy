@@ -1,16 +1,15 @@
 # Agent Diva desktop integration plan
 
-Status: **planned; awaiting implementation**. Recorded on 2026-11-01.
+Status: **implementation started; incomplete**. Recorded on 2026-11-01.
 
-The owner selected the decisions below, then explicitly requested that only the
-plan be written for now. This document does not authorize starting implementation
-in the documentation turn. No desktop integration, installer or new runtime
-verification is delivered by this change.
+The owner initially requested documentation only, then explicitly authorized
+implementation. The progress record below distinguishes implemented work from
+the remaining plan. No complete desktop integration or installer is claimed.
 
 ## 1. Goal and selected scope
 
 Deliver an installable Windows desktop assistant using the existing Agent Diva
-Tauri/Vue interface and the independent vivy-test Rust persistent-agent core.
+Tauri/Vue interface and the independent agent-vivy Rust persistent-agent core.
 Preserve YAML-selected compilation, one Rig execution path and existing durable
 state ownership. The original Vivy checkout and its data remain out of scope.
 
@@ -76,7 +75,7 @@ Diva Front
 Vivy persistent assistant / Rig execution and storage
 ```
 
-Backend changes belong to vivy-test; UI and desktop hosting belong to the separate
+Backend changes belong to agent-vivy; UI and desktop hosting belong to the separate
 Agent Diva repository. Add `plugins/vivy-diva-front` and
 `recipes/diva-agent.yaml`. The recipe selects persistent-assistant components and
 the desktop front, omitting terminal-view components. Select the front using
@@ -207,7 +206,7 @@ needs a discard/save decision. Scope busy states to the affected resource.
 | MCP | Manage existing stdio and Streamable HTTP fields, timeouts, tool filters and environment references; show connection/tool inventory; check, reconnect and close; no OAuth or new catalog. |
 | Ordinary Skills | Import local directories into Diva-owned storage, inspect metadata/Markdown, edit SKILL.md, remove and refresh; reject name collisions, leave import sources untouched; removal moves the owned copy to an internal recovery directory. |
 | Managed Skills | Show publications, candidates, validation, dependencies and rollback; edits create candidates through existing validation/publication, never mutate immutable published snapshots; no full code IDE. |
-| Persona/prompts | Edit persona Markdown using revision/update-ID checks; inspect history and rollback; edit Assistant, Recap and AutoDream override files while preserving current precedence and retry freezing. |
+| Persona/prompts | Show Laputa's six core persona files (`MISSION`, `IDENTITY`, `RELATIONSHIP`, `REDLINE`, `DREAM`, `DARK`) as the only identity editor; edit one file at a time using revision/update-ID checks, confirm protected files, inspect unpublished external edits, history and rollback. Keep Recap and AutoDream as internal prompts, not peer identity files. |
 | Recap | Show committed summary, coverage, pending work and failures; refresh; show optional memory readiness without adding a database editor. |
 | Tasks | Inspect active/queued/waiting/suspended/completed tasks and operations; cancel individual tasks; cancel/reschedule existing wakes with their generations; expose uncertain effects and accept explicit reconciliation evidence. |
 | Dream | Request with a reason, inspect/cancel, inspect candidates and validation jobs, detach waits and inspect publication results; no periodic reflection toggle. |
@@ -240,7 +239,8 @@ perform connection tests.
 
 ## 5. Implementation sequence and packaging
 
-All milestones below are **pending**.
+M1 transport scaffolding is implemented; the full M1 contract and M2-M6 remain
+incomplete. See the progress record for exact executed checks.
 
 | Milestone | Work | Exit condition |
 | --- | --- | --- |
@@ -337,8 +337,255 @@ continued execution while hidden and correct recovery after exit/reopen. Update
 the existing DESIGN/HANDOFF records with actual implementation, build inputs,
 measured checks and remaining limits when implementation eventually occurs.
 
-## 7. Current verification status
+## 7. Implementation progress (2026-11-01)
 
-This planning change only records inspected source behavior and owner decisions.
-No milestone above has been implemented or tested by this change. Documentation
-diff review and whitespace checks are the applicable checks for this deliverable.
+Worktree: `.workspace/diva-integration`, branch `feat/diva-desktop`.
+
+- Added the desktop recipe and `DivaFrontPlugin`, using the existing headless
+  runner, a bounded input channel, 1 MiB input limit, versioned output, instance
+  identity, sequence numbers, runtime-derived plugin inventory, snapshot and
+  shutdown. No UI or reference checkout changes.
+- Native smoke initially failed because the binary did not exist. After the
+  first build it exposed an actual first-run exit: the shared headless driver
+  exits without a reachable model. Added the existing `Starting` barrier while
+  awaiting model configuration so management stays reachable. This does not add
+  a model loop or modify Rig.
+- Native `scripts/diva_front_smoke.py C:/vtd0/rig-dev/debug/diva-agent.exe` passed:
+  fresh temporary home, ready/session/inventory, version and unknown-operation
+  rejection, Unicode request correlation, snapshot and orderly exit.
+- `cargo test -p vivy --offline` passed. Generated composition loads the desktop
+  plugin and omits the terminal plugin. The generated patch table mentions
+  rig-tui because it lists local Rig packages; that is not compilation evidence.
+- Build uses `CARGO_TARGET_DIR=C:/vtd0`, `CARGO_PROFILE_DEV_DEBUG=0`,
+  `TEMP=TMP=C:/vtd0/tmp` and the existing `.workspace/rig-durable` checkout.
+
+Next: expand protocol tests for EOF/oversize/reopen and type export, then implement
+committed admission, question adaptation, streaming and historical projections
+before wiring the desktop UI. No real gateway, complete M1 capability/readiness
+contract, M2 conversation, management pages, tray host or installer is verified.
+
+### Native transport boundary follow-up (2026-11-01)
+
+- Added distinct `incompatible_version` and `unsupported_operation` error codes.
+  Invalid/oversized correlation IDs are not reflected in error responses. Input
+  pipe read failures retain their OS cause without echoing request contents.
+- JSON Lines frames now require their newline terminator. A native regression
+  demonstrated that the previous implementation executed a valid JSON object
+  after EOF without its terminator; it now reports `invalid_frame` and exits.
+  Oversized frames likewise report an error and close the connection.
+- Added `scripts/diva_transport_test.py`, using disposable homes and actual
+  executables, covering EOF exit and session reopen, invalid UTF-8/JSON and unknown
+  fields, Unicode/multiline request IDs, oversize input, and incomplete frames.
+- Executed: four native boundary tests and the existing native front smoke passed;
+  `cargo test --workspace --locked --offline` passed all 34 tests; plugin formatting
+  and Git whitespace checks passed. Rebuilt the native recipe with the same short
+  target/temp paths and explicit Rig fork. Existing unused-patch, unused-provider
+  function and MSVC linker warnings remain.
+- This is a transport increment, not completion of M1 or desktop delivery. Type
+  export and capability/readiness contracts remain next, followed by M2-M6.
+
+### Continued implementation (2026-11-02)
+
+The owner authorized continuous implementation of M1–M6 in the follow-up plan.
+Backend base: `fe9e98b` on `feat/diva-desktop`; desktop base: `4633adbb` on
+`feat/diva-core-integration`. No merge or push is authorized.
+
+Interface audit: the desktop consumes the exported Rust protocol and matching
+binary; admission acknowledgements must come from committed core state before
+removing desktop outbox records. Snapshot watermarks and stream events share one
+instance/sequence. Management adapters retain each component's storage owner.
+
+- M1: Rust DTOs now export TypeScript, protocol version and serialization examples.
+  Snapshot includes the runtime-selected foreground assistant, compiled plugin
+  inventory and separate model/Python/memory readiness. Initial Python detection
+  can be `checking`; it is not a prepared or ready environment.
+- Pipe writes use a bounded background queue. Saturation/disconnection terminates
+  the transport; normal shutdown/EOF drains queued replies before exiting.
+- Verification: 34 root tests passed; two Rust contract tests passed; five native
+  boundary tests and the native front smoke passed. The new handshake assertion
+  first failed against the base binary because the watermark was absent.
+- Remaining: M2 durable chat and recovery; M3 native host; all M4 management;
+  M5 failure/UI acceptance; M6 artifact, installer and actual-provider acceptance.
+  No completed desktop or installer is claimed.
+
+### Conversation and provider adapter increment (2026-11-02)
+
+- Added source=`diva` admission/reconciliation, pending-versus-committed replies,
+  receipt-gated admission/cancellation events, generation-fenced stop, instance-bound
+  questions, provisional stream projection and committed history pagination.
+  Message IDs come from saved task/operation identities. Model request/context
+  bodies and Dream internals are not returned as ordinary history.
+- Provider configuration and credential writes reuse the existing settings CAS
+  and credential owner. Explicit default selection reconnects at the idle boundary.
+- Four native scenarios pass: Unicode admission/dedup/conflict/history/reopen;
+  slow-model generation cancellation and stale answer; provider CAS/external edits/
+  write-only credentials; process death followed by admission reconciliation.
+  The transport smoke and five boundary tests also pass, as do the two contract
+  tests. Broader tool/fault/UI/installer acceptance remains outstanding.
+- The supplied desktop gateway was attempted with fresh disposable data; the first
+  Rig run failed before producing stream/tool evidence. Diagnosis remains open;
+  this is not a successful real-provider acceptance.
+
+### Management, desktop host and verification continuation (2026-11-02)
+
+- Domain adapters now cover Providers (including separate fixed text/stream/tool
+  probes), MCP, ordinary and managed Skills, Persona/prompts, Recap, Tasks/Dream
+  and Runtime/Python preparation. Reads do not initiate preparation, connections
+  or Dream. Long work returns an operation receipt and a separate result event.
+- MCP stdio/HTTP fields and environment references are typed. Unknown configuration
+  fields and literal credentials are rejected; absent tool filters differ from an
+  explicit empty allowlist. Worker controls use JSON messages, never generated
+  Python expressions. Reload waits on the affected server's existing call lock;
+  other workers compare current configuration before their next call.
+- Ordinary skill imports copy bounded validated directories into internal storage,
+  reject reparse points/path escape/name collisions, use revision checks and move
+  removals into recovery. Managed edits freeze new candidates; validation receipts
+  live only in the current process. Publish and rollback retain existing CAS.
+- Dream turn cancellation, validation-job cancellation and detach are separate
+  controls. Wake and effect evidence controls retain generation/revision checks;
+  completed UI controls wait for persisted receipts.
+- Tauri's fixed bundled child starts suspended, enters a kill-on-close Windows
+  Job Object and then resumes. The host persists its session before launch and its
+  outbox before writing stdin; it queries admissions after reconnect. Close hides,
+  tray Exit drains shutdown for up to ten seconds, single-instance activation shows
+  the existing window, and a crash requires explicit reconnect. Logs rotate and
+  retain redacted startup causes. No arbitrary process command is exposed to IPC.
+- Vue uses one conversation runtime, generated protocol DTOs, receipt-aware control
+  waits, interrupted provisional text, question/tool cards and disabled raw HTML.
+  History cursor expiry restarts projection reads; an in-flight snapshot cannot
+  resurrect a disconnected connection. Editors retain failed input and prompt only
+  when leaving dirty edits. Explicit test-mode IPC is absent from production output.
+- Executed: nine `diva_conversation_test.py` cases, five `diva_transport_test.py`
+  cases and `diva_front_smoke.py`; Python Rust 39, durable/autodream 47 and Front
+  contract 2 tests. Earlier affected basics 64 and root 34 tests passed. Native
+  Python MCP 7 and runtime 8 cases also passed (including real local stdio and
+  Streamable HTTP). No private sessions were read.
+- Desktop `cargo test --manifest-path bridge-tests/Cargo.toml --offline --
+  --include-ignored` with explicit `DIVA_TEST_CORE` passed 10 cases plus a fixture.
+  This includes write-failure no-send, committed admission dedup after a killed
+  core, session reuse, preserved malformed settings and concurrent session writer
+  rejection. Both normal drop and forced host death terminate Python descendants.
+  `npm test` passes 6 runtime cases; `npm run build` passes.
+- Browser mock checks: failed send retains draft, provider conflict retains editor
+  input, dirty leave offers Save/Discard/Stay, all eight pages render. Actual CSS
+  500x400, 680/681px breakpoint and 1100x760 have no page horizontal overflow.
+  This is Chrome synthetic IPC evidence, not Tauri/WebView2 or OS-scale acceptance.
+- The supplied StepFun endpoint/model failed native HTTP transport after five
+  retries, both inherited-proxy and no-proxy runs. The supplied Qwen endpoint's
+  exact model returned HTTP 404 `model_not_found`. Actual gateway acceptance is
+  still blocked. Native app automation reports an unavailable local control pipe;
+  no unrelated remote desktop was used. Standard-user install, WebView2 GUI,
+  125/150% native scale, hidden Recap/wake and upgrade acceptance remain pending.
+- Core exporter records backend/Rig revisions, protocol, recipe/lock hashes and
+  dependency licenses. Desktop import verifies every artifact file, and build
+  fails on absent/mismatched binary, Rust-generated types or dependency notices.
+  CI separates frontend/bridge checks from explicit-artifact NSIS packaging.
+  Installer generation and independent whole-implementation review are underway;
+  these statements do not mark M1–M6 or final product acceptance complete.
+
+### Independent review fixes (2026-11-02)
+
+The read-only whole-implementation review found four substantive defects. Each
+was reproduced or covered by a focused regression before packaging:
+
+- MCP forms now distinguish all tools from an explicit empty allowlist. A mounted
+  Vue editor regression first failed on an unrelated timeout edit and now passes.
+- History pagination budgets serialized JSON bytes, including escaping. Very long
+  message/tool previews carry a truncation flag; originals remain in committed
+  records. Ten native conversation cases now pass, including nine 500 KiB user
+  admissions, cancellation and multi-page history with stable unique IDs.
+- Managed desktop import enforces its editor's 512 KiB UTF-8 contract before
+  candidate admission. Oversized/non-text input cannot poison the candidate list.
+- MCP save registers credential references with the process owner. Python workers
+  inherit an explicit OS-runtime environment, not arbitrary host variables. The
+  host continues resolving MCP references. Newly registered ordinary references
+  do not reset the worker or discard variables; reserved runtime-variable names
+  cannot be used as MCP credential references. A subprocess regression verifies
+  the secret is absent before and after save and the Python marker survives.
+
+Post-fix checks: Python Rust 40, Front contract/projection 3, root 34, native
+conversation 10, Python MCP 7, Python runtime 8, desktop bridge 10 plus one fixture,
+and Vue 7 pass. Production Vue compilation passes. Remaining external acceptance
+limitations above are unchanged; these are fixes, not a full release sign-off.
+
+Two additional native cases pass (12 total): the model requests the actual Rig
+read tool against a disposable file and its committed result appears in history;
+an actual project-trust question accepts a current answer and rejects invalid or
+already-settled answers. Core distribution currently uses the tested dev-profile
+executable; metadata records the profile/compiler/lockfile version explicitly.
+Desktop packaging uses Tauri's release profile. No optimization claim is made.
+
+### Packaging and cross-page follow-up (2026-11-02)
+
+- Readiness changes now invalidate the shared snapshot even without a chat task;
+  a first-provider configuration native case verifies the notification (13 native
+  conversation cases total). Runtime reports Git Bash through the shell owner's
+  actual read-only executable resolver, independently of Python and memory.
+- Ordinary/managed skill inventory responses contain metadata; selected Markdown
+  and candidate source files are fetched separately. Validation evidence previews
+  are bounded. This avoids multiplying full source trees in a single pipe frame.
+  Ordinary imports also reject Markdown beyond their editor limit before admission.
+- A reconnect can start a new synchronization before the old request finishes;
+  an old completion cannot clear the new synchronization. The Vue suite now has
+  8 passing tests. Five artifact-import tests reject incompatible versions, wrong
+  checksums, missing notices and path escape before altering desktop files.
+- Release NSIS generation passed (13.15 MiB at this checkpoint). A clean source
+  archive was expanded to `C:/dd-src`, consumed only `C:/diva-delivery/core`, and
+  built successfully with fresh `CARGO_TARGET_DIR=C:/dd-build`. Online npm stalled;
+  cached offline npm installation succeeded in two minutes; clean Rust release
+  compilation took 2m28s. This is local evidence, not a hosted CI run.
+- Silent current-user installation to `C:/diva-delivery/installed` succeeded and
+  created the expected HKCU registration. With PATH restricted to Windows system
+  directories, the installed WebView loaded the UI and launched the bundled core.
+  Forced desktop-process death removed that actual core. Reopening kept the same
+  desktop session and one live owned core after four seconds. These runs used the
+  existing Administrator profile, not a clean standard-user account; they do not
+  establish visual correctness or absence of development tools on the machine.
+- A test-only 0.1.1 NSIS upgraded 0.1.0 in place. The desktop session and an owned
+  workspace marker survived; HKCU reported 0.1.1. Silent default uninstall exited
+  successfully and retained both. This does not replace standard-user acceptance.
+- Live gateway acceptance subsequently succeeded. The authorized Qwen endpoint's
+  model listing returned `qwen3.8-omni-flash`; the supplied mixed-case ID is not
+  accepted by that endpoint. Using the returned ID unchanged, the native core
+  streamed an answer, executed the actual read tool on a disposable fixture, and
+  committed the expected file text. Independent explicit provider probes also
+  passed text, streaming and tools. Original credential/config files were not
+  modified. StepFun transport remains unsuccessful in this environment.
+- Final focused checks pass: basics 64, Python Rust 40, Front 3, native conversation
+  13, transport 5, front smoke, Vue 8 and artifact import 5. Earlier root 34,
+  durable/autodream 47, Python MCP/runtime 7/8 and desktop bridge 10 plus its
+  subprocess fixture remain the recorded regression evidence. Formatting and
+  whitespace checks pass. Actual native UI automation again reports a missing
+  local pipe; 125/150% native scale, tray/hidden work and clean standard-user /
+  absent-WebView2 acceptance remain open. No complete release sign-off is claimed.
+
+### Curated provider setup (2026-11-02)
+
+Added Rust-owned desktop presets for DeepSeek, MiniMax and Alibaba Bailian.
+DeepSeek/`deepseek-flash` is the initial setup selection, without overwriting
+existing defaults. Bailian offers China/international standard API and China
+Coding Plan variants. MiniMax uses the existing Anthropic dialect; DeepSeek
+uses its OpenAI dialect. Endpoint/model IDs remain editable and exact.
+ProvidersView exports the presets with the generated contract. Reading presets
+does not create user instances. Default selection rejects missing/disabled models,
+including proper support for existing implicit Rig preset catalog rows.
+The editor saves configuration/credentials before committing a new default,
+retains failed input, and requires replacement credentials after endpoint changes.
+
+Checks: gateway 29 tests, Front 3, native conversation 14, Vue 12 and production
+Vue compilation pass. Tests cover read-only presets, invalid defaults, failed key
+writes, save ordering and variant switching. Official API docs were checked for
+preset addresses and IDs; no DeepSeek or MiniMax live credential run is claimed.
+The earlier Bailian live result does not establish every new model/endpoint.
+Native visual/scaling checks remain limited by the unavailable local UI pipe.
+
+### Desktop workspace trust (2026-11-02)
+
+At the owner's request, Diva's native host now passes the existing `--approve`
+flag to its bundled core. Its fixed workspace resources load immediately, and
+startup no longer creates a project-trust question. Other assistant questions
+remain supported; standalone CLI trust behavior is unchanged. No core artifact
+change is required. The native bridge regression first reproduced unloaded
+project prompts, then passed for both `never` and `ask` settings across reopen.
+All 12 bridge checks (including the subprocess fixture) pass with the explicit
+matching core artifact. The development watcher rebuilds the native host.

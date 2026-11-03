@@ -1,5 +1,78 @@
 use super::*;
 
+#[test]
+fn desktop_rejects_uneditable_candidates_before_admission() {
+    let f = Fixture::new();
+    f.python();
+    let store = f.store();
+    let base = store.current().unwrap();
+    let desktop = desktop::Desktop::default();
+    let draft = f.draft(1);
+    fs::write(draft.join("large.txt"), vec![b'x'; 512 * 1024]).unwrap();
+    assert!(
+        desktop
+            .import(&store, &base.id, "calculator", &draft)
+            .is_err()
+    );
+    assert!(desktop.read(&store).unwrap().candidates.is_empty());
+    fs::write(draft.join("large.txt"), [255, 254]).unwrap();
+    assert!(
+        desktop
+            .import(&store, &base.id, "calculator", &draft)
+            .is_err()
+    );
+    assert!(desktop.read(&store).unwrap().candidates.is_empty());
+}
+
+#[test]
+fn desktop_candidates_require_live_validation_and_publish_with_cas() {
+    let f = Fixture::new();
+    f.python();
+    let store = f.store();
+    let source = f.draft(1);
+    let manager = desktop::Desktop::default();
+    let base = store.current().unwrap().id;
+    manager
+        .import(&store, &base, "calculator", &source)
+        .unwrap();
+    let first = manager.read(&store).unwrap().candidates.remove(0);
+    assert!(first.files.is_empty());
+    assert!(!manager.open(&store, &first.id).unwrap().files.is_empty());
+    assert!(
+        manager
+            .publish(&store, &first.id, "before-validation")
+            .is_err()
+    );
+    let checks = ValidationSpec {
+        cases: vec![ValidationCase {
+            args: vec![json!(1)],
+            kwargs: BTreeMap::new(),
+            expected: json!(2),
+        }],
+        ..Default::default()
+    };
+    manager.validate(&store, &first.id, checks, None).unwrap();
+    manager
+        .publish(&store, &first.id, "desktop-publish-1")
+        .unwrap();
+    assert_eq!(store.current().unwrap().skills().unwrap().len(), 1);
+    assert_eq!(
+        fs::read_to_string(source.join("src/calculator/__init__.py")).unwrap(),
+        "def run(value): return value+1\n"
+    );
+    let published = store.current().unwrap().id;
+    assert!(store.rollback(&base, &base, "stale-rollback").is_err());
+    store
+        .rollback(&published, &base, "desktop-rollback-1")
+        .unwrap();
+    assert!(store.current().unwrap().skills().unwrap().is_empty());
+    assert!(
+        desktop::Desktop::default()
+            .publish(&store, &first.id, "after-restart")
+            .is_err()
+    );
+}
+
 struct Fixture {
     root: PathBuf,
     home: PathBuf,

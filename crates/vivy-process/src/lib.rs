@@ -8,7 +8,7 @@ mod credentials;
 pub mod session;
 pub use credentials::{
     credential_policy_generation, credential_variables, filter_credentials,
-    register_credential_variables, variables_from_file,
+    register_credential_variables, registered_credential_variables, variables_from_file,
 };
 
 /// A command without agent-only state or model credentials.

@@ -1,0 +1,28 @@
+{
+  "error": {
+    "data": {
+      "code": "conflict",
+      "message": "request ID conflict"
+    },
+    "id": null,
+    "instance": "fixture",
+    "seq": 2,
+    "type": "error",
+    "v": 1
+  },
+  "request": {
+    "id": "snapshot-1",
+    "method": "snapshot",
+    "v": 1
+  },
+  "response": {
+    "data": {
+      "shutting_down": true
+    },
+    "id": "exit-1",
+    "instance": "fixture",
+    "seq": 1,
+    "type": "reply",
+    "v": 1
+  }
+}

@@ -1,6 +1,6 @@
 # Native subagent delivery
 
-Date: 2026-10-25. Repository: vivy-test. Branch: feat/subagents, base 5477eee.
+Date: 2026-10-25. Repository: agent-vivy. Branch: feat/subagents, base 5477eee.
 Scope: owner-approved [implementation plan](../plans/2026-10-25-subagents.md).
 Implementation commit c94f87f was fast-forward merged into local main on
 2026-10-25 with owner approval. Collaborative Plan was subsequently integrated on
@@ -124,4 +124,4 @@ The earlier isolated C:/vt-subagents build remains separate.
    should be described as interrupted, without rerunning its earlier effects.
 
 The mirrored research record preserves decisions in both repositories. Only
-vivy-test contains runtime changes; original Vivy repair code/data is untouched.
+agent-vivy contains runtime changes; original Vivy repair code/data is untouched.

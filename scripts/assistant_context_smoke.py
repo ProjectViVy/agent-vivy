@@ -116,7 +116,8 @@ def fixture(root, server, env, number=1, memory_assets=None):
         config += '[python]\nmemory=true\nexecutable=' + json.dumps(publication['executable']) + '\nmemory_root=' + json.dumps(str(memory_assets/'native')) + '\n'
     (home/'settings.toml').write_text(config, encoding='utf-8')
     session = home/'sessions'/f'1793530000-{9500+number}'
-    environment = dict(env, RIG_HOME=str(home), RIG_SESSION=session.name, RIG_SECRET_GATEWAY='synthetic-d2')
+    environment = dict(env, RIG_HOME=str(home), RIG_SESSION=session.name, RIG_SECRET_GATEWAY='synthetic-d2',
+                       LAPUTA_HOME=str(root/'laputa'))
     return environment, session
 
 
@@ -170,7 +171,7 @@ def main():
             agent = JsonAgent(lean, root, environment)
             try:
                 (root/'persona.txt').write_text('PERSONA_ONE', encoding='utf-8')
-                agent.send('/persona update 0 persona.txt')
+                agent.send('/persona update 0 IDENTITY.MD persona.txt')
                 agent.until(lambda e: e['type']=='notice' and 'revision 1' in e.get('text',''))
                 turn(agent, 'OLD_RAW_CANARY TOOL_CASE')
                 first = server.requests[-2:]
@@ -194,7 +195,7 @@ def main():
                 agent.send('/recap refresh')
                 wait_for(lambda: (s:=saved(session)) and s['recap_revision']==1)
                 (root/'persona.txt').write_text('PERSONA_TWO', encoding='utf-8')
-                agent.send('/persona update 1 persona.txt')
+                agent.send('/persona update 1 IDENTITY.MD persona.txt')
                 agent.until(lambda e:e['type']=='notice' and 'revision 2' in e.get('text',''))
                 turn(agent, 'AFTER_RECAP')
                 last=json.dumps(server.requests[-1])

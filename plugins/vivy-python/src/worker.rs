@@ -4,6 +4,37 @@ use std::fs::{self, File};
 use std::path::Path;
 
 static GENERATION: AtomicU64 = AtomicU64::new(1);
+pub(super) fn environment_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_uppercase().as_str(),
+        "PATH"
+            | "PATHEXT"
+            | "SYSTEMROOT"
+            | "WINDIR"
+            | "COMSPEC"
+            | "TEMP"
+            | "TMP"
+            | "USERPROFILE"
+            | "HOMEDRIVE"
+            | "HOMEPATH"
+            | "APPDATA"
+            | "LOCALAPPDATA"
+            | "PROGRAMDATA"
+            | "PROGRAMFILES"
+            | "PROGRAMFILES(X86)"
+            | "PROGRAMW6432"
+            | "HOME"
+            | "LANG"
+            | "LC_ALL"
+            | "LC_CTYPE"
+            | "TZ"
+    )
+}
+pub(super) fn policy_requires_restart() -> bool {
+    vivy_process::registered_credential_variables()
+        .iter()
+        .any(|name| environment_name(&name.to_string_lossy()))
+}
 pub(super) fn diagnostic_tail(mut stream: impl Read) -> String {
     let mut tail = Vec::new();
     let mut buffer = [0; 4096];
@@ -79,6 +110,44 @@ pub(super) fn package(root: &Path) -> Result<PathBuf, String> {
 
 type Input = Arc<Mutex<ChildStdin>>;
 type Reply = Result<(String, bool), String>;
+#[derive(Clone)]
+pub(super) struct ControlPort {
+    input: Input,
+    pending: Arc<Mutex<HashMap<String, mpsc::Sender<Result<Value, String>>>>>,
+    sequence: Arc<AtomicU64>,
+    generation: u64,
+    failure: Arc<Mutex<Option<String>>>,
+}
+impl ControlPort {
+    pub fn request(&self, action: &str, server: &str) -> Result<Value, String> {
+        if let Some(error) = self.failure.lock().unwrap().clone() {
+            return Err(error);
+        }
+        let id = format!(
+            "control:{}:{}",
+            self.generation,
+            self.sequence.fetch_add(1, Ordering::Relaxed)
+        );
+        let (tx, rx) = mpsc::channel();
+        {
+            let mut pending = self.pending.lock().unwrap();
+            if pending.len() >= 16 {
+                return Err("MCP management queue is full".into());
+            }
+            pending.insert(id.clone(), tx);
+        }
+        let result = send(
+            &self.input,
+            json!({"type":"mcp_control","id":id,"action":action,"server":server}),
+        )
+        .and_then(|_| {
+            rx.recv_timeout(Duration::from_secs(620))
+                .map_err(|e| format!("MCP management result uncertain: {e}"))?
+        });
+        self.pending.lock().unwrap().remove(&id);
+        result
+    }
+}
 struct Pending {
     id: String,
     sender: mpsc::Sender<Reply>,
@@ -98,6 +167,7 @@ fn send(input: &Input, value: Value) -> Result<(), String> {
 }
 
 pub(super) struct Worker {
+    pub management: ControlPort,
     pub process: OwnedChild,
     input: Input,
     pending: Arc<Mutex<Option<Pending>>>,
@@ -180,6 +250,16 @@ impl Worker {
             (executable, skills)
         };
         let mut command = vivy_process::command(&executable);
+        // MCP secrets are resolved by the Rust host. Never give the Python
+        // namespace arbitrary inherited variables that may become credentials
+        // during a later settings edit.
+        command.env_clear();
+        for (name, value) in std::env::vars_os() {
+            if environment_name(&name.to_string_lossy()) {
+                command.env(name, value);
+            }
+        }
+        vivy_process::filter_credentials(&mut command, &[]);
         let bootstrap = format!(
             "import sys;sys.path.insert(0,{});from vivy_workbench.repl import main;main()",
             json!(source)
@@ -233,6 +313,14 @@ impl Worker {
         let diagnostics = std::thread::spawn(move || diagnostic_tail(stderr));
         let pending: Arc<Mutex<Option<Pending>>> = Arc::default();
         let failure = Arc::new(Mutex::new(None));
+        let management = ControlPort {
+            input: input.clone(),
+            pending: Arc::default(),
+            sequence: Arc::new(AtomicU64::new(1)),
+            generation,
+            failure: failure.clone(),
+        };
+        let control_pending = management.pending.clone();
         let (ready_send, ready) = mpsc::channel();
         let memory = Arc::new(Mutex::new(MemoryState::Unchecked));
         let reported_memory = memory.clone();
@@ -263,6 +351,19 @@ impl Worker {
                     let event: Value = serde_json::from_slice(&bytes)
                         .map_err(|e| format!("invalid worker protocol: {e}"))?;
                     let kind = event["event"].as_str().ok_or("worker event missing type")?;
+                    if kind == "control_result" {
+                        if let Some(id) = event["id"].as_str() {
+                            if let Some(sender) = control_pending.lock().unwrap().remove(id) {
+                                let result = if let Some(error) = event["error"].as_str() {
+                                    Err(rig_harness::rig_core::redact::text(error).into_owned())
+                                } else {
+                                    Ok(event["data"].clone())
+                                };
+                                let _ = sender.send(result);
+                            }
+                        }
+                        continue;
+                    }
                     if kind == "host_request" {
                         let result = host_reply(&settings, &event["data"]);
                         send(
@@ -356,6 +457,9 @@ impl Worker {
             };
             if let Err(error) = read() {
                 *failed.lock().unwrap_or_else(|e| e.into_inner()) = Some(error.clone());
+                for (_, sender) in control_pending.lock().unwrap().drain() {
+                    let _ = sender.send(Err(error.clone()));
+                }
                 if let Some(call) = active.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     let _ = call.sender.send(Err(error));
                 }
@@ -374,6 +478,7 @@ impl Worker {
             return Err("incompatible workbench protocol".into());
         }
         Ok(Self {
+            management,
             process,
             input,
             pending,
@@ -453,6 +558,13 @@ impl Worker {
 }
 
 fn host_reply(settings: &PythonSettings, request: &Value) -> Value {
+    let mut settings = settings.clone();
+    if !settings.control_home.as_os_str().is_empty() {
+        match crate::control::settings_connections(&settings.control_home) {
+            Ok(connections) => settings.connections = connections,
+            Err(error) => return json!({"ok":false,"error":error}),
+        }
+    }
     match request["kind"].as_str() {
         Some("mcp.list_connections") => {
             let mut names = settings.connections.keys().collect::<Vec<_>>();

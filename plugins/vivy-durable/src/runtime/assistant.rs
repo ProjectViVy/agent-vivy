@@ -442,6 +442,10 @@ pub fn request_refresh(world: &mut World, agent: Entity) -> io::Result<()> {
     Ok(())
 }
 
+pub fn inspect_committed(world: &World, agent: Entity) -> Option<&AssistantContextState> {
+    storage::committed_context(world, agent)
+}
+
 pub(super) fn is_maintenance(world: &World, call: Entity) -> bool {
     world
         .get::<Effect>(call)

@@ -12,13 +12,16 @@ Synchronous run is called directly; asynchronous run is awaited. Use ordinary
 Python imports; do not depend on Prime's runtime, factory or host globals. Reuse
 admitted dependencies. The host freezes sources and checks their actual origins.
 
-Submit a persona text file or pure-Python Skill directory with candidate_submit.
-Reference the exact expected base and evidence IDs from dream_status. Skill checks
-are concrete run(args, kwargs) assertions with expected JSON values. For a known
-defect keep the same assertions against the old and new versions. Submission is
-job admission, not success. Successful exact-version validation automatically
-publishes within admitted scope; failed/stale candidates retain the active version.
-Inspect job status before resolving an uncertain action. Never blindly replay it.
+Submit one persona core file or a pure-Python Skill directory with candidate_submit.
+Persona candidates must name their target with file: IDENTITY.MD, RELATIONSHIP.MD,
+DREAM.MD or DARK.MD. MISSION.MD and REDLINE.MD are human-only: report a proposed
+change instead of submitting it. Reference the exact expected base and evidence IDs
+from dream_status. Skill checks are concrete run(args, kwargs) assertions with
+expected JSON values. For a known defect keep the same assertions against the old
+and new versions. Submission is job admission, not success. Successful
+exact-version validation automatically publishes within admitted scope; a changed
+target file or failed/stale candidate retains the active version. Inspect job
+status before resolving an uncertain action. Never blindly replay it.
 
 Use validation_wait to suspend this task while its job runs. Cancelling a wait
 does not cancel the job; validation_cancel does. Results return internally and

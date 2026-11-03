@@ -14,6 +14,16 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 pub fn credential_policy_generation() -> u64 {
     GENERATION.load(Ordering::Acquire)
 }
+/// Names only; lets an already isolated worker determine whether policy grew
+/// over an environment variable it could have inherited.
+pub fn registered_credential_variables() -> Vec<OsString> {
+    registered()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .cloned()
+        .collect()
+}
 
 fn registered() -> &'static RwLock<BTreeSet<OsString>> {
     static NAMES: OnceLock<RwLock<BTreeSet<OsString>>> = OnceLock::new();

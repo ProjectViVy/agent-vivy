@@ -17,11 +17,13 @@ functional meaning. Historical design and verification records below remain
 available as evidence at their recorded scope; their old paths and commit IDs
 refer to the retained local experiment, not the new repository's ancestry.
 
-## Diva desktop integration direction (2026-11-01; planned)
+## Diva desktop integration direction (2026-11-01; implementation started)
 
 The owner selected a thin recipe-assembled Diva Front, hosted as a bundled child
 of the existing Tauri/Vue desktop application, with full local management and
 close-to-tray behavior. Use fresh dedicated data and one fixed assistant workspace.
+The desktop host approves this workspace at launch (`--approve`), as requested
+by the owner; startup project-trust selection is not part of the desktop flow.
 Reuse the existing persistent core, automatic Recap and scheduled wakes; manage
 existing Dream operations without adding periodic idle reflection. Voice and
 coding-session delegation remain outside this desktop integration scope.
@@ -29,32 +31,117 @@ coding-session delegation remain outside this desktop integration scope.
 The [detailed plan](plans/2026-11-01-diva-desktop-integration.md) records interfaces,
 ownership, management behavior, installer delivery and acceptance. This selects
 the desktop product direction previously deferred below; it does not change the
-shared-core or independent-repository rules. **Implementation is pending:** the
-owner's latest instruction was to write the plan only. No new runtime or installer
-support is established by this documentation.
+shared-core or independent-repository rules. The owner subsequently authorized
+implementation. The desktop branch now implements typed transport, durable chat,
+domain-owned management adapters and a Tauri host. Management filesystem work uses
+bounded background jobs; Python MCP controls use typed worker messages and the
+existing per-server call locks. Managed candidates use the existing immutable
+publication store, live validation receipts and publication CAS. The desktop owns
+only its stable session identity and unconfirmed-send outbox. Full native UI,
+installer lifecycle and real-provider acceptance remain distinct release gates;
+the plan records actual runs and remaining limitations.
 
 ## Human-editable prompt files (2026-11-01)
 
 The prompt refactor follows the request to let humans edit Markdown. Defaults
 live in `prompts/`; trusted `.rig/<name>.md` overrides user `RIG_HOME/<name>.md`,
-then the compiled default. `ASSISTANT.md`, `CODING.md`, `RECAP.md` and
-`AUTODREAM.md` configure prose for existing compiled consumers. New operations
-read current files; existing requests and persistent retries remain frozen.
-Invalid overrides report their path and stop the affected new operation. There
-is no watcher, template engine, prompt database or second execution path.
+then the compiled default. `CODING.md`, `RECAP.md` and `AUTODREAM.md` configure
+prose for existing compiled consumers. New operations read current files; existing
+requests and persistent retries remain frozen. Invalid overrides report their path
+and stop the affected new operation. There is no watcher, template engine, prompt
+database or second execution path.
 
-The persistent recipe now selects `AssistantPromptPlugin`; it previously reused
-the coding identity. Coding retains its separate recipe-selected role. Existing
-SYSTEM/CLI role replacement and APPEND/context files keep their startup semantics.
-Laputa remains the top persona authority: human Markdown enters via the existing
-revision-checked `/persona update` command, preserving evolution conflict detection
-and rollback. The refactor does not change saved-state schemas, Recap projection,
-tool schemas, lifecycle checks or Dream's persona exclusion.
+The persistent recipe no longer selects a separate assistant prompt plugin: the
+assistant's base instructions are the managed persona's `IDENTITY.MD`, while
+`CODING.md` remains the coding recipe's role. Existing SYSTEM/CLI role replacement
+and APPEND/context files keep their startup semantics. Laputa wraps its assembled
+persona around whatever base role remains, so replacing that role cannot erase the
+persona. Human Markdown enters through revision-checked persona saves, preserving
+evolution conflict detection and rollback. The refactor does not change saved-state
+schemas, Recap projection, tool schemas, lifecycle checks or Dream's persona
+exclusion.
 
 Source-only extraction would still require rebuilding after every edit. A larger
 prompt management service is unnecessary. Runtime file overrides reuse the
 existing project trust and prompt precedence model; this is the implementation
 choice for the requested decoupling. See [editing instructions](../prompts/README.md).
+
+## Laputa six-file persona store (2026-11-02)
+
+The persona is now Laputa's six real Markdown files rather than one text value.
+`MISSION.MD`, `IDENTITY.MD`, `RELATIONSHIP.MD` and `REDLINE.MD` are required;
+`DREAM.MD` and `DARK.MD` are optional. Sources live under the global Laputa root
+at `personas/main/`; older workspaces are migrated as described below. `IDENTITY.MD`
+absorbs the former `ASSISTANT.md`
+default; the other required files carry mission, long-term collaboration and
+safety boundaries. Diva's desktop Settings shows the same six files as **Core
+persona**, with per-file editing and protected-file confirmation.
+
+- Assembly is deterministic: the fixed order above, non-empty bodies joined by a
+  blank line, wrapped once in `<persona>...</persona>` and placed before the base
+  role. Empty optional files are skipped. `MISSION.MD` must be non-blank; each file
+  is limited to 32 KiB and the assembled text to 64 KiB.
+- The first save materializes all six source files and publishes revision 1.
+  Before any save, reads return the compiled defaults without writing. v1
+  `persona.json`/history entries migrate in memory: the old `text` becomes
+  `IDENTITY.MD`, the remaining files use defaults, and the next save publishes v2.
+- `persona.json` is now schema 2 and stores `files`, `sources_digest`,
+  `last_update_id`, `parent_update_id` and source labels. Each revision keeps a
+  complete six-file snapshot under `revisions/`. A single update ID is idempotent
+  only for identical files and sources.
+- Each save acquires the OS writer lock, reads current sources, checks
+  `revision` + `expected_update_id`, replaces exactly one file, validates the whole
+  set, writes the source file, publishes the immutable snapshot, then rewrites
+  `persona.json` and round-trips the read. Rollback restores every file from the
+  target revision and publishes a new revision; target `0` restores defaults.
+- Direct external edits are allowed and used by the next model operation. `read`
+  compares the on-disk digest with the published snapshot and reports
+  `unpublished` drift; saving any file publishes the current content. AutoDream
+  additions use a target-file digest and refuse a file that changed after the
+  candidate was prepared.
+- AutoDream may only propose `IDENTITY.MD`, `RELATIONSHIP.MD`, `DREAM.MD` or
+  `DARK.MD`. `MISSION.MD` and `REDLINE.MD` are human-only: admission rejects a
+  candidate targeting them, and legacy persona jobs without a target file fail
+  explicitly instead of guessing one.
+- The desktop uses `persona_read`, `persona_save_file` and `persona_rollback`;
+  the terminal commands are `/persona show [NAME]`,
+  `/persona update <revision> <NAME> <path>` and
+  `/persona rollback <revision> <target>`.
+
+## Global Laputa home and first-run onboarding (2026-11-02)
+
+Laputa is now a user-level directory shared by every Diva workspace. A non-empty
+`LAPUTA_HOME` wins; otherwise the process uses `<USERPROFILE|HOME>/.laputa`. The
+role workspace is `<root>/personas/main/`; `persona.json`, `revisions/` and the
+writer lock live directly under the root. The compiled role ID remains `main`;
+display name is persona metadata.
+
+- On first read, legacy `<workspace>/.vivy/laputa` is copied once into the global
+  root (revisions, six sources, then `persona.json` as the completion marker).
+  The old directory is retained as a backup. A global six-file directory without
+  `persona.json` is adopted at revision 0, reads the files, and counts as
+  initialized without overwriting them.
+- First-start onboarding is explicit: the desktop tests the selected provider,
+  accepts one free-form introduction, extracts one tool-free completion into the
+  five writable files, and writes them directly. `REDLINE.MD` always comes from
+  the compiled default; the model cannot weaken it. An unclear or unparsable
+  draft falls back to a random neutral display name plus the compiled six files.
+- `persona.json` stores `display_name` and views expose `name`/`initialized`.
+  `persona_initialize` runs asynchronously when a model is used and emits
+  `persona_onboarded`; `fallback: true` writes synchronously. A repeated
+  `update_id` returns the published persona instead of writing again.
+- After the persona, onboarding shows one combined workspace step. It reads
+  `python_read`, pre-selects native memory when `snapshot.memory` is off, and
+  sends a single `python_prepare {managed, memory}` to install Python and the
+  memory assets together. Either part can be skipped and completed later under
+  Settings → Runtime. Enabling memory precedes scope computation and is persisted
+  by the memory consent file, not by editing `settings.toml`.
+- The desktop records completion in `desktop-state/onboarding.json`, separate
+  from core state. `open_persona_directory` resolves the same global root and
+  opens `personas/main`. The terminal agent exposes
+  `/persona init [default|force]`; an existing persona is never overwritten
+  without `force`, and `default` skips the model.
+
 
 ## D4 AutoDream implementation (2026-11-01)
 
@@ -136,11 +223,12 @@ build, and incompatible opens are refused without changing the logs. The local
 Rig checkpoint fork remains required; this change does not modify that fork or
 the production Rig revision.
 
-- `vivy-laputa` owns `.vivy/laputa/persona.json`, immutable update snapshots and
-  an OS writer lock. Missing persona is empty revision zero. CAS updates and
-  rollback publish atomically with update-ID reconciliation. Persona precedes
-  the base role; SYSTEM/CLI role replacement does not replace managed persona.
-  New model operations reload it; model retries reuse the frozen actual request.
+- `vivy-laputa` owns `<LAPUTA_HOME>/persona.json`, the six source files under
+  `personas/main/`, immutable revision snapshots and an OS writer lock. Missing
+  persona is the compiled six-file seed at revision zero. CAS updates and rollback
+  publish atomically with update-ID reconciliation. Persona precedes the base
+  role; SYSTEM/CLI role replacement does not replace managed persona. New model
+  operations reload it; model retries reuse the frozen actual request.
 - Required `vivy.assistant-context.v1` state shares D1's exact checkpoint receipts.
   Requests contain persona/instructions, the latest committed Recap, current
   task execution records and explicitly delivered pending input. Other tasks'
@@ -985,13 +1073,15 @@ implemented by this queue. Later hooks submit the same typed inputs.
 
 #### 7. Persona, Recap and memory integration
 
-The initial native persona representation is a versioned workspace
-`.vivy/laputa/persona.json`, with
-`schema_version`, `persona_id`, `revision`, `text`, `last_update_id` and source
-references. Laputa exposes read and compare-and-swap update operations. Updates
-validate the expected revision, write a complete replacement, then atomically publish
-it under an OS writer lock. An interrupted update is reconciled by update ID and
-revision. Tasks record the observed revision, not a second mutable persona copy.
+The native persona representation is a versioned workspace store: six Markdown
+sources under `.vivy/laputa/personas/main/`, with published metadata in
+`.vivy/laputa/persona.json` (`schema_version`, `persona_id`, `revision`, `files`,
+`last_update_id`, `parent_update_id`, `sources_digest` and source references).
+Laputa exposes read and compare-and-swap per-file update operations. Updates
+validate the expected revision and file digest, replace one file, then atomically
+publish a complete six-file snapshot under an OS writer lock. An interrupted
+update is reconciled by update ID and revision. Tasks record the observed
+revision, not a second mutable persona copy.
 The exact bytes used by an in-flight model request are part of its checkpoint.
 Keep immutable prior revisions for checked rollback, which creates a new
 revision. The current pointer/content is the only mutable persona authority.
@@ -3202,10 +3292,10 @@ Rig supplies the loop, effects, saved state, commands, Ask and TUI. DSH is seman
 reference material only. Verification commands and real terminal results for this
 delivery are recorded in [HANDOFF.md](HANDOFF.md); earlier dated results remain historical.
 
-## Compact vivy-test terminal (2026-10-26)
+## Compact agent-vivy terminal (2026-10-26)
 
 The owner approved a Codex-inspired visual refresh, English UI, consistent
-vivy-test branding and complete tool output with existing primary keybindings.
+agent-vivy branding and complete tool output with existing primary keybindings.
 The local Codex checkout at `970111f6cb` is presentation reference material only;
 no Codex code or runtime dependency is added. Rig remains pinned at `e1cd47d5`.
 
@@ -3216,7 +3306,7 @@ keep activity and Plan ahead of model and usage details. Public canvas hooks
 replace ordinary input hints and supply an empty-input placeholder, leaving
 question titles, focus, caret and completion overlays to Rig.
 
-The welcome reuses Rig's unsaved metadata aside and renders a small vivy-test
+The welcome reuses Rig's unsaved metadata aside and renders a small agent-vivy
 title with this plugin's version, current model/reasoning and directory.
 Display-width truncation follows terminal resizes and keeps the directory's
 project-name suffix. Shortcut hints fit as complete items. A terminal-write adapter
@@ -3233,7 +3323,7 @@ full results and failure status rather than displaying raw argument JSON.
 
 The recipe selects `VivyPromptPlugin` for the default identity in all fronts.
 It reuses Rig's default coding guidance with only `You are rig` changed to
-`You are vivy-test`, and preserves the empty-role condition so explicit prompts
+`You are agent-vivy`, and preserves the empty-role condition so explicit prompts
 remain authoritative. The terminal component selects the presentation plugin
 and its Cargo feature; omitting it excludes rig-tui without a runtime enable
 flag. The underlying .rig paths, protocol names and environment variables stay

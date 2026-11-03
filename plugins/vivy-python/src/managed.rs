@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use vivy_basics::setup::fingerprint as hash;
+pub mod desktop;
 pub(crate) mod preparation;
 mod validation;
 pub use preparation::{PendingRequirements, request_dependencies, staged_environment};
@@ -638,6 +639,13 @@ fn source_files(root: &Path, budget: u64) -> io::Result<BTreeMap<String, Vec<u8>
         files: &mut BTreeMap<String, Vec<u8>>,
         remaining: &mut u64,
     ) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if fs::symlink_metadata(dir)?.file_attributes() & 0x400 != 0 {
+                return Err(invalid("source reparse points are unsupported"));
+            }
+        }
         if fs::symlink_metadata(dir)?.file_type().is_symlink() {
             return Err(invalid("source symlinks are unsupported"));
         }
@@ -645,6 +653,13 @@ fn source_files(root: &Path, budget: u64) -> io::Result<BTreeMap<String, Vec<u8>
             let entry = entry?;
             let path = entry.path();
             let meta = fs::symlink_metadata(&path)?;
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if meta.file_attributes() & 0x400 != 0 {
+                    return Err(invalid("source reparse points are unsupported"));
+                }
+            }
             if meta.file_type().is_symlink() {
                 return Err(invalid("source symlinks are unsupported"));
             }

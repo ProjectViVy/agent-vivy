@@ -255,10 +255,13 @@ fn foreground_retry_keeps_the_persona_and_request_frozen_before_the_failure() {
     let model = MockCompletionModel::from_stream_turns([vec![failure], reply("done")]);
     let root = std::env::temp_dir().join(format!("d2-retry-persona-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = vivy_laputa::PersonaStore::new(&root);
-    store.update(0, "one", "PERSONA_BEFORE", vec![]).unwrap();
+    let laputa = root.join("laputa");
+    let store = vivy_laputa::PersonaStore::at(laputa.clone());
+    let one = store
+        .save_file(0, "", "one", vivy_laputa::MISSION, "PERSONA_BEFORE", vec![])
+        .unwrap();
     let (mut app, _) = app_on(&disk);
-    app.insert_resource(vivy_laputa::PersonaSource(root.clone()))
+    app.insert_resource(vivy_laputa::PersonaSource(vivy_laputa::PersonaStore::at(laputa)))
         .add_plugins((
             AgentPlugin,
             SessionLogPlugin,
@@ -277,7 +280,16 @@ fn foreground_retry_keeps_the_persona_and_request_frozen_before_the_failure() {
     until(&mut app, |w| {
         committed(w, agent).is_some_and(|s| s.operations.iter().any(|o| o.retry_at_ms > 0))
     });
-    store.update(1, "two", "PERSONA_AFTER", vec![]).unwrap();
+    store
+        .save_file(
+            one.revision,
+            &one.last_update_id,
+            "two",
+            vivy_laputa::MISSION,
+            "PERSONA_AFTER",
+            vec![],
+        )
+        .unwrap();
     until(&mut app, |w| {
         inspect(w, agent).unwrap().tasks[0].status == Status::Completed
     });

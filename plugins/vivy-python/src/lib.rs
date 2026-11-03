@@ -21,9 +21,10 @@ use std::sync::{
 use std::time::Instant;
 use vivy_process::{Control, OwnedChild};
 
+pub mod control;
 #[cfg(feature = "managed-skills")]
 pub mod managed;
-mod management;
+pub mod management;
 #[cfg(feature = "memory-tools")]
 mod memory_tools;
 mod worker;
@@ -35,6 +36,8 @@ use worker::Worker;
 #[derive(Resource, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct PythonSettings {
+    #[serde(skip)]
+    control_home: PathBuf,
     executable: String,
     connections: HashMap<String, Value>,
     memory: bool,
@@ -68,6 +71,7 @@ struct PythonSettings {
 impl Default for PythonSettings {
     fn default() -> Self {
         Self {
+            control_home: PathBuf::new(),
             executable: "python".into(),
             connections: HashMap::new(),
             memory: false,
@@ -142,7 +146,7 @@ fn bind_calls(
     root: Res<ProjectRoot>,
     paths: Option<Res<SessionPaths>>,
     #[cfg(feature = "managed-skills")] pins: Query<&managed::PinnedCall>,
-    #[cfg(feature = "managed-skills")] home: Option<Res<RigHome>>,
+    home: Option<Res<RigHome>>,
 ) {
     for (call, request, agent, mut handler) in &mut calls {
         let name = request.call.function.name.as_str();
@@ -165,6 +169,10 @@ fn bind_calls(
         let (output, live) = CallOutput::new(&wake);
         commands.entity(call).insert(output);
         let mut configured = settings.clone();
+        configured.control_home = home
+            .as_ref()
+            .map(|h| h.0.root().to_path_buf())
+            .unwrap_or_default();
         configured.skills = management::skill_metadata(skills.as_deref());
         configured.agent = ids
             .get(agent.0)
@@ -249,6 +257,7 @@ fn stop_workers(workers: Res<Workbenches>) {
 
 #[derive(Default)]
 struct Workbench {
+    management: Mutex<Option<worker::ControlPort>>,
     status: Mutex<WorkbenchStatus>,
     worker: Mutex<Option<Worker>>,
     control: Mutex<Option<Control>>,
@@ -265,6 +274,10 @@ impl Workbench {
     fn refresh_credential_policy(&self) {
         let generation = vivy_process::credential_policy_generation();
         if self.policy_generation.load(Ordering::Acquire) != generation {
+            if !worker::policy_requires_restart() {
+                self.policy_generation.store(generation, Ordering::Release);
+                return;
+            }
             self.stop();
             if let Ok(mut worker) = self.worker.try_lock() {
                 *worker = None;
@@ -273,6 +286,10 @@ impl Workbench {
         }
     }
     fn stop(&self) {
+        self.management
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         self.stopped_status(PythonState::Stopped);
         if let Some(cancel) = self
             .active_cancel
@@ -510,7 +527,9 @@ impl PythonTool {
             }
         }
         if self.state.policy_generation.load(Ordering::Acquire) != generation {
-            *slot = None;
+            if worker::policy_requires_restart() {
+                *slot = None;
+            }
             self.state
                 .policy_generation
                 .store(generation, Ordering::Release);
@@ -530,6 +549,11 @@ impl PythonTool {
             Some(worker) => worker,
             None => Worker::start(&self.settings, &self.dir, cancellation).map_err(error)?,
         };
+        *self
+            .state
+            .management
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(worker.management.clone());
         cancellation.bind(worker.process.control());
         *self.state.status.lock().unwrap_or_else(|e| e.into_inner()) = WorkbenchStatus {
             python: PythonState::Running,
@@ -790,30 +814,40 @@ mod tests {
         assert!(call(&tool, "42", None).unwrap().contains("42"));
     }
     #[test]
-    fn credential_policy_change_restarts_persistent_workers() {
+    fn credential_policy_change_preserves_an_isolated_worker() {
         if std::env::var_os("VIVY_POLICY_TEST_CHILD").is_none() {
             let status = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "tests::credential_policy_change_restarts_persistent_workers",
+                    "tests::credential_policy_change_preserves_an_isolated_worker",
                     "--nocapture",
                 ])
                 .env("VIVY_POLICY_TEST_CHILD", "1")
+                .env("VIVY_POLICY_EXPANSION_FIXTURE", "must-not-reach-python")
                 .status()
                 .unwrap();
             assert!(status.success());
             return;
         }
         let tool = PythonTool::for_directory(std::env::temp_dir());
+        assert!(call(&tool,"import os\n'ISOLATED' if 'VIVY_POLICY_EXPANSION_FIXTURE' not in os.environ else 'LEAKED'",None).unwrap().contains("ISOLATED"));
         call(&tool, "marker_before_policy = 42", None).unwrap();
-        vivy_process::register_credential_variables(&["VIVY_POLICY_EXPANSION_FIXTURE".into()]);
+        let home = tempfile::tempdir().unwrap();
+        let view = control::read(home.path()).unwrap();
+        let connections=serde_json::from_value(json!({"fixture":{"type":"stdio","command":"python","env":{"TOKEN":{"env":"VIVY_POLICY_EXPANSION_FIXTURE"}}}})).unwrap();
+        control::save(home.path(), &view.revision, &connections).unwrap();
+        assert!(
+            vivy_process::registered_credential_variables()
+                .contains(&"VIVY_POLICY_EXPANSION_FIXTURE".into())
+        );
+        tool.state.refresh_credential_policy();
         let result = call(
             &tool,
             "'STALE_POLICY' if 'marker_before_policy' in globals() else 'FRESH_POLICY'",
             None,
         )
         .unwrap();
-        assert!(result.contains("FRESH_POLICY"), "{result}");
+        assert!(result.contains("STALE_POLICY"), "{result}");
     }
     use super::*;
     fn call(

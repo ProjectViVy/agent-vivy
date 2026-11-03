@@ -22,7 +22,7 @@ instances of compiled capabilities. A compatible gateway remains one instance.
 
 | Project | Revision and inspected boundary |
 | --- | --- |
-| vivy-test | `737b5b6`, current gateway, recipe, model controls, launcher and process environment filtering |
+| agent-vivy | `737b5b6`, current gateway, recipe, model controls, launcher and process environment filtering |
 | Rig | `55cd481a2421fd5da468b5bd6afc6ac876883599`, pinned catalog, Connector, provider registry, LoginPlugin, defaults and Connection |
 | Pi | Current `d5b3de22d0e24a3e9c38a9410d3329b099717283`; the inspected Provider interface and model/custom-provider documents have no diff against the repository's Pi baseline `f321e5bdd26b3624bfb2ab182a334d0a5edb698a` |
 | deepseek-harness | `22ddee3792402c3e70ec5f86a63c3e3e895a2f60`, current default branch: provider guide, LLM registry, pi-ai adapter, API-key and account routes |
@@ -75,7 +75,7 @@ The [API-key][dsh-key] and [account][dsh-account] plugins share a Messages
 transport but own distinct authentication, model admission and account failures.
 This demonstrates that transport, credential and commercial account semantics
 need not be one large provider implementation. Their special account eligibility
-and server-version gates are not general requirements for vivy-test.
+and server-version gates are not general requirements for agent-vivy.
 
 ### Rig and the current experiment
 
@@ -325,7 +325,7 @@ still need separate streaming/tool-call verification before compatibility claims
 The owner approved complete TUI CRUD, all eligible Rig presets offered when
 adding a provider, explicit activation, OpenAI Chat Completions only, and saved
 keys plus conventional/custom credential environment references. Implementation
-is isolated in sibling worktree `vivy-test-providers`, branch
+is isolated in sibling worktree `agent-vivy-providers`, branch
 `feat/provider-management`, based on `3dc38b6`. Reference checkouts are unchanged.
 
 The baseline selects ProvidersPlugin in the existing vivy-gateway crate, both
@@ -392,7 +392,7 @@ Verification record:
 All network acceptance uses synthetic loopback fixtures. Actual provider/gateway
 compatibility and Linux/macOS runtime execution remain unverified. The feature
 delivery was initially kept on its branch. The owner subsequently requested
-local integration: `de10ee3` was fast-forward merged into `vivy-test` main on
+local integration: `de10ee3` was fast-forward merged into `agent-vivy` main on
 2026-10-26. All 132 Rust tests were rerun successfully there, followed by a
 native launcher/baseline rebuild and the cross-protocol loopback smoke. The
 shared `C:/vt` build now belongs to the main checkout. No push is part of that
