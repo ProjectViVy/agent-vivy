@@ -10,14 +10,14 @@ no experiment branches, tags, Git history, session data or build products are
 imported. Product-facing identity is now Vivy. Keep the existing GNU GPL v3
 license and third-party notices.
 
-The retained local `vivy-test` repository/worktrees contain historical evidence,
+The retained local experiment repository/worktrees contain historical evidence,
 the active trial data and the local Rig checkpoint implementation. Paths and
 commit IDs in the dated entries below belong to that historical repository.
 The source snapshot was taken from its merged main `4efdd3f`. No old `.git`
 directory or reference repository is part of the official upload. The D4 build
 still needs Rig checkpoint commit `810d7dfd`; publication of that separate fork
 is not included in this repository migration. Its local path remains
-`C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable` for verification.
+`<repo>/.workspace/rig-durable` for verification.
 
 Promotion verification passed 34 root tests and 85 basics tests with terminal
 support. Both recipes built from this new checkout using the unchanged local
@@ -240,7 +240,7 @@ Python workbench and initialization were already integrated; D0-D4, setup repair
 and editable prompts are now included. All seven registered worktrees had clean
 tracked/untracked status at the audit. No remote push or history rewrite occurred.
 
-Continue product work in `C:/Users/Administrator/Desktop/vivy-test` on `main`.
+Continue product work in `<repo>` on `main`.
 Earlier worktree paths below describe historical execution/evidence locations.
 Worktree directories, branch references and ignored data were retained: the
 interactive trial still uses the `aedb` worktree's executable and session data.
@@ -293,7 +293,7 @@ edits to these new prompt files require no restart.
 ## D4 AutoDream AD-2 (2026-11-01)
 
 Branch `feat/d4-autodream`, based on `334ed9e`, in
-`C:/Users/Administrator/.codex/worktrees/aedb/vivy-test`. Use **new D4 sessions**:
+`<worktree>`. Use **new D4 sessions**:
 the durable state is now `vivy.durable.v3`. Main, production Rig pins and the
 local checkpoint fork (`810d7dfd`) remain unchanged. No merge/push is included.
 
@@ -424,7 +424,7 @@ interactive trial was reopened with the repaired binary and original session.
 ## D3 persistent waits and wakes (2026-11-01)
 
 Branch `feat/d3-durable-wake`, based on D2 `c0bad0d`, in
-`C:/Users/Administrator/.codex/worktrees/aedb/vivy-test`. Use **new D3 sessions**.
+`<worktree>`. Use **new D3 sessions**.
 The D2 executable is preserved at `.workspace/d3/baseline/persistent-agent.exe`;
 keep its sessions with that binary. Main and the local Rig checkpoint fork
 (`810d7dfd`) are unchanged. No merge or push is included.
@@ -433,8 +433,8 @@ keep its sessions with that binary. Main and the local Rig checkpoint fork
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 $env:PYTHONUTF8 = '1'
-cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
+C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
 ```
 
 The regular coding `start.cmd` remains unchanged. Use the existing gateway
@@ -505,8 +505,8 @@ historical. A D1 executable is preserved in `.workspace/d2/baseline/`.
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 $env:PYTHONUTF8 = '1'
-cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+cargo run -p vivy -- build recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
+C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
 ```
 
 Configure a real gateway through the existing settings/provider flow, including
@@ -575,9 +575,9 @@ historical for the pinned upstream. The new path explicitly requires the editabl
 Rig fork; no production pins or checked-in recipe locks were replaced.
 
 Implementation is in the existing Vivy feature worktree
-`C:/Users/Administrator/.codex/worktrees/aedb/vivy-test`, branch
+`<worktree>`, branch
 `feat/d0-rig-probes`; Rig is
-`C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable`, branch
+`<repo>/.workspace/rig-durable`, branch
 `feat/durable-checkpoints`, checkpoint implementation commit `810d7dfd`.
 The original Vivy main checkout is unchanged. No push
 or PR is part of this delivery. Run from the feature worktree:
@@ -586,8 +586,8 @@ or PR is part of this delivery. Run from the feature worktree:
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 cargo build --offline -p vivy
-C:/vtd0/debug/vivy.exe build recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable -- -p "hello"
+C:/vtd0/debug/vivy.exe build recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable
+C:/vtd0/debug/vivy.exe run recipes/persistent-agent.yaml --rig-path <repo>/.workspace/rig-durable -- -p "hello"
 ```
 
 The last command uses the normal gateway settings and environment-variable
@@ -603,9 +603,9 @@ Reproduce offline Rust and synthetic loopback acceptance:
 
 ```powershell
 $env:PYTHONUTF8 = '1'
-python scripts/rig_fork_probe.py --runtime --rig C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-python scripts/checkpoint_smoke.py C:/vtd0/debug/vivy.exe C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
-python scripts/durable_runtime_smoke.py C:/vtd0/debug/vivy.exe C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+python scripts/rig_fork_probe.py --runtime --rig <repo>/.workspace/rig-durable
+python scripts/checkpoint_smoke.py C:/vtd0/debug/vivy.exe <repo>/.workspace/rig-durable
+python scripts/durable_runtime_smoke.py C:/vtd0/debug/vivy.exe <repo>/.workspace/rig-durable
 ```
 
 Executed evidence is summarized in the [plan](plans/2026-10-31-d0-rig-probes.md)
@@ -669,7 +669,7 @@ storage work, then implement and inspect the assistant's actual model inputs in 
 ## Rig fork: saved serialization failure (2026-10-31)
 
 The owner authorizes modifying `mastwet/rig` for the missing D0 seams. The editable
-checkout is `C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable`, branch
+checkout is `<repo>/.workspace/rig-durable`, branch
 `feat/durable-checkpoints`, based on audited Rig `fc556f982d501eea9d7167398a19386e4884e776`.
 This permission supersedes earlier no-upstream-patch instructions for these fixes;
 the existing reference checkout remains unchanged. Nothing has been pushed.
@@ -688,7 +688,7 @@ Vivy validates this with an isolated manifest, without changing its production p
 ```powershell
 $env:CARGO_TARGET_DIR = 'C:/vtd0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
-python scripts/rig_fork_probe.py --rig C:/Users/Administrator/Desktop/vivy-test/.workspace/rig-durable
+python scripts/rig_fork_probe.py --rig <repo>/.workspace/rig-durable
 ```
 
 Omitting `--rig` runs the same acceptance tests on pinned upstream and reproduces
@@ -1345,7 +1345,7 @@ mysoul remains read-only reference material; no sessions or memory data are
 copied. Next work requires a bounded implementation scope, not another broad
 capability inventory. Today's save contains documentation only.
 
-Repository: `https://github.com/mastwet/vivy-test`.
+Repository: `https://github.com/ProjectViVy/agent-vivy`.
 The owner's subsequent Go/remake migration assessment is recorded in
 [research section 18](research/2026-10-25-hybrid-agent-workbench-decisions.md#18-go-vivy-migration-assessment).
 It checks pinned source sizes and donor overlap, proposes a minimum behavior
@@ -1366,7 +1366,7 @@ The owner requested a broad feature-by-feature reconciliation, including A2A.
 separates owner scope decisions from actual target implementation, covers all
 16 remake lanes plus A2A/ACP/SSH and lists unresolved product choices. A2A has
 accepted server source/evidence on its Go feature branch but is not selected in
-vivy-test; its server and an outbound A2A client are separate capabilities.
+agent-vivy; its server and an outbound A2A client are separate capabilities.
 Use that inventory rather than treating older suggestions to defer as decisions.
 
 Latest owner decisions narrow the inventory: no legacy data or deployment
@@ -1406,9 +1406,9 @@ The later owner-approved collaborative Plan addition is implemented in
 terminal mode markers, explicit plan submission and user review/feedback;
 see DESIGN's "Collaborative Plan mode" and README usage. Goal and automatic
 evolution remain separate work.
-The owner-approved 2026-10-26 terminal refresh selects a compact vivy-test screen
+The owner-approved 2026-10-26 terminal refresh selects a compact agent-vivy screen
 on Rig's public widgets, a persistent footer and a branded default identity.
-See DESIGN's "Compact vivy-test terminal" and the verification appendix below.
+See DESIGN's "Compact agent-vivy terminal" and the verification appendix below.
 Read [DESIGN.md](DESIGN.md) for decisions and [PI-BASELINE.md](PI-BASELINE.md) for
 coverage. Those documents replace the need to reconstruct the chat history.
 
@@ -1431,7 +1431,7 @@ Do not copy old reference folders from the original Vivy checkout. Do not clone
 Vivy: it is undergoing separate repair, and this repository must not inherit its
 build, runtime, SDK or working-process dependencies.
 
-Run from the `vivy-test` root, only for reference directories that do not already
+Run from the `agent-vivy` root, only for reference directories that do not already
 exist. If a checkout already exists, inspect its status and remote before making
 changes; do not overwrite somebody's work.
 
@@ -1452,7 +1452,7 @@ normal dependency decision after reviewing the relevant changes.
 
 The commands above are setup instructions when references are missing. No upstream dependencies need
 installation just to read source. Read each reference repository's own
-instructions before running its tooling. Keep product changes in `vivy-test`.
+instructions before running its tooling. Keep product changes in `agent-vivy`.
 
 ## Where to look first
 
@@ -1542,7 +1542,7 @@ them. Subscription login/OAuth/token refresh and other native protocols are
 excluded. DESIGN records this scope; the research records Rig's registration
 boundary and an offline API-construction probe, with no live-provider claim.
 Provider management commit `de10ee3` was fast-forward merged into local `main`
-in `vivy-test` on 2026-10-26. The baseline selects ProvidersPlugin, two protocol
+in `agent-vivy` on 2026-10-26. The baseline selects ProvidersPlugin, two protocol
 features and the full TUI editor. README documents commands and configuration;
 the existing research document records verification and review corrections.
 The native launcher and baseline agent were rebuilt from this main checkout.
@@ -1719,7 +1719,7 @@ branded startup/title, Plan-visible drafts, Unicode multiline continuation,
 actual shell output, exit-7 failure cause, running output and Esc cancellation.
 Synthetic terminal streams were rasterized and visually inspected at both sizes;
 the images are ignored test artifacts, not screenshots of a real-provider task.
-The scripted gateway checked that requests use the vivy-test default identity.
+The scripted gateway checked that requests use the agent-vivy default identity.
 The existing Plan terminal script passed approval/write, feedback, scrolling,
 modal exit and restart/resume. Subagent acceptance passed child views, usage,
 parallel/chain workflows and cancellation of four shell descendants. The

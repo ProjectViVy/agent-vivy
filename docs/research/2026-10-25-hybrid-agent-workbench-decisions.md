@@ -2,11 +2,11 @@
 
 Date: 2026-10-25
 
-Status: Research checkpoint with an accepted hybrid architecture, Prime-anchored automatic evolution and Vivy persona extension. Section 17.7 records the separately authorized native Rig subagent implementation in vivy-test; Python/apixis remains future work. This mirror does not authorize original Vivy runtime changes.
+Status: Research checkpoint with an accepted hybrid architecture, Prime-anchored automatic evolution and Vivy persona extension. Section 17.7 records the separately authorized native Rig subagent implementation in agent-vivy; Python/apixis remains future work. This mirror does not authorize original Vivy runtime changes.
 
 Update, 2026-10-27: DESIGN's two-harness and trimmed-workbench decisions supersede
 the older evolution/orchestration scope below. Section 18 adds a read-only Go
-Vivy migration assessment in vivy-test only; it is not mirrored to the original
+Vivy migration assessment in agent-vivy only; it is not mirrored to the original
 checkout and does not authorize implementation or change the accepted scope.
 
 Latest workbench investigation, 2026-10-27: section 19 traces the pinned Prime
@@ -24,9 +24,9 @@ Section 19.8 adds Python-side tool loading, explicitly requested by the owner.
 Scope: Preserve this conversation's findings and latest direction in both repositories.
 
 This report is intentionally saved identically under `docs/research/` in
-`vivy-test` and `agent-vivy` at the owner's explicit request. It is a dated
+`agent-vivy` and `agent-vivy` at the owner's explicit request. It is a dated
 handoff snapshot, not a second runtime configuration or a new architecture
-contract. Subsequent experiment implementation belongs in `vivy-test`.
+contract. Subsequent experiment implementation belongs in `agent-vivy`.
 Nothing here authorizes changing the original Vivy repair work or its contracts.
 
 ## 1. Latest owner direction
@@ -70,9 +70,9 @@ Earlier accepted experiment constraints remain:
 
 | Project | Inspected revision or source | Interpretation |
 | --- | --- | --- |
-| vivy-test | Local main `2b03b44`, 2026-10-25 | Existing experiment; latest commit fixes UTF-8 terminal startup. |
+| agent-vivy | Local main `2b03b44`, 2026-10-25 | Existing experiment; latest commit fixes UTF-8 terminal startup. |
 | Rig | `55cd481a2421fd5da468b5bd6afc6ac876883599` | Pin used by the experiment; do not substitute historical Rig API assumptions. |
-| Pi | `f321e5bdd26b3624bfb2ab182a334d0a5edb698a`, coding-agent 1.4.0 | Prior source inventory; see vivy-test's existing PI-BASELINE.md. |
+| Pi | `f321e5bdd26b3624bfb2ab182a334d0a5edb698a`, coding-agent 1.4.0 | Prior source inventory; see agent-vivy's existing PI-BASELINE.md. |
 | Original Vivy local main | `525d50a67152d6e9f5cc2eb469c889c6f26c21ab` | Older local checkout, not the current remote product baseline. |
 | Original Vivy remote main | `9cd2801f8090723a652d3e835f72d83715b82121`, 2026-10-20 | Inspected separately through Git objects and official sources; root was not updated. |
 | Prime Agent | `5c898d1b27b109bd2d383c68d60a30536e39cc22`, 2026-10-24 | Source, runtime protocol, prompts, and historical changes inspected. |
@@ -83,7 +83,7 @@ to its earlier implementation records. The owner reported that the project
 passed their test; this report does not infer details of that test.
 
 Source inspection used reference material already available in agent-vivy's
-ignored workspace. Successors working on vivy-test should follow its own
+ignored workspace. Successors working on agent-vivy should follow its own
 reference-setup instructions, not clone or vendor the original Vivy project.
 
 ## 3. What Rig supplies, and what belongs to Vivy
@@ -95,7 +95,7 @@ At the inspected revision, distinguish the crates:
 - `rig-agent` and `rig-memory`: agent execution, hooks, tool dispatch,
   conversation/state handling, compaction and related primitives.
 - `rig-harness`, `rig-ecs`, `rig-basics`, `rig-tui`: the broader coding-agent
-  and plugin environment already reused by vivy-test.
+  and plugin environment already reused by agent-vivy.
 - `rig-rmcp`: an available MCP integration option. The owner's latest choice
   favors the advanced Python surface; do not add both MCP stacks by default.
 
@@ -507,7 +507,7 @@ at collection boundaries and keep collected data local by default.
 
 ### 13.4 Current implementation and next evidence
 
-In vivy-test, `plugins/vivy-python/src/worker.py` already emits separate stdout,
+In agent-vivy, `plugins/vivy-python/src/worker.py` already emits separate stdout,
 stderr, result, error and done frames. The Rust receiver in
 `plugins/vivy-python/src/lib.rs` largely combines text into tool output. The
 existing `/export` JSONL in `plugins/vivy-basics/src/session.rs` exports conversation
@@ -653,7 +653,7 @@ species composition. Model-weight training remains outside the initial scope.
 
 ### 15.4 Delivery boundary and references
 
-Implement later in vivy-test, preserving the working coding core and Python
+Implement later in agent-vivy, preserving the working coding core and Python
 workbench. Do not alter original Vivy's repair lane, introduce a standalone SDK,
 general evolution platform, new approval center, or species hash enforcement.
 The owner requested a durable decision record, not implementation in this turn.
@@ -671,8 +671,8 @@ runtime behavior or new automatic-evolution capability is delivered here.
 
 The owner approved documenting the miniature architecture and requested a final
 review focused on hidden architectural risk and low-value code growth. The
-implementation authority is `vivy-test/docs/DESIGN.md`, section "Hybrid architecture
-and first-stage boundary". The original sketch is preserved in vivy-test at
+implementation authority is `agent-vivy/docs/DESIGN.md`, section "Hybrid architecture
+and first-stage boundary". The original sketch is preserved in agent-vivy at
 `docs/research/assets/2026-10-25-owner-architecture.png`. This mirrored research
 report records the decision; it is not a second specification to keep synchronized.
 
@@ -687,7 +687,7 @@ remain unspecified and are not prerequisites for this experiment.
 Three useful slices set the boundary: preserve/verify the Pi-style coding core;
 deliver one deferred MCP task with lifecycle and correlated evidence; then add
 bounded automatic Prime-shaped refinement and persona growth. The full Pi inventory
-remains in `vivy-test/docs/PI-BASELINE.md`. A postponed capability is a gap, not
+remains in `agent-vivy/docs/PI-BASELINE.md`. A postponed capability is a gap, not
 parity. There is no new SDK, Port catalog, custom TUI, daemon, generic RPC platform,
 automatic package installer, model training or complete Prime port in these slices.
 
@@ -813,7 +813,7 @@ Python composes work while the host executes agents.
 Prime's factory is its own state-machine/DAG implementation, not apixis. Its
 executor registry lives in kernel memory and does not survive kernel restart;
 supervisor-owned children can survive that kernel restart. Do not copy those
-continuity promises into the first vivy-test experiment. Prime also implements
+continuity promises into the first agent-vivy experiment. Prime also implements
 daemon continuity, worker supervision, scheduling, messaging, model adapters and
 an extensive terminal product. A small model-visible Python tool surface does
 not remove those product costs.
@@ -860,15 +860,15 @@ is not a quota, schedule or estimate for complete Pi parity. The bridge, lifecyc
 and acknowledged recording seam need a focused feasibility check before a firm
 implementation estimate.
 
-Pi coverage remains in `vivy-test/docs/PI-BASELINE.md`. Recursive subagents and
+Pi coverage remains in `agent-vivy/docs/PI-BASELINE.md`. Recursive subagents and
 graph orchestration are additions beyond Pi's default coding core at the inspected
 revision; they do not complete its MCP, Code Mode, RPC, terminal-extension or
 session semantics. Gateway-first and Rust functional-equivalence decisions remain.
 
-At recording time, vivy-test main `c7ca8c9` and the separate Plan worktree commit
+At recording time, agent-vivy main `c7ca8c9` and the separate Plan worktree commit
 `b43d448` did not select `SubagentsPlugin` and had no Python subagent bridge or
 apixis integration. No runtime capability is added by this documentation update.
-The implementation authority stays in vivy-test's DESIGN; this identical research
+The implementation authority stays in agent-vivy's DESIGN; this identical research
 snapshot in agent-vivy is for handoff only. Validation for this record consists
 of source/diff review, matching mirror bytes and Git whitespace checks, not
 runtime or product CI.
@@ -926,7 +926,7 @@ Pinned source references:
 
 The owner expanded the initial slice to Pi-example-level delegation, approved a
 Rig-native Vivy plugin, and explicitly requested implementation. Independent
-`vivy-test` branch `feat/subagents`, based on `5477eee`, owns this runtime change;
+`agent-vivy` branch `feat/subagents`, based on `5477eee`, owns this runtime change;
 `agent-vivy` receives only this matching archive. No merge or push is part of this
 delivery, and the separate Plan branch remains untouched.
 
@@ -987,7 +987,7 @@ injection. Headless question/admission ordering uses native PrintSystems.
 
 Real gateway attempts failed at the initial HTTP request with zero model calls;
 there is no verified real-provider delegation. Details and final review outcomes
-belong in vivy-test's dated delivery record. Scripted tests are not real-provider evidence. No Pi TypeScript
+belong in agent-vivy's dated delivery record. Scripted tests are not real-provider evidence. No Pi TypeScript
 extension compatibility, complete Pi parity, Python bridge, apixis integration,
 new permission platform or original Vivy runtime modification is claimed.
 
@@ -1133,7 +1133,7 @@ requirements the owner has agreed to discard permanently.
 
 ### 18.5 Reuse and the remaining hard boundaries
 
-Current vivy-test already supplies assembly, launcher, gateway, classic coding
+Current agent-vivy already supplies assembly, launcher, gateway, classic coding
 tools, context-file loading, session/branch support, skills/trust, Plan and
 bounded Rig-native delegation. Its tracked Rust/Python source files total
 11,733 physical lines: 9,249 in implementation files and 2,484 in separate test
@@ -1493,7 +1493,7 @@ These are candidates and recommendations; no source was copied or integrated.
 
 #### Workbench infrastructure
 
-Paths are relative to `.workspace/prime-agent` unless prefixed with `vivy-test:`.
+Paths are relative to `.workspace/prime-agent` unless prefixed with `agent-vivy:`.
 
 | Component / donor | Reuse assessment | Required seam and destination | First evidence needed after adaptation |
 | --- | --- | --- | --- |
@@ -1526,7 +1526,7 @@ Paths are relative to `.workspace/prime-agent` unless prefixed with `vivy-test:`
   persistent bash and catalog APIs. A reduced workbench cannot reuse that probe
   unchanged. This is a dependency-selection issue; no install-size or startup
   savings have been measured.
-- Current `vivy-test:plugins/vivy-python/src/lib.rs` sends numeric IDs with
+- Current `agent-vivy:plugins/vivy-python/src/lib.rs` sends numeric IDs with
   `{id, code}`, expects `done.ok` and a Python-version array, accepts only the
   current call's events, and caps a frame at 2 MiB. Prime uses string IDs,
   `{type: execute, id, code}`, `done.status`, a protocol-version handshake and
@@ -1664,7 +1664,7 @@ for this scope; do not port both or generate a package for every MCP server.
   Bootstrap then deduplicates import names. This does not prove that the
   resulting imported package is the intended one in every conflicting setup.
 
-#### Recommended first loading contract for vivy-test
+#### Recommended first loading contract for agent-vivy
 
 Keep the existing trusted Skill discovery path and derive executable metadata
 from its selected results. Add only the loading behavior needed by the selected
@@ -1776,7 +1776,7 @@ missed requirements and component ownership. This section supplements the
 accepted 19.9 scope; recommendations and open choices below do not amend it.
 Prime source is `.workspace/prime-agent` at
 `c4c238ca025e382d96fb5f37e6328ca77fb82ef3`. Paths below are relative to that
-checkout unless prefixed `vivy-test/`. This is source analysis, not a test of an
+checkout unless prefixed `agent-vivy/`. This is source analysis, not a test of an
 extracted runtime or of a delivered workbench.
 
 #### Details that change the integration design
@@ -1785,7 +1785,7 @@ extracted runtime or of a delivered workbench.
 | --- | --- |
 | Protocol and deadlock | `prime-agent-runtime/src/rlm/repl.md`, `repl.py` and `crates/pa-core/src/kernel/protocol.rs` specify version 3, string request IDs, a ready handshake and typed events. Execute requests are serialized; `host_reply` and interrupt bypass that queue. A host that waits for `done` without concurrently answering a host request deadlocks. Negotiate or reject a version mismatch before executing, and settle all pending calls on EOF, crash or malformed frames. |
 | Output attribution | `repl.py` duplicates the original stdout for protocol frames, redirects native stdout/stderr to pipes and fences them before `done`. Python writes carry a context ID; background asyncio tasks retain their originating cell ID; raw fd, C-extension, subprocess and ordinary thread output have no provable cell ID. Ordering is per stream, not global. `manager/events.rs` routes unmatched output to a bounded background buffer. A dispatcher must keep reading while idle and avoid attributing unknown or late output to the current cell. |
-| Bounded frames and complete results | `repl.py` chunks Python stream writes, caps expression `repr` at 1,048,576 characters and refuses display/host payloads above its encoded cap. `manager/execution.rs` also clips outputs; `manager/events.rs` can drop oversized attachments. `vivy-test/plugins/vivy-python/src/lib.rs` currently limits collected text to 10 MiB before spilling it. Consequently neither upstream truncation nor the current spill establishes the accepted complete-artifact guarantee: data lost before spill cannot be recovered. Define bounded transport, disk-backed streaming or explicit file artifacts at the producer, report size/write failures and state precisely which outputs are complete. Arbitrary Python object `repr` need not become a lossless serialization. |
+| Bounded frames and complete results | `repl.py` chunks Python stream writes, caps expression `repr` at 1,048,576 characters and refuses display/host payloads above its encoded cap. `manager/execution.rs` also clips outputs; `manager/events.rs` can drop oversized attachments. `agent-vivy/plugins/vivy-python/src/lib.rs` currently limits collected text to 10 MiB before spilling it. Consequently neither upstream truncation nor the current spill establishes the accepted complete-artifact guarantee: data lost before spill cannot be recovered. Define bounded transport, disk-backed streaming or explicit file artifacts at the producer, report size/write failures and state precisely which outputs are complete. Arbitrary Python object `repr` need not become a lossless serialization. |
 | Concurrent requests and cancellation | `repl.py` tracks in-flight IDs and parks an early targeted interrupt. It handles interrupts through the handoff to `done`; an untargeted interrupt can affect a queued request. The existing Vivy mutex serializes calls and its future-drop cancellation kills the process. Define separately cancellation while queued, during startup, during execution, and after completion; never let a dropped queued waiter kill another call. Preserve the real completed result when cancellation races completion. |
 | Idle and child cleanup | Prime has an owner watchdog and process teardown tests; EOF alone cannot unblock a synchronous Python hang. Vivy's `OwnedChild` and credential-policy-triggered worker reset are existing responsibilities to preserve. Validate abrupt host exit and descendant cleanup on the actual Windows path; do not assume graceful async cleanup runs after forced termination or that killing a local process rolls back a remote request. |
 | Initialization | `kernel/bootstrap/venv.rs`, `venv/runtime_source.rs`, `dir_lock.rs` and `venv/skills.rs` show a local packaged sidecar, `uv`-managed Python/venv, runtime identity, a shared version cache, editable Skills and a cross-process lock. Prime also installs snapshot-related and default packages outside our accepted minimum. Keep a separate explicit prepare step, select only needed dependencies, and validate interrupted preparation, competing processes, stale locks, missing package payload, offline failure and warm reuse. Source identity for cache invalidation is not species-hash enforcement. |
@@ -1793,7 +1793,7 @@ extracted runtime or of a delivered workbench.
 | MCP lifecycle | `prime-agent-runtime/src/rlm/mcp.py` uses an owning event loop, per-server generation, lifecycle task/`AsyncExitStack`, serialized calls, startup/call/shutdown deadlines, config comparison and close-before-replace. Discovery follows pages and rejects repeated or malformed cursors rather than advertising a partial inventory. A cancelled first open must close what it acquired. Reuse this lifecycle selectively, including failure isolation; replacing it with a per-call context would lose connection and cross-cell behavior. |
 | MCP configuration and secrets | The same module requests config through the host bridge, resolves stdio environment and HTTP headers, handles diagnostic redaction and has SDK-signature-dependent HTTP paths. The inspected `httpx2` branch explicitly disables redirects; verify any selected SDK branch rather than generalizing that guarantee. A thin local host adapter must define allowed connection configuration and credential references, scrub subprocess environment, prevent credential disclosure in inventory/errors, and test redirect/endpoint behavior. No OAuth service is needed for the accepted scope. |
 | Packaging and version risk | `prime-agent-runtime/pyproject.toml` declares Python >=3.11 and `mcp>=2,<3`; its package initializer imports factory, bash and harness, while `repl.py` contains snapshot and bash branches. `mcp.py` also depends on host request helpers and handles SDK variants. Extract a coherent reduced package with an explicit dependency manifest, not individual loose functions. The previously observed local MCP 1.27.0 does not establish compatibility with Prime's declared range; select and lock an available SDK only after testing both transports. Keep the upstream MIT notice for copied code. |
-| Live workers and session boundaries | `vivy-test/plugins/vivy-python/src/lib.rs` binds a worker by Rig `Entity`, prunes removed agents, and stops on app exit or credential-policy generation change. Entity identity alone does not prove behavior across compaction, session switch, fork or resume. Inspect and test those actual Rig transitions before choosing ownership hooks; a process restart begins fresh state under the accepted decision. |
+| Live workers and session boundaries | `agent-vivy/plugins/vivy-python/src/lib.rs` binds a worker by Rig `Entity`, prunes removed agents, and stops on app exit or credential-policy generation change. Entity identity alone does not prove behavior across compaction, session switch, fork or resume. Inspect and test those actual Rig transitions before choosing ownership hooks; a process restart begins fresh state under the accepted decision. |
 
 #### Concrete donor boundaries and local ownership
 
@@ -2068,7 +2068,7 @@ Source: [host trigger and durable watermark](https://github.com/ProjectViVy/agen
 [candidate and Skill-selection prompts](https://github.com/ProjectViVy/laputa/blob/0e0027c5f60ad67614d3613c2d5e21d567c4b412/laputa/evolution/diva/prompts.go),
 and [host Skill revision bridge](https://github.com/ProjectViVy/agent-vivy/blob/9cd2801f8090723a652d3e835f72d83715b82121/internal/runtime/cognitive_skill_proposal.go).
 
-### Comparison and implications for vivy-test
+### Comparison and implications for agent-vivy
 
 | Question | Prime snapshot | DIVA plus historical Vivy host |
 | --- | --- | --- |
@@ -2144,7 +2144,7 @@ by itself trigger refinement, evaluate improvements, or write a lesson.
 | Executable Skill creation | The bundled skill-creator describes Markdown and Python-backed packages, verification and discovery; Python Skills have a package contract. | An agent can create real reusable code separately from a harness Skill reference. This establishes an authoring route, not an automatic test-and-promote guarantee. |
 | Factory and subagents | Opt-in Factory stores validated machine/DAG specifications and runs child agents with transitions, bounded loops, joins, run/stop/resume. Defaults disabled. | Prime can itself run structured workflows, including reviewer/fixer patterns. A workflow specification is not necessarily an evolution workflow. |
 | Goal, heartbeat and daemon | Goal continuations, recurring heartbeat and daemon-backed sessions support ongoing work. | These provide time and opportunities to observe and act; they do not alone guarantee learning, periodic dreaming, or success. |
-| Research model-harness co-learning | A separate paper describes process-reward scoring, teacher relabeling and model fine-tuning alongside in-run harness refinement. | This is weight training plus harness adaptation, distinct from runtime state updates. It is not selected or implemented in vivy-test. |
+| Research model-harness co-learning | A separate paper describes process-reward scoring, teacher relabeling and model fine-tuning alongside in-run harness refinement. | This is weight training plus harness adaptation, distinct from runtime state updates. It is not selected or implemented in agent-vivy. |
 
 In the [Continual Harness paper](https://arxiv.org/html/2605.09998v1), the
 acting agent and Refiner share meta-tools; the Refiner runs periodically on a
@@ -2169,7 +2169,7 @@ Source cross-checks: [harness CRUD](https://github.com/PrimeIntellect-ai/prime-a
 [goal](https://github.com/PrimeIntellect-ai/prime-agent/blob/c4c238ca025e382d96fb5f37e6328ca77fb82ef3/skills/goal/SKILL.md),
 and [internal heartbeat](https://github.com/PrimeIntellect-ai/prime-agent/blob/c4c238ca025e382d96fb5f37e6328ca77fb82ef3/skills/rlm-heartbeat/SKILL.md).
 
-For vivy-test, retain the previously chosen Prime-format-first direction as a
+For agent-vivy, retain the previously chosen Prime-format-first direction as a
 research baseline, not a finalized implementation decision. The newly identified
 alternatives need comparison: direct versus deferred writes; short-lived versus
 global entries; actual executable Skill changes versus references; context
@@ -2227,7 +2227,7 @@ safe. Objective candidate success is required, but the activation code does not
 require candidate performance to exceed the recorded baseline. Running tasks pin
 their earlier Skill version; activation/rollback affects future tasks. The source
 uses content hashes for its own revision/approval binding; this is an observation,
-not a proposal to adopt species hash enforcement in vivy-test.
+not a proposal to adopt species hash enforcement in agent-vivy.
 
 Useful ideas for a new Prime-style loop, as proposals rather than decisions:
 

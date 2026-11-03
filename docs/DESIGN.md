@@ -3292,10 +3292,10 @@ Rig supplies the loop, effects, saved state, commands, Ask and TUI. DSH is seman
 reference material only. Verification commands and real terminal results for this
 delivery are recorded in [HANDOFF.md](HANDOFF.md); earlier dated results remain historical.
 
-## Compact vivy-test terminal (2026-10-26)
+## Compact agent-vivy terminal (2026-10-26)
 
 The owner approved a Codex-inspired visual refresh, English UI, consistent
-vivy-test branding and complete tool output with existing primary keybindings.
+agent-vivy branding and complete tool output with existing primary keybindings.
 The local Codex checkout at `970111f6cb` is presentation reference material only;
 no Codex code or runtime dependency is added. Rig remains pinned at `e1cd47d5`.
 
@@ -3306,7 +3306,7 @@ keep activity and Plan ahead of model and usage details. Public canvas hooks
 replace ordinary input hints and supply an empty-input placeholder, leaving
 question titles, focus, caret and completion overlays to Rig.
 
-The welcome reuses Rig's unsaved metadata aside and renders a small vivy-test
+The welcome reuses Rig's unsaved metadata aside and renders a small agent-vivy
 title with this plugin's version, current model/reasoning and directory.
 Display-width truncation follows terminal resizes and keeps the directory's
 project-name suffix. Shortcut hints fit as complete items. A terminal-write adapter
@@ -3323,7 +3323,7 @@ full results and failure status rather than displaying raw argument JSON.
 
 The recipe selects `VivyPromptPlugin` for the default identity in all fronts.
 It reuses Rig's default coding guidance with only `You are rig` changed to
-`You are vivy-test`, and preserves the empty-role condition so explicit prompts
+`You are agent-vivy`, and preserves the empty-role condition so explicit prompts
 remain authoritative. The terminal component selects the presentation plugin
 and its Cargo feature; omitting it excludes rig-tui without a runtime enable
 flag. The underlying .rig paths, protocol names and environment variables stay

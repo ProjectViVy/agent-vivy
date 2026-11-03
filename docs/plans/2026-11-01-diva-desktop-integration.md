@@ -9,7 +9,7 @@ the remaining plan. No complete desktop integration or installer is claimed.
 ## 1. Goal and selected scope
 
 Deliver an installable Windows desktop assistant using the existing Agent Diva
-Tauri/Vue interface and the independent vivy-test Rust persistent-agent core.
+Tauri/Vue interface and the independent agent-vivy Rust persistent-agent core.
 Preserve YAML-selected compilation, one Rig execution path and existing durable
 state ownership. The original Vivy checkout and its data remain out of scope.
 
@@ -75,7 +75,7 @@ Diva Front
 Vivy persistent assistant / Rig execution and storage
 ```
 
-Backend changes belong to vivy-test; UI and desktop hosting belong to the separate
+Backend changes belong to agent-vivy; UI and desktop hosting belong to the separate
 Agent Diva repository. Add `plugins/vivy-diva-front` and
 `recipes/diva-agent.yaml`. The recipe selects persistent-assistant components and
 the desktop front, omitting terminal-view components. Select the front using

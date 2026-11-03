@@ -6,7 +6,7 @@ It uses Rig's execution path, a native terminal interface, configurable
 OpenAI-compatible and Anthropic-compatible endpoints, and an optional Python
 workbench for tools, memory and executable Skills.
 
-This is the official Rust continuation of the `vivy-test` project at
+This is the official Rust Vivy project at
 [ProjectViVy/agent-vivy](https://github.com/ProjectViVy/agent-vivy). The previous
 Go implementation is archived and is not a build or runtime dependency.
 Pi's coding workflow remains a reference, not a second runtime.
