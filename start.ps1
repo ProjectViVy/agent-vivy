@@ -79,6 +79,11 @@ try {
         # An empty home is usable: /provider adds the first provider and key.
     }
 
+    # Native memory preparation downloads pinned Hugging Face assets. The default
+    # host is unreachable from some networks, so fall back to the mirror unless
+    # the caller already chose an endpoint.
+    if (-not $env:HF_ENDPOINT) { $env:HF_ENDPOINT = 'https://hf-mirror.com' }
+
     Write-Host "Starting the coding terminal in $repoRoot"
     & $agent
     $exitCode = $LASTEXITCODE
