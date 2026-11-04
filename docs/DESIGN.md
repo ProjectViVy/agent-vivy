@@ -1,5 +1,11 @@
 # Decisions and assembly direction
 
+> **Dated decision and verification record, not the current description of the
+> architecture.** It records what was decided and measured at each date, and some
+> of it is superseded. The current statement is the spec graph:
+> [`goal-and-requirements.md`](../goal-and-requirements.md),
+> [`architecture.md`](architecture.md) and each module's `SPEC.md`.
+
 ## Official Rust project promotion (2026-11-01)
 
 The owner promotes the integrated Rust project to the official Vivy codebase at
